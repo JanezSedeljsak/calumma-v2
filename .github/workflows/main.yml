@@ -42,7 +42,7 @@ jobs:
 
   macos:
     name: macos workspace
-    runs-on: macos-14
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -69,7 +69,7 @@ jobs:
     name: macos release (.dmg)
     if: github.event_name == 'workflow_dispatch' && success()
     needs: macos
-    runs-on: macos-14
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
