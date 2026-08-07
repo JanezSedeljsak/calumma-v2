@@ -1,0 +1,32 @@
+[workspace]
+resolver = "2"
+members = ["core", "io", "ops", "render", "ffi"]
+default-members = ["core", "ffi"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[workspace.dependencies]
+wgpu = { version = "30.0", default-features = false }
+naga = { version = "30.0", default-features = false }
+image = { version = "0.25.10", default-features = false }
+bytemuck = { version = "1.25", default-features = false }
+thiserror = "2.0"
+pollster = "0.4.0"
+uuid = { version = "1.24.0", default-features = false }
+rusqlite = "0.32.1"
+proptest = "1.11"
+tempfile = "3.27.0"
+serde = { version = "1.0", default-features = false }
+rayon = "1.12"
+tiny-skia = "0.12"
+resvg = "0.48.1"
+usvg = "0.48.1"
+vtracer = "0.6.5"
+ravif = "0.13"
+cbindgen = "0.29"
+
+[profile.release]
+lto = true

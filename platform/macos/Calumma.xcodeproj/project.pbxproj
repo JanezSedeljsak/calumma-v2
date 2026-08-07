@@ -1,0 +1,587 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		06B0D98F6C7A372C4967A0B8 /* LandingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC5EC019B3F790DBB950082D /* LandingView.swift */; };
+		4BAE76E9B75FCA7CAB639C21 /* L10nCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5684C95544F7D3CCEAFB2DA7 /* L10nCatalog.swift */; };
+		5532C71BBF3A5EED57200013 /* BoardCanvas.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39E6D658C6F44E0516A14BB4 /* BoardCanvas.swift */; };
+		5A7B3293EAC1F7F674A6A491 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85740C4E5198AEEB3EA2C0CC /* Theme.swift */; };
+		6759E0A42C331AAF425F51ED /* L10nStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49ADDD086F4F4484B4F9E882 /* L10nStore.swift */; };
+		6FBFB2280DF99421D6C40CA1 /* Engine.swift in Sources */ = {isa = PBXBuildFile; fileRef = A259FF110DE306B5F4001C98 /* Engine.swift */; };
+		73A5E53754D26728ADB855A6 /* VisionPlatformOps.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEC7EF79AFCFCA58FBB65691 /* VisionPlatformOps.swift */; };
+		7AE274FD18EAA2171ABD2734 /* Icons.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5373C498C69FB0F7E4616689 /* Icons.swift */; };
+		87755761F779CE9B1C56775F /* EditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5253321F872EAF646F41752 /* EditorView.swift */; };
+		8EFC1F5633FB04D55BA323AB /* Tokens.generated.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACA3D649974787064B7F4E57 /* Tokens.generated.swift */; };
+		98D7BC93FC54FD64A9C6285E /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B5E7EEC191F5C7229542B29 /* SettingsView.swift */; };
+		9B5C47125EA5CBBD6F34AD08 /* Components.swift in Sources */ = {isa = PBXBuildFile; fileRef = 67686C7F92215B7F5788DDCA /* Components.swift */; };
+		A27A6A1DB5A2F40E81ACFB97 /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84F6D524731F2D8CD1FB6BBA /* AppModel.swift */; };
+		C565C035F7E02991B99F1697 /* EngineSmokeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7059AFA6095E58E7AB86069 /* EngineSmokeTests.swift */; };
+		D220BB681118C1CBBE954A5D /* translations in Resources */ = {isa = PBXBuildFile; fileRef = 80FFB98EB115FF0399DB79FF /* translations */; };
+		DDC892B0235664E0FC2816FC /* CalummaApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7DCA78B24B6AD85210634C47 /* CalummaApp.swift */; };
+		E1BA85C44692027425973C63 /* L10nEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = D488F0962728FB92355DF3E4 /* L10nEnvironment.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		B3D362551835324C3611983E /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 60A0621AB9A9FE98CA579A89 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = F01D7085E87C72AAEA96E166;
+			remoteInfo = Calumma;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		34AA2EDC7B1CF298E5BA7DA8 /* Calumma.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Calumma.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		39E6D658C6F44E0516A14BB4 /* BoardCanvas.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BoardCanvas.swift; sourceTree = "<group>"; };
+		49ADDD086F4F4484B4F9E882 /* L10nStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = L10nStore.swift; sourceTree = "<group>"; };
+		5373C498C69FB0F7E4616689 /* Icons.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Icons.swift; sourceTree = "<group>"; };
+		5684C95544F7D3CCEAFB2DA7 /* L10nCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = L10nCatalog.swift; sourceTree = "<group>"; };
+		67686C7F92215B7F5788DDCA /* Components.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Components.swift; sourceTree = "<group>"; };
+		6B5E7EEC191F5C7229542B29 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		7DCA78B24B6AD85210634C47 /* CalummaApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalummaApp.swift; sourceTree = "<group>"; };
+		80FFB98EB115FF0399DB79FF /* translations */ = {isa = PBXFileReference; lastKnownFileType = folder; name = translations; path = ../../translations; sourceTree = SOURCE_ROOT; };
+		84F6D524731F2D8CD1FB6BBA /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
+		85740C4E5198AEEB3EA2C0CC /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
+		A259FF110DE306B5F4001C98 /* Engine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Engine.swift; sourceTree = "<group>"; };
+		AAC1FBC27CAF75677BD5FA2A /* CalummaTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CalummaTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		ACA3D649974787064B7F4E57 /* Tokens.generated.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tokens.generated.swift; sourceTree = "<group>"; };
+		B5253321F872EAF646F41752 /* EditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorView.swift; sourceTree = "<group>"; };
+		CEC7EF79AFCFCA58FBB65691 /* VisionPlatformOps.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisionPlatformOps.swift; sourceTree = "<group>"; };
+		D488F0962728FB92355DF3E4 /* L10nEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = L10nEnvironment.swift; sourceTree = "<group>"; };
+		D7059AFA6095E58E7AB86069 /* EngineSmokeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EngineSmokeTests.swift; sourceTree = "<group>"; };
+		FC5EC019B3F790DBB950082D /* LandingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LandingView.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+		23A942F85B495164C52D4CA0 /* Bridge */ = {
+			isa = PBXGroup;
+			children = (
+				A259FF110DE306B5F4001C98 /* Engine.swift */,
+				CEC7EF79AFCFCA58FBB65691 /* VisionPlatformOps.swift */,
+			);
+			path = Bridge;
+			sourceTree = "<group>";
+		};
+		2DF25E85C7BCE0586E614E8B /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				34AA2EDC7B1CF298E5BA7DA8 /* Calumma.app */,
+				AAC1FBC27CAF75677BD5FA2A /* CalummaTests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		403017328E6B11F3BD7C2599 /* Canvas */ = {
+			isa = PBXGroup;
+			children = (
+				39E6D658C6F44E0516A14BB4 /* BoardCanvas.swift */,
+			);
+			path = Canvas;
+			sourceTree = "<group>";
+		};
+		4F06F7E2F5BFCB4D93B72646 = {
+			isa = PBXGroup;
+			children = (
+				FF66DBE8FC0531AC92F09843 /* Calumma */,
+				6EAB0F6F14EEFABCA55075F9 /* calumma-v2 */,
+				73C4FE4D8E94EBFF2E686926 /* CalummaTests */,
+				2DF25E85C7BCE0586E614E8B /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		6B79FEB7792F22AECCE42DAE /* Theme */ = {
+			isa = PBXGroup;
+			children = (
+				85740C4E5198AEEB3EA2C0CC /* Theme.swift */,
+				ACA3D649974787064B7F4E57 /* Tokens.generated.swift */,
+			);
+			path = Theme;
+			sourceTree = "<group>";
+		};
+		6EAB0F6F14EEFABCA55075F9 /* calumma-v2 */ = {
+			isa = PBXGroup;
+			children = (
+				80FFB98EB115FF0399DB79FF /* translations */,
+			);
+			name = "calumma-v2";
+			path = ../..;
+			sourceTree = "<group>";
+		};
+		73C4FE4D8E94EBFF2E686926 /* CalummaTests */ = {
+			isa = PBXGroup;
+			children = (
+				D7059AFA6095E58E7AB86069 /* EngineSmokeTests.swift */,
+			);
+			path = CalummaTests;
+			sourceTree = "<group>";
+		};
+		8285B9E7F19A010757F350E0 /* L10n */ = {
+			isa = PBXGroup;
+			children = (
+				5684C95544F7D3CCEAFB2DA7 /* L10nCatalog.swift */,
+				D488F0962728FB92355DF3E4 /* L10nEnvironment.swift */,
+				49ADDD086F4F4484B4F9E882 /* L10nStore.swift */,
+			);
+			path = L10n;
+			sourceTree = "<group>";
+		};
+		837F3AB015C500A6A03F0253 /* UI */ = {
+			isa = PBXGroup;
+			children = (
+				84F6D524731F2D8CD1FB6BBA /* AppModel.swift */,
+				67686C7F92215B7F5788DDCA /* Components.swift */,
+				B5253321F872EAF646F41752 /* EditorView.swift */,
+				5373C498C69FB0F7E4616689 /* Icons.swift */,
+				FC5EC019B3F790DBB950082D /* LandingView.swift */,
+				6B5E7EEC191F5C7229542B29 /* SettingsView.swift */,
+				8285B9E7F19A010757F350E0 /* L10n */,
+				6B79FEB7792F22AECCE42DAE /* Theme */,
+			);
+			path = UI;
+			sourceTree = "<group>";
+		};
+		FF66DBE8FC0531AC92F09843 /* Calumma */ = {
+			isa = PBXGroup;
+			children = (
+				7DCA78B24B6AD85210634C47 /* CalummaApp.swift */,
+				23A942F85B495164C52D4CA0 /* Bridge */,
+				403017328E6B11F3BD7C2599 /* Canvas */,
+				837F3AB015C500A6A03F0253 /* UI */,
+			);
+			path = Calumma;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		0B0981F883E9B0015E8B4D73 /* CalummaTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 85E3268636C4E659FE875B6C /* Build configuration list for PBXNativeTarget "CalummaTests" */;
+			buildPhases = (
+				C018A807E8E2412431C68018 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				23C45335DE382DDCB265D633 /* PBXTargetDependency */,
+			);
+			name = CalummaTests;
+			packageProductDependencies = (
+			);
+			productName = CalummaTests;
+			productReference = AAC1FBC27CAF75677BD5FA2A /* CalummaTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		F01D7085E87C72AAEA96E166 /* Calumma */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = AAB475BB884026142D8E9317 /* Build configuration list for PBXNativeTarget "Calumma" */;
+			buildPhases = (
+				054B622AEE1ACD5273AF16F0 /* Tokens and calumma-ffi */,
+				738AB5536B4B8B994333A16E /* Sources */,
+				12A8344B41527F0292AF5E9A /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = Calumma;
+			packageProductDependencies = (
+			);
+			productName = Calumma;
+			productReference = 34AA2EDC7B1CF298E5BA7DA8 /* Calumma.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		60A0621AB9A9FE98CA579A89 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 2620;
+				TargetAttributes = {
+					F01D7085E87C72AAEA96E166 = {
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = C8D4DCBB75867CD4A2336A98 /* Build configuration list for PBXProject "Calumma" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 4F06F7E2F5BFCB4D93B72646;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 2DF25E85C7BCE0586E614E8B /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				F01D7085E87C72AAEA96E166 /* Calumma */,
+				0B0981F883E9B0015E8B4D73 /* CalummaTests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		12A8344B41527F0292AF5E9A /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				D220BB681118C1CBBE954A5D /* translations in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		054B622AEE1ACD5273AF16F0 /* Tokens and calumma-ffi */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Tokens and calumma-ffi";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -euo pipefail\nexport PATH=\"$HOME/.cargo/bin:/opt/homebrew/bin:/usr/local/bin:$PATH\"\nROOT=\"${SRCROOT}/../..\"\npython3 \"${ROOT}/manage.py\" tokens\nexport CARGO_TARGET_DIR=\"${ROOT}/engine/target\"\nMANIFEST=\"${ROOT}/engine/Cargo.toml\"\nif [ \"${CONFIGURATION}\" = \"Release\" ]; then\n  cargo build --release -p calumma-ffi --manifest-path \"${MANIFEST}\"\nelse\n  cargo build -p calumma-ffi --manifest-path \"${MANIFEST}\"\nfi\n";
+		};
+/* End PBXShellScriptBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		738AB5536B4B8B994333A16E /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A27A6A1DB5A2F40E81ACFB97 /* AppModel.swift in Sources */,
+				5532C71BBF3A5EED57200013 /* BoardCanvas.swift in Sources */,
+				DDC892B0235664E0FC2816FC /* CalummaApp.swift in Sources */,
+				9B5C47125EA5CBBD6F34AD08 /* Components.swift in Sources */,
+				87755761F779CE9B1C56775F /* EditorView.swift in Sources */,
+				6FBFB2280DF99421D6C40CA1 /* Engine.swift in Sources */,
+				7AE274FD18EAA2171ABD2734 /* Icons.swift in Sources */,
+				4BAE76E9B75FCA7CAB639C21 /* L10nCatalog.swift in Sources */,
+				E1BA85C44692027425973C63 /* L10nEnvironment.swift in Sources */,
+				6759E0A42C331AAF425F51ED /* L10nStore.swift in Sources */,
+				06B0D98F6C7A372C4967A0B8 /* LandingView.swift in Sources */,
+				98D7BC93FC54FD64A9C6285E /* SettingsView.swift in Sources */,
+				5A7B3293EAC1F7F674A6A491 /* Theme.swift in Sources */,
+				8EFC1F5633FB04D55BA323AB /* Tokens.generated.swift in Sources */,
+				73A5E53754D26728ADB855A6 /* VisionPlatformOps.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		C018A807E8E2412431C68018 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				C565C035F7E02991B99F1697 /* EngineSmokeTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		23C45335DE382DDCB265D633 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = F01D7085E87C72AAEA96E166 /* Calumma */;
+			targetProxy = B3D362551835324C3611983E /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		03133604B43278D2121CF33E /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				DEAD_CODE_STRIPPING = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				HEADER_SEARCH_PATHS = (
+					"$(SRCROOT)/Calumma",
+					"$(SRCROOT)/Calumma/Bridge",
+				);
+				INFOPLIST_KEY_CFBundleDisplayName = Calumma;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INFOPLIST_KEY_NSPrincipalClass = NSApplication;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				LIBRARY_SEARCH_PATHS = "$(SRCROOT)/../../engine/target/debug";
+				OTHER_LDFLAGS = (
+					"-lcalumma_ffi",
+					"-lc++",
+					"-framework",
+					Metal,
+					"-framework",
+					MetalKit,
+					"-framework",
+					QuartzCore,
+					"-framework",
+					Cocoa,
+					"-framework",
+					Security,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = app.calumma;
+				PRODUCT_NAME = Calumma;
+				SDKROOT = macosx;
+				SWIFT_OBJC_BRIDGING_HEADER = "Calumma/Calumma-Bridging-Header.h";
+			};
+			name = Debug;
+		};
+		3739B53C7704A73F71482568 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMBINE_HIDPI_IMAGES = YES;
+				DEAD_CODE_STRIPPING = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = app.calumma.tests;
+				SDKROOT = macosx;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Calumma.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Calumma";
+			};
+			name = Release;
+		};
+		85E6BB1774AC2E74AC9EE0B9 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEAD_CODE_STRIPPING = YES;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		B82EBD20F77F91C647A8DD12 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				DEAD_CODE_STRIPPING = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				HEADER_SEARCH_PATHS = (
+					"$(SRCROOT)/Calumma",
+					"$(SRCROOT)/Calumma/Bridge",
+				);
+				INFOPLIST_KEY_CFBundleDisplayName = Calumma;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INFOPLIST_KEY_NSPrincipalClass = NSApplication;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				LIBRARY_SEARCH_PATHS = "$(SRCROOT)/../../engine/target/release";
+				OTHER_LDFLAGS = (
+					"-lcalumma_ffi",
+					"-lc++",
+					"-framework",
+					Metal,
+					"-framework",
+					MetalKit,
+					"-framework",
+					QuartzCore,
+					"-framework",
+					Cocoa,
+					"-framework",
+					Security,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = app.calumma;
+				PRODUCT_NAME = Calumma;
+				SDKROOT = macosx;
+				SWIFT_OBJC_BRIDGING_HEADER = "Calumma/Calumma-Bridging-Header.h";
+			};
+			name = Release;
+		};
+		EEC765AE088E199C6645C6A1 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMBINE_HIDPI_IMAGES = YES;
+				DEAD_CODE_STRIPPING = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = app.calumma.tests;
+				SDKROOT = macosx;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Calumma.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Calumma";
+			};
+			name = Debug;
+		};
+		F94E9B59529B8F81CE0D1793 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEAD_CODE_STRIPPING = YES;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		85E3268636C4E659FE875B6C /* Build configuration list for PBXNativeTarget "CalummaTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				EEC765AE088E199C6645C6A1 /* Debug */,
+				3739B53C7704A73F71482568 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		AAB475BB884026142D8E9317 /* Build configuration list for PBXNativeTarget "Calumma" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				03133604B43278D2121CF33E /* Debug */,
+				B82EBD20F77F91C647A8DD12 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		C8D4DCBB75867CD4A2336A98 /* Build configuration list for PBXProject "Calumma" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				85E6BB1774AC2E74AC9EE0B9 /* Debug */,
+				F94E9B59529B8F81CE0D1793 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 60A0621AB9A9FE98CA579A89 /* Project object */;
+}

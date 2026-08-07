@@ -1,0 +1,49 @@
+name: main
+
+on:
+  push:
+    paths-ignore:
+      - '**.md'
+  pull_request:
+    paths-ignore:
+      - '**.md'
+
+env:
+  CARGO_TARGET_DIR: engine/target
+
+jobs:
+  core:
+    name: core (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: test core
+        run: cargo test --manifest-path engine/Cargo.toml -p calumma-core --all-targets
+      - name: clippy core
+        run: cargo clippy --manifest-path engine/Cargo.toml -p calumma-core --all-targets -- -D warnings
+
+  macos:
+    name: macos workspace
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt, llvm-tools-preview
+      - name: fmt
+        run: cargo fmt --manifest-path engine/Cargo.toml --all -- --check
+      - name: clippy
+        run: cargo clippy --manifest-path engine/Cargo.toml --workspace --all-targets -- -D warnings
+      - name: test
+        run: ./manage.py test
+      - name: coverage
+        run: ./manage.py coverage
+      - name: build ffi
+        run: cargo build --manifest-path engine/Cargo.toml -p calumma-ffi
+      - name: core purity
+        run: ./manage.py purity

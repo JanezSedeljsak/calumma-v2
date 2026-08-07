@@ -1,0 +1,11 @@
+.DS_Store
+DerivedData/
+platform/macos/build/
+platform/macos/*.xcworkspace/xcuserdata/
+platform/macos/*.xcodeproj/xcuserdata/
+platform/macos/*.xcodeproj/project.xcworkspace/xcuserdata/
+*.xcuserstate
+.swiftpm/
+lcov.info
+.env
+/target/

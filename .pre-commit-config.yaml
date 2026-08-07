@@ -1,0 +1,43 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-merge-conflict
+      - id: check-yaml
+      - id: mixed-line-ending
+
+  - repo: https://github.com/crate-ci/typos
+    rev: v1.28.4
+    hooks:
+      - id: typos
+
+  - repo: local
+    hooks:
+      - id: cargo-fmt
+        name: cargo fmt
+        entry: cargo fmt --manifest-path engine/Cargo.toml --all
+        language: system
+        files: \.rs$
+        pass_filenames: false
+
+      - id: cargo-clippy
+        name: cargo clippy
+        entry: cargo clippy --manifest-path engine/Cargo.toml --workspace --all-targets -- -D warnings
+        language: system
+        files: \.rs$
+        pass_filenames: false
+
+      - id: swift-format
+        name: swift-format
+        entry: swift-format format --configuration platform/macos/.swift-format -i -r platform/macos/Calumma
+        language: system
+        files: \.swift$
+        pass_filenames: false
+
+      - id: core-purity
+        name: core has no platform deps
+        entry: python3 ./manage.py purity
+        language: system
+        pass_filenames: false

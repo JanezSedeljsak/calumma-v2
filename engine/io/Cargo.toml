@@ -1,0 +1,15 @@
+[package]
+name = "calumma-io"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+calumma-core = { path = "../core" }
+rusqlite = { workspace = true, features = ["bundled"] }
+thiserror = { workspace = true }
+uuid = { workspace = true, features = ["v4"] }
+image = { workspace = true, default-features = false, features = ["png"] }
+
+[dev-dependencies]
+tempfile = { workspace = true }

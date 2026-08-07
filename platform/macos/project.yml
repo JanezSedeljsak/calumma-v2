@@ -1,0 +1,103 @@
+name: Calumma
+options:
+  bundleIdPrefix: app.calumma
+  deploymentTarget:
+    macOS: "26.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MACOSX_DEPLOYMENT_TARGET: "26.0"
+    CLANG_ENABLE_MODULES: YES
+configs:
+  Debug: debug
+  Release: release
+targets:
+  Calumma:
+    type: application
+    platform: macOS
+    sources:
+      - path: Calumma
+        excludes:
+          - "**/*.h"
+      - path: ../../translations
+        type: folder
+        buildPhase: resources
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.calumma
+        PRODUCT_NAME: Calumma
+        INFOPLIST_KEY_CFBundleDisplayName: Calumma
+        INFOPLIST_KEY_NSHumanReadableCopyright: ""
+        INFOPLIST_KEY_NSPrincipalClass: NSApplication
+        GENERATE_INFOPLIST_FILE: YES
+        SWIFT_OBJC_BRIDGING_HEADER: Calumma/Calumma-Bridging-Header.h
+        HEADER_SEARCH_PATHS:
+          - $(SRCROOT)/Calumma
+          - $(SRCROOT)/Calumma/Bridge
+        OTHER_LDFLAGS:
+          - -lcalumma_ffi
+          - -lc++
+          - -framework
+          - Metal
+          - -framework
+          - MetalKit
+          - -framework
+          - QuartzCore
+          - -framework
+          - Cocoa
+          - -framework
+          - Security
+        ENABLE_HARDENED_RUNTIME: YES
+        CODE_SIGN_STYLE: Automatic
+        LD_RUNPATH_SEARCH_PATHS:
+          - "$(inherited)"
+          - "@executable_path/../Frameworks"
+      configs:
+        Debug:
+          LIBRARY_SEARCH_PATHS:
+            - $(SRCROOT)/../../engine/target/debug
+        Release:
+          LIBRARY_SEARCH_PATHS:
+            - $(SRCROOT)/../../engine/target/release
+    dependencies: []
+    preBuildScripts:
+      - name: Tokens and calumma-ffi
+        script: |
+          set -euo pipefail
+          export PATH="$HOME/.cargo/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
+          ROOT="${SRCROOT}/../.."
+          python3 "${ROOT}/manage.py" tokens
+          export CARGO_TARGET_DIR="${ROOT}/engine/target"
+          MANIFEST="${ROOT}/engine/Cargo.toml"
+          if [ "${CONFIGURATION}" = "Release" ]; then
+            cargo build --release -p calumma-ffi --manifest-path "${MANIFEST}"
+          else
+            cargo build -p calumma-ffi --manifest-path "${MANIFEST}"
+          fi
+        basedOnDependencyAnalysis: false
+  CalummaTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - CalummaTests
+    dependencies:
+      - target: Calumma
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.calumma.tests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Calumma.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Calumma"
+        BUNDLE_LOADER: "$(TEST_HOST)"
+schemes:
+  Calumma:
+    build:
+      targets:
+        Calumma: all
+        CalummaTests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - CalummaTests
