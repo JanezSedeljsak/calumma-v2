@@ -76,6 +76,7 @@ COLOR_KEYS = (
     "deskGrid",
     "paper",
     "paperBorder",
+    "islandBorder",
 )
 
 RADIUS_KEYS = ("sm", "md", "lg", "window", "island")

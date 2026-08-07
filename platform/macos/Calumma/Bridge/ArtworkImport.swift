@@ -15,11 +15,15 @@ enum ArtworkImport {
         .png,
         .jpeg,
         .webP,
+        .heic,
+        .svg,
         UTType("public.avif"),
         UTType("com.adobe.photoshop-image"),
     ].compactMap { $0 }
 
-    static let fileExtensions: Set<String> = ["png", "jpg", "jpeg", "avif", "webp", "psd"]
+    static let fileExtensions: Set<String> = [
+        "png", "jpg", "jpeg", "avif", "webp", "psd", "heic", "heif", "svg",
+    ]
 
     static var pasteTypes: [UTType] { contentTypes + [.tiff] }
 

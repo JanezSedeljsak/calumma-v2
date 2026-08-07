@@ -9,6 +9,9 @@ struct NewProjectView: View {
     @State private var name = ""
     @State private var width = 1280
     @State private var height = 720
+    @State private var accent: Color = Engine.palette.randomElement() ?? .gray
+    @State private var colorPickerOpen = false
+    @State private var pendingDelete: ProjectInfo?
 
     var body: some View {
         GeometryReader { geo in
@@ -20,12 +23,14 @@ struct NewProjectView: View {
         .background(ArtworkPasteCatcher(app: app))
         .toolbar {
             if isLanding {
-                ToolbarItem(placement: .automatic) {
+                ToolbarItem(placement: .primaryAction) {
                     CalmIconButton {
                         app.settingsOpen = true
                     } icon: {
                         AppIcon.settings(color: colors.textMuted)
                     }
+                    .help(l10n.settings)
+                    .calmPointer()
                 }
             }
         }
@@ -66,21 +71,38 @@ struct NewProjectView: View {
         )
     }
 
-    @ViewBuilder
     private var header: some View {
-        if isLanding {
-            VStack(alignment: .leading, spacing: Tokens.Space.xs) {
-                CalmText.brand(l10n.brand)
-                CalmText.eyebrow(l10n.tagline)
-            }
+        HStack(alignment: .firstTextBaseline, spacing: Tokens.Space.sm) {
+            CalmText.brand(l10n.brand)
+            CalmText.eyebrow(l10n.tagline)
         }
+        .lineLimit(1)
+        .minimumScaleFactor(0.8)
     }
 
     private var createForm: some View {
         VStack(alignment: .leading, spacing: Tokens.Space.lg) {
             VStack(alignment: .leading, spacing: Tokens.Space.xs) {
                 CalmText.label(l10n.projectName)
-                CalmField(text: $name)
+                HStack(spacing: Tokens.Space.sm) {
+                    Button {
+                        colorPickerOpen = true
+                    } label: {
+                        CalmDot(color: accent, size: 16)
+                    }
+                    .buttonStyle(.plain)
+                    .calmPointer()
+                    .help(l10n.projectColor)
+                    .popover(isPresented: $colorPickerOpen, arrowEdge: .bottom) {
+                        CalmPaletteRow(colors: Engine.palette, selected: accent) { color in
+                            accent = color
+                            colorPickerOpen = false
+                        }
+                        .padding(Tokens.Space.sm)
+                    }
+
+                    CalmField(text: $name)
+                }
             }
 
             VStack(alignment: .leading, spacing: Tokens.Space.xs) {
@@ -89,7 +111,7 @@ struct NewProjectView: View {
                     CalmNumberField(value: $width, width: 72)
                     CalmNumberField(value: $height, width: 72)
                     CalmAccentButton(title: l10n.create) {
-                        app.create(name: name, width: width, height: height)
+                        app.create(name: name, width: width, height: height, accent: accent)
                     }
                 }
             }
@@ -100,7 +122,7 @@ struct NewProjectView: View {
         CalmSection(title: l10n.presets, accent: colors.accentTeal) {
             ForEach(Tokens.presets) { preset in
                 CalmRowButton {
-                    app.create(name: preset.label, width: preset.width, height: preset.height)
+                    app.create(name: preset.label, width: preset.width, height: preset.height, accent: accent)
                 } content: {
                     CalmRow(
                         leading: { AppIcon.plus(color: colors.textMuted) },
@@ -122,21 +144,51 @@ struct NewProjectView: View {
                     .calmSurface()
             } else {
                 ForEach(app.engine.recents.prefix(5)) { project in
-                    CalmRowButton {
-                        app.openRecent(project)
-                    } content: {
-                        CalmRow(
-                            leading: {
-                                CalmThumb(tint: project.accentColor)
-                                    .overlay(AppIcon.image(color: .white.opacity(0.9)))
-                            },
-                            title: project.name,
-                            subtitle: "\(project.width) × \(project.height)",
-                            trailing: relativeTime(project.openedAt)
-                        )
+                    HStack(spacing: Tokens.Space.sm) {
+                        Button {
+                            app.openRecent(project)
+                        } label: {
+                            CalmRow(
+                                leading: {
+                                    CalmThumb(tint: project.accentColor)
+                                        .overlay(AppIcon.image(color: .white.opacity(0.9)))
+                                },
+                                title: project.name,
+                                subtitle: "\(project.width) × \(project.height)",
+                                trailing: relativeTime(project.openedAt)
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .calmPointer()
+
+                        Button {
+                            pendingDelete = project
+                        } label: {
+                            AppIcon.trash(color: colors.danger)
+                        }
+                        .buttonStyle(.plain)
+                        .calmPointer()
                     }
+                    .padding(Tokens.Space.md)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .calmSurface()
                 }
             }
+        }
+        .confirmationDialog(
+            l10n.deleteProjectTitle,
+            isPresented: Binding(
+                get: { pendingDelete != nil },
+                set: { if !$0 { pendingDelete = nil } }
+            ),
+            presenting: pendingDelete
+        ) { project in
+            Button(l10n.delete, role: .destructive) {
+                app.engine.deleteProject(id: project.id)
+            }
+            Button(l10n.cancel, role: .cancel) {}
+        } message: { project in
+            Text(l10n.formatKey("deleteProjectNamed", project.name))
         }
     }
 
@@ -144,7 +196,7 @@ struct NewProjectView: View {
         let date = Date(timeIntervalSince1970: TimeInterval(epoch))
         let seconds = Int(Date().timeIntervalSince(date))
         if seconds < 3600 { return "\(max(seconds / 60, 1)) min ago" }
-        if seconds < 86400 { return "\(seconds / 3600) hours ago" }
-        return "\(seconds / 86400) days ago"
+        if seconds < 85400 { return "\(seconds / 3600) hours ago" }
+        return "\(seconds / 85400) days ago"
     }
 }

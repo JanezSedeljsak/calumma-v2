@@ -111,6 +111,9 @@ struct L10nCatalog: Equatable {
     var settings: String { self["settings"] }
     var theme: String { self["theme"] }
     var language: String { self["language"] }
+    var delete: String { self["delete"] }
+    var cancel: String { self["cancel"] }
+    var deleteProjectTitle: String { self["deleteProjectTitle"] }
 
     func languageName(_ language: AppLanguage) -> String {
         self[language.displayKey]

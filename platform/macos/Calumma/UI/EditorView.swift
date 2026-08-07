@@ -6,12 +6,11 @@ struct EditorView: View {
     @Environment(\.themeColors) private var colors
     @Environment(\.l10n) private var l10n
     @Environment(\.openWindow) private var openWindow
-    @State private var shapePickerOpen = false
     @State private var hoveredLayer: Int?
     @State private var editingTab: String?
 
     var body: some View {
-        HStack(alignment: .top, spacing: 0) {
+        HStack(alignment: .top, spacing: Tokens.Space.sm) {
             toolIsland
                 .frame(maxHeight: .infinity)
 
@@ -23,6 +22,7 @@ struct EditorView: View {
                     .frame(maxHeight: .infinity)
             }
         }
+        .padding(Tokens.Space.sm)
         .calmScreen()
         .toolbar { editorToolbar }
         .onAppear { app.applyKnobs() }
@@ -42,6 +42,7 @@ struct EditorView: View {
         return BoardCanvas()
             .clipShape(shape)
             .background(colors.surface, in: shape)
+            .overlay(shape.strokeBorder(colors.islandBorder, lineWidth: 1))
             .overlay(alignment: .bottomTrailing) {
                 zoomControls
                     .padding(Tokens.Space.md)
@@ -64,12 +65,13 @@ struct EditorView: View {
                 zoomStepButton(zoomIn: true, label: "+")
                 CalmText.muted("\(Int(app.engine.state.zoom * 100))%", mono: true)
                     .frame(width: 40, alignment: .trailing)
-                Button(l10n.fitToView) {
+                Button {
                     app.engine.fit()
+                } label: {
+                    AppIcon.fitToView(color: colors.accentTeal)
                 }
                 .buttonStyle(.plain)
-                .font(.system(size: Tokens.TypeSize.label, weight: .semibold))
-                .foregroundStyle(colors.accentTeal)
+                .help(l10n.fitToView)
                 .calmPointer()
             }
         }
@@ -115,67 +117,142 @@ struct EditorView: View {
                         .l10n(l10n)
                 }
             }
-            Button {
+            CalmIconButton {
                 openWindow(id: CalmWindowId.newProject)
-            } label: {
+            } icon: {
                 AppIcon.plus(color: colors.textMuted)
             }
-            .buttonStyle(.plain)
             .help(l10n.newProject)
             .calmPointer()
         }
-        ToolbarItem(placement: .automatic) {
-            Button {
+        ToolbarItem(placement: .primaryAction) {
+            CalmIconButton {
                 app.settingsOpen = true
-            } label: {
+            } icon: {
                 AppIcon.settings(color: colors.textMuted)
             }
-            .buttonStyle(.plain)
             .help(l10n.settings)
             .calmPointer()
         }
     }
 
     private var toolIsland: some View {
-        CalmIsland(padding: Tokens.Space.sm) {
+        CalmIsland(padding: Tokens.Space.xs) {
             VStack(spacing: Tokens.Space.sm) {
-                toolButton(.pen) { AppIcon.pen(color: iconColor(.pen)) }
-
-                shapeToolButton
-
-                ColorPicker("", selection: $app.color, supportsOpacity: true)
-                    .labelsHidden()
-                    .frame(width: 24, height: 24)
-                    .clipShape(RoundedRectangle(cornerRadius: Tokens.Radius.sm, style: .continuous))
-
-                VStack(spacing: Tokens.Space.xs) {
-                    CalmText.muted("\(Int(app.brushSize))", mono: true)
-                    Slider(value: Binding(
-                        get: { Double(app.brushSize) },
-                        set: { app.brushSize = Float($0) }
-                    ), in: 1...96)
-                    .frame(width: 44)
-                    .controlSize(.mini)
-                }
-
-                if app.tool.isShape {
-                    Toggle(isOn: $app.fill) {
-                        CalmText.muted(l10n.fill)
-                    }
-                    .toggleStyle(.switch)
-                    .controlSize(.mini)
-                    .labelsHidden()
-                    .help(l10n.fill)
-                }
-
-                Spacer(minLength: Tokens.Space.sm)
-
+                toolGrid
+                toolOptions
+                Spacer(minLength: Tokens.Space.xs)
+                colorSection
+                Spacer(minLength: Tokens.Space.xs)
                 aiMenu
             }
             .frame(maxHeight: .infinity, alignment: .top)
         }
-        .frame(width: 64)
+        .frame(width: 152)
     }
+
+    private var toolGrid: some View {
+        LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: Tokens.Space.xs) {
+            toolButton(.pen) { AppIcon.pen(color: iconColor(.pen)) }
+            toolButton(.eraser) { AppIcon.eraser(color: iconColor(.eraser)) }
+            shapeToolButton
+        }
+    }
+
+    @ViewBuilder
+    private var toolOptions: some View {
+        VStack(spacing: Tokens.Space.sm) {
+            if app.tool.isShape {
+                CalmText.label(l10n.shapes)
+                HStack(spacing: Tokens.Space.xs) {
+                    shapePick(.line)
+                    shapePick(.rect)
+                    shapePick(.ellipse)
+                    shapePick(.arrow)
+                }
+            }
+
+            VStack(spacing: Tokens.Space.xs) {
+                CalmText.muted("\(Int(app.brushSize))", mono: true)
+                Slider(value: Binding(
+                    get: { Double(app.brushSize) },
+                    set: { app.brushSize = Float($0) }
+                ), in: 1...96)
+                .controlSize(.mini)
+            }
+
+            if app.tool.isShape {
+                Toggle(isOn: $app.fill) {
+                    CalmText.muted(l10n.fill)
+                }
+                .toggleStyle(.switch)
+                .controlSize(.mini)
+                .labelsHidden()
+                .help(l10n.fill)
+            }
+        }
+    }
+
+    private var colorSection: some View {
+        VStack(spacing: Tokens.Space.xs) {
+            HStack(spacing: Tokens.Space.xs) {
+                quickColorBox(0)
+                quickColorBox(1)
+            }
+            ColorPicker("", selection: $app.color, supportsOpacity: true)
+                .labelsHidden()
+                .frame(height: 28)
+                .clipShape(RoundedRectangle(cornerRadius: Tokens.Radius.sm, style: .continuous))
+                .help(l10n.projectColor)
+            hueSlider
+        }
+    }
+
+    private func quickColorBox(_ index: Int) -> some View {
+        let shape = RoundedRectangle(cornerRadius: Tokens.Radius.sm, style: .continuous)
+        return Button {
+            app.selectQuickColor(index)
+        } label: {
+            shape
+                .fill(app.quickColors[index])
+                .frame(maxWidth: .infinity)
+                .frame(height: 24)
+                .overlay(
+                    shape.strokeBorder(
+                        colors.accentTeal,
+                        lineWidth: app.activeQuickColorIndex == index ? 2 : 0
+                    )
+                )
+        }
+        .buttonStyle(.plain)
+        .calmPointer()
+    }
+
+    private var hueSlider: some View {
+        GeometryReader { geo in
+            let knob: CGFloat = 10
+            ZStack(alignment: .leading) {
+                LinearGradient(colors: Self.hueSpectrum, startPoint: .leading, endPoint: .trailing)
+                Circle()
+                    .fill(.white)
+                    .frame(width: knob, height: knob)
+                    .overlay(Circle().strokeBorder(.black.opacity(0.3), lineWidth: 1))
+                    .offset(x: CGFloat(app.colorHue) * max(geo.size.width - knob, 0))
+            }
+            .clipShape(RoundedRectangle(cornerRadius: Tokens.Radius.sm, style: .continuous))
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0).onChanged { value in
+                    let fraction = min(max(value.location.x / max(geo.size.width, 1), 0), 1)
+                    app.setHue(Float(fraction))
+                }
+            )
+        }
+        .frame(height: 16)
+    }
+
+    private static let hueSpectrum: [Color] = stride(from: 0.0, through: 1.0, by: 1.0 / 11.0)
+        .map { Color(hue: $0, saturation: 1, brightness: 1) }
 
     private var aiMenu: some View {
         Menu {
@@ -198,24 +275,9 @@ struct EditorView: View {
         let active = app.tool.isShape
         let current = active ? app.tool : app.lastShapeTool
         return CalmToolButton(selected: active, action: {
-            if active {
-                shapePickerOpen.toggle()
-            } else {
-                app.selectTool(app.lastShapeTool)
-                shapePickerOpen = true
-            }
+            app.selectTool(app.lastShapeTool)
         }) {
             shapeIcon(current, color: active ? colors.accentTeal : colors.textMuted)
-        }
-        .popover(isPresented: $shapePickerOpen, arrowEdge: .trailing) {
-            HStack(spacing: Tokens.Space.sm) {
-                shapePick(.line)
-                shapePick(.rect)
-                shapePick(.ellipse)
-                shapePick(.arrow)
-            }
-            .padding(Tokens.Space.sm)
-            .background(colors.surface)
         }
         .help(l10n.shapes)
     }
@@ -223,7 +285,6 @@ struct EditorView: View {
     private func shapePick(_ tool: CalmTool) -> some View {
         CalmToolButton(selected: app.tool == tool, action: {
             app.selectTool(tool)
-            shapePickerOpen = false
         }) {
             shapeIcon(tool, color: app.tool == tool ? colors.accentTeal : colors.textMuted)
         }
@@ -237,6 +298,7 @@ struct EditorView: View {
         case .ellipse: AppIcon.ellipse(color: color)
         case .arrow: AppIcon.arrow(color: color)
         case .pen: AppIcon.pen(color: color)
+        case .eraser: AppIcon.eraser(color: color)
         }
     }
 
@@ -254,7 +316,7 @@ struct EditorView: View {
                     .buttonStyle(.plain)
                     .calmPointer()
                 }
-                ForEach(0..<app.engine.layerNames.count, id: \.self) { index in
+                ForEach((0..<app.engine.layerNames.count).reversed(), id: \.self) { index in
                     layerRow(index)
                 }
                 Spacer(minLength: 0)
@@ -289,7 +351,7 @@ struct EditorView: View {
                 app.engine.setActiveLayer(index)
             } label: {
                 HStack(spacing: Tokens.Space.md) {
-                    CalmThumb(width: 40, height: 28, label: "\(index + 1)")
+                    layerThumb(index)
                     CalmText.body(name, strong: selected)
                         .opacity(visible ? 1 : 0.45)
                     Spacer()
@@ -315,6 +377,25 @@ struct EditorView: View {
             app.engine.setHoverLayer(hovering ? index : nil)
             hoveredLayer = hovering ? index : nil
         }
+    }
+
+    private func layerThumb(_ index: Int) -> some View {
+        let shape = RoundedRectangle(cornerRadius: Tokens.Radius.sm, style: .continuous)
+        return ZStack {
+            shape.fill(colors.surfaceHover)
+            if let image = app.engine.layerThumbnail(index: index, maxSide: 96) {
+                Image(nsImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .frame(width: 40, height: 28)
+                    .clipShape(shape)
+            } else {
+                Text("\(index + 1)")
+                    .font(.system(size: Tokens.TypeSize.label, weight: .bold))
+                    .foregroundStyle(colors.textMuted)
+            }
+        }
+        .frame(width: 40, height: 28)
     }
 
     private func toolButton<Icon: View>(_ tool: CalmTool, @ViewBuilder icon: () -> Icon) -> some View {
@@ -444,6 +525,7 @@ private struct ShortcutCatcher: NSViewRepresentable {
             case "r": app.selectTool(.rect); return
             case "o": app.selectTool(.ellipse); return
             case "a": app.selectTool(.arrow); return
+            case "e": app.selectTool(.eraser); return
             case "f": app.fill.toggle(); return
             case "0": app.engine.fit(); return
             case "[": app.brushSize = max(1, app.brushSize - 1); return

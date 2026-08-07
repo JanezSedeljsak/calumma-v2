@@ -13,11 +13,14 @@ bits use `{0}`, `{1}`, … filled by `l10n.formatKey(...)`. Visual tokens stay i
 
 ## Rules
 
-1. **No stroke borders.** Separate surfaces with background contrast only.
-2. **Corner radius.** Controls use `radius.sm` / `radius.md`. **Islands are square** —
-   `radius.island` is `0`. Tools, canvas, and layers are full-height bands butted straight
-   against each other with no gap and no screen padding; the edge between two surface
-   colours is the border. Prefer one radius family; do not mix pill and sharp.
+1. **Islands carry a thin border.** Every `CalmIsland` (tools, canvas, layers, Paste
+   Artwork, the zoom pill) is stroked with `color.islandBorder` — a subtle, low-alpha
+   tint of the theme's edge colour, not a hard line. Everywhere else, surfaces still
+   separate by background contrast only; do not add borders to non-island controls.
+2. **Corner radius.** Controls use `radius.sm` / `radius.md`. Islands use `radius.island`
+   (rounded, not square). Tools, canvas, and layers sit apart with a minimal gap
+   (`space.sm`) and a minimal margin from the window edge (`space.sm`) — they no longer
+   butt flush against each other. Prefer one radius family; do not mix pill and sharp.
 3. **Custom SVG icons only.** Ship icons from `design/icons/`. No icon packs.
    SF Symbols are not the product icon set (system chrome may still use them).
 4. **Light and dark.** Every colour has a light and dark value in tokens. The
@@ -79,19 +82,21 @@ Project tabs sit in a **compact window titlebar** (right of the traffic lights),
 its project accent dot; clicking the dot opens the rename / recolour card. Top padding is
 tight (`space.xs`) so the board starts close under the titlebar.
 
-Tools, canvas, and layers are three **flush full-height bands**, square-cornered, edge to
-edge — no gutter, no screen padding, so the canvas gets every pixel that is not a panel.
-Shape tools share one button with a mini picker. The **zoom pill** floats bottom-trailing
-*inside* the canvas island: `−`, log slider, `+`, percentage, Fit. Layer list rows stay
+Tools, canvas, and layers are three **rounded, bordered islands**, full-height, separated
+by a minimal gap (`space.sm`) with a matching margin from the window edge — no longer flush
+or square-cornered. The tools island is two tool columns wide; the shape tool's sub-picker
+(and other tool-specific options, like brush size) live in a panel below the grid instead of
+a popover. The **zoom pill** floats bottom-trailing *inside* the canvas island: `−`, log
+slider, `+`, percentage, a fit-to-view icon (tooltip, no label). Layer list rows stay
 compact; hovering a row shows a thumbnail popover. Board hover outline remains a dashed
 WGSL stroke, not a Swift overlay.
 
-Islands keep their **inner** padding — only the padding *between* them and around the
-screen is gone.
+Islands keep their **inner** padding, plus a minimal `space.sm` gap between them and
+margin around the screen.
 
 ## Do not
 
-- Add hairline borders “for clarity”
+- Add hairline borders “for clarity” outside `CalmIsland`'s own `islandBorder` stroke
 - Import Lucide / Heroicons / Font Awesome / similar
 - Style the canvas with SwiftUI shapes on top of the Metal view
 - Duplicate token values in Swift or Rust source

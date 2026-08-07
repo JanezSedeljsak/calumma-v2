@@ -6,7 +6,7 @@ enum Tokens {
         static let md: CGFloat = 6.0
         static let lg: CGFloat = 10.0
         static let window: CGFloat = 12.0
-        static let island: CGFloat = 0.0
+        static let island: CGFloat = 10.0
     }
 
     enum Space {
@@ -28,13 +28,13 @@ enum Tokens {
 
     enum Window {
         static let mainWidth: CGFloat = 960.0
-        static let mainHeight: CGFloat = 600.0
+        static let mainHeight: CGFloat = 520.0
         static let mainMinWidth: CGFloat = 760.0
         static let mainMinHeight: CGFloat = 520.0
-        static let newProjectWidth: CGFloat = 780.0
+        static let newProjectWidth: CGFloat = 960.0
         static let newProjectHeight: CGFloat = 520.0
-        static let newProjectMinWidth: CGFloat = 700.0
-        static let newProjectMinHeight: CGFloat = 460.0
+        static let newProjectMinWidth: CGFloat = 960.0
+        static let newProjectMinHeight: CGFloat = 520.0
         static let pasteMinWidth: CGFloat = 200.0
         static let pasteMaxWidth: CGFloat = 420.0
         static let pasteMinHeight: CGFloat = 180.0
@@ -52,12 +52,13 @@ enum Tokens {
     static let deskGrid = Color(red: 0.749020, green: 0.800000, blue: 0.847059, opacity: 1.000000)
     static let paper = Color(red: 1.000000, green: 1.000000, blue: 1.000000, opacity: 1.000000)
     static let paperBorder = Color(red: 0.058824, green: 0.105882, blue: 0.141176, opacity: 0.349020)
+    static let islandBorder = Color(red: 0.058824, green: 0.105882, blue: 0.141176, opacity: 0.121569)
     static let accentTeal = Color(red: 0.168627, green: 0.721569, blue: 0.784314, opacity: 1.000000)
     static let accentOrange = Color(red: 0.909804, green: 0.529412, blue: 0.227451, opacity: 1.000000)
     }
 
     enum Dark {
-    static let bg = Color(red: 0.054902, green: 0.070588, blue: 0.078431, opacity: 1.000000)
+    static let bg = Color(red: 0.086275, green: 0.109804, blue: 0.125490, opacity: 1.000000)
     static let surface = Color(red: 0.101961, green: 0.125490, blue: 0.141176, opacity: 1.000000)
     static let surfaceHover = Color(red: 0.141176, green: 0.172549, blue: 0.196078, opacity: 1.000000)
     static let text = Color(red: 0.949020, green: 0.960784, blue: 0.968627, opacity: 1.000000)
@@ -67,6 +68,7 @@ enum Tokens {
     static let deskGrid = Color(red: 0.086275, green: 0.109804, blue: 0.129412, opacity: 1.000000)
     static let paper = Color(red: 0.109804, green: 0.141176, blue: 0.168627, opacity: 1.000000)
     static let paperBorder = Color(red: 1.000000, green: 1.000000, blue: 1.000000, opacity: 0.349020)
+    static let islandBorder = Color(red: 1.000000, green: 1.000000, blue: 1.000000, opacity: 0.121569)
     static let accentTeal = Color(red: 0.235294, green: 0.788235, blue: 0.839216, opacity: 1.000000)
     static let accentOrange = Color(red: 0.941176, green: 0.580392, blue: 0.290196, opacity: 1.000000)
     }

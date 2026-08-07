@@ -13,7 +13,7 @@
   "noRecents": "No recent projects",
   "pasteArtwork": "Paste Artwork",
   "pasteArtworkHint": "Drop, paste, or click to choose",
-  "artworkFormats": "PNG · JPG · AVIF · WEBP · PSD",
+  "artworkFormats": "PNG · JPG · AVIF · WEBP · PSD · HEIC · SVG",
   "chooseArtwork": "Choose Image",
   "artworkImportFailed": "That image could not be read",
   "layers": "Layers",
@@ -37,5 +37,9 @@
   "settings": "Settings",
   "theme": "Theme",
   "language": "Language",
-  "languageEnglish": "English"
+  "languageEnglish": "English",
+  "delete": "Delete",
+  "cancel": "Cancel",
+  "deleteProjectTitle": "Delete Project",
+  "deleteProjectNamed": "Delete \"{0}\"? This permanently removes it and cannot be undone."
 }

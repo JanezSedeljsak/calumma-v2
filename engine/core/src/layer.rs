@@ -88,22 +88,16 @@ impl Layer {
     }
 
     pub fn paper(width: u32, height: u32) -> Self {
-        let w = width.max(1) as f32;
-        let h = height.max(1) as f32;
-        Self::vector(
-            crate::names::PAPER,
-            vec![VectorPath {
-                points: vec![(0.0, 0.0), (w, 0.0), (w, h), (0.0, h)],
-                closed: true,
-                fill: true,
-                color: [255, 255, 255, 255],
-                stroke_width: 0.0,
-            }],
-        )
+        let mut layer = Self::new(crate::names::PAPER, width, height);
+        let bounds = DocRect::from_size(width.max(1), height.max(1));
+        if let Some(tiles) = layer.tiles_mut() {
+            tiles.paint_rect(bounds, |_, _, _| Some([255, 255, 255, 255]));
+        }
+        layer
     }
 
     pub fn is_paper(&self) -> bool {
-        self.name == crate::names::PAPER && self.content.is_vector()
+        self.name == crate::names::PAPER
     }
 
     pub fn tiles(&self) -> Option<&TileGrid> {

@@ -9,3 +9,7 @@ platform/macos/*.xcodeproj/project.xcworkspace/xcuserdata/
 lcov.info
 .env
 /target/
+
+# agent plans
+plans/*
+todo.md

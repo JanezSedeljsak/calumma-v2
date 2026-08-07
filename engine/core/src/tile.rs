@@ -458,6 +458,24 @@ impl TileGrid {
         })
     }
 
+    pub fn stamp_disc_erase(&mut self, cx: f32, cy: f32, radius: f32) -> usize {
+        if radius <= 0.0 {
+            return 0;
+        }
+        let pad = radius + crate::limits::STAMP_COVERAGE_PADDING;
+        let rect = DocRect::from_floats(cx - pad, cy - pad, cx + pad, cy + pad);
+        let r2 = radius * radius;
+        self.paint_rect(rect, |px, py, _| {
+            let dx = px as f32 + 0.5 - cx;
+            let dy = py as f32 + 0.5 - cy;
+            if dx * dx + dy * dy <= r2 {
+                Some([0, 0, 0, 0])
+            } else {
+                None
+            }
+        })
+    }
+
     pub fn blit_rgba(&mut self, rgba: &[u8], width: u32, height: u32) -> usize {
         if width == 0 || height == 0 {
             return 0;

@@ -250,14 +250,15 @@ def parse_llvm_cov_json(payload: dict[str, object]) -> list[dict[str, object]]:
     return rows
 
 
-def cmd_coverage(_: argparse.Namespace) -> int:
+def cmd_coverage(args: argparse.Namespace) -> int:
     ensure_engine_env()
     ensure_llvm_cov()
     COVERAGE_JSON.parent.mkdir(parents=True, exist_ok=True)
+    scope = ["-p", args.package] if args.package else ["--workspace"]
     run(
         cargo_cmd(
             "llvm-cov",
-            "--workspace",
+            *scope,
             "--json",
             "--summary-only",
             "--output-path",
@@ -319,9 +320,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sub.add_parser("lint", help="clippy + purity (+ swift-format lint)").set_defaults(func=cmd_lint)
     sub.add_parser("check", help="fmt + lint + test").set_defaults(func=cmd_check)
-    sub.add_parser("coverage", help="llvm-cov workspace + tiny %% table").set_defaults(
-        func=cmd_coverage
+    coverage_parser = sub.add_parser(
+        "coverage", help="llvm-cov workspace (or one -p crate) + tiny %% table"
     )
+    coverage_parser.add_argument(
+        "-p", "--package", help="scope coverage to a single crate, e.g. calumma-core"
+    )
+    coverage_parser.set_defaults(func=cmd_coverage)
     sub.add_parser("outdated", help="cargo outdated + audit").set_defaults(func=cmd_outdated)
     sub.add_parser("clean", help="cargo clean + macOS build dirs").set_defaults(func=cmd_clean)
     return parser

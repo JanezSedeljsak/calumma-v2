@@ -7,6 +7,7 @@ pub enum Tool {
     Rect = 2,
     Ellipse = 3,
     Arrow = 4,
+    Eraser = 5,
 }
 
 impl Tool {
@@ -17,12 +18,13 @@ impl Tool {
             2 => Some(Self::Rect),
             3 => Some(Self::Ellipse),
             4 => Some(Self::Arrow),
+            5 => Some(Self::Eraser),
             _ => None,
         }
     }
 
     pub fn is_shape(self) -> bool {
-        self != Tool::Pen
+        !matches!(self, Tool::Pen | Tool::Eraser)
     }
 
     pub fn takes_fill(self) -> bool {
@@ -123,7 +125,7 @@ impl Shape {
     pub fn distance(&self, x: f32, y: f32) -> f32 {
         let p = (x, y);
         match self.tool {
-            Tool::Pen => f32::MAX,
+            Tool::Pen | Tool::Eraser => f32::MAX,
             Tool::Line => sd_segment(p, self.start, self.end) - self.half_width,
             Tool::Arrow => self.arrow_distance(p) - self.half_width,
             Tool::Rect => {

@@ -140,9 +140,17 @@ pub enum LayerContent {
 ```
 
 - No per-layer transform. Paths/tiles live in document space.
+- **Paper** (`Layer::paper`) is an ordinary raster layer, name-matched via
+  `Layer::is_paper()`, pre-filled fully opaque white at creation — not a
+  cheap vector fill. It is paintable/eraseable/editable like any other
+  layer; clearing it exposes transparency through to the desk. This costs a
+  full-size white bitmap per project (no longer free), a deliberate
+  trade-off for making it directly editable.
 - Optional `layer.mask: Option<Vec<u8>>` (full-document coverage 0–255). Masks do **not**
   mutate tile bytes; the renderer multiplies alpha when uploading GPU tiles.
-- Vector compositing is not finished — filled closed paths (e.g. Paper) render; other vector work is deferred.
+- Vector compositing is not finished — filled closed paths render, but no
+  layer uses `LayerContent::Vector` by default today (Paper is a raster
+  layer pre-filled white, see Layers below); other vector work is deferred.
 
 ---
 
@@ -233,10 +241,10 @@ CLI paths/binaries live in `cli/constants.py`.
 Compose `CalmText`, `CalmField`, `CalmRow`, `calmSurface()`, `CalmChip`, etc. Theme colours
 via `@Environment(\.themeColors)`; copy via `@Environment(\.l10n)`.
 
-1. No stroke borders — background contrast only.
-2. Controls use `Tokens.Radius.sm` / `md`. **Islands are square** (`Tokens.Radius.island` is
-   `0`) and sit flush with no gap or screen padding, so the seam between two surfaces *is*
-   the border. Never re-add island padding to "separate" panels.
+1. Islands (`CalmIsland`) carry a thin `Tokens.Light/Dark.islandBorder` stroke; everywhere
+   else, separate surfaces by background contrast only — do not add borders outside islands.
+2. Controls use `Tokens.Radius.sm` / `md`. Islands use `Tokens.Radius.island` (rounded) and
+   sit apart with a minimal gap and window margin (`Tokens.Space.sm`), not flush.
 3. Custom Canvas/`AppIcon` drawings only — no icon packs / SF Symbols as product icons.
 4. Light and dark from tokens; push desk / grid / paper-border into the engine via
    `calm_engine_set_board_colors`. Never hardcode a colour in `.rs` or `.wgsl`.

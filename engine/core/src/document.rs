@@ -224,7 +224,7 @@ impl Document {
 
     pub fn pointer_down(&mut self, screen_x: f32, screen_y: f32) {
         let (dx, dy) = self.camera.to_doc(screen_x, screen_y);
-        if self.tool == Tool::Pen {
+        if matches!(self.tool, Tool::Pen | Tool::Eraser) {
             self.begin_stroke();
             self.push_stroke_point(dx, dy);
         } else {
@@ -240,7 +240,7 @@ impl Document {
 
     pub fn pointer_move(&mut self, screen_x: f32, screen_y: f32) {
         let (dx, dy) = self.camera.to_doc(screen_x, screen_y);
-        if self.tool == Tool::Pen && self.stroke_active {
+        if matches!(self.tool, Tool::Pen | Tool::Eraser) && self.stroke_active {
             self.push_stroke_point(dx, dy);
         } else if let Some(shape) = &mut self.preview_shape {
             shape.end = (dx, dy);
@@ -251,7 +251,7 @@ impl Document {
 
     pub fn pointer_up(&mut self, screen_x: f32, screen_y: f32) {
         let (dx, dy) = self.camera.to_doc(screen_x, screen_y);
-        if self.tool == Tool::Pen {
+        if matches!(self.tool, Tool::Pen | Tool::Eraser) {
             self.push_stroke_point(dx, dy);
             self.commit_stroke();
         } else if let Some(mut shape) = self.preview_shape.take() {
@@ -290,6 +290,7 @@ impl Document {
         }
         let radius = self.brush_size * 0.5;
         let color = self.color;
+        let erasing = self.tool == Tool::Eraser;
         let active = self.active_layer;
         let stamps = stroke_stamps(&points, radius);
 
@@ -322,7 +323,12 @@ impl Document {
         let mut painted = false;
         if let Some(tiles) = self.layers.get_mut(active).and_then(|l| l.tiles_mut()) {
             for p in &stamps {
-                if tiles.stamp_disc(p.x, p.y, radius, color) > 0 {
+                let touched = if erasing {
+                    tiles.stamp_disc_erase(p.x, p.y, radius)
+                } else {
+                    tiles.stamp_disc(p.x, p.y, radius, color)
+                };
+                if touched > 0 {
                     painted = true;
                 }
             }

@@ -117,6 +117,10 @@ struct CalmIsland<Content: View>: View {
                 colors.surface,
                 in: RoundedRectangle(cornerRadius: Tokens.Radius.island, style: .continuous)
             )
+            .overlay(
+                RoundedRectangle(cornerRadius: Tokens.Radius.island, style: .continuous)
+                    .strokeBorder(colors.islandBorder, lineWidth: 1)
+            )
     }
 }
 
@@ -190,6 +194,7 @@ struct CalmPlainButton: View {
 }
 
 struct CalmIconButton<Icon: View>: View {
+    @Environment(\.themeColors) private var colors
     let action: () -> Void
     @ViewBuilder let icon: () -> Icon
 
@@ -197,7 +202,7 @@ struct CalmIconButton<Icon: View>: View {
         Button(action: action) {
             icon()
                 .padding(Tokens.Space.sm)
-                .calmSurface()
+                .background(colors.surface, in: Circle())
         }
         .buttonStyle(.plain)
         .calmPointer()
@@ -273,11 +278,16 @@ struct CalmRow<Leading: View>: View {
         HStack(spacing: Tokens.Space.md) {
             leading()
             VStack(alignment: .leading, spacing: 2) {
-                if useTitleSize {
-                    CalmText.title(title)
-                } else {
-                    CalmText.body(title, strong: true)
+                Group {
+                    if useTitleSize {
+                        CalmText.title(title)
+                    } else {
+                        CalmText.body(title, strong: true)
+                    }
                 }
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .help(title)
                 CalmText.muted(subtitle)
             }
             Spacer()
@@ -328,8 +338,11 @@ struct CalmChip: View {
                 Text(title)
                     .font(.system(size: Tokens.TypeSize.label, weight: selected ? .semibold : .medium))
                     .foregroundStyle(selected ? colors.text : colors.textMuted)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
             }
             .buttonStyle(.plain)
+            .help(title)
             Button(action: onClose) {
                 Text("×")
                     .font(.system(size: Tokens.TypeSize.label, weight: .medium))

@@ -8,11 +8,12 @@ enum CalmTool: UInt32 {
     case rect = 2
     case ellipse = 3
     case arrow = 4
+    case eraser = 5
 
     var isShape: Bool {
         switch self {
         case .line, .rect, .ellipse, .arrow: return true
-        case .pen: return false
+        case .pen, .eraser: return false
         }
     }
 }
@@ -193,6 +194,13 @@ final class Engine: ObservableObject, @unchecked Sendable {
     func setAccent(projectId: String, color: Color) {
         guard let ptr else { return }
         _ = projectId.withCString { calm_project_set_accent(ptr, $0, color.packedRGB) }
+        syncState()
+        refreshRecents()
+    }
+
+    func deleteProject(id: String) {
+        guard let ptr else { return }
+        _ = id.withCString { calm_project_delete(ptr, $0) }
         syncState()
         refreshRecents()
     }

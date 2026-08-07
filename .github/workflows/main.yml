@@ -7,18 +7,31 @@ on:
   pull_request:
     paths-ignore:
       - '**.md'
+  workflow_dispatch: {}
 
 env:
   CARGO_TARGET_DIR: engine/target
 
 jobs:
-  core:
-    name: core (${{ matrix.os }})
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
+  core-linux:
+    name: core (ubuntu-latest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+      - name: test core
+        run: cargo test --manifest-path engine/Cargo.toml -p calumma-core --all-targets
+      - name: clippy core
+        run: cargo clippy --manifest-path engine/Cargo.toml -p calumma-core --all-targets -- -D warnings
+      - name: coverage core
+        run: ./manage.py coverage --package calumma-core
+
+  core-windows:
+    name: core (windows-latest)
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -29,12 +42,15 @@ jobs:
 
   macos:
     name: macos workspace
+    if: github.event_name == 'workflow_dispatch'
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt, llvm-tools-preview
+      - name: install xcodegen
+        run: command -v xcodegen || brew install xcodegen
       - name: fmt
         run: cargo fmt --manifest-path engine/Cargo.toml --all -- --check
       - name: clippy
@@ -47,3 +63,38 @@ jobs:
         run: cargo build --manifest-path engine/Cargo.toml -p calumma-ffi
       - name: core purity
         run: ./manage.py purity
+      - name: test swift
+        run: ./manage.py test-swift
+
+  macos-release:
+    name: macos release (.dmg)
+    if: github.event_name == 'workflow_dispatch' && success()
+    needs: macos
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: install xcodegen
+        run: command -v xcodegen || brew install xcodegen
+      - name: generate tokens
+        run: ./manage.py tokens
+      - name: build ffi (release)
+        run: cargo build --manifest-path engine/Cargo.toml -p calumma-ffi --release
+      - name: xcodegen generate
+        working-directory: platform/macos
+        run: xcodegen generate
+      - name: xcodebuild release
+        working-directory: platform/macos
+        run: |
+          xcodebuild -project Calumma.xcodeproj -scheme Calumma -configuration Release \
+            -derivedDataPath build/DerivedData build
+      - name: package dmg
+        run: |
+          set -euo pipefail
+          app_path="platform/macos/build/DerivedData/Build/Products/Release/Calumma.app"
+          mkdir -p dist
+          hdiutil create -volname Calumma -srcfolder "$app_path" -ov -format UDZO dist/Calumma.dmg
+      - uses: actions/upload-artifact@v4
+        with:
+          name: calumma-macos-dmg
+          path: dist/Calumma.dmg

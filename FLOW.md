@@ -66,8 +66,9 @@ The island is a live import target, not decoration. Three ways in, all equivalen
 Any of these creates a **new project sized to the image**, with the image blitted into the
 first paint layer (`Layer 1`) above Paper, then opens it in the Editor.
 
-Formats: **PNG, JPG/JPEG, AVIF, WEBP, PSD** (PSD imports the flattened composite). Clipboard
-paste additionally accepts TIFF, because that is the form most macOS apps put images on the
+Formats: **PNG, JPG/JPEG, AVIF, WEBP, PSD, HEIC/HEIF, SVG** (PSD imports the flattened
+composite; SVG is rasterized on import, not kept as vector data). Clipboard paste
+additionally accepts TIFF, because that is the form most macOS apps put images on the
 pasteboard in. Decoding is ImageIO in the shell; anything larger than `IMPORT_MAX_SIDE`
 (engine constant, 4096 px) is downscaled at decode time so a huge photo cannot blow up the
 tile grid.
@@ -93,14 +94,21 @@ showing — that screen already *is* the create form.
 
 - **Tabs:** compact titlebar (right of traffic lights); switch = save → close → open selected.
   Each tab leads with its **project accent dot** — click it to rename or recolour.
-- **Tools / layers / canvas:** three flush, square-cornered, full-height bands. No gutter and
-  no screen padding — the seam between two surface colours is the only border, and the
-  canvas takes every pixel that is not a panel.
+- **Tools / layers / canvas:** three rounded, bordered islands, full-height, separated by a
+  minimal gap and window margin (`space.sm`) — each has its own `islandBorder` stroke.
+- **Tools island** (top to bottom): a 2-column tool grid (Pen, Eraser, Shape); a contextual
+  options section below it that changes with the selected tool (shape sub-picker + fill
+  toggle for shape tools, brush size for all of them); a quick-colour section (two clickable
+  swatches to flip between two colours, a larger swatch that opens the full macOS colour
+  panel, and a drag-to-scrub hue strip); the AI menu pinned at the bottom.
 - **Board:** Metal surface clipped as its own island. Desk fill, grid, and the paper border
   come from tokens via `calm_engine_set_board_colors` — the desk is darker than the app
   background in both themes, and the paper border inverts with the theme (dark ring on the
   light board, light ring on the dark board).
-- **Layers:** add / select / visibility / delete; first layer is **Paper** (white vector rect); hover shows thumbnail popover + shader outline.
+- **Layers:** add / select / visibility / delete; first layer is **Paper**, a normal
+  white-filled raster layer — paintable/eraseable like any other layer, not a background
+  decoration. The list shows the topmost (frontmost) layer first, matching stack order.
+  Hover shows a thumbnail popover; each row also carries a persistent thumbnail.
 - **AI:** tools-island icon menu; Remove Background when Vision is available.
 - **Zoom:** a pill pinned **bottom-trailing inside the canvas island** — `−`, slider, `+`,
   percentage, Fit. Range is canvas-relative: zoom out until the paper fills ~50% of the
@@ -190,6 +198,7 @@ panel toggles are shell knobs.
 | `R` | Rectangle | Ps rectangle is often `U` (shape); `R` is fine for now |
 | `O` | Ellipse | Ps ellipse under shape (`U`) |
 | `A` | Arrow | Calumma-specific |
+| `E` | Eraser | Yes |
 | `F` | Toggle shape fill | — |
 | `[` / `]` | Brush smaller / larger | Yes |
 

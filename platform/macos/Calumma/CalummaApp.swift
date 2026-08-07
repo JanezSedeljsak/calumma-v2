@@ -13,12 +13,14 @@ struct CalummaApp: App {
             Group {
                 if app.showLanding {
                     NewProjectView()
+                        .frame(width: Tokens.Window.mainWidth, height: Tokens.Window.mainHeight)
                 } else {
                     EditorView()
+                        .frame(minWidth: Tokens.Window.mainMinWidth, minHeight: Tokens.Window.mainMinHeight)
                 }
             }
-            .frame(minWidth: Tokens.Window.mainMinWidth, minHeight: Tokens.Window.mainMinHeight)
             .background(TitleBarZoomOnDoubleClick())
+            .background(WindowAccessor { window in app.mainWindow = window })
             .environmentObject(app)
             .themeColors(app.colors)
             .l10n(app.l10n)
@@ -31,6 +33,7 @@ struct CalummaApp: App {
             }
         }
         .defaultSize(width: Tokens.Window.mainWidth, height: Tokens.Window.mainHeight)
+        .windowResizability(.contentSize)
         .windowStyle(.hiddenTitleBar)
         .windowToolbarStyle(.unifiedCompact)
         .commands {
@@ -63,7 +66,7 @@ struct CalummaApp: App {
                 .preferredColorScheme(app.theme.isDark ? .dark : .light)
         }
         .defaultSize(width: Tokens.Window.newProjectWidth, height: Tokens.Window.newProjectHeight)
-        .windowResizability(.contentMinSize)
+        .windowResizability(.contentSize)
     }
 }
 
@@ -85,10 +88,7 @@ private struct NewProjectWindow: View {
 
     var body: some View {
         NewProjectView(isLanding: false)
-            .frame(
-                minWidth: Tokens.Window.newProjectMinWidth,
-                minHeight: Tokens.Window.newProjectMinHeight
-            )
+            .frame(width: Tokens.Window.newProjectWidth, height: Tokens.Window.newProjectHeight)
             .onChange(of: app.activeTabId) { _, _ in
                 dismissWindow(id: CalmWindowId.newProject)
             }

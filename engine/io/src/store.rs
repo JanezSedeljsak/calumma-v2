@@ -313,7 +313,8 @@ impl ProjectStore {
         doc.active_layer = doc
             .layers
             .iter()
-            .position(|l| l.content.is_raster())
+            .position(|l| l.content.is_raster() && !l.is_paper())
+            .or_else(|| doc.layers.iter().position(|l| l.content.is_raster()))
             .unwrap_or(0);
         if missing_paper {
             self.save(&mut doc)?;
@@ -445,7 +446,14 @@ impl ProjectStore {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use calumma_core::tile::TILE_SIZE;
     use tempfile::tempdir;
+
+    fn paper_tile_count(width: u32, height: u32) -> i64 {
+        let tiles_x = width.div_ceil(TILE_SIZE) as i64;
+        let tiles_y = height.div_ceil(TILE_SIZE) as i64;
+        tiles_x * tiles_y
+    }
 
     fn store() -> (tempfile::TempDir, ProjectStore) {
         let dir = tempdir().unwrap();
@@ -468,7 +476,7 @@ mod tests {
     fn paint_index(doc: &Document) -> usize {
         doc.layers
             .iter()
-            .position(|l| l.content.is_raster())
+            .position(|l| l.content.is_raster() && !l.is_paper())
             .expect("raster layer")
     }
 
@@ -599,7 +607,7 @@ mod tests {
         grid.set_pixel(600, 10, [2, 2, 2, 255]);
         grid.set_pixel(10, 600, [3, 3, 3, 255]);
         store.save(&mut doc).unwrap();
-        assert_eq!(tile_rows(&store, &doc.id), 3);
+        assert_eq!(tile_rows(&store, &doc.id), paper_tile_count(1024, 1024) + 3);
 
         assert!(doc.layers[i]
             .dirty_tiles(DirtyChannel::Store)
@@ -636,11 +644,11 @@ mod tests {
             .unwrap()
             .set_pixel(5, 5, [1, 2, 3, 255]);
         store.save(&mut doc).unwrap();
-        assert_eq!(tile_rows(&store, &doc.id), 1);
+        assert_eq!(tile_rows(&store, &doc.id), paper_tile_count(512, 512) + 1);
 
         doc.clear_active_layer();
         store.save(&mut doc).unwrap();
-        assert_eq!(tile_rows(&store, &doc.id), 0);
+        assert_eq!(tile_rows(&store, &doc.id), paper_tile_count(512, 512));
         let loaded = store.open_project(&doc.id).unwrap();
         assert!(loaded.layers[paint_index(&loaded)]
             .tiles()
@@ -666,7 +674,7 @@ mod tests {
         store.save(&mut doc).unwrap();
         let loaded = store.open_project(&doc.id).unwrap();
         assert_eq!(loaded.layers.len(), 2);
-        assert_eq!(tile_rows(&store, &doc.id), 0);
+        assert_eq!(tile_rows(&store, &doc.id), paper_tile_count(256, 256));
     }
 
     #[test]
@@ -676,10 +684,9 @@ mod tests {
         let loaded = store.open_project(&doc.id).unwrap();
         assert!(loaded.layers[0].is_paper());
         assert!(loaded.layers[0].visible);
-        let paths = loaded.layers[0].content.paths().unwrap();
-        assert_eq!(paths.len(), 1);
-        assert!(paths[0].fill);
-        assert_eq!(paths[0].color, [255, 255, 255, 255]);
+        let tiles = loaded.layers[0].tiles().unwrap();
+        assert_eq!(tiles.get_pixel(0, 0), [255, 255, 255, 255]);
+        assert_eq!(tiles.get_pixel(63, 47), [255, 255, 255, 255]);
     }
 
     #[test]

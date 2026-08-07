@@ -1,3 +1,4 @@
+import AppKit
 import Combine
 import SwiftUI
 
@@ -15,11 +16,20 @@ final class AppModel: ObservableObject {
 
     @Published var tool: CalmTool = .pen
     @Published var lastShapeTool: CalmTool = .rect
-    @Published var color: Color = Color(red: 0.1, green: 0.1, blue: 0.1)
+    @Published var color: Color = Color(red: 0.1, green: 0.1, blue: 0.1) {
+        didSet { quickColors[activeQuickColorIndex] = color }
+    }
+    @Published var quickColors: [Color] = [
+        Color(red: 0.1, green: 0.1, blue: 0.1),
+        Color.white,
+    ]
+    @Published var activeQuickColorIndex = 0
     @Published var brushSize: Float = 3
     @Published var fill = false
     @Published var layersOpen = true
     @Published var spacePan = false
+
+    weak var mainWindow: NSWindow?
 
     private var cancellables = Set<AnyCancellable>()
 
@@ -36,10 +46,13 @@ final class AppModel: ObservableObject {
             .store(in: &cancellables)
     }
 
-    func create(name: String, width: Int, height: Int) {
+    func create(name: String, width: Int, height: Int, accent: Color? = nil) {
         let resolved = name.isEmpty ? l10n.untitled : name
         guard let id = engine.createProject(name: resolved, width: width, height: height) else {
             return
+        }
+        if let accent {
+            engine.setAccent(projectId: id, color: accent)
         }
         adopt(id: id, name: resolved, width: width, height: height)
     }
@@ -97,6 +110,36 @@ final class AppModel: ObservableObject {
         showLanding = false
         applyKnobs()
         engine.fit()
+        maximizeMainWindow()
+    }
+
+    func selectQuickColor(_ index: Int) {
+        guard quickColors.indices.contains(index) else { return }
+        activeQuickColorIndex = index
+        color = quickColors[index]
+    }
+
+    var colorHue: Float {
+        var hue: CGFloat = 0
+        (NSColor(color).usingColorSpace(.sRGB) ?? .black)
+            .getHue(&hue, saturation: nil, brightness: nil, alpha: nil)
+        return Float(hue)
+    }
+
+    func setHue(_ hue: Float) {
+        let ns = NSColor(color).usingColorSpace(.sRGB) ?? .black
+        var saturation: CGFloat = 0
+        var brightness: CGFloat = 0
+        var alpha: CGFloat = 0
+        ns.getHue(nil, saturation: &saturation, brightness: &brightness, alpha: &alpha)
+        color = Color(hue: Double(hue), saturation: Double(saturation), brightness: Double(brightness), opacity: Double(alpha))
+    }
+
+    private func maximizeMainWindow() {
+        DispatchQueue.main.async { [weak self] in
+            guard let window = self?.mainWindow, let screen = window.screen else { return }
+            window.setFrame(screen.visibleFrame, display: true, animate: true)
+        }
     }
 
     func openRecent(_ project: ProjectInfo) {
@@ -128,6 +171,7 @@ final class AppModel: ObservableObject {
         engine.fit()
         engine.syncState()
         engine.refreshLayers()
+        maximizeMainWindow()
     }
 
     func closeTab(_ id: String) {

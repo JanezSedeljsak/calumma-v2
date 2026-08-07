@@ -136,6 +136,7 @@ const TOOL_LINE: u32 = 1u;
 const TOOL_RECT: u32 = 2u;
 const TOOL_ELLIPSE: u32 = 3u;
 const TOOL_ARROW: u32 = 4u;
+const TOOL_ERASER: u32 = 5u;
 
 const FILL_OUTLINE: f32 = 0.0;
 const FILL_SOLID: f32 = 1.0;

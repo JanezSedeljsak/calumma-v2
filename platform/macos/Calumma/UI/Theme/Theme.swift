@@ -20,6 +20,7 @@ struct ThemeColors {
     let desk: Color
     let deskGrid: Color
     let paperBorder: Color
+    let islandBorder: Color
 
     static func colors(for theme: AppTheme) -> ThemeColors {
         switch theme {
@@ -35,7 +36,8 @@ struct ThemeColors {
                 danger: Tokens.Light.danger,
                 desk: Tokens.Light.desk,
                 deskGrid: Tokens.Light.deskGrid,
-                paperBorder: Tokens.Light.paperBorder
+                paperBorder: Tokens.Light.paperBorder,
+                islandBorder: Tokens.Light.islandBorder
             )
         case .dark:
             return ThemeColors(
@@ -49,7 +51,8 @@ struct ThemeColors {
                 danger: Tokens.Dark.danger,
                 desk: Tokens.Dark.desk,
                 deskGrid: Tokens.Dark.deskGrid,
-                paperBorder: Tokens.Dark.paperBorder
+                paperBorder: Tokens.Dark.paperBorder,
+                islandBorder: Tokens.Dark.islandBorder
             )
         }
     }

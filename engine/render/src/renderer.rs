@@ -698,7 +698,12 @@ impl Renderer {
         );
 
         let radius = doc.brush_size * 0.5;
-        let instances = stroke_instances(&doc.stroke_points, radius, color);
+        let stroke_color = if doc.tool == Tool::Eraser {
+            ERASER_PREVIEW_COLOR
+        } else {
+            color
+        };
+        let instances = stroke_instances(&doc.stroke_points, radius, stroke_color);
         let stroke_count = instances.len();
         if stroke_count > 0 {
             self.ensure_stroke_capacity(stroke_count);
@@ -893,6 +898,8 @@ impl Renderer {
         self.dirty = doc.has_live_preview();
     }
 }
+
+const ERASER_PREVIEW_COLOR: [f32; 4] = [0.5, 0.5, 0.5, 0.5];
 
 fn stroke_instances(points: &[StrokePoint], radius: f32, color: [f32; 4]) -> Vec<StrokeInstance> {
     if points.is_empty() {
