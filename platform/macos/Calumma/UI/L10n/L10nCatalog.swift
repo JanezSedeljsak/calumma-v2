@@ -114,6 +114,9 @@ struct L10nCatalog: Equatable {
     var delete: String { self["delete"] }
     var cancel: String { self["cancel"] }
     var deleteProjectTitle: String { self["deleteProjectTitle"] }
+    var selectionTools: String { self["selectionTools"] }
+    var exportMenu: String { self["exportMenu"] }
+    var copyLayer: String { self["copyLayer"] }
 
     func languageName(_ language: AppLanguage) -> String {
         self[language.displayKey]

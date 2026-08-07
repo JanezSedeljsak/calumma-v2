@@ -2,10 +2,11 @@ use crate::camera::Camera;
 use crate::history::{History, TileSnapshot};
 use crate::layer::Layer;
 use crate::limits::{
-    BRUSH_SIZE_DEFAULT, DEFAULT_INK, MIN_STAMP_SPACING, MIN_STROKE_POINT_DISTANCE,
-    STAMP_COVERAGE_PADDING, STAMP_SPACING_RATIO, STROKE_POINT_CAPACITY,
+    BRUSH_SIZE_DEFAULT, DEFAULT_INK, FILL_TOLERANCE_DEFAULT, MIN_STAMP_SPACING,
+    MIN_STROKE_POINT_DISTANCE, STAMP_COVERAGE_PADDING, STAMP_SPACING_RATIO, STROKE_POINT_CAPACITY,
 };
 use crate::palette::BoardColors;
+use crate::selection::{Selection, SelectionShape};
 use crate::shape::{Shape, Tool};
 use crate::tile::{blend_over, DirtyChannel, DocRect, TileCoord, TILE_SIZE};
 use std::collections::HashSet;
@@ -46,6 +47,17 @@ pub fn stroke_stamps(points: &[StrokePoint], radius: f32) -> Vec<StrokePoint> {
         }
     }
     out
+}
+
+fn apply_mask(rgba: &mut [u8], mask: Option<&[u8]>) {
+    let Some(mask) = mask else {
+        return;
+    };
+    for (i, chunk) in rgba.chunks_exact_mut(4).enumerate() {
+        if let Some(&m) = mask.get(i) {
+            chunk[3] = ((chunk[3] as u32 * m as u32) / 255) as u8;
+        }
+    }
 }
 
 fn tiles_covering(rect: DocRect, out: &mut HashSet<TileCoord>) {
@@ -99,6 +111,7 @@ pub struct Document {
     pub stroke_active: bool,
     pub stroke_points: Vec<StrokePoint>,
     pub preview_shape: Option<Shape>,
+    pub selection: Option<Selection>,
     stroke_before: TileSnapshot,
 }
 
@@ -128,6 +141,7 @@ impl Document {
             stroke_active: false,
             stroke_points: Vec::with_capacity(STROKE_POINT_CAPACITY),
             preview_shape: None,
+            selection: None,
             stroke_before: TileSnapshot::new(),
         }
     }
@@ -224,12 +238,21 @@ impl Document {
 
     pub fn pointer_down(&mut self, screen_x: f32, screen_y: f32) {
         let (dx, dy) = self.camera.to_doc(screen_x, screen_y);
-        if matches!(self.tool, Tool::Pen | Tool::Eraser) {
+        if self.tool == Tool::Fill {
+            self.commit_fill(dx, dy);
+            return;
+        }
+        if matches!(self.tool, Tool::Pen | Tool::Eraser | Tool::SelectLasso) {
             self.begin_stroke();
             self.push_stroke_point(dx, dy);
         } else {
+            let shape_tool = match self.tool {
+                Tool::SelectRect => Tool::Rect,
+                Tool::SelectEllipse => Tool::Ellipse,
+                t => t,
+            };
             self.preview_shape = Some(Shape {
-                tool: self.tool,
+                tool: shape_tool,
                 start: (dx, dy),
                 end: (dx, dy),
                 half_width: self.brush_size * 0.5,
@@ -240,7 +263,7 @@ impl Document {
 
     pub fn pointer_move(&mut self, screen_x: f32, screen_y: f32) {
         let (dx, dy) = self.camera.to_doc(screen_x, screen_y);
-        if matches!(self.tool, Tool::Pen | Tool::Eraser) && self.stroke_active {
+        if matches!(self.tool, Tool::Pen | Tool::Eraser | Tool::SelectLasso) && self.stroke_active {
             self.push_stroke_point(dx, dy);
         } else if let Some(shape) = &mut self.preview_shape {
             shape.end = (dx, dy);
@@ -251,14 +274,22 @@ impl Document {
 
     pub fn pointer_up(&mut self, screen_x: f32, screen_y: f32) {
         let (dx, dy) = self.camera.to_doc(screen_x, screen_y);
-        if matches!(self.tool, Tool::Pen | Tool::Eraser) {
+        if matches!(self.tool, Tool::Pen | Tool::Eraser | Tool::SelectLasso) {
             self.push_stroke_point(dx, dy);
-            self.commit_stroke();
+            if self.tool == Tool::SelectLasso {
+                self.commit_lasso_selection();
+            } else {
+                self.commit_stroke();
+            }
         } else if let Some(mut shape) = self.preview_shape.take() {
             shape.end = (dx, dy);
             shape.half_width = self.brush_size * 0.5;
             shape.fill = self.fill;
-            self.commit_shape(shape);
+            if matches!(self.tool, Tool::SelectRect | Tool::SelectEllipse) {
+                self.commit_selection_shape(shape);
+            } else {
+                self.commit_shape(shape);
+            }
         }
     }
 
@@ -387,6 +418,267 @@ impl Document {
             .push_layer_tiles(layer_id, before, Some(active));
     }
 
+    fn commit_selection_shape(&mut self, shape: Shape) {
+        let selection_shape = match shape.tool {
+            Tool::Rect => SelectionShape::Rect {
+                start: shape.start,
+                end: shape.end,
+            },
+            Tool::Ellipse => SelectionShape::Ellipse {
+                start: shape.start,
+                end: shape.end,
+            },
+            _ => return,
+        };
+        self.selection = Some(Selection {
+            shape: selection_shape,
+        });
+    }
+
+    fn commit_lasso_selection(&mut self) {
+        self.stroke_active = false;
+        let points: Vec<(f32, f32)> = std::mem::take(&mut self.stroke_points)
+            .into_iter()
+            .map(|p| (p.x, p.y))
+            .collect();
+        if points.len() < 3 {
+            return;
+        }
+        self.selection = Some(Selection {
+            shape: SelectionShape::Lasso { points },
+        });
+    }
+
+    pub fn deselect(&mut self) {
+        self.selection = None;
+    }
+
+    fn commit_fill(&mut self, doc_x: f32, doc_y: f32) {
+        let x = doc_x.floor() as i32;
+        let y = doc_y.floor() as i32;
+        let scope = match &self.selection {
+            Some(sel) => sel.bounds(),
+            None => self.bounds(),
+        };
+        let Some(scope) = scope.intersect(self.bounds()) else {
+            return;
+        };
+        if !scope.contains(x, y) {
+            return;
+        }
+        if let Some(sel) = &self.selection {
+            if !sel.contains(x as f32 + 0.5, y as f32 + 0.5) {
+                return;
+            }
+        }
+        let active = self.active_layer;
+        let Some(layer) = self.layers.get(active) else {
+            return;
+        };
+        let layer_id = layer.id.clone();
+        let Some(grid) = layer.tiles() else {
+            return;
+        };
+        let mut coords = HashSet::new();
+        tiles_covering(scope, &mut coords);
+        let coords: Vec<TileCoord> = coords
+            .into_iter()
+            .filter(|c| grid.tile_in_bounds(*c))
+            .collect();
+        if coords.is_empty() {
+            return;
+        }
+        let before = grid.snapshot_tiles(&coords);
+        let color = self.color;
+        let selection = self.selection.clone();
+        let mut touched = 0;
+        if let Some(tiles) = self.layers.get_mut(active).and_then(|l| l.tiles_mut()) {
+            touched = crate::fill::flood_fill(
+                tiles,
+                scope,
+                x,
+                y,
+                color,
+                selection.as_ref(),
+                FILL_TOLERANCE_DEFAULT,
+            );
+        }
+        if touched == 0 {
+            return;
+        }
+        self.history
+            .push_layer_tiles(layer_id, before, Some(active));
+    }
+
+    pub fn composite_rgba(&self) -> (u32, u32, Vec<u8>) {
+        let w = self.width.max(1);
+        let h = self.height.max(1);
+        let mut out = vec![0u8; (w as usize) * (h as usize) * 4];
+        let mut layer_buf = vec![0u8; (w as usize) * (h as usize) * 4];
+        for layer in &self.layers {
+            if !layer.visible {
+                continue;
+            }
+            let Some(tiles) = layer.tiles() else {
+                continue;
+            };
+            layer_buf.iter_mut().for_each(|b| *b = 0);
+            tiles.copy_into_rgba(&mut layer_buf, w, h);
+            apply_mask(&mut layer_buf, layer.mask());
+            for (dst, src) in out.chunks_exact_mut(4).zip(layer_buf.chunks_exact(4)) {
+                if src[3] == 0 {
+                    continue;
+                }
+                let blended = blend_over(
+                    [dst[0], dst[1], dst[2], dst[3]],
+                    [src[0], src[1], src[2], src[3]],
+                );
+                dst.copy_from_slice(&blended);
+            }
+        }
+        (w, h, out)
+    }
+
+    pub fn layer_rgba(&self, index: usize) -> Option<(u32, u32, Vec<u8>)> {
+        let layer = self.layers.get(index)?;
+        let tiles = layer.tiles()?;
+        let w = self.width.max(1);
+        let h = self.height.max(1);
+        let mut buf = vec![0u8; (w as usize) * (h as usize) * 4];
+        tiles.copy_into_rgba(&mut buf, w, h);
+        apply_mask(&mut buf, layer.mask());
+        Some((w, h, buf))
+    }
+
+    pub fn layer_svg(&self, index: usize) -> Option<String> {
+        let layer = self.layers.get(index)?;
+        let paths = layer.content.paths()?;
+        let mut svg = format!(
+            "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{}\" height=\"{}\" viewBox=\"0 0 {} {}\">",
+            self.width, self.height, self.width, self.height
+        );
+        for path in paths {
+            let Some((&first, rest)) = path.points.split_first() else {
+                continue;
+            };
+            let mut d = format!("M {} {}", first.0, first.1);
+            for &(x, y) in rest {
+                d.push_str(&format!(" L {x} {y}"));
+            }
+            if path.closed {
+                d.push_str(" Z");
+            }
+            let alpha = path.color[3] as f32 / 255.0;
+            let (r, g, b) = (path.color[0], path.color[1], path.color[2]);
+            if path.fill {
+                svg.push_str(&format!(
+                    "<path d=\"{d}\" fill=\"rgb({r},{g},{b})\" fill-opacity=\"{alpha}\" />"
+                ));
+            } else {
+                svg.push_str(&format!(
+                    "<path d=\"{d}\" fill=\"none\" stroke=\"rgb({r},{g},{b})\" stroke-opacity=\"{alpha}\" stroke-width=\"{}\" />",
+                    path.stroke_width
+                ));
+            }
+        }
+        svg.push_str("</svg>");
+        Some(svg)
+    }
+
+    pub fn selection_rgba(&self) -> Option<(u32, u32, Vec<u8>)> {
+        let selection = self.selection.as_ref()?;
+        let bounds = selection.bounds().intersect(self.bounds())?;
+        let tiles = self.layers.get(self.active_layer)?.tiles()?;
+        let w = (bounds.max_x - bounds.min_x + 1) as u32;
+        let h = (bounds.max_y - bounds.min_y + 1) as u32;
+        let mut buf = vec![0u8; (w as usize) * (h as usize) * 4];
+        for y in 0..h as i32 {
+            for x in 0..w as i32 {
+                let doc_x = bounds.min_x + x;
+                let doc_y = bounds.min_y + y;
+                if !selection.contains(doc_x as f32 + 0.5, doc_y as f32 + 0.5) {
+                    continue;
+                }
+                let px = tiles.get_pixel(doc_x, doc_y);
+                if px[3] == 0 {
+                    continue;
+                }
+                let i = ((y as usize) * (w as usize) + (x as usize)) * 4;
+                buf[i..i + 4].copy_from_slice(&px);
+            }
+        }
+        Some((w, h, buf))
+    }
+
+    pub fn clear_selection_pixels(&mut self) -> bool {
+        let Some(selection) = self.selection.clone() else {
+            return false;
+        };
+        let Some(bounds) = selection.bounds().intersect(self.bounds()) else {
+            return false;
+        };
+        let active = self.active_layer;
+        let Some(layer) = self.layers.get(active) else {
+            return false;
+        };
+        let layer_id = layer.id.clone();
+        let Some(grid) = layer.tiles() else {
+            return false;
+        };
+        let mut coords = HashSet::new();
+        tiles_covering(bounds, &mut coords);
+        let coords: Vec<TileCoord> = coords
+            .into_iter()
+            .filter(|c| grid.tile_in_bounds(*c))
+            .collect();
+        if coords.is_empty() {
+            return false;
+        }
+        let before = grid.snapshot_tiles(&coords);
+        let mut touched = false;
+        if let Some(tiles) = self.layers.get_mut(active).and_then(|l| l.tiles_mut()) {
+            let count = tiles.paint_rect(bounds, |x, y, dst| {
+                if dst[3] == 0 || !selection.contains(x as f32 + 0.5, y as f32 + 0.5) {
+                    return None;
+                }
+                Some([0, 0, 0, 0])
+            });
+            touched = count > 0;
+        }
+        if !touched {
+            return false;
+        }
+        self.history
+            .push_layer_tiles(layer_id, before, Some(active));
+        true
+    }
+
+    pub fn paste_image_as_layer(
+        &mut self,
+        name: impl Into<String>,
+        rgba: &[u8],
+        width: u32,
+        height: u32,
+    ) -> bool {
+        let expected = (width as usize) * (height as usize) * 4;
+        if width == 0 || height == 0 || rgba.len() < expected {
+            return false;
+        }
+        let (ox, oy) = self
+            .selection
+            .as_ref()
+            .map(|s| {
+                let b = s.bounds();
+                (b.min_x, b.min_y)
+            })
+            .unwrap_or((0, 0));
+        self.add_layer(name);
+        let Some(tiles) = self.active_mut().and_then(|l| l.tiles_mut()) else {
+            return false;
+        };
+        tiles.blit_rgba_at(rgba, width, height, ox, oy) > 0
+    }
+
     pub fn undo(&mut self) -> bool {
         let mut active = self.active_layer;
         let changed = self.history.undo(&mut self.layers, &mut active);
@@ -427,7 +719,10 @@ impl Document {
     }
 
     pub fn has_live_preview(&self) -> bool {
-        self.stroke_active || self.preview_shape.is_some() || self.hover_layer.is_some()
+        self.stroke_active
+            || self.preview_shape.is_some()
+            || self.hover_layer.is_some()
+            || self.selection.is_some()
     }
 
     pub fn tile_size(&self) -> u32 {
@@ -598,5 +893,166 @@ mod tests {
         let mut doc = Document::new("p".into(), "t", 128, 128);
         doc.clear_active_layer();
         assert!(!doc.history.can_undo());
+    }
+
+    #[test]
+    fn rect_select_then_copy_extracts_only_selected_pixels() {
+        let mut doc = Document::new("p".into(), "t", 64, 64);
+        doc.layers[doc.active_layer]
+            .tiles_mut()
+            .unwrap()
+            .set_pixel(10, 10, [1, 2, 3, 255]);
+        doc.layers[doc.active_layer]
+            .tiles_mut()
+            .unwrap()
+            .set_pixel(40, 40, [9, 9, 9, 255]);
+        doc.tool = Tool::SelectRect;
+        doc.resize_viewport(64.0, 64.0, 1.0);
+        doc.fit_to_view();
+        let (s0x, s0y) = doc.camera.to_screen(5.0, 5.0);
+        let (s1x, s1y) = doc.camera.to_screen(20.0, 20.0);
+        doc.pointer_down(s0x, s0y);
+        doc.pointer_move(s1x, s1y);
+        doc.pointer_up(s1x, s1y);
+        assert!(doc.selection.is_some());
+
+        let (w, h, rgba) = doc.selection_rgba().expect("selection copy");
+        assert!((w as usize) * (h as usize) * 4 == rgba.len());
+        let has_orange = rgba.chunks_exact(4).any(|px| px == [1, 2, 3, 255]);
+        assert!(has_orange);
+        let has_far_pixel = rgba.chunks_exact(4).any(|px| px == [9, 9, 9, 255]);
+        assert!(!has_far_pixel);
+    }
+
+    #[test]
+    fn clear_selection_pixels_only_touches_selection_and_is_undoable() {
+        let mut doc = Document::new("p".into(), "t", 64, 64);
+        doc.layers[doc.active_layer]
+            .tiles_mut()
+            .unwrap()
+            .set_pixel(10, 10, [1, 2, 3, 255]);
+        doc.layers[doc.active_layer]
+            .tiles_mut()
+            .unwrap()
+            .set_pixel(40, 40, [9, 9, 9, 255]);
+        doc.selection = Some(Selection {
+            shape: SelectionShape::Rect {
+                start: (0.0, 0.0),
+                end: (20.0, 20.0),
+            },
+        });
+        assert!(doc.clear_selection_pixels());
+        assert_eq!(pixel(&doc, doc.active_layer, 10, 10), [0, 0, 0, 0]);
+        assert_eq!(pixel(&doc, doc.active_layer, 40, 40), [9, 9, 9, 255]);
+        assert!(doc.undo());
+        assert_eq!(pixel(&doc, doc.active_layer, 10, 10), [1, 2, 3, 255]);
+    }
+
+    #[test]
+    fn paste_image_creates_new_layer_at_selection_origin() {
+        let mut doc = Document::new("p".into(), "t", 64, 64);
+        doc.selection = Some(Selection {
+            shape: SelectionShape::Rect {
+                start: (10.0, 10.0),
+                end: (12.0, 12.0),
+            },
+        });
+        let rgba = vec![5u8, 6, 7, 255, 5, 6, 7, 255, 5, 6, 7, 255, 5, 6, 7, 255];
+        let before = doc.layers.len();
+        assert!(doc.paste_image_as_layer("Pasted", &rgba, 2, 2));
+        assert_eq!(doc.layers.len(), before + 1);
+        assert_eq!(pixel(&doc, doc.active_layer, 10, 10), [5, 6, 7, 255]);
+        assert_eq!(pixel(&doc, doc.active_layer, 0, 0), [0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn lasso_selection_commits_from_stroke_points() {
+        let mut doc = Document::new("p".into(), "t", 64, 64);
+        doc.tool = Tool::SelectLasso;
+        doc.resize_viewport(64.0, 64.0, 1.0);
+        doc.fit_to_view();
+        for (x, y) in [(5.0, 5.0), (20.0, 5.0), (20.0, 20.0), (5.0, 20.0)] {
+            let (sx, sy) = doc.camera.to_screen(x, y);
+            if doc.stroke_active {
+                doc.pointer_move(sx, sy);
+            } else {
+                doc.pointer_down(sx, sy);
+            }
+        }
+        let (sx, sy) = doc.camera.to_screen(5.0, 20.0);
+        doc.pointer_up(sx, sy);
+        match &doc.selection {
+            Some(Selection {
+                shape: SelectionShape::Lasso { points },
+            }) => assert!(points.len() >= 3),
+            _ => panic!("expected a lasso selection"),
+        }
+    }
+
+    #[test]
+    fn composite_rgba_blends_visible_layers_and_skips_hidden() {
+        let mut doc = Document::new("p".into(), "t", 4, 4);
+        doc.layers[0]
+            .tiles_mut()
+            .unwrap()
+            .set_pixel(0, 0, [255, 255, 255, 255]);
+        doc.layers[1]
+            .tiles_mut()
+            .unwrap()
+            .set_pixel(1, 1, [10, 20, 30, 255]);
+        doc.add_layer("Hidden");
+        let hidden_index = doc.active_layer;
+        doc.layers[hidden_index]
+            .tiles_mut()
+            .unwrap()
+            .set_pixel(2, 2, [1, 1, 1, 255]);
+        doc.set_layer_visible(hidden_index, false);
+
+        let (w, h, rgba) = doc.composite_rgba();
+        assert_eq!((w, h), (4, 4));
+        let px = |x: usize, y: usize| -> [u8; 4] {
+            let i = (y * w as usize + x) * 4;
+            [rgba[i], rgba[i + 1], rgba[i + 2], rgba[i + 3]]
+        };
+        assert_eq!(px(0, 0), [255, 255, 255, 255]);
+        assert_eq!(px(1, 1), [10, 20, 30, 255]);
+        // Paper is opaque white everywhere, so a skipped hidden layer still
+        // shows paper through, not transparency — proves the hidden pixel
+        // ([1, 1, 1, 255]) did not make it into the composite.
+        assert_eq!(px(2, 2), [255, 255, 255, 255]);
+    }
+
+    #[test]
+    fn fill_tool_commits_on_pointer_down_and_undoes() {
+        let mut doc = Document::new("p".into(), "t", 64, 64);
+        doc.tool = Tool::Fill;
+        doc.color = [200, 0, 0, 255];
+        doc.resize_viewport(64.0, 64.0, 1.0);
+        doc.fit_to_view();
+        let (sx, sy) = doc.camera.to_screen(32.0, 32.0);
+        doc.pointer_down(sx, sy);
+        assert_eq!(pixel(&doc, doc.active_layer, 32, 32), [200, 0, 0, 255]);
+        assert!(doc.history.can_undo());
+        assert!(doc.undo());
+        assert_eq!(pixel(&doc, doc.active_layer, 32, 32), [0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn fill_tool_stays_within_active_selection() {
+        let mut doc = Document::new("p".into(), "t", 64, 64);
+        doc.tool = Tool::Fill;
+        doc.color = [1, 2, 3, 255];
+        doc.selection = Some(Selection {
+            shape: SelectionShape::Rect {
+                start: (0.0, 0.0),
+                end: (16.0, 64.0),
+            },
+        });
+        doc.resize_viewport(64.0, 64.0, 1.0);
+        doc.fit_to_view();
+        let (sx, sy) = doc.camera.to_screen(8.0, 8.0);
+        doc.pointer_down(sx, sy);
+        assert_eq!(pixel(&doc, doc.active_layer, 8, 8), [1, 2, 3, 255]);
+        assert_eq!(pixel(&doc, doc.active_layer, 40, 8), [0, 0, 0, 0]);
     }
 }

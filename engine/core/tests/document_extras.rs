@@ -10,7 +10,10 @@ fn default_document_has_paper_and_raster() {
     assert_eq!(doc.layers.len(), 2);
     assert_eq!(doc.layers[0].name, PAPER);
     assert!(doc.layers[0].content.is_raster());
-    assert_eq!(doc.layers[0].tiles().unwrap().get_pixel(0, 0), [255, 255, 255, 255]);
+    assert_eq!(
+        doc.layers[0].tiles().unwrap().get_pixel(0, 0),
+        [255, 255, 255, 255]
+    );
     assert_eq!(doc.layers[1].name, LAYER_ONE);
     assert!(doc.layers[1].content.is_raster());
     assert_eq!(doc.active_layer, 1);

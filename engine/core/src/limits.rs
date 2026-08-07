@@ -32,3 +32,5 @@ pub const ALPHA_MAX: u32 = u8::MAX as u32;
 pub const ALPHA_ROUND_BIAS: u32 = ALPHA_MAX / 2;
 
 pub const DEFAULT_INK: [u8; 4] = [26, 26, 26, ALPHA_OPAQUE];
+
+pub const FILL_TOLERANCE_DEFAULT: u8 = 24;

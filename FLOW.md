@@ -96,11 +96,12 @@ showing — that screen already *is* the create form.
   Each tab leads with its **project accent dot** — click it to rename or recolour.
 - **Tools / layers / canvas:** three rounded, bordered islands, full-height, separated by a
   minimal gap and window margin (`space.sm`) — each has its own `islandBorder` stroke.
-- **Tools island** (top to bottom): a 2-column tool grid (Pen, Eraser, Shape); a contextual
-  options section below it that changes with the selected tool (shape sub-picker + fill
-  toggle for shape tools, brush size for all of them); a quick-colour section (two clickable
-  swatches to flip between two colours, a larger swatch that opens the full macOS colour
-  panel, and a drag-to-scrub hue strip); the AI menu pinned at the bottom.
+- **Tools island** (top to bottom): a 3-column tool grid (Pen, Eraser, Shape, Select, Fill);
+  a contextual options section below it that changes with the selected tool (shape/selection
+  sub-picker + fill toggle for shape tools, brush size for the tools that use one — not Fill
+  or the selection tools); a quick-colour section (two clickable swatches to flip between two
+  colours, a larger swatch that opens the full macOS colour panel, and a drag-to-scrub hue
+  strip); the AI menu pinned at the bottom.
 - **Board:** Metal surface clipped as its own island. Desk fill, grid, and the paper border
   come from tokens via `calm_engine_set_board_colors` — the desk is darker than the app
   background in both themes, and the paper border inverts with the theme (dark ring on the
@@ -151,13 +152,14 @@ Swift.
 | Store | OS-native app-data dir + `Calumma/calumma.sqlite` (macOS: `~/Library/Application Support/…`) |
 | Autosave / explicit save | Engine dirty flag + `⌘S`; tab switch and close save first |
 | One board per project | Bounded document size chosen at create time |
-| Export image / PDF | **Not shipped** (deferred) |
-| Import image / PSD | **Shipped** — new project from PNG / JPG / AVIF / WEBP / PSD |
-| Clipboard paste artwork | **Shipped** — `⌘V`, drag-and-drop, or click on the island |
-| Import into an existing board | **Not shipped** — import always creates a new project |
+| Export image | **Shipped** — PNG / JPEG / WebP / AVIF via the toolbar Export menu. PDF and PSD export are still deferred (PSD needs a from-scratch file-format writer; ImageIO has no PSD encoder). |
+| Import image / PSD | **Shipped** — new project from PNG / JPG / AVIF / WEBP / PSD / HEIC / SVG (SVG rasterized on import) |
+| Clipboard paste artwork | **Shipped** — `⌘V`, drag-and-drop, or click on the island (creates a new project) |
+| Import into an existing board | **Shipped** — drag-and-drop onto the canvas island, or `⌘V`, both add the image as a new layer (see Selection below) |
 
-When export lands, document formats and menus here; keep encode/decode in `engine/io` and
-file dialogs in the platform shell.
+Composite flatten (`Document::composite_rgba`) and single-layer extraction (`Document::layer_rgba`)
+live in `engine/core`; the actual PNG/JPEG/WebP/AVIF **encode** happens in the shell via
+`ImageIO`/`CGImageDestination` (`ImageEncode.swift`), mirroring how decode already works.
 
 ---
 
@@ -165,9 +167,50 @@ file dialogs in the platform shell.
 
 - Raster layers (sparse 256×256 tiles); optional non-destructive mask.
 - Add layer: `⌘⇧N` (shell).
-- Clear active layer: `⌘⌫`.
+- Clear active layer: `⌘⌫` — clears just the active **selection** instead if one exists.
+- Copy a specific layer: the copy icon on its row in the layers panel. Raster layers copy
+  as PNG; vector layers (none by default today) copy as SVG instead.
 - **Remove Background:** AI menu on the tools island → macOS Vision via `calm_engine_run_op` when available.
   Shell never mutates the stack after the op. Details: `AGENTS.md` → AI ops.
+
+## Selection
+
+Three selection tools share one grid slot on the tools island (`M` cycles to whichever was
+used last), with the specific shape chosen from the options panel below the tool grid:
+rectangle, ellipse, and freehand lasso. A selection is a shape (not a persisted
+document-sized mask) — `engine/core/src/selection.rs`'s `Selection`/`SelectionShape` store
+just the rect/ellipse endpoints or the lasso polygon, and coverage is computed on demand by
+reusing the same coverage math the Rect/Ellipse paint shapes already use. The outline
+renders by reusing the existing shape-preview and stroke-preview GPU pipelines rather than a
+dedicated marching-ants pass — a known simplification: the outline briefly stops rendering
+while a *different* tool's live paint preview is on-screen at the same time, reappearing
+once that drag ends.
+
+| Shortcut | Action |
+| --- | --- |
+| `M` | Selection tool (rect / ellipse / lasso — remembers the last one used) |
+| `Esc` | Deselect |
+| `⌘C` | Copy — the selection (from the active layer) if one exists, otherwise the whole
+  composited canvas. Always PNG on the clipboard. |
+| `⌘X` | Cut — copies the selection, then clears those pixels from the active layer. No-op
+  without a selection. |
+| `⌘⌫` | Clears the selection's pixels if one exists, otherwise clears the whole active
+  layer (existing binding, now selection-aware) |
+| `⌘V` | Paste — clipboard image becomes a new layer, positioned at the selection's origin
+  if one exists, otherwise at (0, 0) |
+
+Selection-scoped copy/cut only ever reads/writes the **active layer**, matching Photoshop's
+default `⌘C` (not "Copy Merged"). Paste always adds a new layer at the top of the stack
+("forward") rather than inserting directly above whatever was active — a deliberate
+simplification, not a real "insert above" primitive.
+
+## Export
+
+Toolbar → Export menu (top-right, next to Settings) → PNG / JPEG / WebP / AVIF. Flattens the
+full layer stack (`Document::composite_rgba`, respecting visibility and masks) and opens a
+native save panel. PDF and layered/flattened PSD export are not implemented — PSD in
+particular needs a hand-written file-format encoder, since ImageIO can only *read* PSD, not
+write it.
 
 ---
 
@@ -199,6 +242,8 @@ panel toggles are shell knobs.
 | `O` | Ellipse | Ps ellipse under shape (`U`) |
 | `A` | Arrow | Calumma-specific |
 | `E` | Eraser | Yes |
+| `M` | Selection (rect / ellipse / lasso — last one used) | Yes (Ps Marquee) |
+| `G` | Fill (bucket) | Yes (Ps Paint Bucket, shared with Gradient) |
 | `F` | Toggle shape fill | — |
 | `[` / `]` | Brush smaller / larger | Yes |
 
@@ -207,7 +252,9 @@ panel toggles are shell knobs.
 | Shortcut | Action |
 | --- | --- |
 | `⌘⇧N` | Add layer |
-| `⌘⌫` | Clear active layer |
+| `⌘⌫` | Clear the selection's pixels, or the whole active layer if no selection |
+| `⌘C` / `⌘X` / `⌘V` | Copy / cut / paste — see Selection in the section above |
+| `Esc` | Deselect |
 | `⌘=` / `⌘+` | Zoom in one core step (`limits::ZOOM_STEP`) |
 | `⌘-` | Zoom out one core step |
 
@@ -242,7 +289,9 @@ pointing hand on chrome controls.
 
 ## What is intentionally out of FLOW (for now)
 
-Image/PDF **export**, layered PSD (we import the flattened composite only), importing into
-an existing board, text layers, eyedropper, region select, vectorize, generate-texture,
+PDF export, layered/flattened **PSD export** (PNG/JPEG/WebP/AVIF export shipped instead —
+see Export above), layered PSD **import** (we import the flattened composite only),
+importing arbitrary drag/drop into an existing board (⌘V paste-as-layer is shipped; drag-
+and-drop onto an open board is not), text layers, eyedropper, vectorize, generate-texture,
 BiRefNet core remove-bg — see `AGENTS.md` deferred list.
 Add a FLOW section when a feature ships, not before.

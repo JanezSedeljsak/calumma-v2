@@ -477,12 +477,30 @@ impl TileGrid {
     }
 
     pub fn blit_rgba(&mut self, rgba: &[u8], width: u32, height: u32) -> usize {
+        self.blit_rgba_at(rgba, width, height, 0, 0)
+    }
+
+    pub fn blit_rgba_at(
+        &mut self,
+        rgba: &[u8],
+        width: u32,
+        height: u32,
+        offset_x: i32,
+        offset_y: i32,
+    ) -> usize {
         if width == 0 || height == 0 {
             return 0;
         }
-        let rect = DocRect::from_size(width, height);
+        let rect = DocRect::new(
+            offset_x,
+            offset_y,
+            offset_x + width as i32 - 1,
+            offset_y + height as i32 - 1,
+        );
         self.paint_rect(rect, |x, y, _| {
-            let i = ((y as usize) * (width as usize) + x as usize) * CHANNELS;
+            let sx = x - offset_x;
+            let sy = y - offset_y;
+            let i = ((sy as usize) * (width as usize) + sx as usize) * CHANNELS;
             let px = rgba.get(i..i + CHANNELS)?;
             if px[3] == 0 {
                 return None;

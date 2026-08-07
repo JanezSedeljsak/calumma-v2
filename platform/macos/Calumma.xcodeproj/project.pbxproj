@@ -13,6 +13,7 @@
 		5532C71BBF3A5EED57200013 /* BoardCanvas.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39E6D658C6F44E0516A14BB4 /* BoardCanvas.swift */; };
 		5A7B3293EAC1F7F674A6A491 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85740C4E5198AEEB3EA2C0CC /* Theme.swift */; };
 		6759E0A42C331AAF425F51ED /* L10nStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49ADDD086F4F4484B4F9E882 /* L10nStore.swift */; };
+		69E2FE9AE763FCDBACE3EE9C /* SvgIcon.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19DFAFAA7AD5666942643F1A /* SvgIcon.swift */; };
 		6FBFB2280DF99421D6C40CA1 /* Engine.swift in Sources */ = {isa = PBXBuildFile; fileRef = A259FF110DE306B5F4001C98 /* Engine.swift */; };
 		73A5E53754D26728ADB855A6 /* VisionPlatformOps.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEC7EF79AFCFCA58FBB65691 /* VisionPlatformOps.swift */; };
 		7A7467919BDC8A4BEF1466AC /* WindowChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21E774F5B09444C6679E12D2 /* WindowChrome.swift */; };
@@ -23,8 +24,10 @@
 		9B5C47125EA5CBBD6F34AD08 /* Components.swift in Sources */ = {isa = PBXBuildFile; fileRef = 67686C7F92215B7F5788DDCA /* Components.swift */; };
 		A27A6A1DB5A2F40E81ACFB97 /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84F6D524731F2D8CD1FB6BBA /* AppModel.swift */; };
 		AD89BE3B8450233B07A11855 /* ArtworkImport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 922F3BA26E2EF9E7A344668F /* ArtworkImport.swift */; };
+		C4C7A58D94824E00B253707E /* icons in Resources */ = {isa = PBXBuildFile; fileRef = 1D71706379045E8B7E735105 /* icons */; };
 		C565C035F7E02991B99F1697 /* EngineSmokeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7059AFA6095E58E7AB86069 /* EngineSmokeTests.swift */; };
 		D220BB681118C1CBBE954A5D /* translations in Resources */ = {isa = PBXBuildFile; fileRef = 80FFB98EB115FF0399DB79FF /* translations */; };
+		D2C480A100F61CE66310AF98 /* ImageEncode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73B27E8AC4A6063E13D35EE5 /* ImageEncode.swift */; };
 		D8928EDB95C0B122F7C03701 /* NewProjectView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE709E2E9424992120C350AD /* NewProjectView.swift */; };
 		DDC892B0235664E0FC2816FC /* CalummaApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7DCA78B24B6AD85210634C47 /* CalummaApp.swift */; };
 		E1BA85C44692027425973C63 /* L10nEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = D488F0962728FB92355DF3E4 /* L10nEnvironment.swift */; };
@@ -41,6 +44,8 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		19DFAFAA7AD5666942643F1A /* SvgIcon.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SvgIcon.swift; sourceTree = "<group>"; };
+		1D71706379045E8B7E735105 /* icons */ = {isa = PBXFileReference; lastKnownFileType = folder; name = icons; path = ../../design/icons; sourceTree = SOURCE_ROOT; };
 		21E774F5B09444C6679E12D2 /* WindowChrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowChrome.swift; sourceTree = "<group>"; };
 		34AA2EDC7B1CF298E5BA7DA8 /* Calumma.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Calumma.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		39E6D658C6F44E0516A14BB4 /* BoardCanvas.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BoardCanvas.swift; sourceTree = "<group>"; };
@@ -49,6 +54,7 @@
 		5684C95544F7D3CCEAFB2DA7 /* L10nCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = L10nCatalog.swift; sourceTree = "<group>"; };
 		67686C7F92215B7F5788DDCA /* Components.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Components.swift; sourceTree = "<group>"; };
 		6B5E7EEC191F5C7229542B29 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		73B27E8AC4A6063E13D35EE5 /* ImageEncode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageEncode.swift; sourceTree = "<group>"; };
 		7DCA78B24B6AD85210634C47 /* CalummaApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalummaApp.swift; sourceTree = "<group>"; };
 		80FFB98EB115FF0399DB79FF /* translations */ = {isa = PBXFileReference; lastKnownFileType = folder; name = translations; path = ../../translations; sourceTree = SOURCE_ROOT; };
 		84F6D524731F2D8CD1FB6BBA /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
@@ -72,6 +78,7 @@
 			children = (
 				922F3BA26E2EF9E7A344668F /* ArtworkImport.swift */,
 				A259FF110DE306B5F4001C98 /* Engine.swift */,
+				73B27E8AC4A6063E13D35EE5 /* ImageEncode.swift */,
 				CEC7EF79AFCFCA58FBB65691 /* VisionPlatformOps.swift */,
 			);
 			path = Bridge;
@@ -117,6 +124,7 @@
 			isa = PBXGroup;
 			children = (
 				80FFB98EB115FF0399DB79FF /* translations */,
+				F38DE3F7007812B6D7D89FB8 /* design */,
 			);
 			name = "calumma-v2";
 			path = ../..;
@@ -151,11 +159,20 @@
 				8A68AB27B47F3D877681F5A5 /* PasteArtworkIsland.swift */,
 				8785BD6BC0D2FF8DDBFB7CD2 /* ProjectSettingsCard.swift */,
 				6B5E7EEC191F5C7229542B29 /* SettingsView.swift */,
+				19DFAFAA7AD5666942643F1A /* SvgIcon.swift */,
 				21E774F5B09444C6679E12D2 /* WindowChrome.swift */,
 				8285B9E7F19A010757F350E0 /* L10n */,
 				6B79FEB7792F22AECCE42DAE /* Theme */,
 			);
 			path = UI;
+			sourceTree = "<group>";
+		};
+		F38DE3F7007812B6D7D89FB8 /* design */ = {
+			isa = PBXGroup;
+			children = (
+				1D71706379045E8B7E735105 /* icons */,
+			);
+			path = design;
 			sourceTree = "<group>";
 		};
 		FF66DBE8FC0531AC92F09843 /* Calumma */ = {
@@ -248,6 +265,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C4C7A58D94824E00B253707E /* icons in Resources */,
 				D220BB681118C1CBBE954A5D /* translations in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -289,6 +307,7 @@
 				87755761F779CE9B1C56775F /* EditorView.swift in Sources */,
 				6FBFB2280DF99421D6C40CA1 /* Engine.swift in Sources */,
 				7AE274FD18EAA2171ABD2734 /* Icons.swift in Sources */,
+				D2C480A100F61CE66310AF98 /* ImageEncode.swift in Sources */,
 				4BAE76E9B75FCA7CAB639C21 /* L10nCatalog.swift in Sources */,
 				E1BA85C44692027425973C63 /* L10nEnvironment.swift in Sources */,
 				6759E0A42C331AAF425F51ED /* L10nStore.swift in Sources */,
@@ -296,6 +315,7 @@
 				22FD5D2BC31EF4DCDBDE5C44 /* PasteArtworkIsland.swift in Sources */,
 				457103E8669325D73966619A /* ProjectSettingsCard.swift in Sources */,
 				98D7BC93FC54FD64A9C6285E /* SettingsView.swift in Sources */,
+				69E2FE9AE763FCDBACE3EE9C /* SvgIcon.swift in Sources */,
 				5A7B3293EAC1F7F674A6A491 /* Theme.swift in Sources */,
 				8EFC1F5633FB04D55BA323AB /* Tokens.generated.swift in Sources */,
 				73A5E53754D26728ADB855A6 /* VisionPlatformOps.swift in Sources */,

@@ -11,11 +11,13 @@ final class AppModel: ObservableObject {
     @Published var openTabs: [ProjectInfo] = []
     @Published var activeTabId: String?
     @Published var showLanding = true
+    @Published var newProjectOpen = false
     @Published var settingsOpen = false
     @Published var artworkError: String?
 
     @Published var tool: CalmTool = .pen
     @Published var lastShapeTool: CalmTool = .rect
+    @Published var lastSelectTool: CalmTool = .selectRect
     @Published var color: Color = Color(red: 0.1, green: 0.1, blue: 0.1) {
         didSet { quickColors[activeQuickColorIndex] = color }
     }
@@ -57,6 +59,52 @@ final class AppModel: ObservableObject {
         adopt(id: id, name: resolved, width: width, height: height)
     }
 
+    func copySelectionOrCanvas() {
+        let image = engine.hasSelection ? engine.selectionCGImage() : engine.compositeCGImage()
+        guard let image, let data = ImageEncode.pngData(image) else { return }
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setData(data, forType: .png)
+    }
+
+    func copyLayer(index: Int) {
+        if engine.isLayerVector(index: index), let svg = engine.layerSVG(index: index) {
+            let pasteboard = NSPasteboard.general
+            pasteboard.clearContents()
+            pasteboard.setString(svg, forType: NSPasteboard.PasteboardType("public.svg-image"))
+            return
+        }
+        guard let image = engine.layerCGImage(index: index), let data = ImageEncode.pngData(image)
+        else {
+            return
+        }
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setData(data, forType: .png)
+    }
+
+    func cutSelection() {
+        guard engine.hasSelection,
+              let image = engine.selectionCGImage(),
+              let data = ImageEncode.pngData(image)
+        else {
+            return
+        }
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setData(data, forType: .png)
+        engine.clearSelectionPixels()
+    }
+
+    func pasteFromClipboard() {
+        guard let artwork = ArtworkImport.fromPasteboard() else { return }
+        engine.pasteImage(
+            premultipliedRGBA: artwork.premultipliedRGBA,
+            width: artwork.width,
+            height: artwork.height
+        )
+    }
+
     func createFromArtwork(_ artwork: ArtworkImage?) {
         guard let artwork, let id = engine.createProject(name: artwork.name, artwork: artwork)
         else {
@@ -91,6 +139,17 @@ final class AppModel: ObservableObject {
         }
     }
 
+    func dropArtworkIntoWorkspace(providers: [NSItemProvider]) -> Bool {
+        ArtworkImport.load(providers: providers) { [weak self] artwork in
+            guard let artwork else { return }
+            self?.engine.pasteImage(
+                premultipliedRGBA: artwork.premultipliedRGBA,
+                width: artwork.width,
+                height: artwork.height
+            )
+        }
+    }
+
     func clearArtworkError() {
         artworkError = nil
     }
@@ -108,6 +167,7 @@ final class AppModel: ObservableObject {
         openTabs.append(info)
         activeTabId = id
         showLanding = false
+        newProjectOpen = false
         applyKnobs()
         engine.fit()
         maximizeMainWindow()
@@ -167,6 +227,7 @@ final class AppModel: ObservableObject {
         }
         activeTabId = projectId
         showLanding = false
+        newProjectOpen = false
         applyKnobs()
         engine.fit()
         engine.syncState()
@@ -236,6 +297,9 @@ final class AppModel: ObservableObject {
         tool = next
         if next.isShape {
             lastShapeTool = next
+        }
+        if next.isSelection {
+            lastSelectTool = next
         }
         applyKnobs()
     }

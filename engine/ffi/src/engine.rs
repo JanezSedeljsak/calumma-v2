@@ -863,6 +863,203 @@ pub unsafe extern "C" fn calm_engine_layer_thumbnail(
 }
 
 #[no_mangle]
+pub unsafe extern "C" fn calm_engine_composite_rgba(
+    engine: *mut CalmEngine,
+    out_rgba: *mut *mut u8,
+    out_w: *mut u32,
+    out_h: *mut u32,
+) -> CalmStatus {
+    if engine.is_null() || out_rgba.is_null() || out_w.is_null() || out_h.is_null() {
+        return CalmStatus::Null;
+    }
+    unsafe {
+        *out_rgba = ptr::null_mut();
+        *out_w = 0;
+        *out_h = 0;
+    }
+    match catch_unwind(AssertUnwindSafe(|| {
+        let mutex = unsafe { &*(engine as *const Mutex<Inner>) };
+        let inner = mutex.lock().map_err(|_| ())?;
+        let doc = inner.doc.as_ref().ok_or(())?;
+        let (w, h, rgba) = doc.composite_rgba();
+        let mut boxed = rgba.into_boxed_slice();
+        let ptr = boxed.as_mut_ptr();
+        std::mem::forget(boxed);
+        unsafe {
+            *out_rgba = ptr;
+            *out_w = w;
+            *out_h = h;
+        }
+        Ok::<(), ()>(())
+    })) {
+        Ok(Ok(())) => CalmStatus::Ok,
+        _ => CalmStatus::Error,
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn calm_engine_layer_rgba(
+    engine: *mut CalmEngine,
+    layer_index: u32,
+    out_rgba: *mut *mut u8,
+    out_w: *mut u32,
+    out_h: *mut u32,
+) -> CalmStatus {
+    if engine.is_null() || out_rgba.is_null() || out_w.is_null() || out_h.is_null() {
+        return CalmStatus::Null;
+    }
+    unsafe {
+        *out_rgba = ptr::null_mut();
+        *out_w = 0;
+        *out_h = 0;
+    }
+    match catch_unwind(AssertUnwindSafe(|| {
+        let mutex = unsafe { &*(engine as *const Mutex<Inner>) };
+        let inner = mutex.lock().map_err(|_| ())?;
+        let doc = inner.doc.as_ref().ok_or(())?;
+        let (w, h, rgba) = doc.layer_rgba(layer_index as usize).ok_or(())?;
+        let mut boxed = rgba.into_boxed_slice();
+        let ptr = boxed.as_mut_ptr();
+        std::mem::forget(boxed);
+        unsafe {
+            *out_rgba = ptr;
+            *out_w = w;
+            *out_h = h;
+        }
+        Ok::<(), ()>(())
+    })) {
+        Ok(Ok(())) => CalmStatus::Ok,
+        _ => CalmStatus::Error,
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn calm_engine_layer_svg(
+    engine: *mut CalmEngine,
+    layer_index: u32,
+) -> *mut c_char {
+    if engine.is_null() {
+        return ptr::null_mut();
+    }
+    match catch_unwind(AssertUnwindSafe(|| {
+        let mutex = unsafe { &*(engine as *const Mutex<Inner>) };
+        let inner = mutex.lock().map_err(|_| ())?;
+        let doc = inner.doc.as_ref().ok_or(())?;
+        let svg = doc.layer_svg(layer_index as usize).ok_or(())?;
+        CString::new(svg).map_err(|_| ())
+    })) {
+        Ok(Ok(svg)) => svg.into_raw(),
+        _ => ptr::null_mut(),
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn calm_engine_selection_rgba(
+    engine: *mut CalmEngine,
+    out_rgba: *mut *mut u8,
+    out_w: *mut u32,
+    out_h: *mut u32,
+) -> CalmStatus {
+    if engine.is_null() || out_rgba.is_null() || out_w.is_null() || out_h.is_null() {
+        return CalmStatus::Null;
+    }
+    unsafe {
+        *out_rgba = ptr::null_mut();
+        *out_w = 0;
+        *out_h = 0;
+    }
+    match catch_unwind(AssertUnwindSafe(|| {
+        let mutex = unsafe { &*(engine as *const Mutex<Inner>) };
+        let inner = mutex.lock().map_err(|_| ())?;
+        let doc = inner.doc.as_ref().ok_or(())?;
+        let (w, h, rgba) = doc.selection_rgba().ok_or(())?;
+        let mut boxed = rgba.into_boxed_slice();
+        let ptr = boxed.as_mut_ptr();
+        std::mem::forget(boxed);
+        unsafe {
+            *out_rgba = ptr;
+            *out_w = w;
+            *out_h = h;
+        }
+        Ok::<(), ()>(())
+    })) {
+        Ok(Ok(())) => CalmStatus::Ok,
+        _ => CalmStatus::Error,
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn calm_engine_has_selection(engine: *mut CalmEngine) -> c_int {
+    if engine.is_null() {
+        return 0;
+    }
+    match catch_unwind(AssertUnwindSafe(|| {
+        let mutex = unsafe { &*(engine as *const Mutex<Inner>) };
+        let inner = mutex.lock().map_err(|_| ())?;
+        let doc = inner.doc.as_ref().ok_or(())?;
+        Ok::<bool, ()>(doc.selection.is_some())
+    })) {
+        Ok(Ok(true)) => 1,
+        _ => 0,
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn calm_engine_deselect(engine: *mut CalmEngine) -> CalmStatus {
+    with_inner(engine, |inner| {
+        if let Some(doc) = &mut inner.doc {
+            doc.deselect();
+            if let Some(r) = &mut inner.renderer {
+                r.invalidate();
+            }
+        }
+        Ok(())
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn calm_engine_selection_clear_pixels(engine: *mut CalmEngine) -> CalmStatus {
+    with_inner(engine, |inner| {
+        if let Some(doc) = &mut inner.doc {
+            doc.clear_selection_pixels();
+            inner.dirty_save = true;
+            if let Some(r) = &mut inner.renderer {
+                r.invalidate();
+            }
+        }
+        Ok(())
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn calm_engine_paste_image(
+    engine: *mut CalmEngine,
+    premultiplied_rgba: *const u8,
+    len: usize,
+    width: u32,
+    height: u32,
+) -> CalmStatus {
+    if engine.is_null() || premultiplied_rgba.is_null() {
+        return CalmStatus::Null;
+    }
+    with_inner(engine, |inner| {
+        let doc = inner.doc.as_mut().ok_or(())?;
+        let mut rgba = unsafe { std::slice::from_raw_parts(premultiplied_rgba, len) }.to_vec();
+        unpremultiply_rgba(&mut rgba);
+        let n = doc.layers.len() + 1;
+        let name = calumma_core::names::numbered_pasted_layer(n);
+        if !doc.paste_image_as_layer(name, &rgba, width, height) {
+            return Err(());
+        }
+        inner.dirty_save = true;
+        if let Some(r) = &mut inner.renderer {
+            r.invalidate();
+        }
+        Ok(())
+    })
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn calm_project_create(
     engine: *mut CalmEngine,
     name: *const c_char,

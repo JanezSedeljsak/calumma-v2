@@ -1,9 +1,5 @@
 import SwiftUI
 
-enum CalmWindowId {
-    static let newProject = "new-project"
-}
-
 @main
 struct CalummaApp: App {
     @StateObject private var app = AppModel()
@@ -38,7 +34,9 @@ struct CalummaApp: App {
         .windowToolbarStyle(.unifiedCompact)
         .commands {
             CommandGroup(replacing: .newItem) {
-                NewProjectCommand(title: app.l10n.newProjectMenu, disabled: app.showLanding)
+                Button(app.l10n.newProjectMenu) { app.newProjectOpen = true }
+                    .keyboardShortcut("n", modifiers: [.command])
+                    .disabled(app.showLanding)
             }
             CommandGroup(replacing: .undoRedo) {
                 Button(app.l10n.undo) { app.engine.undo() }
@@ -57,40 +55,5 @@ struct CalummaApp: App {
                     .keyboardShortcut(",", modifiers: [.command])
             }
         }
-
-        Window(app.l10n.newProject, id: CalmWindowId.newProject) {
-            NewProjectWindow()
-                .environmentObject(app)
-                .themeColors(app.colors)
-                .l10n(app.l10n)
-                .preferredColorScheme(app.theme.isDark ? .dark : .light)
-        }
-        .defaultSize(width: Tokens.Window.newProjectWidth, height: Tokens.Window.newProjectHeight)
-        .windowResizability(.contentSize)
-    }
-}
-
-private struct NewProjectCommand: View {
-    @Environment(\.openWindow) private var openWindow
-    let title: String
-    let disabled: Bool
-
-    var body: some View {
-        Button(title) { openWindow(id: CalmWindowId.newProject) }
-            .keyboardShortcut("n", modifiers: [.command])
-            .disabled(disabled)
-    }
-}
-
-private struct NewProjectWindow: View {
-    @EnvironmentObject private var app: AppModel
-    @Environment(\.dismissWindow) private var dismissWindow
-
-    var body: some View {
-        NewProjectView(isLanding: false)
-            .frame(width: Tokens.Window.newProjectWidth, height: Tokens.Window.newProjectHeight)
-            .onChange(of: app.activeTabId) { _, _ in
-                dismissWindow(id: CalmWindowId.newProject)
-            }
     }
 }

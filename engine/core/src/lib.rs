@@ -1,10 +1,12 @@
 pub mod camera;
 pub mod document;
+pub mod fill;
 pub mod history;
 pub mod layer;
 pub mod limits;
 pub mod names;
 pub mod palette;
+pub mod selection;
 pub mod shape;
 pub mod tile;
 pub mod viewport;
@@ -18,6 +20,7 @@ pub use limits::{
 };
 pub use names::{LAYER_ONE, PAPER, UNTITLED};
 pub use palette::{project_color, random_project_color, BoardColors, PROJECT_COLORS};
+pub use selection::{Selection, SelectionShape};
 pub use shape::{Shape, Tool};
 pub use tile::{
     blend_over, unpremultiply_rgba, DirtyChannel, DocRect, TileCoord, TileGrid, TILE_SIZE,

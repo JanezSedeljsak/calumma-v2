@@ -154,6 +154,11 @@ pub enum LayerContent {
 - Vector compositing is not finished — filled closed paths render, but no
   layer uses `LayerContent::Vector` by default today (Paper is a raster
   layer pre-filled white, see Layers below); other vector work is deferred.
+- `Document.selection: Option<Selection>` (`engine/core/src/selection.rs`) is a **document**-
+  level concept, not a layer or a mask — a rect/ellipse/lasso shape (parameters only, not a
+  persisted `width×height` buffer) that scopes copy/cut/clear to a region instead of a whole
+  layer. Coverage is computed on demand (`SelectionShape::contains`), reusing the same
+  math the Rect/Ellipse paint shapes already use.
 
 ---
 
@@ -355,7 +360,8 @@ Pin versions in `[workspace.dependencies]`. Never `*` or bare `^`.
 ## Deliberately deferred
 
 Workspaces-as-products beyond SQLite projects, vector compositing polish, BiRefNet /
-`ort`, GenerateTexture model manager, SuggestShape, Vectorize (`vtracer`), image/PDF
-**export**, layered PSD (import is flattened composite only), importing into an existing
-board, text layers, eyedropper, region select — add only as considered features, not by
-restoring old app code.
+`ort`, GenerateTexture model manager, SuggestShape, Vectorize (`vtracer`), PDF export,
+PSD export (PNG/JPEG/WebP/AVIF export shipped — see FLOW.md), layered PSD import (import
+is flattened composite only), drag-and-drop into an existing board (⌘V paste-as-layer is
+shipped), text layers, eyedropper — add only as considered features, not by restoring old
+app code.

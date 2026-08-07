@@ -9,11 +9,22 @@ enum CalmTool: UInt32 {
     case ellipse = 3
     case arrow = 4
     case eraser = 5
+    case selectRect = 6
+    case selectEllipse = 7
+    case selectLasso = 8
+    case bucket = 9
 
     var isShape: Bool {
         switch self {
         case .line, .rect, .ellipse, .arrow: return true
-        case .pen, .eraser: return false
+        default: return false
+        }
+    }
+
+    var isSelection: Bool {
+        switch self {
+        case .selectRect, .selectEllipse, .selectLasso: return true
+        default: return false
         }
     }
 }
@@ -473,6 +484,101 @@ final class Engine: ObservableObject, @unchecked Sendable {
             return nil
         }
         return NSImage(cgImage: cgImage, size: NSSize(width: Int(width), height: Int(height)))
+    }
+
+    private static func cgImage(
+        rgbaPtr: UnsafeMutablePointer<UInt8>?,
+        width: UInt32,
+        height: UInt32,
+        status: CalmStatus
+    ) -> CGImage? {
+        guard status == CalmStatusOk, let rgbaPtr, width > 0, height > 0 else { return nil }
+        let byteCount = Int(width * height * 4)
+        let data = Data(bytes: rgbaPtr, count: byteCount)
+        calm_buffer_free(rgbaPtr, byteCount)
+        guard let provider = CGDataProvider(data: data as CFData) else { return nil }
+        return CGImage(
+            width: Int(width),
+            height: Int(height),
+            bitsPerComponent: 8,
+            bitsPerPixel: 32,
+            bytesPerRow: Int(width) * 4,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.last.rawValue),
+            provider: provider,
+            decode: nil,
+            shouldInterpolate: true,
+            intent: .defaultIntent
+        )
+    }
+
+    func compositeCGImage() -> CGImage? {
+        guard let ptr else { return nil }
+        var rgbaPtr: UnsafeMutablePointer<UInt8>?
+        var width: UInt32 = 0
+        var height: UInt32 = 0
+        let status = calm_engine_composite_rgba(ptr, &rgbaPtr, &width, &height)
+        return Self.cgImage(rgbaPtr: rgbaPtr, width: width, height: height, status: status)
+    }
+
+    func layerCGImage(index: Int) -> CGImage? {
+        guard let ptr else { return nil }
+        var rgbaPtr: UnsafeMutablePointer<UInt8>?
+        var width: UInt32 = 0
+        var height: UInt32 = 0
+        let status = calm_engine_layer_rgba(ptr, UInt32(index), &rgbaPtr, &width, &height)
+        return Self.cgImage(rgbaPtr: rgbaPtr, width: width, height: height, status: status)
+    }
+
+    func selectionCGImage() -> CGImage? {
+        guard let ptr else { return nil }
+        var rgbaPtr: UnsafeMutablePointer<UInt8>?
+        var width: UInt32 = 0
+        var height: UInt32 = 0
+        let status = calm_engine_selection_rgba(ptr, &rgbaPtr, &width, &height)
+        return Self.cgImage(rgbaPtr: rgbaPtr, width: width, height: height, status: status)
+    }
+
+    func layerSVG(index: Int) -> String? {
+        guard let ptr, let cStr = calm_engine_layer_svg(ptr, UInt32(index)) else { return nil }
+        let svg = String(cString: cStr)
+        calm_string_free(cStr)
+        return svg
+    }
+
+    func isLayerVector(index: Int) -> Bool {
+        layerSVG(index: index) != nil
+    }
+
+    var hasSelection: Bool {
+        guard let ptr else { return false }
+        return calm_engine_has_selection(ptr) != 0
+    }
+
+    func deselect() {
+        guard let ptr else { return }
+        _ = calm_engine_deselect(ptr)
+        render()
+    }
+
+    func clearSelectionPixels() {
+        guard let ptr else { return }
+        _ = calm_engine_selection_clear_pixels(ptr)
+        syncState()
+        render()
+    }
+
+    func pasteImage(premultipliedRGBA: Data, width: Int, height: Int) {
+        guard let ptr else { return }
+        premultipliedRGBA.withUnsafeBytes { raw in
+            guard let base = raw.bindMemory(to: UInt8.self).baseAddress else { return }
+            _ = calm_engine_paste_image(
+                ptr, base, premultipliedRGBA.count, UInt32(width), UInt32(height)
+            )
+        }
+        syncState()
+        refreshLayers()
+        render()
     }
 
     var canRemoveBackground: Bool {

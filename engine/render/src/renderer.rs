@@ -3,7 +3,7 @@ use calumma_core::limits::{
     GPU_TILE_RETENTION_MARGIN_TILES, STROKE_INSTANCE_CAPACITY, SURFACE_FRAME_LATENCY,
 };
 use calumma_core::tile::{DirtyChannel, TileCoord, TileGrid, TILE_BYTES, TILE_SIZE};
-use calumma_core::{Document, StrokePoint, Tool};
+use calumma_core::{Document, Selection, SelectionShape, StrokePoint, Tool};
 use std::collections::{HashMap, HashSet};
 use std::num::NonZeroU64;
 use std::time::Instant;
@@ -658,15 +658,26 @@ impl Renderer {
             doc.color[2] as f32 / 255.0,
             doc.color[3] as f32 / 255.0,
         ];
-        let (p0, p1, tool, half_width, fill) = match doc.preview_shape {
+        let (p0, p1, tool, half_width, fill, shape_color) = match doc.preview_shape {
             Some(s) => (
                 [s.start.0, s.start.1],
                 [s.end.0, s.end.1],
                 s.tool as u32 as f32,
                 s.half_width,
                 if s.fill { 1.0 } else { 0.0 },
+                color,
             ),
-            None => ([0.0, 0.0], [0.0, 0.0], 0.0, 0.0, 0.0),
+            None => match selection_rect_or_ellipse(doc) {
+                Some((p0, p1, sel_tool)) => (
+                    p0,
+                    p1,
+                    sel_tool as u32 as f32,
+                    SELECTION_OUTLINE_WIDTH,
+                    0.0,
+                    SELECTION_OUTLINE_COLOR,
+                ),
+                None => ([0.0, 0.0], [0.0, 0.0], 0.0, 0.0, 0.0, color),
+            },
         };
         let preview = PreviewUniforms {
             pan: [doc.camera.pan_x, doc.camera.pan_y],
@@ -674,7 +685,7 @@ impl Renderer {
             dpr: doc.camera.dpr,
             viewport,
             _align_color: [0.0, 0.0],
-            color,
+            color: shape_color,
             p0,
             p1,
             half_width,
@@ -703,7 +714,13 @@ impl Renderer {
         } else {
             color
         };
-        let instances = stroke_instances(&doc.stroke_points, radius, stroke_color);
+        let instances = if !doc.stroke_points.is_empty() {
+            stroke_instances(&doc.stroke_points, radius, stroke_color)
+        } else if let Some(points) = selection_lasso_points(doc) {
+            stroke_instances(&points, SELECTION_OUTLINE_WIDTH, SELECTION_OUTLINE_COLOR)
+        } else {
+            Vec::new()
+        };
         let stroke_count = instances.len();
         if stroke_count > 0 {
             self.ensure_stroke_capacity(stroke_count);
@@ -900,6 +917,34 @@ impl Renderer {
 }
 
 const ERASER_PREVIEW_COLOR: [f32; 4] = [0.5, 0.5, 0.5, 0.5];
+const SELECTION_OUTLINE_COLOR: [f32; 4] = [1.0, 1.0, 1.0, 0.9];
+const SELECTION_OUTLINE_WIDTH: f32 = 1.5;
+
+fn selection_rect_or_ellipse(doc: &Document) -> Option<([f32; 2], [f32; 2], Tool)> {
+    match &doc.selection.as_ref()?.shape {
+        SelectionShape::Rect { start, end } => {
+            Some(([start.0, start.1], [end.0, end.1], Tool::Rect))
+        }
+        SelectionShape::Ellipse { start, end } => {
+            Some(([start.0, start.1], [end.0, end.1], Tool::Ellipse))
+        }
+        SelectionShape::Lasso { .. } => None,
+    }
+}
+
+fn selection_lasso_points(doc: &Document) -> Option<Vec<StrokePoint>> {
+    let Selection {
+        shape: SelectionShape::Lasso { points },
+    } = doc.selection.as_ref()?
+    else {
+        return None;
+    };
+    let mut closed: Vec<StrokePoint> = points.iter().map(|&(x, y)| StrokePoint { x, y }).collect();
+    if let Some(&first) = closed.first() {
+        closed.push(first);
+    }
+    Some(closed)
+}
 
 fn stroke_instances(points: &[StrokePoint], radius: f32, color: [f32; 4]) -> Vec<StrokeInstance> {
     if points.is_empty() {

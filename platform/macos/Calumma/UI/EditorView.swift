@@ -5,9 +5,9 @@ struct EditorView: View {
     @EnvironmentObject private var app: AppModel
     @Environment(\.themeColors) private var colors
     @Environment(\.l10n) private var l10n
-    @Environment(\.openWindow) private var openWindow
     @State private var hoveredLayer: Int?
     @State private var editingTab: String?
+    @State private var artworkDropTargeted = false
 
     var body: some View {
         HStack(alignment: .top, spacing: Tokens.Space.sm) {
@@ -35,6 +35,13 @@ struct EditorView: View {
         .onChange(of: app.fill) { _, _ in app.applyKnobs() }
         .onChange(of: app.theme) { _, _ in app.applyKnobs() }
         .background(ShortcutCatcher(app: app))
+        .sheet(isPresented: $app.newProjectOpen) {
+            NewProjectView(isLanding: false)
+                .frame(width: Tokens.Window.newProjectWidth, height: Tokens.Window.newProjectHeight)
+                .environmentObject(app)
+                .themeColors(colors)
+                .l10n(l10n)
+        }
     }
 
     private var canvasIsland: some View {
@@ -43,9 +50,18 @@ struct EditorView: View {
             .clipShape(shape)
             .background(colors.surface, in: shape)
             .overlay(shape.strokeBorder(colors.islandBorder, lineWidth: 1))
+            .overlay {
+                if artworkDropTargeted {
+                    shape.fill(colors.accentTeal.opacity(0.15))
+                    shape.strokeBorder(colors.accentTeal, lineWidth: 2)
+                }
+            }
             .overlay(alignment: .bottomTrailing) {
                 zoomControls
                     .padding(Tokens.Space.md)
+            }
+            .onDrop(of: ArtworkImport.dropTypes, isTargeted: $artworkDropTargeted) { providers in
+                app.dropArtworkIntoWorkspace(providers: providers)
             }
     }
 
@@ -118,14 +134,30 @@ struct EditorView: View {
                 }
             }
             CalmIconButton {
-                openWindow(id: CalmWindowId.newProject)
+                app.newProjectOpen = true
             } icon: {
                 AppIcon.plus(color: colors.textMuted)
             }
             .help(l10n.newProject)
             .calmPointer()
         }
-        ToolbarItem(placement: .primaryAction) {
+        ToolbarItemGroup(placement: .primaryAction) {
+            Menu {
+                ForEach(ExportFormat.allCases) { format in
+                    Button(l10n.formatKey("exportAs", format.label)) {
+                        exportComposite(as: format)
+                    }
+                }
+            } label: {
+                AppIcon.export(color: colors.textMuted)
+                    .padding(Tokens.Space.sm)
+                    .background(colors.surface, in: Circle())
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .help(l10n.exportMenu)
+            .calmPointer()
+
             CalmIconButton {
                 app.settingsOpen = true
             } icon: {
@@ -134,6 +166,18 @@ struct EditorView: View {
             .help(l10n.settings)
             .calmPointer()
         }
+    }
+
+    private func exportComposite(as format: ExportFormat) {
+        guard let image = app.engine.compositeCGImage() else { return }
+        let activeTab = app.openTabs.first { $0.id == app.activeTabId }
+        let baseName = activeTab?.name ?? l10n.untitled
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [format.utType]
+        panel.nameFieldStringValue = "\(baseName).\(format.fileExtension)"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        guard let data = ImageEncode.data(image, format: format) else { return }
+        try? data.write(to: url)
     }
 
     private var toolIsland: some View {
@@ -148,14 +192,19 @@ struct EditorView: View {
             }
             .frame(maxHeight: .infinity, alignment: .top)
         }
-        .frame(width: 152)
+        .frame(width: 128)
     }
 
     private var toolGrid: some View {
-        LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: Tokens.Space.xs) {
+        LazyVGrid(
+            columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())],
+            spacing: Tokens.Space.xs
+        ) {
             toolButton(.pen) { AppIcon.pen(color: iconColor(.pen)) }
             toolButton(.eraser) { AppIcon.eraser(color: iconColor(.eraser)) }
             shapeToolButton
+            selectToolButton
+            toolButton(.bucket) { AppIcon.bucket(color: iconColor(.bucket)) }
         }
     }
 
@@ -172,13 +221,24 @@ struct EditorView: View {
                 }
             }
 
-            VStack(spacing: Tokens.Space.xs) {
-                CalmText.muted("\(Int(app.brushSize))", mono: true)
-                Slider(value: Binding(
-                    get: { Double(app.brushSize) },
-                    set: { app.brushSize = Float($0) }
-                ), in: 1...96)
-                .controlSize(.mini)
+            if app.tool.isSelection {
+                CalmText.label(l10n.selectionTools)
+                HStack(spacing: Tokens.Space.xs) {
+                    selectPick(.selectRect)
+                    selectPick(.selectEllipse)
+                    selectPick(.selectLasso)
+                }
+            }
+
+            if !app.tool.isSelection, app.tool != .bucket {
+                VStack(spacing: Tokens.Space.xs) {
+                    CalmText.muted("\(Int(app.brushSize))", mono: true)
+                    Slider(value: Binding(
+                        get: { Double(app.brushSize) },
+                        set: { app.brushSize = Float($0) }
+                    ), in: 1...96)
+                    .controlSize(.mini)
+                }
             }
 
             if app.tool.isShape {
@@ -299,6 +359,36 @@ struct EditorView: View {
         case .arrow: AppIcon.arrow(color: color)
         case .pen: AppIcon.pen(color: color)
         case .eraser: AppIcon.eraser(color: color)
+        case .bucket: AppIcon.bucket(color: color)
+        case .selectRect, .selectEllipse, .selectLasso: AppIcon.selectRect(color: color)
+        }
+    }
+
+    private var selectToolButton: some View {
+        let active = app.tool.isSelection
+        let current = active ? app.tool : app.lastSelectTool
+        return CalmToolButton(selected: active, action: {
+            app.selectTool(app.lastSelectTool)
+        }) {
+            selectionIcon(current, color: active ? colors.accentTeal : colors.textMuted)
+        }
+        .help(l10n.selectionTools)
+    }
+
+    private func selectPick(_ tool: CalmTool) -> some View {
+        CalmToolButton(selected: app.tool == tool, action: {
+            app.selectTool(tool)
+        }) {
+            selectionIcon(tool, color: app.tool == tool ? colors.accentTeal : colors.textMuted)
+        }
+    }
+
+    @ViewBuilder
+    private func selectionIcon(_ tool: CalmTool, color: Color) -> some View {
+        switch tool {
+        case .selectEllipse: AppIcon.selectEllipse(color: color)
+        case .selectLasso: AppIcon.selectLasso(color: color)
+        default: AppIcon.selectRect(color: color)
         }
     }
 
@@ -361,6 +451,15 @@ struct EditorView: View {
             }
             .buttonStyle(.plain)
             .calmPointer()
+
+            Button {
+                app.copyLayer(index: index)
+            } label: {
+                AppIcon.copyIcon(color: colors.textMuted)
+            }
+            .buttonStyle(.plain)
+            .calmPointer()
+            .help(l10n.copyLayer)
 
             Button {
                 app.engine.removeLayer(index)
@@ -500,7 +599,27 @@ private struct ShortcutCatcher: NSViewRepresentable {
                 return
             }
             if flags.contains(.command), event.keyCode == 51 {
-                app.engine.clearLayer()
+                if app.engine.hasSelection {
+                    app.engine.clearSelectionPixels()
+                } else {
+                    app.engine.clearLayer()
+                }
+                return
+            }
+            if flags.contains(.command), chars.lowercased() == "c" {
+                app.copySelectionOrCanvas()
+                return
+            }
+            if flags.contains(.command), chars.lowercased() == "x" {
+                app.cutSelection()
+                return
+            }
+            if flags.contains(.command), chars.lowercased() == "v" {
+                app.pasteFromClipboard()
+                return
+            }
+            if event.keyCode == 53 {
+                app.engine.deselect()
                 return
             }
             if flags.contains(.command), chars == "=" || chars == "+" {
@@ -526,6 +645,8 @@ private struct ShortcutCatcher: NSViewRepresentable {
             case "o": app.selectTool(.ellipse); return
             case "a": app.selectTool(.arrow); return
             case "e": app.selectTool(.eraser); return
+            case "m": app.selectTool(app.lastSelectTool); return
+            case "g": app.selectTool(.bucket); return
             case "f": app.fill.toggle(); return
             case "0": app.engine.fit(); return
             case "[": app.brushSize = max(1, app.brushSize - 1); return

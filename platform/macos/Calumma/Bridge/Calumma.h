@@ -125,6 +125,14 @@ CalmStatus calm_engine_clear_layer(CalmEngine *engine);
 CalmStatus calm_engine_state(CalmEngine *engine, CalmState *out);
 char *calm_engine_layer_name(CalmEngine *engine, uint32_t index);
 CalmStatus calm_engine_layer_thumbnail(CalmEngine *engine, uint32_t layer_index, uint32_t max_side, uint8_t **out_rgba, uint32_t *out_w, uint32_t *out_h);
+CalmStatus calm_engine_composite_rgba(CalmEngine *engine, uint8_t **out_rgba, uint32_t *out_w, uint32_t *out_h);
+CalmStatus calm_engine_layer_rgba(CalmEngine *engine, uint32_t layer_index, uint8_t **out_rgba, uint32_t *out_w, uint32_t *out_h);
+char *calm_engine_layer_svg(CalmEngine *engine, uint32_t layer_index);
+CalmStatus calm_engine_selection_rgba(CalmEngine *engine, uint8_t **out_rgba, uint32_t *out_w, uint32_t *out_h);
+int calm_engine_has_selection(CalmEngine *engine);
+CalmStatus calm_engine_deselect(CalmEngine *engine);
+CalmStatus calm_engine_selection_clear_pixels(CalmEngine *engine);
+CalmStatus calm_engine_paste_image(CalmEngine *engine, const uint8_t *premultiplied_rgba, size_t len, uint32_t width, uint32_t height);
 
 char *calm_project_create(CalmEngine *engine, const char *name, uint32_t width, uint32_t height);
 uint32_t calm_import_max_side(void);
