@@ -11,6 +11,7 @@ final class AppModel: ObservableObject {
     @Published var activeTabId: String?
     @Published var showLanding = true
     @Published var settingsOpen = false
+    @Published var artworkError: String?
 
     @Published var tool: CalmTool = .pen
     @Published var lastShapeTool: CalmTool = .rect
@@ -40,7 +41,56 @@ final class AppModel: ObservableObject {
         guard let id = engine.createProject(name: resolved, width: width, height: height) else {
             return
         }
-        let info = ProjectInfo(id: id, name: resolved, width: width, height: height, openedAt: 0)
+        adopt(id: id, name: resolved, width: width, height: height)
+    }
+
+    func createFromArtwork(_ artwork: ArtworkImage?) {
+        guard let artwork, let id = engine.createProject(name: artwork.name, artwork: artwork)
+        else {
+            artworkError = l10n.artworkImportFailed
+            return
+        }
+        artworkError = nil
+        adopt(id: id, name: artwork.name, width: artwork.width, height: artwork.height)
+    }
+
+    func importArtwork(url: URL) {
+        createFromArtwork(ArtworkImport.decode(url: url))
+    }
+
+    func pasteArtwork() {
+        createFromArtwork(ArtworkImport.fromPasteboard())
+    }
+
+    func chooseArtwork() {
+        guard let url = ArtworkImport.chooseFile(
+            prompt: l10n.chooseArtwork,
+            message: l10n.pasteArtworkHint
+        ) else {
+            return
+        }
+        importArtwork(url: url)
+    }
+
+    func dropArtwork(providers: [NSItemProvider]) -> Bool {
+        ArtworkImport.load(providers: providers) { [weak self] artwork in
+            self?.createFromArtwork(artwork)
+        }
+    }
+
+    func clearArtworkError() {
+        artworkError = nil
+    }
+
+    private func adopt(id: String, name: String, width: Int, height: Int) {
+        let info = ProjectInfo(
+            id: id,
+            name: name,
+            width: width,
+            height: height,
+            openedAt: 0,
+            accent: engine.state.accent
+        )
         openTabs.removeAll { $0.id == id }
         openTabs.append(info)
         activeTabId = id
@@ -94,22 +144,48 @@ final class AppModel: ObservableObject {
         }
     }
 
-    func showNewProject() {
-        if activeTabId != nil {
-            engine.save()
-            engine.closeProject()
-        }
-        activeTabId = nil
-        showLanding = true
-        engine.refreshRecents()
-    }
-
     func applyKnobs() {
         engine.setTool(tool)
         engine.setColor(color)
         engine.setBrush(brushSize)
         engine.setFill(fill)
         engine.setDark(theme.isDark)
+        engine.setBoardColors(
+            desk: colors.desk,
+            grid: colors.deskGrid,
+            paperBorder: colors.paperBorder
+        )
+    }
+
+    func rename(projectId: String, to name: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        engine.rename(projectId: projectId, to: trimmed)
+        replaceTab(projectId) { ProjectInfo(
+            id: $0.id,
+            name: trimmed,
+            width: $0.width,
+            height: $0.height,
+            openedAt: $0.openedAt,
+            accent: $0.accent
+        ) }
+    }
+
+    func setAccent(projectId: String, color: Color) {
+        engine.setAccent(projectId: projectId, color: color)
+        replaceTab(projectId) { ProjectInfo(
+            id: $0.id,
+            name: $0.name,
+            width: $0.width,
+            height: $0.height,
+            openedAt: $0.openedAt,
+            accent: color.packedRGB
+        ) }
+    }
+
+    private func replaceTab(_ id: String, _ transform: (ProjectInfo) -> ProjectInfo) {
+        guard let index = openTabs.firstIndex(where: { $0.id == id }) else { return }
+        openTabs[index] = transform(openTabs[index])
     }
 
     func selectTool(_ next: CalmTool) {

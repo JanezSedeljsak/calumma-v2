@@ -4,14 +4,21 @@ pub mod history;
 pub mod layer;
 pub mod limits;
 pub mod names;
+pub mod palette;
 pub mod shape;
 pub mod tile;
+pub mod viewport;
 
 pub use camera::Camera;
 pub use document::{stamp_spacing, stroke_stamps, Document, StrokePoint};
 pub use history::History;
 pub use layer::{Layer, LayerContent, VectorPath};
-pub use limits::{MAX_ZOOM_HARD, MAX_ZOOM_IN_FACTOR, MIN_VISIBLE_DOC_SIDE, MIN_ZOOM_FILL};
+pub use limits::{
+    IMPORT_MAX_SIDE, MAX_ZOOM_HARD, MAX_ZOOM_IN_FACTOR, MIN_VISIBLE_DOC_SIDE, MIN_ZOOM_FILL,
+};
 pub use names::{LAYER_ONE, PAPER, UNTITLED};
+pub use palette::{project_color, random_project_color, BoardColors, PROJECT_COLORS};
 pub use shape::{Shape, Tool};
-pub use tile::{blend_over, DirtyChannel, DocRect, TileCoord, TileGrid, TILE_SIZE};
+pub use tile::{
+    blend_over, unpremultiply_rgba, DirtyChannel, DocRect, TileCoord, TileGrid, TILE_SIZE,
+};

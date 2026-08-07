@@ -1,8 +1,6 @@
 use crate::limits::{
-    FIT_PADDING, MAX_ZOOM_HARD, MAX_ZOOM_IN_FACTOR, MIN_VISIBLE_DOC_SIDE, MIN_ZOOM_FILL,
-    VIEWPORT_CULL_PADDING_PX,
+    FIT_PADDING, MAX_ZOOM_HARD, MAX_ZOOM_IN_FACTOR, MIN_VISIBLE_DOC_SIDE, MIN_ZOOM_FILL, ZOOM_STEP,
 };
-use crate::tile::DocRect;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Camera {
@@ -58,10 +56,7 @@ impl Camera {
         let shorter_doc = doc_width.min(doc_height).max(1.0);
         let visible_side = MIN_VISIBLE_DOC_SIDE.min(shorter_doc);
         let by_detail = shorter_view / visible_side;
-        by_factor
-            .min(by_detail)
-            .min(MAX_ZOOM_HARD)
-            .max(min)
+        by_factor.min(by_detail).min(MAX_ZOOM_HARD).max(min)
     }
 
     pub fn to_doc(&self, screen_x: f32, screen_y: f32) -> (f32, f32) {
@@ -77,18 +72,6 @@ impl Camera {
             doc_x * self.zoom + self.pan_x,
             doc_y * self.zoom + self.pan_y,
         )
-    }
-
-    pub fn visible_doc_rect(&self, doc_width: f32, doc_height: f32) -> Option<DocRect> {
-        if self.viewport_width <= 0.0 || self.viewport_height <= 0.0 {
-            return None;
-        }
-        let (min_x, min_y) = self.to_doc(0.0, 0.0);
-        let (max_x, max_y) = self.to_doc(self.viewport_width, self.viewport_height);
-        let pad = VIEWPORT_CULL_PADDING_PX;
-        let visible = DocRect::from_floats(min_x - pad, min_y - pad, max_x + pad, max_y + pad);
-        let board = DocRect::from_floats(0.0, 0.0, doc_width - 1.0, doc_height - 1.0);
-        visible.intersect(board)
     }
 
     pub fn clamp_to_board(&mut self, doc_width: f32, doc_height: f32) {
@@ -142,35 +125,27 @@ impl Camera {
         self.clamp_to_board(doc_width, doc_height);
     }
 
-    pub fn device_size(&self) -> (u32, u32) {
-        (
-            ((self.viewport_width * self.dpr).round() as u32).max(1),
-            ((self.viewport_height * self.dpr).round() as u32).max(1),
-        )
+    pub fn step_zoom(&mut self, zoom_in: bool, doc_width: f32, doc_height: f32) {
+        let factor = if zoom_in { ZOOM_STEP } else { 1.0 / ZOOM_STEP };
+        self.zoom_to_center(self.zoom * factor, doc_width, doc_height);
     }
 
-    pub fn device_zoom(&self) -> f32 {
-        self.zoom * self.dpr
+    pub fn zoom_unit(&self, doc_width: f32, doc_height: f32) -> f32 {
+        let min = self.min_zoom(doc_width, doc_height);
+        let max = self.max_zoom(doc_width, doc_height);
+        if max <= min || min <= 0.0 || self.zoom <= 0.0 {
+            return 0.0;
+        }
+        ((self.zoom / min).ln() / (max / min).ln()).clamp(0.0, 1.0)
     }
 
-    pub fn view_proj(&self) -> [[f32; 4]; 4] {
-        let (device_width, device_height) = self.device_size();
-        let width = device_width as f32;
-        let height = device_height as f32;
-        let zoom = self.device_zoom();
-        let pan_x = self.pan_x * self.dpr;
-        let pan_y = self.pan_y * self.dpr;
-        [
-            [2.0 * zoom / width, 0.0, 0.0, 0.0],
-            [0.0, -2.0 * zoom / height, 0.0, 0.0],
-            [0.0, 0.0, 1.0, 0.0],
-            [
-                2.0 * pan_x / width - 1.0,
-                1.0 - 2.0 * pan_y / height,
-                0.0,
-                1.0,
-            ],
-        ]
+    pub fn zoom_from_unit(&self, unit: f32, doc_width: f32, doc_height: f32) -> f32 {
+        let min = self.min_zoom(doc_width, doc_height);
+        let max = self.max_zoom(doc_width, doc_height);
+        if max <= min || min <= 0.0 {
+            return min;
+        }
+        min * (max / min).powf(unit.clamp(0.0, 1.0))
     }
 }
 
@@ -239,30 +214,36 @@ mod tests {
     }
 
     #[test]
-    fn visible_rect_covers_whole_board_when_fitted() {
+    fn fit_nearly_fills_the_viewport() {
+        let mut c = cam(1000.0, 800.0);
+        c.fit(2000.0, 1000.0);
+        let filled = 2000.0 * c.zoom / 1000.0;
+        assert!(filled > 0.95, "paper only filled {filled} of the viewport");
+    }
+
+    #[test]
+    fn zoom_unit_round_trips_through_the_log_scale() {
         let mut c = cam(1000.0, 800.0);
         c.fit(2000.0, 1500.0);
-        let r = c.visible_doc_rect(2000.0, 1500.0).unwrap();
-        assert_eq!(r, DocRect::new(0, 0, 1999, 1499));
+        for unit in [0.0, 0.25, 0.5, 0.9, 1.0] {
+            let zoom = c.zoom_from_unit(unit, 2000.0, 1500.0);
+            c.zoom_to_center(zoom, 2000.0, 1500.0);
+            assert!((c.zoom_unit(2000.0, 1500.0) - unit).abs() < 1e-3);
+        }
     }
 
     #[test]
-    fn visible_rect_shrinks_when_zoomed_in() {
+    fn step_zoom_stays_inside_the_camera_range() {
         let mut c = cam(1000.0, 800.0);
-        c.fit(4000.0, 4000.0);
-        let max = c.max_zoom(4000.0, 4000.0);
-        c.zoom_at(500.0, 400.0, max, 4000.0, 4000.0);
-        let r = c.visible_doc_rect(4000.0, 4000.0).unwrap();
-        let width = (r.max_x - r.min_x + 1) as f32;
-        let height = (r.max_y - r.min_y + 1) as f32;
-        assert!(width < 4000.0 / 2.0, "width was {width}");
-        assert!(height < 4000.0 / 2.0, "height was {height}");
-    }
-
-    #[test]
-    fn visible_rect_is_none_without_viewport() {
-        let c = Camera::default();
-        assert!(c.visible_doc_rect(100.0, 100.0).is_none());
+        c.fit(2000.0, 1500.0);
+        for _ in 0..40 {
+            c.step_zoom(true, 2000.0, 1500.0);
+        }
+        assert!((c.zoom - c.max_zoom(2000.0, 1500.0)).abs() < 1e-4);
+        for _ in 0..80 {
+            c.step_zoom(false, 2000.0, 1500.0);
+        }
+        assert!((c.zoom - c.min_zoom(2000.0, 1500.0)).abs() < 1e-4);
     }
 
     #[test]

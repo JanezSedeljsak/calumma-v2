@@ -27,6 +27,25 @@ pub struct ProjectListItem {
     pub height: u32,
     pub opened_at: i64,
     pub created_at: i64,
+    pub accent: [u8; 3],
+}
+
+fn pack_accent(accent: [u8; 3]) -> i64 {
+    ((accent[0] as i64) << 16) | ((accent[1] as i64) << 8) | accent[2] as i64
+}
+
+fn unpack_accent(packed: i64) -> [u8; 3] {
+    [
+        ((packed >> 16) & 0xFF) as u8,
+        ((packed >> 8) & 0xFF) as u8,
+        (packed & 0xFF) as u8,
+    ]
+}
+
+fn accent_or_seed(packed: Option<i64>, id: &str) -> [u8; 3] {
+    packed
+        .map(unpack_accent)
+        .unwrap_or_else(|| calumma_core::palette::color_for_seed(id))
 }
 
 pub struct ProjectStore {
@@ -65,7 +84,8 @@ impl ProjectStore {
                 height INTEGER NOT NULL,
                 created_at INTEGER NOT NULL,
                 opened_at INTEGER NOT NULL,
-                thumb BLOB
+                thumb BLOB,
+                accent INTEGER
             );
             CREATE TABLE IF NOT EXISTS layers (
                 project_id TEXT NOT NULL,
@@ -99,6 +119,27 @@ impl ProjectStore {
     }
 
     fn migrate(&self) -> Result<(), StoreError> {
+        self.migrate_projects()?;
+        self.migrate_layers()
+    }
+
+    fn migrate_projects(&self) -> Result<(), StoreError> {
+        let mut stmt = self.conn.prepare("PRAGMA table_info(projects)")?;
+        let columns = stmt.query_map([], |row| row.get::<_, String>(1))?;
+        let mut has_accent = false;
+        for column in columns {
+            if column?.as_str() == "accent" {
+                has_accent = true;
+            }
+        }
+        if !has_accent {
+            self.conn
+                .execute("ALTER TABLE projects ADD COLUMN accent INTEGER", [])?;
+        }
+        Ok(())
+    }
+
+    fn migrate_layers(&self) -> Result<(), StoreError> {
         let mut stmt = self.conn.prepare("PRAGMA table_info(layers)")?;
         let mut has_mask = false;
         let mut has_kind = false;
@@ -136,7 +177,7 @@ impl ProjectStore {
     pub fn list_recent(&self, limit: usize) -> Result<Vec<ProjectListItem>, StoreError> {
         let limit = limit.min(RECENT_PROJECTS_LIMIT);
         let mut stmt = self.conn.prepare(
-            "SELECT id, name, width, height, opened_at, created_at FROM projects ORDER BY opened_at DESC LIMIT ?1",
+            "SELECT id, name, width, height, opened_at, created_at, accent FROM projects ORDER BY opened_at DESC LIMIT ?1",
         )?;
         let rows = stmt.query_map(params![limit as i64], |row| {
             Ok(ProjectListItem {
@@ -146,6 +187,7 @@ impl ProjectStore {
                 height: row.get::<_, i64>(3)? as u32,
                 opened_at: row.get(4)?,
                 created_at: row.get(5)?,
+                accent: accent_or_seed(row.get::<_, Option<i64>>(6)?, &row.get::<_, String>(0)?),
             })
         })?;
         let mut out = Vec::new();
@@ -160,8 +202,16 @@ impl ProjectStore {
         let ts = now_secs();
         let mut doc = Document::new(id.clone(), name, width, height);
         self.conn.execute(
-            "INSERT INTO projects (id, name, width, height, created_at, opened_at, thumb) VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL)",
-            params![id, name, width as i64, height as i64, ts, ts],
+            "INSERT INTO projects (id, name, width, height, created_at, opened_at, thumb, accent) VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL, ?7)",
+            params![
+                id,
+                name,
+                width as i64,
+                height as i64,
+                ts,
+                ts,
+                pack_accent(doc.accent)
+            ],
         )?;
         self.save(&mut doc)?;
         Ok(doc)
@@ -173,16 +223,17 @@ impl ProjectStore {
             "UPDATE projects SET opened_at = ?1 WHERE id = ?2",
             params![ts, id],
         )?;
-        let (name, width, height): (String, u32, u32) = self
+        let (name, width, height, accent): (String, u32, u32, [u8; 3]) = self
             .conn
             .query_row(
-                "SELECT name, width, height FROM projects WHERE id = ?1",
+                "SELECT name, width, height, accent FROM projects WHERE id = ?1",
                 params![id],
                 |row| {
                     Ok((
                         row.get(0)?,
                         row.get::<_, i64>(1)? as u32,
                         row.get::<_, i64>(2)? as u32,
+                        accent_or_seed(row.get::<_, Option<i64>>(3)?, id),
                     ))
                 },
             )
@@ -190,6 +241,7 @@ impl ProjectStore {
             .ok_or(StoreError::NotFound)?;
 
         let mut doc = Document::new(id.to_string(), name, width, height);
+        doc.accent = accent;
         doc.layers.clear();
 
         let mut layer_stmt = self.conn.prepare(
@@ -272,8 +324,14 @@ impl ProjectStore {
     pub fn save(&self, doc: &mut Document) -> Result<(), StoreError> {
         let tx = self.conn.unchecked_transaction()?;
         tx.execute(
-            "UPDATE projects SET name = ?1, width = ?2, height = ?3 WHERE id = ?4",
-            params![doc.name, doc.width as i64, doc.height as i64, doc.id],
+            "UPDATE projects SET name = ?1, width = ?2, height = ?3, accent = ?4 WHERE id = ?5",
+            params![
+                doc.name,
+                doc.width as i64,
+                doc.height as i64,
+                pack_accent(doc.accent),
+                doc.id
+            ],
         )?;
 
         let live_ids: Vec<String> = doc.layers.iter().map(|l| l.id.clone()).collect();
@@ -311,9 +369,7 @@ impl ProjectStore {
                 let (content_kind, vector_data, mask): (i64, Option<Vec<u8>>, Option<&[u8]>) =
                     match &layer.content {
                         LayerContent::Raster(_) => (0, None, layer.mask()),
-                        LayerContent::Vector(paths) => {
-                            (1, Some(vector_blob::encode(paths)), None)
-                        }
+                        LayerContent::Vector(paths) => (1, Some(vector_blob::encode(paths)), None),
                     };
                 upsert_layer.execute(params![
                     doc.id,
@@ -345,6 +401,28 @@ impl ProjectStore {
 
         tx.commit()?;
         doc.clear_layer_dirty(DirtyChannel::Store);
+        Ok(())
+    }
+
+    pub fn rename(&self, id: &str, name: &str) -> Result<(), StoreError> {
+        let n = self.conn.execute(
+            "UPDATE projects SET name = ?1 WHERE id = ?2",
+            params![name, id],
+        )?;
+        if n == 0 {
+            return Err(StoreError::NotFound);
+        }
+        Ok(())
+    }
+
+    pub fn set_accent(&self, id: &str, accent: [u8; 3]) -> Result<(), StoreError> {
+        let n = self.conn.execute(
+            "UPDATE projects SET accent = ?1 WHERE id = ?2",
+            params![pack_accent(accent), id],
+        )?;
+        if n == 0 {
+            return Err(StoreError::NotFound);
+        }
         Ok(())
     }
 
@@ -413,6 +491,48 @@ mod tests {
             loaded.layers[i].tiles().unwrap().get_pixel(3, 3),
             [1, 2, 3, 4]
         );
+    }
+
+    #[test]
+    fn accent_round_trips_and_can_be_recoloured() {
+        let (_dir, store) = store();
+        let mut doc = store.create("Tinted", 32, 32).unwrap();
+        assert!(calumma_core::PROJECT_COLORS.contains(&doc.accent));
+        doc.accent = [1, 2, 3];
+        store.save(&mut doc).unwrap();
+        assert_eq!(store.open_project(&doc.id).unwrap().accent, [1, 2, 3]);
+
+        store.set_accent(&doc.id, [9, 8, 7]).unwrap();
+        store.rename(&doc.id, "Renamed").unwrap();
+        let listed = store.list_recent(8).unwrap();
+        let row = listed.iter().find(|p| p.id == doc.id).unwrap();
+        assert_eq!(row.accent, [9, 8, 7]);
+        assert_eq!(row.name, "Renamed");
+    }
+
+    #[test]
+    fn rename_and_recolour_reject_unknown_projects() {
+        let (_dir, store) = store();
+        assert!(store.rename("nope", "x").is_err());
+        assert!(store.set_accent("nope", [1, 2, 3]).is_err());
+    }
+
+    #[test]
+    fn imported_image_round_trips() {
+        let (_dir, store) = store();
+        let mut doc = store.create("Artwork", 300, 200).unwrap();
+        let mut rgba = vec![0u8; 300 * 200 * 4];
+        rgba[0..4].copy_from_slice(&[9, 8, 7, 255]);
+        let corner = (199 * 300 + 299) * 4;
+        rgba[corner..corner + 4].copy_from_slice(&[1, 2, 3, 255]);
+        assert!(doc.place_image(&rgba, 300, 200));
+        store.save(&mut doc).unwrap();
+
+        let loaded = store.open_project(&doc.id).unwrap();
+        let i = paint_index(&loaded);
+        let tiles = loaded.layers[i].tiles().unwrap();
+        assert_eq!(tiles.get_pixel(0, 0), [9, 8, 7, 255]);
+        assert_eq!(tiles.get_pixel(299, 199), [1, 2, 3, 255]);
     }
 
     #[test]

@@ -68,6 +68,8 @@ typedef struct CalmState {
     uint8_t can_redo;
     uint8_t stroke_active;
     uint8_t dark_theme;
+    uint32_t accent;
+    float zoom_unit;
 } CalmState;
 
 typedef struct CalmProjectInfo {
@@ -76,6 +78,7 @@ typedef struct CalmProjectInfo {
     uint32_t width;
     uint32_t height;
     int64_t opened_at;
+    uint32_t accent;
 } CalmProjectInfo;
 
 void calm_string_free(char *s);
@@ -95,6 +98,14 @@ CalmStatus calm_engine_pan(CalmEngine *engine, float dx, float dy);
 CalmStatus calm_engine_zoom(CalmEngine *engine, float x, float y, float factor);
 CalmStatus calm_engine_fit(CalmEngine *engine);
 CalmStatus calm_engine_set_zoom(CalmEngine *engine, float zoom);
+CalmStatus calm_engine_step_zoom(CalmEngine *engine, uint8_t zoom_in);
+CalmStatus calm_engine_set_zoom_unit(CalmEngine *engine, float unit);
+CalmStatus calm_engine_set_board_colors(CalmEngine *engine, uint32_t desk, uint32_t grid, uint32_t paper_border);
+
+uint32_t calm_palette_count(void);
+uint32_t calm_palette_color(uint32_t index);
+CalmStatus calm_project_rename(CalmEngine *engine, const char *id, const char *name);
+CalmStatus calm_project_set_accent(CalmEngine *engine, const char *id, uint32_t accent);
 
 CalmStatus calm_engine_set_tool(CalmEngine *engine, uint32_t tool);
 CalmStatus calm_engine_set_color(CalmEngine *engine, uint8_t r, uint8_t g, uint8_t b, uint8_t a);
@@ -116,6 +127,8 @@ char *calm_engine_layer_name(CalmEngine *engine, uint32_t index);
 CalmStatus calm_engine_layer_thumbnail(CalmEngine *engine, uint32_t layer_index, uint32_t max_side, uint8_t **out_rgba, uint32_t *out_w, uint32_t *out_h);
 
 char *calm_project_create(CalmEngine *engine, const char *name, uint32_t width, uint32_t height);
+uint32_t calm_import_max_side(void);
+char *calm_project_create_from_image(CalmEngine *engine, const char *name, uint32_t width, uint32_t height, const uint8_t *premultiplied_rgba, size_t len);
 CalmStatus calm_project_open(CalmEngine *engine, const char *id);
 CalmStatus calm_project_close(CalmEngine *engine);
 size_t calm_project_list(CalmEngine *engine, CalmProjectInfo *out, size_t cap);

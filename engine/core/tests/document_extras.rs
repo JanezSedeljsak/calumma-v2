@@ -1,4 +1,6 @@
-use calumma_core::{names, Document, Layer, LayerContent, Shape, Tool, VectorPath, LAYER_ONE, PAPER};
+use calumma_core::{
+    names, Document, Layer, LayerContent, Shape, Tool, VectorPath, LAYER_ONE, PAPER,
+};
 
 #[test]
 fn default_document_has_paper_and_raster() {

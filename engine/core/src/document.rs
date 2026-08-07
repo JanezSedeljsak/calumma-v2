@@ -5,6 +5,7 @@ use crate::limits::{
     BRUSH_SIZE_DEFAULT, DEFAULT_INK, MIN_STAMP_SPACING, MIN_STROKE_POINT_DISTANCE,
     STAMP_COVERAGE_PADDING, STAMP_SPACING_RATIO, STROKE_POINT_CAPACITY,
 };
+use crate::palette::BoardColors;
 use crate::shape::{Shape, Tool};
 use crate::tile::{blend_over, DirtyChannel, DocRect, TileCoord, TILE_SIZE};
 use std::collections::HashSet;
@@ -92,6 +93,8 @@ pub struct Document {
     pub brush_size: f32,
     pub fill: bool,
     pub dark_theme: bool,
+    pub accent: [u8; 3],
+    pub board_colors: BoardColors,
     pub hover_layer: Option<usize>,
     pub stroke_active: bool,
     pub stroke_points: Vec<StrokePoint>,
@@ -119,6 +122,8 @@ impl Document {
             brush_size: BRUSH_SIZE_DEFAULT,
             fill: false,
             dark_theme: true,
+            accent: crate::palette::random_project_color(),
+            board_colors: BoardColors::fallback(true),
             hover_layer: None,
             stroke_active: false,
             stroke_points: Vec::with_capacity(STROKE_POINT_CAPACITY),
@@ -155,6 +160,17 @@ impl Document {
     pub fn add_layer(&mut self, name: impl Into<String>) {
         self.layers.push(Layer::new(name, self.width, self.height));
         self.active_layer = self.layers.len() - 1;
+    }
+
+    pub fn place_image(&mut self, rgba: &[u8], width: u32, height: u32) -> bool {
+        let expected = (width as usize) * (height as usize) * 4;
+        if width == 0 || height == 0 || rgba.len() < expected {
+            return false;
+        }
+        let Some(tiles) = self.active_mut().and_then(|layer| layer.tiles_mut()) else {
+            return false;
+        };
+        tiles.blit_rgba(rgba, width, height) > 0
     }
 
     pub fn remove_layer(&mut self, index: usize) -> bool {
@@ -529,7 +545,9 @@ mod tests {
         let (sx, sy) = doc.camera.to_screen(100.0, 100.0);
         doc.pointer_down(sx, sy);
         doc.pointer_up(sx, sy);
-        let dirty = doc.layers[doc.active_layer].dirty_tiles(DirtyChannel::Render).unwrap();
+        let dirty = doc.layers[doc.active_layer]
+            .dirty_tiles(DirtyChannel::Render)
+            .unwrap();
         assert_eq!(dirty.len(), 1);
         assert!(dirty.contains(&TileCoord { x: 0, y: 0 }));
     }
@@ -546,6 +564,27 @@ mod tests {
         assert_eq!(pixel(&doc, doc.active_layer, 5, 5), [0, 0, 0, 0]);
         assert!(doc.undo());
         assert_eq!(pixel(&doc, doc.active_layer, 5, 5), [1, 2, 3, 255]);
+    }
+
+    #[test]
+    fn place_image_fills_the_first_paint_layer() {
+        let mut doc = Document::new("p".into(), "art", 4, 2);
+        let mut rgba = vec![0u8; 4 * 2 * 4];
+        rgba[0..4].copy_from_slice(&[10, 20, 30, 255]);
+        let last = (4 + 3) * 4;
+        rgba[last..last + 4].copy_from_slice(&[40, 50, 60, 255]);
+        assert!(doc.place_image(&rgba, 4, 2));
+        assert_eq!(doc.active_layer, 1);
+        assert!(doc.layers[0].is_paper());
+        assert_eq!(pixel(&doc, 1, 0, 0), [10, 20, 30, 255]);
+        assert_eq!(pixel(&doc, 1, 3, 1), [40, 50, 60, 255]);
+    }
+
+    #[test]
+    fn place_image_rejects_a_short_buffer() {
+        let mut doc = Document::new("p".into(), "art", 4, 4);
+        assert!(!doc.place_image(&[0u8; 8], 4, 4));
+        assert!(doc.layers[1].tiles().unwrap().is_empty());
     }
 
     #[test]

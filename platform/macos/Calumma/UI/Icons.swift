@@ -112,6 +112,30 @@ enum AppIcon {
         }
     }
 
+    static func ai(color: Color) -> some View {
+        IconCanvas(color: color) { ctx, rect in
+            let sparkles = [
+                CGRect(x: rect.midX - 1.5, y: rect.minY + 2.5, width: 3, height: 3),
+                CGRect(x: rect.minX + 3, y: rect.midY - 1, width: 2.4, height: 2.4),
+                CGRect(x: rect.maxX - 5.5, y: rect.midY + 1, width: 2.4, height: 2.4),
+                CGRect(x: rect.midX - 1.2, y: rect.maxY - 5.5, width: 2.4, height: 2.4),
+            ]
+            for spark in sparkles {
+                ctx.fill(Path(ellipseIn: spark), with: .color(color))
+            }
+            ctx.stroke(
+                Path { p in
+                    p.move(to: CGPoint(x: rect.midX, y: rect.minY + 6))
+                    p.addLine(to: CGPoint(x: rect.midX, y: rect.maxY - 6))
+                    p.move(to: CGPoint(x: rect.minX + 6, y: rect.midY))
+                    p.addLine(to: CGPoint(x: rect.maxX - 6, y: rect.midY))
+                },
+                with: .color(color),
+                style: StrokeStyle(lineWidth: 1.4, lineCap: .round)
+            )
+        }
+    }
+
     static func eye(color: Color, open: Bool = true) -> some View {
         IconCanvas(color: color) { ctx, rect in
             let lid = Path(ellipseIn: rect.insetBy(dx: 3, dy: 6))

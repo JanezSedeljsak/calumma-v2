@@ -5,25 +5,23 @@ struct EditorView: View {
     @EnvironmentObject private var app: AppModel
     @Environment(\.themeColors) private var colors
     @Environment(\.l10n) private var l10n
+    @Environment(\.openWindow) private var openWindow
     @State private var shapePickerOpen = false
     @State private var hoveredLayer: Int?
+    @State private var editingTab: String?
 
     var body: some View {
-        ZStack {
-            BoardCanvas()
+        HStack(alignment: .top, spacing: 0) {
+            toolIsland
+                .frame(maxHeight: .infinity)
+
+            canvasIsland
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-            HStack(alignment: .top, spacing: 0) {
-                toolIsland
-                    .padding(.leading, Tokens.Space.lg)
-                    .padding(.top, Tokens.Space.lg)
-                Spacer(minLength: 0)
-                if app.layersOpen {
-                    layersIsland
-                        .padding(.trailing, Tokens.Space.lg)
-                        .padding(.top, Tokens.Space.lg)
-                }
+
+            if app.layersOpen {
+                layersIsland
+                    .frame(maxHeight: .infinity)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
         .calmScreen()
         .toolbar { editorToolbar }
@@ -39,19 +37,86 @@ struct EditorView: View {
         .background(ShortcutCatcher(app: app))
     }
 
+    private var canvasIsland: some View {
+        let shape = RoundedRectangle(cornerRadius: Tokens.Radius.island, style: .continuous)
+        return BoardCanvas()
+            .clipShape(shape)
+            .background(colors.surface, in: shape)
+            .overlay(alignment: .bottomTrailing) {
+                zoomControls
+                    .padding(Tokens.Space.md)
+            }
+    }
+
+    private var zoomControls: some View {
+        CalmIsland(padding: Tokens.Space.sm) {
+            HStack(spacing: Tokens.Space.sm) {
+                zoomStepButton(zoomIn: false, label: "−")
+                Slider(
+                    value: Binding(
+                        get: { Double(app.engine.state.zoomUnit) },
+                        set: { app.engine.setZoomUnit(Float($0)) }
+                    ),
+                    in: 0...1
+                )
+                .controlSize(.mini)
+                .frame(width: 96)
+                zoomStepButton(zoomIn: true, label: "+")
+                CalmText.muted("\(Int(app.engine.state.zoom * 100))%", mono: true)
+                    .frame(width: 40, alignment: .trailing)
+                Button(l10n.fitToView) {
+                    app.engine.fit()
+                }
+                .buttonStyle(.plain)
+                .font(.system(size: Tokens.TypeSize.label, weight: .semibold))
+                .foregroundStyle(colors.accentTeal)
+                .calmPointer()
+            }
+        }
+        .fixedSize()
+    }
+
+    private func zoomStepButton(zoomIn: Bool, label: String) -> some View {
+        Button {
+            app.engine.stepZoom(in: zoomIn)
+        } label: {
+            Text(label)
+                .font(.system(size: Tokens.TypeSize.title, weight: .medium))
+                .foregroundStyle(colors.textMuted)
+                .frame(width: 18, height: 18)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .calmPointer()
+    }
+
     @ToolbarContentBuilder
     private var editorToolbar: some ToolbarContent {
         ToolbarItemGroup(placement: .navigation) {
             ForEach(app.openTabs) { tab in
                 CalmChip(
                     title: tab.name,
+                    accent: tab.accentColor,
                     selected: app.activeTabId == tab.id,
+                    onAccent: { editingTab = tab.id },
                     onSelect: { app.switchTo(projectId: tab.id, info: tab) },
                     onClose: { app.closeTab(tab.id) }
                 )
+                .popover(
+                    isPresented: Binding(
+                        get: { editingTab == tab.id },
+                        set: { if !$0 { editingTab = nil } }
+                    ),
+                    arrowEdge: .bottom
+                ) {
+                    ProjectSettingsCard(project: tab)
+                        .environmentObject(app)
+                        .themeColors(colors)
+                        .l10n(l10n)
+                }
             }
             Button {
-                app.showNewProject()
+                openWindow(id: CalmWindowId.newProject)
             } label: {
                 AppIcon.plus(color: colors.textMuted)
             }
@@ -72,15 +137,15 @@ struct EditorView: View {
     }
 
     private var toolIsland: some View {
-        CalmIsland {
-            VStack(spacing: Tokens.Space.md) {
+        CalmIsland(padding: Tokens.Space.sm) {
+            VStack(spacing: Tokens.Space.sm) {
                 toolButton(.pen) { AppIcon.pen(color: iconColor(.pen)) }
 
                 shapeToolButton
 
                 ColorPicker("", selection: $app.color, supportsOpacity: true)
                     .labelsHidden()
-                    .frame(width: 28, height: 28)
+                    .frame(width: 24, height: 24)
                     .clipShape(RoundedRectangle(cornerRadius: Tokens.Radius.sm, style: .continuous))
 
                 VStack(spacing: Tokens.Space.xs) {
@@ -89,7 +154,8 @@ struct EditorView: View {
                         get: { Double(app.brushSize) },
                         set: { app.brushSize = Float($0) }
                     ), in: 1...96)
-                    .frame(width: 72)
+                    .frame(width: 44)
+                    .controlSize(.mini)
                 }
 
                 if app.tool.isShape {
@@ -98,33 +164,34 @@ struct EditorView: View {
                     }
                     .toggleStyle(.switch)
                     .controlSize(.mini)
+                    .labelsHidden()
+                    .help(l10n.fill)
                 }
 
-                zoomControls
+                Spacer(minLength: Tokens.Space.sm)
 
-                Spacer(minLength: Tokens.Space.md)
-
-                if app.engine.canRemoveBackground {
-                    CalmPlainButton(title: l10n.cutBackground, accent: true) {
-                        app.engine.removeBackground()
-                    }
-                }
-
-                CalmPlainButton(title: l10n.undo, enabled: app.engine.state.canUndo) {
-                    app.engine.undo()
-                }
-                CalmPlainButton(title: l10n.redo, enabled: app.engine.state.canRedo) {
-                    app.engine.redo()
-                }
-                CalmPlainButton(
-                    title: app.theme == .dark ? l10n.themeLight : l10n.themeDark,
-                    accent: true
-                ) {
-                    app.toggleTheme()
-                }
+                aiMenu
             }
+            .frame(maxHeight: .infinity, alignment: .top)
         }
-        .frame(width: 96)
+        .frame(width: 64)
+    }
+
+    private var aiMenu: some View {
+        Menu {
+            Button(l10n.removeBackground) {
+                app.engine.removeBackground()
+            }
+            .disabled(!app.engine.canRemoveBackground)
+        } label: {
+            AppIcon.ai(color: colors.textMuted)
+                .frame(width: 32, height: 32)
+                .contentShape(Rectangle())
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .help(l10n.ai)
+        .calmPointer()
     }
 
     private var shapeToolButton: some View {
@@ -173,34 +240,6 @@ struct EditorView: View {
         }
     }
 
-    private var zoomControls: some View {
-        let minZ = Double(max(app.engine.state.minZoom, Float.leastNormalMagnitude))
-        let maxZ = Double(max(app.engine.state.maxZoom, app.engine.state.minZoom))
-        return VStack(spacing: Tokens.Space.xs) {
-            CalmText.muted(l10n.zoom)
-            CalmText.muted("\(Int(app.engine.state.zoom * 100))%", mono: true)
-            Slider(
-                value: Binding(
-                    get: {
-                        logZoomUnit(zoom: Double(app.engine.state.zoom), minZoom: minZ, maxZoom: maxZ)
-                    },
-                    set: { unit in
-                        app.engine.setZoom(Float(zoomFromLogUnit(unit, minZoom: minZ, maxZoom: maxZ)))
-                    }
-                ),
-                in: 0...1
-            )
-            .frame(width: 72)
-            Button(l10n.fitToView) {
-                app.engine.fit()
-            }
-            .buttonStyle(.plain)
-            .font(.system(size: Tokens.TypeSize.label))
-            .foregroundStyle(colors.textMuted)
-            .calmPointer()
-        }
-    }
-
     private var layersIsland: some View {
         CalmIsland {
             VStack(alignment: .leading, spacing: Tokens.Space.md) {
@@ -220,8 +259,9 @@ struct EditorView: View {
                 }
                 Spacer(minLength: 0)
             }
+            .frame(maxHeight: .infinity, alignment: .top)
         }
-        .frame(width: 220)
+        .frame(width: 252)
         .overlay(alignment: .leading) {
             if let hoveredLayer {
                 let name = app.engine.layerNames[hoveredLayer]
@@ -286,18 +326,6 @@ struct EditorView: View {
     }
 }
 
-private func logZoomUnit(zoom: Double, minZoom: Double, maxZoom: Double) -> Double {
-    guard maxZoom > minZoom, minZoom > 0, zoom > 0 else { return 0 }
-    let t = log(zoom / minZoom) / log(maxZoom / minZoom)
-    return min(1, max(0, t))
-}
-
-private func zoomFromLogUnit(_ unit: Double, minZoom: Double, maxZoom: Double) -> Double {
-    guard maxZoom > minZoom, minZoom > 0 else { return minZoom }
-    let t = min(1, max(0, unit))
-    return minZoom * pow(maxZoom / minZoom, t)
-}
-
 private struct LayerHoverCard: View {
     @Environment(\.themeColors) private var colors
     let name: String
@@ -342,11 +370,29 @@ private struct ShortcutCatcher: NSViewRepresentable {
     }
 
     final class KeyView: NSView {
-        weak var app: AppModel?
+        nonisolated(unsafe) weak var app: AppModel?
 
         override var acceptsFirstResponder: Bool { true }
 
         override func keyDown(with event: NSEvent) {
+            MainActor.assumeIsolated {
+                handleKeyDown(event)
+            }
+        }
+
+        override func keyUp(with event: NSEvent) {
+            MainActor.assumeIsolated {
+                if event.keyCode == 49 {
+                    app?.spacePan = false
+                    NSCursor.crosshair.set()
+                    return
+                }
+                super.keyUp(with: event)
+            }
+        }
+
+        @MainActor
+        private func handleKeyDown(_ event: NSEvent) {
             if event.keyCode == 49 {
                 if !event.isARepeat {
                     app?.spacePan = true
@@ -377,11 +423,11 @@ private struct ShortcutCatcher: NSViewRepresentable {
                 return
             }
             if flags.contains(.command), chars == "=" || chars == "+" {
-                app.engine.zoom(x: 400, y: 300, factor: 1.25)
+                app.engine.stepZoom(in: true)
                 return
             }
             if flags.contains(.command), chars == "-" {
-                app.engine.zoom(x: 400, y: 300, factor: 0.8)
+                app.engine.stepZoom(in: false)
                 return
             }
             if flags.contains(.command), chars.lowercased() == "s" {
@@ -390,10 +436,6 @@ private struct ShortcutCatcher: NSViewRepresentable {
             }
             if flags.contains(.command), flags.contains(.option), chars.lowercased() == "l" {
                 app.layersOpen.toggle()
-                return
-            }
-            if flags.contains(.command), chars.lowercased() == "t" {
-                app.toggleTheme()
                 return
             }
             switch chars.lowercased() {
@@ -409,15 +451,6 @@ private struct ShortcutCatcher: NSViewRepresentable {
             default: break
             }
             super.keyDown(with: event)
-        }
-
-        override func keyUp(with event: NSEvent) {
-            if event.keyCode == 49 {
-                app?.spacePan = false
-                NSCursor.crosshair.set()
-                return
-            }
-            super.keyUp(with: event)
         }
     }
 }

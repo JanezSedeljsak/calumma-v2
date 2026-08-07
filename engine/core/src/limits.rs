@@ -10,7 +10,8 @@ pub const BRUSH_SIZE_MIN: f32 = 1.0;
 pub const BRUSH_SIZE_MAX: f32 = 96.0;
 pub const BRUSH_SIZE_DEFAULT: f32 = 3.0;
 
-pub const FIT_PADDING: f32 = 0.92;
+pub const FIT_PADDING: f32 = 0.99;
+pub const ZOOM_STEP: f32 = 1.25;
 pub const MIN_ZOOM_FILL: f32 = 0.5;
 pub const MAX_ZOOM_IN_FACTOR: f32 = 10.0;
 pub const MIN_VISIBLE_DOC_SIDE: f32 = 400.0;
@@ -19,6 +20,8 @@ pub const VIEWPORT_CULL_PADDING_PX: f32 = 1.0;
 
 pub const AUTOSAVE_INTERVAL_MS: u64 = 800;
 pub const RECENT_PROJECTS_LIMIT: usize = 32;
+
+pub const IMPORT_MAX_SIDE: u32 = 4096;
 
 pub const STROKE_INSTANCE_CAPACITY: usize = 1024;
 pub const SURFACE_FRAME_LATENCY: u32 = 2;

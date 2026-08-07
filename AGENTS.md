@@ -26,13 +26,21 @@ and board visuals live in Rust/WGSL.
 If you are about to do pan/zoom arithmetic, tile math, or layer-stack mutation in Swift —
 stop. Call an FFI method instead and keep the logic in `engine/`.
 
+This extends to product rules, not just math. Zoom steps, the log zoom curve, fit padding,
+the project-colour palette and which colour a new project gets, import limits — all core
+constants and core functions, reached over FFI. Swift renders what the engine reports
+(`CalmState.zoom_unit`, `CalmState.accent`, `calm_palette_color`) and never recomputes it.
+Theme **values** are the exception that proves the rule: they come from `design/tokens.json`
+and are pushed *into* the engine (`calm_engine_set_board_colors`) so no colour is ever
+hardcoded in Rust or WGSL.
+
 ---
 
 ## Repository map
 
 | Path | Role |
 | --- | --- |
-| `engine/core` | Document, sparse tiles, camera, history, shapes, `LayerContent` — no GPU |
+| `engine/core` | Document, sparse tiles, camera, viewport culling, history, shapes, palette, `LayerContent` — no GPU |
 | `engine/render` | wgpu; surface created by the shell; applies layer masks at upload |
 | `engine/io` | SQLite projects + encode/decode |
 | `engine/ops` | `Op` / `OpRegistry` dispatch; apply results into the document |
@@ -73,13 +81,48 @@ Swift shell  ← ffi only (via Calumma.h)
    open Xcode via `./manage.py dev` when touching the shell).
 6. **No comments** in `.rs`, `.swift`, `.wgsl`. Name things clearly instead.
 7. **Do not edit generated** `Tokens.generated.swift` by hand.
+8. **Keep files small and single-topic** (below).
+
+---
+
+## File size and layout
+
+Files stay small and each one answers a single question. A file that has grown past
+**~400 lines**, or that has picked up a second concern, gets split — do it as part of the
+change that would have grown it, not as a later cleanup.
+
+The test is topical, not numeric: if you can name two things a file does, that is two files.
+
+| Split when | Example |
+| --- | --- |
+| Two concerns share a file | `camera.rs` (zoom / pan / fit) vs `viewport.rs` (culling, device size, projection) |
+| A type's helpers outgrow it | `palette.rs` holds project colours + `BoardColors`, not `document.rs` |
+| A view file mixes screens | `ProjectSettingsCard.swift`, `PasteArtworkIsland.swift`, `WindowChrome.swift` split out of the screens that use them |
+
+Rust: prefer a new module in the same crate over a new crate; `impl` blocks may live in a
+different module than the `struct` (that is how `viewport.rs` extends `Camera`). Swift: one
+screen or one reusable component per file; shared primitives stay in `UI/Components.swift`.
+
+Do not split a file just to hit a number — a cohesive 450-line file beats three files that
+have to be read together.
 
 ---
 
 ## Projects and navigation
 
 - DB path: `~/Library/Application Support/Calumma/calumma.sqlite`.
-- Landing: name + resolution, presets from tokens, recents list, hero pane.
+- Landing: name + resolution, presets from tokens, recents list, Paste Artwork island.
+  Same view (`NewProjectView`) serves the separate, smaller **New Project** window opened
+  by the editor `+` / `⌘N`; it reflows to one column below `Tokens.Window.wideLayoutWidth`.
+- Artwork import: drop / `⌘V` / click on the Paste Artwork island creates a project sized to
+  the image with the pixels in the first paint layer. Decode is ImageIO in the shell; the
+  engine takes **premultiplied** RGBA over FFI and unpremultiplies in Rust
+  (`calm_project_create_from_image`). Cap is `limits::IMPORT_MAX_SIDE`.
+- Every project carries an **accent colour** (`Document.accent`, `projects.accent` in SQLite).
+  Core picks one from `palette::PROJECT_COLORS` at create time; the shell shows it on the
+  titlebar tab and in recents, and rename / recolour go through `calm_project_rename` and
+  `calm_project_set_accent`. The palette itself is document data served from core
+  (`calm_palette_color`), not a theme token.
 - Editor: **titlebar** project tabs (right of traffic lights). Switch = save/close current → open selected (full
  reload, no preload of inactive docs).
 - One board per project; bounded paper (not infinite canvas). Zoom out floor fills ~50% of
@@ -184,19 +227,24 @@ word order can change per language. Do not use Swift `String(format:)` / `%@` fo
 ## Styling
 
 Visual tokens live in `design/tokens.json` → `./manage.py tokens` → `Tokens.*` (radius,
-space, type, colour, presets). Engine name constants live in `calumma_core::names`. CLI
-paths/binaries live in `cli/constants.py`.
+space, type, window, colour, presets). Engine name constants live in `calumma_core::names`.
+CLI paths/binaries live in `cli/constants.py`.
 
 Compose `CalmText`, `CalmField`, `CalmRow`, `calmSurface()`, `CalmChip`, etc. Theme colours
 via `@Environment(\.themeColors)`; copy via `@Environment(\.l10n)`.
 
 1. No stroke borders — background contrast only.
-2. Minimal corner radius (`Tokens.Radius.sm` / `md`) on controls and islands.
+2. Controls use `Tokens.Radius.sm` / `md`. **Islands are square** (`Tokens.Radius.island` is
+   `0`) and sit flush with no gap or screen padding, so the seam between two surfaces *is*
+   the border. Never re-add island padding to "separate" panels.
 3. Custom Canvas/`AppIcon` drawings only — no icon packs / SF Symbols as product icons.
-4. Light and dark from tokens; tell the engine dark-paper via FFI.
+4. Light and dark from tokens; push desk / grid / paper-border into the engine via
+   `calm_engine_set_board_colors`. Never hardcode a colour in `.rs` or `.wgsl`.
 5. Filled controls; hover = luminance shift.
 6. Native `ColorPicker` on macOS.
-7. No SwiftUI overlays on the Metal board (hover outline is a shader).
+7. Nothing **drawn on the board** may be a SwiftUI view — paper, strokes, grid, and the
+   layer hover outline are WGSL. Small chrome *controls* may float over the canvas island
+   (the zoom pill sits bottom-trailing inside it); panels stay side-by-side islands.
 
 Details: `design/STYLE.md`.
 
@@ -296,6 +344,7 @@ Pin versions in `[workspace.dependencies]`. Never `*` or bare `^`.
 ## Deliberately deferred
 
 Workspaces-as-products beyond SQLite projects, vector compositing polish, BiRefNet /
-`ort`, GenerateTexture model manager, SuggestShape, Vectorize (`vtracer`), image import,
-PSD/PDF, text layers, eyedropper, region select — add only as considered features, not by
+`ort`, GenerateTexture model manager, SuggestShape, Vectorize (`vtracer`), image/PDF
+**export**, layered PSD (import is flattened composite only), importing into an existing
+board, text layers, eyedropper, region select — add only as considered features, not by
 restoring old app code.

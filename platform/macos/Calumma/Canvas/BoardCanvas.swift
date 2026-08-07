@@ -6,7 +6,7 @@ struct BoardCanvas: NSViewRepresentable {
     @EnvironmentObject private var app: AppModel
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(app: app)
+        Coordinator(engine: app.engine)
     }
 
     func makeNSView(context: Context) -> MTKView {
@@ -20,13 +20,17 @@ struct BoardCanvas: NSViewRepresentable {
         view.clearColor = MTLClearColor(red: 0.05, green: 0.07, blue: 0.09, alpha: 1)
         view.autoResizeDrawable = true
         view.boardCoordinator = context.coordinator
+        view.wantsLayer = true
+        view.layer?.cornerRadius = Tokens.Radius.island
+        view.layer?.masksToBounds = true
         context.coordinator.attachIfNeeded(view: view)
         return view
     }
 
     func updateNSView(_ nsView: MTKView, context: Context) {
-        context.coordinator.app = app
+        context.coordinator.spacePan = app.spacePan
         context.coordinator.attachIfNeeded(view: nsView)
+        (nsView as? BoardMTKView)?.refreshCursor()
     }
 
     static func dismantleNSView(_ nsView: MTKView, coordinator: Coordinator) {
@@ -36,11 +40,12 @@ struct BoardCanvas: NSViewRepresentable {
     }
 
     final class Coordinator: NSObject, MTKViewDelegate {
-        var app: AppModel
+        let engine: Engine
+        var spacePan = false
         private var attached = false
 
-        init(app: AppModel) {
-            self.app = app
+        init(engine: Engine) {
+            self.engine = engine
         }
 
         func attachIfNeeded(view: MTKView) {
@@ -51,11 +56,11 @@ struct BoardCanvas: NSViewRepresentable {
             let height = UInt32(max(view.bounds.height, 1).rounded())
             if !attached {
                 let layerPtr = Unmanaged.passUnretained(layer).toOpaque()
-                app.engine.attach(layer: layerPtr, width: width, height: height, scale: scale)
+                engine.attach(layer: layerPtr, width: width, height: height, scale: scale)
                 attached = true
-                app.engine.fit()
+                engine.fit()
             } else {
-                app.engine.resize(width: width, height: height, scale: scale)
+                engine.resize(width: width, height: height, scale: scale)
             }
         }
 
@@ -64,14 +69,14 @@ struct BoardCanvas: NSViewRepresentable {
             view.layer?.contentsScale = CGFloat(scale)
             let width = UInt32(max(view.bounds.width, 1).rounded())
             let height = UInt32(max(view.bounds.height, 1).rounded())
-            app.engine.resize(width: width, height: height, scale: scale)
+            engine.resize(width: width, height: height, scale: scale)
         }
 
         func draw(in view: MTKView) {
             if !attached {
                 attachIfNeeded(view: view)
             }
-            app.engine.render()
+            engine.render()
         }
 
         func screenPoint(in view: MTKView, event: NSEvent) -> CGPoint {
@@ -80,6 +85,8 @@ struct BoardCanvas: NSViewRepresentable {
         }
     }
 }
+
+private let middleButton = 2
 
 final class BoardMTKView: MTKView {
     weak var boardCoordinator: BoardCanvas.Coordinator?
@@ -152,7 +159,7 @@ final class BoardMTKView: MTKView {
             refreshCursor()
         } else {
             painting = true
-            coordinator.app.engine.pointerDown(x: Float(point.x), y: Float(point.y))
+            coordinator.engine.pointerDown(x: Float(point.x), y: Float(point.y))
             refreshCursor()
         }
     }
@@ -161,11 +168,11 @@ final class BoardMTKView: MTKView {
         guard let coordinator = boardCoordinator else { return }
         let point = coordinator.screenPoint(in: self, event: event)
         if panning, let lastDrag {
-            coordinator.app.engine.pan(dx: Float(point.x - lastDrag.x), dy: Float(point.y - lastDrag.y))
+            coordinator.engine.pan(dx: Float(point.x - lastDrag.x), dy: Float(point.y - lastDrag.y))
             self.lastDrag = point
             refreshCursor()
         } else if painting {
-            coordinator.app.engine.pointerMove(x: Float(point.x), y: Float(point.y))
+            coordinator.engine.pointerMove(x: Float(point.x), y: Float(point.y))
         }
     }
 
@@ -173,9 +180,44 @@ final class BoardMTKView: MTKView {
         guard let coordinator = boardCoordinator else { return }
         let point = coordinator.screenPoint(in: self, event: event)
         if painting {
-            coordinator.app.engine.pointerUp(x: Float(point.x), y: Float(point.y))
+            coordinator.engine.pointerUp(x: Float(point.x), y: Float(point.y))
         }
         painting = false
+        panning = false
+        lastDrag = nil
+        refreshCursor()
+    }
+
+    override func otherMouseDown(with event: NSEvent) {
+        guard event.buttonNumber == middleButton, let coordinator = boardCoordinator else {
+            super.otherMouseDown(with: event)
+            return
+        }
+        panning = true
+        lastDrag = coordinator.screenPoint(in: self, event: event)
+        refreshCursor()
+    }
+
+    override func otherMouseDragged(with event: NSEvent) {
+        guard event.buttonNumber == middleButton,
+              panning,
+              let coordinator = boardCoordinator,
+              let lastDrag
+        else {
+            super.otherMouseDragged(with: event)
+            return
+        }
+        let point = coordinator.screenPoint(in: self, event: event)
+        coordinator.engine.pan(dx: Float(point.x - lastDrag.x), dy: Float(point.y - lastDrag.y))
+        self.lastDrag = point
+        refreshCursor()
+    }
+
+    override func otherMouseUp(with event: NSEvent) {
+        guard event.buttonNumber == middleButton else {
+            super.otherMouseUp(with: event)
+            return
+        }
         panning = false
         lastDrag = nil
         refreshCursor()
@@ -187,16 +229,16 @@ final class BoardMTKView: MTKView {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         if flags.contains(.command) || flags.contains(.option) {
             let factor = exp(-Float(event.scrollingDeltaY) * 0.01)
-            coordinator.app.engine.zoom(x: Float(point.x), y: Float(point.y), factor: factor)
+            coordinator.engine.zoom(x: Float(point.x), y: Float(point.y), factor: factor)
         } else {
-            coordinator.app.engine.pan(dx: Float(event.scrollingDeltaX), dy: -Float(event.scrollingDeltaY))
+            coordinator.engine.pan(dx: Float(event.scrollingDeltaX), dy: -Float(event.scrollingDeltaY))
         }
     }
 
     override func magnify(with event: NSEvent) {
         guard let coordinator = boardCoordinator else { return }
         let point = coordinator.screenPoint(in: self, event: event)
-        coordinator.app.engine.zoom(
+        coordinator.engine.zoom(
             x: Float(point.x),
             y: Float(point.y),
             factor: Float(1 + event.magnification)
@@ -204,7 +246,7 @@ final class BoardMTKView: MTKView {
     }
 
     private var spaceHeld: Bool {
-        boardCoordinator?.app.spacePan == true
+        boardCoordinator?.spacePan == true
     }
 
     private func shouldPan(with event: NSEvent) -> Bool {
@@ -213,7 +255,7 @@ final class BoardMTKView: MTKView {
         return flags.contains(.option) || flags.contains(.command)
     }
 
-    private func refreshCursor() {
+    func refreshCursor() {
         let flags = NSEvent.modifierFlags.intersection(.deviceIndependentFlagsMask)
         let zoomChord = flags.contains(.command) || flags.contains(.option)
         let cursor: NSCursor

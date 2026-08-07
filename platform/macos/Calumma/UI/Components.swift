@@ -115,7 +115,7 @@ struct CalmIsland<Content: View>: View {
             .padding(padding)
             .background(
                 colors.surface,
-                in: RoundedRectangle(cornerRadius: Tokens.Radius.sm, style: .continuous)
+                in: RoundedRectangle(cornerRadius: Tokens.Radius.island, style: .continuous)
             )
     }
 }
@@ -218,8 +218,8 @@ struct CalmToolButton<Icon: View>: View {
     var body: some View {
         Button(action: action) {
             icon
-                .padding(Tokens.Space.sm)
-                .frame(width: 36, height: 36)
+                .padding(Tokens.Space.xs)
+                .frame(width: 32, height: 32)
                 .calmSurface(hover: selected, radius: Tokens.Radius.sm)
         }
         .buttonStyle(.plain)
@@ -312,29 +312,78 @@ struct CalmThumb: View {
 struct CalmChip: View {
     @Environment(\.themeColors) private var colors
     let title: String
+    let accent: Color
     let selected: Bool
+    let onAccent: () -> Void
     let onSelect: () -> Void
     let onClose: () -> Void
 
     var body: some View {
-        HStack(spacing: Tokens.Space.sm) {
+        HStack(spacing: Tokens.Space.xs) {
+            Button(action: onAccent) {
+                CalmDot(color: accent)
+            }
+            .buttonStyle(.plain)
             Button(action: onSelect) {
                 Text(title)
-                    .font(.system(size: Tokens.TypeSize.body, weight: selected ? .bold : .medium))
+                    .font(.system(size: Tokens.TypeSize.label, weight: selected ? .semibold : .medium))
                     .foregroundStyle(selected ? colors.text : colors.textMuted)
             }
             .buttonStyle(.plain)
             Button(action: onClose) {
-                Text("×").foregroundStyle(colors.textMuted)
+                Text("×")
+                    .font(.system(size: Tokens.TypeSize.label, weight: .medium))
+                    .foregroundStyle(colors.textMuted)
             }
             .buttonStyle(.plain)
         }
-        .padding(.horizontal, Tokens.Space.md)
-        .padding(.vertical, Tokens.Space.sm)
+        .padding(.horizontal, Tokens.Space.sm)
+        .padding(.vertical, Tokens.Space.xs)
         .background(
             selected ? colors.surface : colors.surface.opacity(0.001),
             in: RoundedRectangle(cornerRadius: Tokens.Radius.sm, style: .continuous)
         )
         .calmPointer()
+    }
+}
+
+struct CalmDot: View {
+    let color: Color
+    var size: CGFloat = 9
+    var selected = false
+
+    var body: some View {
+        Circle()
+            .fill(color)
+            .frame(width: size, height: size)
+            .padding(selected ? 3 : 0)
+            .background(
+                selected ? color.opacity(0.35) : color.opacity(0),
+                in: Circle()
+            )
+    }
+}
+
+struct CalmPaletteRow: View {
+    let colors: [Color]
+    let selected: Color
+    let onPick: (Color) -> Void
+
+    var body: some View {
+        HStack(spacing: Tokens.Space.sm) {
+            ForEach(Array(colors.enumerated()), id: \.offset) { _, color in
+                Button {
+                    onPick(color)
+                } label: {
+                    CalmDot(
+                        color: color,
+                        size: 14,
+                        selected: color.packedRGB == selected.packedRGB
+                    )
+                }
+                .buttonStyle(.plain)
+                .calmPointer()
+            }
+        }
     }
 }

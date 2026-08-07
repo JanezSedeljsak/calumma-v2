@@ -1,6 +1,8 @@
 import SwiftUI
 
-struct LandingView: View {
+struct NewProjectView: View {
+    var isLanding = true
+
     @EnvironmentObject private var app: AppModel
     @Environment(\.themeColors) private var colors
     @Environment(\.l10n) private var l10n
@@ -9,61 +11,89 @@ struct LandingView: View {
     @State private var height = 720
 
     var body: some View {
-        HStack(spacing: 0) {
-            leftPane
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            heroPane
-                .frame(width: 340)
+        GeometryReader { geo in
+            landscapeLayout(size: geo.size)
+                .padding(Tokens.Space.lg)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
         .calmScreen()
+        .background(ArtworkPasteCatcher(app: app))
         .toolbar {
-            ToolbarItem(placement: .automatic) {
-                CalmIconButton {
-                    app.settingsOpen = true
-                } icon: {
-                    AppIcon.settings(color: colors.textMuted)
+            if isLanding {
+                ToolbarItem(placement: .automatic) {
+                    CalmIconButton {
+                        app.settingsOpen = true
+                    } icon: {
+                        AppIcon.settings(color: colors.textMuted)
+                    }
                 }
             }
         }
         .onAppear {
             if name.isEmpty { name = l10n.newProject }
+            app.clearArtworkError()
             app.engine.refreshRecents()
         }
     }
 
-    private var leftPane: some View {
-        VStack(alignment: .leading, spacing: Tokens.Space.xl) {
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: Tokens.Space.sm) {
-                    CalmText.brand(l10n.brand)
-                    CalmText.eyebrow(l10n.tagline)
+    private func landscapeLayout(size: CGSize) -> some View {
+        HStack(alignment: .top, spacing: Tokens.Space.lg) {
+            VStack(alignment: .leading, spacing: Tokens.Space.lg) {
+                header
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(alignment: .leading, spacing: Tokens.Space.lg) {
+                        createForm
+                        HStack(alignment: .top, spacing: Tokens.Space.lg) {
+                            presetsColumn
+                            recentsColumn
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
                 }
-                Spacer()
             }
+            .frame(maxWidth: .infinity, alignment: .topLeading)
 
-            VStack(alignment: .leading, spacing: Tokens.Space.sm) {
+            PasteArtworkIsland()
+                .frame(width: pasteWidth(for: size))
+                .frame(maxHeight: .infinity)
+        }
+    }
+
+    private func pasteWidth(for size: CGSize) -> CGFloat {
+        min(
+            max(size.width * Tokens.Window.pasteWidthRatio, Tokens.Window.pasteMinWidth),
+            Tokens.Window.pasteMaxWidth
+        )
+    }
+
+    @ViewBuilder
+    private var header: some View {
+        if isLanding {
+            VStack(alignment: .leading, spacing: Tokens.Space.xs) {
+                CalmText.brand(l10n.brand)
+                CalmText.eyebrow(l10n.tagline)
+            }
+        }
+    }
+
+    private var createForm: some View {
+        VStack(alignment: .leading, spacing: Tokens.Space.lg) {
+            VStack(alignment: .leading, spacing: Tokens.Space.xs) {
                 CalmText.label(l10n.projectName)
                 CalmField(text: $name)
             }
 
-            VStack(alignment: .leading, spacing: Tokens.Space.sm) {
+            VStack(alignment: .leading, spacing: Tokens.Space.xs) {
                 CalmText.label(l10n.resolution)
                 HStack(spacing: Tokens.Space.sm) {
-                    CalmNumberField(value: $width)
-                    CalmNumberField(value: $height)
+                    CalmNumberField(value: $width, width: 72)
+                    CalmNumberField(value: $height, width: 72)
                     CalmAccentButton(title: l10n.create) {
                         app.create(name: name, width: width, height: height)
                     }
                 }
             }
-
-            HStack(alignment: .top, spacing: Tokens.Space.xl) {
-                presetsColumn
-                recentsColumn
-            }
-            .frame(maxHeight: .infinity, alignment: .top)
         }
-        .padding(Tokens.Space.xxl)
     }
 
     private var presetsColumn: some View {
@@ -87,17 +117,17 @@ struct LandingView: View {
         CalmSection(title: l10n.recents, accent: colors.accentOrange) {
             if app.engine.recents.isEmpty {
                 CalmText.muted(l10n.noRecents)
-                    .padding(Tokens.Space.md)
+                    .padding(Tokens.Space.sm)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .calmSurface()
             } else {
-                ForEach(app.engine.recents) { project in
+                ForEach(app.engine.recents.prefix(5)) { project in
                     CalmRowButton {
                         app.openRecent(project)
                     } content: {
                         CalmRow(
                             leading: {
-                                CalmThumb(tint: recentTint(for: project))
+                                CalmThumb(tint: project.accentColor)
                                     .overlay(AppIcon.image(color: .white.opacity(0.9)))
                             },
                             title: project.name,
@@ -108,35 +138,6 @@ struct LandingView: View {
                 }
             }
         }
-    }
-
-    private var heroPane: some View {
-        ZStack {
-            LinearGradient(
-                colors: [
-                    colors.accentTeal.opacity(0.55),
-                    colors.accentOrange.opacity(0.45),
-                    colors.bg,
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            VStack(spacing: Tokens.Space.md) {
-                AppIcon.image(color: .white)
-                    .scaleEffect(1.4)
-                Text(l10n.pasteArtwork)
-                    .font(.system(size: Tokens.TypeSize.title, weight: .bold))
-                    .foregroundStyle(.white)
-            }
-            .padding(Tokens.Space.xl)
-            .background(.black.opacity(0.35), in: RoundedRectangle(cornerRadius: Tokens.Radius.md, style: .continuous))
-        }
-    }
-
-    private func recentTint(for project: ProjectInfo) -> Color {
-        let palette = [colors.accentTeal, colors.accentOrange, colors.danger]
-        let idx = abs(project.id.hashValue) % palette.count
-        return palette[idx]
     }
 
     private func relativeTime(_ epoch: Int64) -> String {

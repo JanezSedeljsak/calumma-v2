@@ -7,6 +7,9 @@ struct Uniforms {
     time: f32,
     dark: f32,
     hover_rect: vec4<f32>,
+    desk: vec4<f32>,
+    grid: vec4<f32>,
+    paper_border: vec4<f32>,
     hover_enabled: f32,
     _pad0: f32,
     _pad1: f32,
@@ -31,59 +34,18 @@ fn vs_main(@builtin(vertex_index) idx: u32) -> VsOut {
     return out;
 }
 
-fn desk_color() -> vec3<f32> {
-    if u.dark > 0.5 {
-        return vec3<f32>(0.055, 0.071, 0.078);
-    }
-    return vec3<f32>(0.910, 0.933, 0.949);
-}
-
-fn surface_color() -> vec3<f32> {
-    if u.dark > 0.5 {
-        return vec3<f32>(0.102, 0.125, 0.141);
-    }
-    return vec3<f32>(0.957, 0.969, 0.976);
-}
+const DESK_CELL: f32 = 39.0;
+const DESK_LINE_W: f32 = 1.0;
+const PAPER_BORDER_W: f32 = 2.0;
 
 fn desk_pattern(screen: vec2<f32>) -> vec3<f32> {
-    let desk = desk_color();
-    let ink = surface_color();
-    let center = u.viewport * 0.5;
-    let p = screen - center;
-    let ang = 0.14;
-    let ca = cos(ang);
-    let sa = sin(ang);
-    let r = vec2<f32>(p.x * ca - p.y * sa, p.x * sa + p.y * ca);
-
-    let cell = 26.0;
-    let cell_uv = r / cell;
-    let local = fract(cell_uv) * cell;
-    let gx = min(local.x, cell - local.x);
-    let gy = min(local.y, cell - local.y);
-    let line_w = 0.55;
-
-    var amount = 0.0;
-    if gx < line_w || gy < line_w {
-        amount = max(amount, 0.18);
+    let cell_id = floor(screen / DESK_CELL);
+    let local = screen - cell_id * DESK_CELL;
+    let on_line = local.x < DESK_LINE_W || local.y < DESK_LINE_W;
+    if on_line {
+        return mix(u.desk.rgb, u.grid.rgb, u.grid.a);
     }
-
-    let corner = length(vec2<f32>(gx, gy));
-    if corner < 1.15 {
-        amount = max(amount, 0.32);
-    }
-
-    let major = 4.0;
-    let mx = abs(fract((cell_uv.x + 0.5) / major) * major - 0.5);
-    let my = abs(fract((cell_uv.y + 0.5) / major) * major - 0.5);
-    let on_major = mx < 0.02 && my < 0.02;
-    if on_major {
-        let arm = 3.2;
-        let plus_h = select(0.0, 1.0, gx < arm && gy < 0.85);
-        let plus_v = select(0.0, 1.0, gy < arm && gx < 0.85);
-        amount = max(amount, max(plus_h, plus_v) * 0.42);
-    }
-
-    return mix(desk, ink, amount);
+    return u.desk.rgb;
 }
 
 @fragment
@@ -93,11 +55,11 @@ fn fs_paper(in: VsOut) -> @location(0) vec4<f32> {
     var rgb = desk_pattern(screen);
 
     let inside = xy.x >= 0.0 && xy.y >= 0.0 && xy.x < u.doc_size.x && xy.y < u.doc_size.y;
-    if inside {
-        let border = 2.0 / max(u.zoom, 1e-6);
-        if xy.x < border || xy.y < border || xy.x > u.doc_size.x - border || xy.y > u.doc_size.y - border {
-            rgb = mix(rgb, surface_color(), 0.12);
-        }
+    let band = PAPER_BORDER_W / max(u.zoom, 1e-6);
+    let in_band = xy.x >= -band && xy.y >= -band
+        && xy.x <= u.doc_size.x + band && xy.y <= u.doc_size.y + band;
+    if in_band && !inside {
+        rgb = mix(rgb, u.paper_border.rgb, u.paper_border.a);
     }
 
     if u.hover_enabled > 0.5 {

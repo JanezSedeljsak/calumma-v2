@@ -23,6 +23,34 @@ struct ProjectInfo: Identifiable, Hashable {
     let width: Int
     let height: Int
     let openedAt: Int64
+    var accent: UInt32 = 0
+
+    var accentColor: Color { Color(rgb: accent) }
+}
+
+extension Color {
+    init(rgb: UInt32) {
+        self.init(
+            red: Double((rgb >> 16) & 0xFF) / 255,
+            green: Double((rgb >> 8) & 0xFF) / 255,
+            blue: Double(rgb & 0xFF) / 255
+        )
+    }
+
+    var packedRGBA: UInt32 {
+        let ns = NSColor(self).usingColorSpace(.sRGB) ?? NSColor.black
+        var r: CGFloat = 0
+        var g: CGFloat = 0
+        var b: CGFloat = 0
+        var a: CGFloat = 0
+        ns.getRed(&r, green: &g, blue: &b, alpha: &a)
+        let byte = { (value: CGFloat) -> UInt32 in
+            UInt32(min(255, max(0, (value * 255).rounded())))
+        }
+        return (byte(r) << 24) | (byte(g) << 16) | (byte(b) << 8) | byte(a)
+    }
+
+    var packedRGB: UInt32 { packedRGBA >> 8 }
 }
 
 struct EngineState {
@@ -39,9 +67,13 @@ struct EngineState {
     var canRedo = false
     var strokeActive = false
     var darkTheme = true
+    var accent: UInt32 = 0
+    var zoomUnit: Float = 0
+
+    var accentColor: Color { Color(rgb: accent) }
 }
 
-final class Engine: ObservableObject {
+final class Engine: ObservableObject, @unchecked Sendable {
     private var ptr: OpaquePointer?
     @Published var state = EngineState()
     @Published var recents: [ProjectInfo] = []
@@ -119,6 +151,50 @@ final class Engine: ObservableObject {
         guard let ptr else { return }
         _ = calm_engine_set_zoom(ptr, zoom)
         syncState()
+    }
+
+    func stepZoom(in zoomIn: Bool) {
+        guard let ptr else { return }
+        _ = calm_engine_step_zoom(ptr, zoomIn ? 1 : 0)
+        syncState()
+    }
+
+    func setZoomUnit(_ unit: Float) {
+        guard let ptr else { return }
+        _ = calm_engine_set_zoom_unit(ptr, unit)
+        syncState()
+    }
+
+    func setBoardColors(desk: Color, grid: Color, paperBorder: Color) {
+        guard let ptr else { return }
+        _ = calm_engine_set_board_colors(
+            ptr,
+            desk.packedRGBA,
+            grid.packedRGBA,
+            paperBorder.packedRGBA
+        )
+    }
+
+    static var palette: [Color] {
+        (0..<calm_palette_count()).map { Color(rgb: calm_palette_color($0)) }
+    }
+
+    func rename(projectId: String, to name: String) {
+        guard let ptr else { return }
+        _ = projectId.withCString { idPtr in
+            name.withCString { namePtr in
+                calm_project_rename(ptr, idPtr, namePtr)
+            }
+        }
+        syncState()
+        refreshRecents()
+    }
+
+    func setAccent(projectId: String, color: Color) {
+        guard let ptr else { return }
+        _ = projectId.withCString { calm_project_set_accent(ptr, $0, color.packedRGB) }
+        syncState()
+        refreshRecents()
     }
 
     func setTool(_ tool: CalmTool) {
@@ -213,6 +289,35 @@ final class Engine: ObservableObject {
         refreshLayers()
     }
 
+    static var importMaxSide: Int { Int(calm_import_max_side()) }
+
+    @discardableResult
+    func createProject(name: String, artwork: ArtworkImage) -> String? {
+        guard let ptr else { return nil }
+        let created: String? = artwork.premultipliedRGBA.withUnsafeBytes { raw in
+            guard let base = raw.bindMemory(to: UInt8.self).baseAddress else { return nil }
+            let idPtr = name.withCString {
+                calm_project_create_from_image(
+                    ptr,
+                    $0,
+                    UInt32(artwork.width),
+                    UInt32(artwork.height),
+                    base,
+                    raw.count
+                )
+            }
+            guard let idPtr else { return nil }
+            let id = String(cString: idPtr)
+            calm_string_free(idPtr)
+            return id
+        }
+        guard let created else { return nil }
+        syncState()
+        refreshLayers()
+        refreshRecents()
+        return created
+    }
+
     @discardableResult
     func createProject(name: String, width: Int, height: Int) -> String? {
         guard let ptr else { return nil }
@@ -251,7 +356,14 @@ final class Engine: ObservableObject {
     func refreshRecents() {
         guard let ptr else { return }
         var buffer = Array(
-            repeating: CalmProjectInfo(id: nil, name: nil, width: 0, height: 0, opened_at: 0),
+            repeating: CalmProjectInfo(
+                id: nil,
+                name: nil,
+                width: 0,
+                height: 0,
+                opened_at: 0,
+                accent: 0
+            ),
             count: 32
         )
         let count = buffer.withUnsafeMutableBufferPointer { calm_project_list(ptr, $0.baseAddress, 32) }
@@ -265,7 +377,8 @@ final class Engine: ObservableObject {
                     name: String(cString: namePtr),
                     width: Int(info.width),
                     height: Int(info.height),
-                    openedAt: info.opened_at
+                    openedAt: info.opened_at,
+                    accent: info.accent
                 )
             )
             calm_string_free(idPtr)
@@ -291,7 +404,9 @@ final class Engine: ObservableObject {
             canUndo: raw.can_undo != 0,
             canRedo: raw.can_redo != 0,
             strokeActive: raw.stroke_active != 0,
-            darkTheme: raw.dark_theme != 0
+            darkTheme: raw.dark_theme != 0,
+            accent: raw.accent,
+            zoomUnit: raw.zoom_unit
         )
     }
 

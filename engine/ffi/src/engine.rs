@@ -1,6 +1,8 @@
 use crate::platform::{parse_op_kind, CalmPlatformOps, PlatformOp};
-use calumma_core::limits::{AUTOSAVE_INTERVAL_MS, BRUSH_SIZE_MAX, BRUSH_SIZE_MIN};
-use calumma_core::{Document, Tool};
+use calumma_core::limits::{AUTOSAVE_INTERVAL_MS, BRUSH_SIZE_MAX, BRUSH_SIZE_MIN, IMPORT_MAX_SIDE};
+use calumma_core::{
+    project_color, unpremultiply_rgba, BoardColors, Document, Tool, PROJECT_COLORS,
+};
 use calumma_io::{ProjectListItem, ProjectStore};
 use calumma_ops::{
     apply_output, layer_input, run_op_on_document, Backend, Op, OpParams, OpRegistry,
@@ -41,6 +43,8 @@ pub struct CalmState {
     pub can_redo: u8,
     pub stroke_active: u8,
     pub dark_theme: u8,
+    pub accent: u32,
+    pub zoom_unit: f32,
 }
 
 #[repr(C)]
@@ -57,6 +61,28 @@ pub struct CalmProjectInfo {
     pub width: u32,
     pub height: u32,
     pub opened_at: i64,
+    pub accent: u32,
+}
+
+fn pack_rgb(rgb: [u8; 3]) -> u32 {
+    ((rgb[0] as u32) << 16) | ((rgb[1] as u32) << 8) | rgb[2] as u32
+}
+
+fn unpack_rgb(packed: u32) -> [u8; 3] {
+    [
+        ((packed >> 16) & 0xFF) as u8,
+        ((packed >> 8) & 0xFF) as u8,
+        (packed & 0xFF) as u8,
+    ]
+}
+
+fn unpack_rgba(packed: u32) -> [u8; 4] {
+    [
+        ((packed >> 24) & 0xFF) as u8,
+        ((packed >> 16) & 0xFF) as u8,
+        ((packed >> 8) & 0xFF) as u8,
+        (packed & 0xFF) as u8,
+    ]
 }
 
 struct Inner {
@@ -376,6 +402,121 @@ pub unsafe extern "C" fn calm_engine_set_zoom(engine: *mut CalmEngine, zoom: f32
 }
 
 #[no_mangle]
+pub unsafe extern "C" fn calm_engine_step_zoom(engine: *mut CalmEngine, zoom_in: u8) -> CalmStatus {
+    with_inner(engine, |inner| {
+        if let Some(doc) = &mut inner.doc {
+            let (w, h) = (doc.width as f32, doc.height as f32);
+            doc.camera.step_zoom(zoom_in != 0, w, h);
+            if let Some(r) = &mut inner.renderer {
+                r.invalidate();
+            }
+        }
+        Ok(())
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn calm_engine_set_zoom_unit(
+    engine: *mut CalmEngine,
+    unit: f32,
+) -> CalmStatus {
+    with_inner(engine, |inner| {
+        if let Some(doc) = &mut inner.doc {
+            let (w, h) = (doc.width as f32, doc.height as f32);
+            let zoom = doc.camera.zoom_from_unit(unit, w, h);
+            doc.camera.zoom_to_center(zoom, w, h);
+            if let Some(r) = &mut inner.renderer {
+                r.invalidate();
+            }
+        }
+        Ok(())
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn calm_engine_set_board_colors(
+    engine: *mut CalmEngine,
+    desk: u32,
+    grid: u32,
+    paper_border: u32,
+) -> CalmStatus {
+    with_inner(engine, |inner| {
+        if let Some(doc) = &mut inner.doc {
+            let next = BoardColors {
+                desk: unpack_rgba(desk),
+                grid: unpack_rgba(grid),
+                paper_border: unpack_rgba(paper_border),
+            };
+            if doc.board_colors != next {
+                doc.board_colors = next;
+                if let Some(r) = &mut inner.renderer {
+                    r.invalidate();
+                }
+            }
+        }
+        Ok(())
+    })
+}
+
+#[no_mangle]
+pub extern "C" fn calm_palette_count() -> u32 {
+    PROJECT_COLORS.len() as u32
+}
+
+#[no_mangle]
+pub extern "C" fn calm_palette_color(index: u32) -> u32 {
+    pack_rgb(project_color(index as usize))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn calm_project_rename(
+    engine: *mut CalmEngine,
+    id: *const c_char,
+    name: *const c_char,
+) -> CalmStatus {
+    if id.is_null() || name.is_null() {
+        return CalmStatus::Null;
+    }
+    with_inner(engine, |inner| {
+        let id = unsafe { CStr::from_ptr(id) }.to_str().map_err(|_| ())?;
+        let name = unsafe { CStr::from_ptr(name) }.to_str().map_err(|_| ())?;
+        let name = name.trim();
+        if name.is_empty() {
+            return Err(());
+        }
+        inner.store.rename(id, name).map_err(|_| ())?;
+        if let Some(doc) = inner.doc.as_mut() {
+            if doc.id == id {
+                doc.name = name.to_string();
+            }
+        }
+        Ok(())
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn calm_project_set_accent(
+    engine: *mut CalmEngine,
+    id: *const c_char,
+    accent: u32,
+) -> CalmStatus {
+    if id.is_null() {
+        return CalmStatus::Null;
+    }
+    with_inner(engine, |inner| {
+        let id = unsafe { CStr::from_ptr(id) }.to_str().map_err(|_| ())?;
+        let rgb = unpack_rgb(accent);
+        inner.store.set_accent(id, rgb).map_err(|_| ())?;
+        if let Some(doc) = inner.doc.as_mut() {
+            if doc.id == id {
+                doc.accent = rgb;
+            }
+        }
+        Ok(())
+    })
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn calm_engine_set_tool(engine: *mut CalmEngine, tool: u32) -> CalmStatus {
     with_inner(engine, |inner| {
         if let Some(doc) = &mut inner.doc {
@@ -466,12 +607,7 @@ pub unsafe extern "C" fn calm_engine_redo(engine: *mut CalmEngine) -> CalmStatus
 pub unsafe extern "C" fn calm_engine_add_layer(engine: *mut CalmEngine) -> CalmStatus {
     with_inner(engine, |inner| {
         if let Some(doc) = &mut inner.doc {
-            let n = doc
-                .layers
-                .iter()
-                .filter(|l| l.content.is_raster())
-                .count()
-                + 1;
+            let n = doc.layers.iter().filter(|l| l.content.is_raster()).count() + 1;
             doc.add_layer(calumma_core::names::numbered_layer(n));
             inner.dirty_save = true;
             if let Some(r) = &mut inner.renderer {
@@ -520,10 +656,7 @@ pub unsafe extern "C" fn calm_engine_set_layer_visible(
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn calm_engine_layer_visible(
-    engine: *mut CalmEngine,
-    index: u32,
-) -> c_int {
+pub unsafe extern "C" fn calm_engine_layer_visible(engine: *mut CalmEngine, index: u32) -> c_int {
     if engine.is_null() {
         return -1;
     }
@@ -614,6 +747,8 @@ pub unsafe extern "C" fn calm_engine_state(
                     can_redo: 0,
                     stroke_active: 0,
                     dark_theme: 1,
+                    accent: 0,
+                    zoom_unit: 0.0,
                 };
             }
             return Ok(());
@@ -634,6 +769,8 @@ pub unsafe extern "C" fn calm_engine_state(
                 can_redo: doc.history.can_redo() as u8,
                 stroke_active: doc.stroke_active as u8,
                 dark_theme: doc.dark_theme as u8,
+                accent: pack_rgb(doc.accent),
+                zoom_unit: doc.camera.zoom_unit(dw, dh),
             };
         }
         Ok(())
@@ -697,7 +834,7 @@ pub unsafe extern "C" fn calm_engine_layer_thumbnail(
         let (w, h, rgba) = if let Some(tiles) = layer.tiles() {
             tiles.thumbnail(max_side.max(1))
         } else if let Some(paths) = layer.content.paths() {
-            let side = max_side.max(1).min(64);
+            let side = max_side.clamp(1, 64);
             let color = paths
                 .first()
                 .map(|p| p.color)
@@ -742,6 +879,63 @@ pub unsafe extern "C" fn calm_project_create(
             .to_str()
             .unwrap_or(calumma_core::UNTITLED);
         let doc = inner.store.create(name, width, height).map_err(|_| ())?;
+        let id = doc.id.clone();
+        if let Some(mut old) = inner.doc.take() {
+            let _ = inner.store.save(&mut old);
+        }
+        inner.doc = Some(doc);
+        inner.dirty_save = false;
+        if let Some(r) = &mut inner.renderer {
+            r.invalidate();
+        }
+        Ok::<_, ()>(cstring(&id))
+    })) {
+        Ok(Ok(p)) => p,
+        _ => ptr::null_mut(),
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn calm_import_max_side() -> u32 {
+    IMPORT_MAX_SIDE
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn calm_project_create_from_image(
+    engine: *mut CalmEngine,
+    name: *const c_char,
+    width: u32,
+    height: u32,
+    premultiplied_rgba: *const u8,
+    len: usize,
+) -> *mut c_char {
+    if engine.is_null() || name.is_null() || premultiplied_rgba.is_null() {
+        return ptr::null_mut();
+    }
+    let expected = (width as usize)
+        .checked_mul(height as usize)
+        .and_then(|pixels| pixels.checked_mul(4));
+    if width == 0
+        || height == 0
+        || width > IMPORT_MAX_SIDE
+        || height > IMPORT_MAX_SIDE
+        || expected != Some(len)
+    {
+        return ptr::null_mut();
+    }
+    match catch_unwind(AssertUnwindSafe(|| {
+        let mutex = unsafe { &*(engine as *const Mutex<Inner>) };
+        let mut inner = mutex.lock().map_err(|_| ())?;
+        let name = unsafe { CStr::from_ptr(name) }
+            .to_str()
+            .unwrap_or(calumma_core::UNTITLED);
+        let mut rgba = unsafe { std::slice::from_raw_parts(premultiplied_rgba, len) }.to_vec();
+        unpremultiply_rgba(&mut rgba);
+        let mut doc = inner.store.create(name, width, height).map_err(|_| ())?;
+        if !doc.place_image(&rgba, width, height) {
+            return Err(());
+        }
+        inner.store.save(&mut doc).map_err(|_| ())?;
         let id = doc.id.clone();
         if let Some(mut old) = inner.doc.take() {
             let _ = inner.store.save(&mut old);
@@ -824,6 +1018,7 @@ fn write_projects(out: *mut CalmProjectInfo, items: &[ProjectListItem], cap: usi
                 width: item.width,
                 height: item.height,
                 opened_at: item.opened_at,
+                accent: pack_rgb(item.accent),
             };
         }
     }

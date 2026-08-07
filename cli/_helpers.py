@@ -36,6 +36,7 @@ from constants import (
     TOKEN_KEY_RADIUS,
     TOKEN_KEY_SPACE,
     TOKEN_KEY_TYPE,
+    TOKEN_KEY_WINDOW,
     TOKEN_MODE_DARK,
     TOKEN_MODE_LIGHT,
     TOKENS_PATH,
@@ -72,6 +73,7 @@ __all__ = [
     "token_radius",
     "token_space",
     "token_type",
+    "token_window",
     "which",
     "FORBIDDEN_CORE_DEPS",
 ]
@@ -130,6 +132,10 @@ def token_space(tokens: dict[str, object] | None = None) -> dict[str, float]:
 
 def token_type(tokens: dict[str, object] | None = None) -> dict[str, float]:
     return _float_map((tokens or load_tokens())[TOKEN_KEY_TYPE])
+
+
+def token_window(tokens: dict[str, object] | None = None) -> dict[str, float]:
+    return _float_map((tokens or load_tokens())[TOKEN_KEY_WINDOW])
 
 
 def token_presets(tokens: dict[str, object] | None = None) -> list[dict[str, object]]:

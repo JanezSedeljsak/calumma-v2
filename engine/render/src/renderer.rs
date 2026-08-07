@@ -22,10 +22,22 @@ struct PaperUniforms {
     dark: f32,
     _align_hover: [f32; 2],
     hover_rect: [f32; 4],
+    desk: [f32; 4],
+    grid: [f32; 4],
+    paper_border: [f32; 4],
     hover_enabled: f32,
     _pad0: f32,
     _pad1: f32,
     _pad2: f32,
+}
+
+fn rgba_unit(rgba: [u8; 4]) -> [f32; 4] {
+    [
+        rgba[0] as f32 / 255.0,
+        rgba[1] as f32 / 255.0,
+        rgba[2] as f32 / 255.0,
+        rgba[3] as f32 / 255.0,
+    ]
 }
 
 #[repr(C)]
@@ -625,6 +637,9 @@ impl Renderer {
             dark: if doc.dark_theme { 1.0 } else { 0.0 },
             _align_hover: [0.0, 0.0],
             hover_rect: hover,
+            desk: rgba_unit(doc.board_colors.desk),
+            grid: rgba_unit(doc.board_colors.grid),
+            paper_border: rgba_unit(doc.board_colors.paper_border),
             hover_enabled: if doc.hover_layer.is_some() && hover != [0.0; 4] {
                 1.0
             } else {

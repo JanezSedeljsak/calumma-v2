@@ -18,6 +18,7 @@ from _helpers import (
     token_radius,
     token_space,
     token_type,
+    token_window,
 )
 from constants import (
     ENCODING_UTF8,
@@ -25,6 +26,7 @@ from constants import (
     RADIUS_KEYS,
     SPACE_KEYS,
     TYPE_KEYS,
+    WINDOW_KEYS,
 )
 
 
@@ -33,6 +35,7 @@ def generate_tokens_swift() -> Path:
     radius = token_radius(tokens)
     space = token_space(tokens)
     typ = token_type(tokens)
+    window = token_window(tokens)
     colors = token_colors(tokens)
     presets = token_presets(tokens)
     light = colors[TOKEN_MODE_LIGHT]
@@ -52,6 +55,9 @@ def generate_tokens_swift() -> Path:
     lines += ["    }", "", "    enum TypeSize {"]
     for json_key, swift_name in TYPE_KEYS:
         lines.append(f"        static let {swift_name}: CGFloat = {typ[json_key]}")
+    lines += ["    }", "", "    enum Window {"]
+    for key in WINDOW_KEYS:
+        lines.append(f"        static let {key}: CGFloat = {window[key]}")
     lines += ["    }", "", "    enum Light {"]
     for key in COLOR_KEYS:
         value = light[key]

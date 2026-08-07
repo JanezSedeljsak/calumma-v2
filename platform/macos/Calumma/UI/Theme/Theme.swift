@@ -17,6 +17,9 @@ struct ThemeColors {
     let accentTeal: Color
     let accentOrange: Color
     let danger: Color
+    let desk: Color
+    let deskGrid: Color
+    let paperBorder: Color
 
     static func colors(for theme: AppTheme) -> ThemeColors {
         switch theme {
@@ -29,7 +32,10 @@ struct ThemeColors {
                 textMuted: Tokens.Light.textMuted,
                 accentTeal: Tokens.Light.accentTeal,
                 accentOrange: Tokens.Light.accentOrange,
-                danger: Tokens.Light.danger
+                danger: Tokens.Light.danger,
+                desk: Tokens.Light.desk,
+                deskGrid: Tokens.Light.deskGrid,
+                paperBorder: Tokens.Light.paperBorder
             )
         case .dark:
             return ThemeColors(
@@ -40,7 +46,10 @@ struct ThemeColors {
                 textMuted: Tokens.Dark.textMuted,
                 accentTeal: Tokens.Dark.accentTeal,
                 accentOrange: Tokens.Dark.accentOrange,
-                danger: Tokens.Dark.danger
+                danger: Tokens.Dark.danger,
+                desk: Tokens.Dark.desk,
+                deskGrid: Tokens.Dark.deskGrid,
+                paperBorder: Tokens.Dark.paperBorder
             )
         }
     }

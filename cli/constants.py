@@ -55,6 +55,7 @@ PKG_CORE = f"{CRATE_PREFIX}core"
 
 TOKEN_KEY_RADIUS = "radius"
 TOKEN_KEY_SPACE = "space"
+TOKEN_KEY_WINDOW = "window"
 TOKEN_KEY_TYPE = "type"
 TOKEN_KEY_COLOR = "color"
 TOKEN_KEY_PRESETS = "presets"
@@ -72,11 +73,27 @@ COLOR_KEYS = (
     "textMuted",
     "danger",
     "desk",
+    "deskGrid",
     "paper",
+    "paperBorder",
 )
 
-RADIUS_KEYS = ("sm", "md", "lg", "window")
+RADIUS_KEYS = ("sm", "md", "lg", "window", "island")
 SPACE_KEYS = ("xs", "sm", "md", "lg", "xl", "xxl")
+WINDOW_KEYS = (
+    "mainWidth",
+    "mainHeight",
+    "mainMinWidth",
+    "mainMinHeight",
+    "newProjectWidth",
+    "newProjectHeight",
+    "newProjectMinWidth",
+    "newProjectMinHeight",
+    "pasteMinWidth",
+    "pasteMaxWidth",
+    "pasteMinHeight",
+    "pasteWidthRatio",
+)
 TYPE_KEYS = (
     ("labelSize", "label"),
     ("labelTracking", "labelTracking"),

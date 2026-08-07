@@ -137,6 +137,25 @@ pub fn blend_over(dst: [u8; 4], src: [u8; 4]) -> [u8; 4] {
     ]
 }
 
+pub fn unpremultiply_rgba(rgba: &mut [u8]) {
+    for px in rgba.chunks_exact_mut(CHANNELS) {
+        let alpha = px[3] as u32;
+        if alpha == ALPHA_MAX {
+            continue;
+        }
+        if alpha == 0 {
+            px[0] = 0;
+            px[1] = 0;
+            px[2] = 0;
+            continue;
+        }
+        for channel in px[..3].iter_mut() {
+            let scaled = (*channel as u32 * ALPHA_MAX + alpha / 2) / alpha;
+            *channel = scaled.min(ALPHA_MAX) as u8;
+        }
+    }
+}
+
 #[inline]
 fn pixel_index(local_x: usize, local_y: usize) -> usize {
     (local_y * TILE_SIZE as usize + local_x) * CHANNELS
@@ -395,7 +414,9 @@ impl TileGrid {
         let max_side = max_side.max(1);
         let dw = self.width.max(1);
         let dh = self.height.max(1);
-        let scale = (max_side as f32 / dw as f32).min(max_side as f32 / dh as f32).min(1.0);
+        let scale = (max_side as f32 / dw as f32)
+            .min(max_side as f32 / dh as f32)
+            .min(1.0);
         let tw = ((dw as f32) * scale).round().max(1.0) as u32;
         let th = ((dh as f32) * scale).round().max(1.0) as u32;
         let mut rgba = vec![0u8; (tw as usize) * (th as usize) * CHANNELS];
@@ -626,6 +647,26 @@ mod tests {
         assert_eq!(back.get_pixel(0, 0), [1, 2, 3, 255]);
         assert_eq!(back.get_pixel(299, 299), [4, 5, 6, 255]);
         assert_eq!(back.get_pixel(260, 10), [7, 8, 9, 255]);
+    }
+
+    #[test]
+    fn unpremultiply_restores_straight_alpha() {
+        let mut rgba = vec![
+            128, 64, 32, 128, // half-transparent grey
+            10, 20, 30, 255, // opaque stays untouched
+            9, 9, 9, 0, // fully transparent clears colour
+        ];
+        unpremultiply_rgba(&mut rgba);
+        assert_eq!(&rgba[0..4], &[255, 128, 64, 128]);
+        assert_eq!(&rgba[4..8], &[10, 20, 30, 255]);
+        assert_eq!(&rgba[8..12], &[0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn unpremultiply_never_overflows_a_channel() {
+        let mut rgba = vec![200, 200, 200, 4];
+        unpremultiply_rgba(&mut rgba);
+        assert_eq!(rgba, vec![255, 255, 255, 4]);
     }
 
     #[test]

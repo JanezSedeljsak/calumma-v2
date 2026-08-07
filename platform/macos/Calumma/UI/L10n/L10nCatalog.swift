@@ -76,6 +76,8 @@ struct L10nCatalog: Equatable {
     var brand: String { self["brand"] }
     var tagline: String { self["tagline"] }
     var projectName: String { self["projectName"] }
+    var projectColor: String { self["projectColor"] }
+    var done: String { self["done"] }
     var resolution: String { self["resolution"] }
     var create: String { self["create"] }
     var newProject: String { self["newProject"] }
@@ -84,10 +86,16 @@ struct L10nCatalog: Equatable {
     var recents: String { self["recents"] }
     var noRecents: String { self["noRecents"] }
     var pasteArtwork: String { self["pasteArtwork"] }
+    var pasteArtworkHint: String { self["pasteArtworkHint"] }
+    var artworkFormats: String { self["artworkFormats"] }
+    var chooseArtwork: String { self["chooseArtwork"] }
+    var artworkImportFailed: String { self["artworkImportFailed"] }
     var layers: String { self["layers"] }
     var fill: String { self["fill"] }
     var shapes: String { self["shapes"] }
     var zoom: String { self["zoom"] }
+    var ai: String { self["ai"] }
+    var removeBackground: String { self["removeBackground"] }
     var cutBackground: String { self["cutBackground"] }
     var undo: String { self["undo"] }
     var redo: String { self["redo"] }
