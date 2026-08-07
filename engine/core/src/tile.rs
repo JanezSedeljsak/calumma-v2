@@ -137,6 +137,24 @@ pub fn blend_over(dst: [u8; 4], src: [u8; 4]) -> [u8; 4] {
     ]
 }
 
+pub fn blend_with_mode(dst: [u8; 4], src: [u8; 4], mode: crate::layer::BlendMode) -> [u8; 4] {
+    use crate::layer::BlendMode;
+    let blended_rgb = match mode {
+        BlendMode::Normal => [src[0], src[1], src[2]],
+        BlendMode::Multiply => {
+            std::array::from_fn(|i| ((dst[i] as u32 * src[i] as u32) / ALPHA_MAX) as u8)
+        }
+        BlendMode::Screen => std::array::from_fn(|i| {
+            (ALPHA_MAX - ((ALPHA_MAX - dst[i] as u32) * (ALPHA_MAX - src[i] as u32) / ALPHA_MAX))
+                as u8
+        }),
+    };
+    blend_over(
+        dst,
+        [blended_rgb[0], blended_rgb[1], blended_rgb[2], src[3]],
+    )
+}
+
 pub fn unpremultiply_rgba(rgba: &mut [u8]) {
     for px in rgba.chunks_exact_mut(CHANNELS) {
         let alpha = px[3] as u32;
@@ -549,7 +567,51 @@ impl TileGrid {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::layer::BlendMode;
     use crate::limits::ALPHA_OPAQUE;
+
+    #[test]
+    fn multiply_blend_darkens_toward_black() {
+        let dst = [200, 200, 200, 255];
+        let src = [100, 50, 25, 255];
+        let out = blend_with_mode(dst, src, BlendMode::Multiply);
+        assert_eq!(
+            out,
+            [
+                (200u32 * 100 / 255) as u8,
+                (200u32 * 50 / 255) as u8,
+                (200u32 * 25 / 255) as u8,
+                255
+            ]
+        );
+    }
+
+    #[test]
+    fn multiply_by_white_is_a_no_op() {
+        let dst = [10, 20, 30, 255];
+        let src = [255, 255, 255, 255];
+        assert_eq!(blend_with_mode(dst, src, BlendMode::Multiply), dst);
+    }
+
+    #[test]
+    fn screen_blend_lightens_toward_white() {
+        let dst = [50, 50, 50, 255];
+        let src = [255, 255, 255, 255];
+        assert_eq!(
+            blend_with_mode(dst, src, BlendMode::Screen),
+            [255, 255, 255, 255]
+        );
+    }
+
+    #[test]
+    fn blend_with_mode_normal_matches_blend_over() {
+        let dst = [10, 20, 30, 200];
+        let src = [200, 100, 50, 128];
+        assert_eq!(
+            blend_with_mode(dst, src, BlendMode::Normal),
+            blend_over(dst, src)
+        );
+    }
 
     #[test]
     fn sparse_until_painted() {

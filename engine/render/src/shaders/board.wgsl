@@ -92,10 +92,19 @@ struct TilePlacement {
     _pad: f32,
 }
 
+struct LayerXform {
+    pivot: vec2<f32>,
+    offset: vec2<f32>,
+    scale: vec2<f32>,
+    rotation: f32,
+    _pad: f32,
+}
+
 @group(0) @binding(0) var<uniform> tu: TileCamera;
 @group(0) @binding(1) var tile_tex: texture_2d<f32>;
 @group(0) @binding(2) var tile_sampler: sampler;
 @group(0) @binding(3) var<uniform> tp: TilePlacement;
+@group(0) @binding(4) var<uniform> lx: LayerXform;
 
 struct TileVsOut {
     @builtin(position) position: vec4<f32>,
@@ -113,7 +122,12 @@ fn vs_tile(@builtin(vertex_index) idx: u32) -> TileVsOut {
         vec2<f32>(1.0, 1.0),
     );
     let uv = corners[idx];
-    let doc = tp.origin + uv * tp.tile_size;
+    let raw_doc = tp.origin + uv * tp.tile_size;
+    let rel = (raw_doc - lx.pivot) * lx.scale;
+    let s = sin(lx.rotation);
+    let c = cos(lx.rotation);
+    let rotated = vec2<f32>(rel.x * c - rel.y * s, rel.x * s + rel.y * c);
+    let doc = lx.pivot + rotated + lx.offset;
     let screen = doc * tu.zoom + tu.pan;
     let device = screen * tu.dpr;
     let ndc = vec2<f32>(
@@ -128,7 +142,8 @@ fn vs_tile(@builtin(vertex_index) idx: u32) -> TileVsOut {
 
 @fragment
 fn fs_tile(input: TileVsOut) -> @location(0) vec4<f32> {
-    return textureSampleLevel(tile_tex, tile_sampler, input.uv, 0.0);
+    let c = textureSampleLevel(tile_tex, tile_sampler, input.uv, 0.0);
+    return vec4<f32>(c.rgb * c.a, c.a);
 }
 
 const TOOL_PEN: u32 = 0u;

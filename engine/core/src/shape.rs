@@ -12,6 +12,7 @@ pub enum Tool {
     SelectEllipse = 7,
     SelectLasso = 8,
     Fill = 9,
+    Transform = 10,
 }
 
 impl Tool {
@@ -27,6 +28,7 @@ impl Tool {
             7 => Some(Self::SelectEllipse),
             8 => Some(Self::SelectLasso),
             9 => Some(Self::Fill),
+            10 => Some(Self::Transform),
             _ => None,
         }
     }
@@ -145,7 +147,8 @@ impl Shape {
             | Tool::SelectRect
             | Tool::SelectEllipse
             | Tool::SelectLasso
-            | Tool::Fill => f32::MAX,
+            | Tool::Fill
+            | Tool::Transform => f32::MAX,
             Tool::Line => sd_segment(p, self.start, self.end) - self.half_width,
             Tool::Arrow => self.arrow_distance(p) - self.half_width,
             Tool::Rect => {

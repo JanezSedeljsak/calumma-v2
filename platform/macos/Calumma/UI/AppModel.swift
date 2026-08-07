@@ -1,6 +1,7 @@
 import AppKit
 import Combine
 import SwiftUI
+import UniformTypeIdentifiers
 
 @MainActor
 final class AppModel: ObservableObject {
@@ -152,6 +153,29 @@ final class AppModel: ObservableObject {
 
     func clearArtworkError() {
         artworkError = nil
+    }
+
+    private var activeProjectName: String {
+        openTabs.first { $0.id == activeTabId }?.name ?? l10n.untitled
+    }
+
+    func exportComposite(as format: ExportFormat) {
+        guard let image = engine.compositeCGImage() else { return }
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [format.utType]
+        panel.nameFieldStringValue = "\(activeProjectName).\(format.fileExtension)"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        guard let data = ImageEncode.data(image, format: format) else { return }
+        try? data.write(to: url)
+    }
+
+    func exportPSD() {
+        guard let data = engine.exportPSD() else { return }
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [UTType(filenameExtension: "psd") ?? .data]
+        panel.nameFieldStringValue = "\(activeProjectName).psd"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        try? data.write(to: url)
     }
 
     private func adopt(id: String, name: String, width: Int, height: Int) {

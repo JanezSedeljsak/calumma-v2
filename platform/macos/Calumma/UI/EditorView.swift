@@ -8,6 +8,9 @@ struct EditorView: View {
     @State private var hoveredLayer: Int?
     @State private var editingTab: String?
     @State private var artworkDropTargeted = false
+    @State private var canvasWidth = 0
+    @State private var canvasHeight = 0
+    @State private var layerSettingsIndex: Int?
 
     var body: some View {
         HStack(alignment: .top, spacing: Tokens.Space.sm) {
@@ -141,43 +144,6 @@ struct EditorView: View {
             .help(l10n.newProject)
             .calmPointer()
         }
-        ToolbarItemGroup(placement: .primaryAction) {
-            Menu {
-                ForEach(ExportFormat.allCases) { format in
-                    Button(l10n.formatKey("exportAs", format.label)) {
-                        exportComposite(as: format)
-                    }
-                }
-            } label: {
-                AppIcon.export(color: colors.textMuted)
-                    .padding(Tokens.Space.sm)
-                    .background(colors.surface, in: Circle())
-            }
-            .menuStyle(.borderlessButton)
-            .menuIndicator(.hidden)
-            .help(l10n.exportMenu)
-            .calmPointer()
-
-            CalmIconButton {
-                app.settingsOpen = true
-            } icon: {
-                AppIcon.settings(color: colors.textMuted)
-            }
-            .help(l10n.settings)
-            .calmPointer()
-        }
-    }
-
-    private func exportComposite(as format: ExportFormat) {
-        guard let image = app.engine.compositeCGImage() else { return }
-        let activeTab = app.openTabs.first { $0.id == app.activeTabId }
-        let baseName = activeTab?.name ?? l10n.untitled
-        let panel = NSSavePanel()
-        panel.allowedContentTypes = [format.utType]
-        panel.nameFieldStringValue = "\(baseName).\(format.fileExtension)"
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        guard let data = ImageEncode.data(image, format: format) else { return }
-        try? data.write(to: url)
     }
 
     private var toolIsland: some View {
@@ -205,6 +171,7 @@ struct EditorView: View {
             shapeToolButton
             selectToolButton
             toolButton(.bucket) { AppIcon.bucket(color: iconColor(.bucket)) }
+            toolButton(.transform) { AppIcon.transform(color: iconColor(.transform)) }
         }
     }
 
@@ -230,7 +197,7 @@ struct EditorView: View {
                 }
             }
 
-            if !app.tool.isSelection, app.tool != .bucket {
+            if !app.tool.isSelection, app.tool != .bucket, app.tool != .transform {
                 VStack(spacing: Tokens.Space.xs) {
                     CalmText.muted("\(Int(app.brushSize))", mono: true)
                     Slider(value: Binding(
@@ -360,6 +327,7 @@ struct EditorView: View {
         case .pen: AppIcon.pen(color: color)
         case .eraser: AppIcon.eraser(color: color)
         case .bucket: AppIcon.bucket(color: color)
+        case .transform: AppIcon.transform(color: color)
         case .selectRect, .selectEllipse, .selectLasso: AppIcon.selectRect(color: color)
         }
     }
@@ -410,6 +378,7 @@ struct EditorView: View {
                     layerRow(index)
                 }
                 Spacer(minLength: 0)
+                canvasResizeFooter
             }
             .frame(maxHeight: .infinity, alignment: .top)
         }
@@ -421,6 +390,25 @@ struct EditorView: View {
                     .offset(x: -(192 + Tokens.Space.md))
                     .transition(.opacity)
             }
+        }
+        .onAppear { syncCanvasSize() }
+        .onChange(of: app.engine.state.width) { _, _ in syncCanvasSize() }
+        .onChange(of: app.engine.state.height) { _, _ in syncCanvasSize() }
+    }
+
+    private func syncCanvasSize() {
+        canvasWidth = Int(app.engine.state.width)
+        canvasHeight = Int(app.engine.state.height)
+    }
+
+    private var canvasResizeFooter: some View {
+        HStack(spacing: Tokens.Space.sm) {
+            CalmText.label(l10n.canvasWidth)
+            CalmNumberField(value: $canvasWidth, width: 56)
+                .onSubmit { app.engine.resizeDocument(width: canvasWidth, height: canvasHeight) }
+            CalmText.label(l10n.canvasHeight)
+            CalmNumberField(value: $canvasHeight, width: 56)
+                .onSubmit { app.engine.resizeDocument(width: canvasWidth, height: canvasHeight) }
         }
     }
 
@@ -453,13 +441,24 @@ struct EditorView: View {
             .calmPointer()
 
             Button {
-                app.copyLayer(index: index)
+                layerSettingsIndex = index
             } label: {
-                AppIcon.copyIcon(color: colors.textMuted)
+                AppIcon.more(color: colors.textMuted)
             }
             .buttonStyle(.plain)
             .calmPointer()
-            .help(l10n.copyLayer)
+            .popover(
+                isPresented: Binding(
+                    get: { layerSettingsIndex == index },
+                    set: { if !$0 { layerSettingsIndex = nil } }
+                ),
+                arrowEdge: .bottom
+            ) {
+                LayerSettingsCard(index: index, canMergeDown: index > 0 && app.engine.layerNames[index - 1] != l10n.paper)
+                    .environmentObject(app)
+                    .themeColors(colors)
+                    .l10n(l10n)
+            }
 
             Button {
                 app.engine.removeLayer(index)
@@ -632,6 +631,10 @@ private struct ShortcutCatcher: NSViewRepresentable {
             }
             if flags.contains(.command), chars.lowercased() == "s" {
                 app.engine.save()
+                return
+            }
+            if flags.contains(.command), chars.lowercased() == "t" {
+                app.selectTool(.transform)
                 return
             }
             if flags.contains(.command), flags.contains(.option), chars.lowercased() == "l" {

@@ -1,7 +1,36 @@
+use crate::filters::Adjustments;
 use crate::tile::{DirtyChannel, DocRect, TileCoord, TileGrid, TILE_SIZE};
+use crate::transform::LayerTransform;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use uuid::Uuid;
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum BlendMode {
+    #[default]
+    Normal,
+    Multiply,
+    Screen,
+}
+
+impl BlendMode {
+    pub fn from_u32(value: u32) -> Option<Self> {
+        match value {
+            0 => Some(Self::Normal),
+            1 => Some(Self::Multiply),
+            2 => Some(Self::Screen),
+            _ => None,
+        }
+    }
+
+    pub fn as_u32(self) -> u32 {
+        match self {
+            Self::Normal => 0,
+            Self::Multiply => 1,
+            Self::Screen => 2,
+        }
+    }
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct VectorPath {
@@ -59,6 +88,10 @@ pub struct Layer {
     pub name: String,
     pub visible: bool,
     pub content: LayerContent,
+    pub opacity: f32,
+    pub blend_mode: BlendMode,
+    pub adjustments: Option<Adjustments>,
+    pub transform: Option<LayerTransform>,
     mask: Option<Vec<u8>>,
 }
 
@@ -73,6 +106,10 @@ impl Layer {
             name: name.into(),
             visible: true,
             content: LayerContent::raster(width, height),
+            opacity: 1.0,
+            blend_mode: BlendMode::Normal,
+            adjustments: None,
+            transform: None,
             mask: None,
         }
     }
@@ -83,6 +120,10 @@ impl Layer {
             name: name.into(),
             visible: true,
             content: LayerContent::Vector(paths),
+            opacity: 1.0,
+            blend_mode: BlendMode::Normal,
+            adjustments: None,
+            transform: None,
             mask: None,
         }
     }
@@ -119,6 +160,27 @@ impl Layer {
     pub fn set_mask(&mut self, mask: Option<Vec<u8>>) {
         self.mask = mask;
         self.mark_all_dirty();
+    }
+
+    pub fn resize_mask(
+        &mut self,
+        old_width: u32,
+        old_height: u32,
+        new_width: u32,
+        new_height: u32,
+    ) {
+        let Some(old) = &self.mask else {
+            return;
+        };
+        let mut next = vec![255u8; (new_width as usize) * (new_height as usize)];
+        let copy_w = old_width.min(new_width) as usize;
+        let copy_h = old_height.min(new_height) as usize;
+        for y in 0..copy_h {
+            let src = y * old_width as usize;
+            let dst = y * new_width as usize;
+            next[dst..dst + copy_w].copy_from_slice(&old[src..src + copy_w]);
+        }
+        self.set_mask(Some(next));
     }
 
     pub fn dirty_tiles(&self, channel: DirtyChannel) -> Option<&HashSet<TileCoord>> {

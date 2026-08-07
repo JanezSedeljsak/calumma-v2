@@ -117,6 +117,25 @@ struct L10nCatalog: Equatable {
     var selectionTools: String { self["selectionTools"] }
     var exportMenu: String { self["exportMenu"] }
     var copyLayer: String { self["copyLayer"] }
+    var canvasWidth: String { self["canvasWidth"] }
+    var canvasHeight: String { self["canvasHeight"] }
+    var duplicateLayer: String { self["duplicateLayer"] }
+    var mergeLayerDown: String { self["mergeLayerDown"] }
+    var opacity: String { self["opacity"] }
+    var blendMode: String { self["blendMode"] }
+    var blendNormal: String { self["blendNormal"] }
+    var blendMultiply: String { self["blendMultiply"] }
+    var blendScreen: String { self["blendScreen"] }
+    var filters: String { self["filters"] }
+    var brightness: String { self["brightness"] }
+    var contrast: String { self["contrast"] }
+    var vibrance: String { self["vibrance"] }
+    var saturation: String { self["saturation"] }
+    var levelsBlack: String { self["levelsBlack"] }
+    var levelsWhite: String { self["levelsWhite"] }
+    var levelsGamma: String { self["levelsGamma"] }
+    var resetFilters: String { self["resetFilters"] }
+    var resetTransform: String { self["resetTransform"] }
 
     func languageName(_ language: AppLanguage) -> String {
         self[language.displayKey]

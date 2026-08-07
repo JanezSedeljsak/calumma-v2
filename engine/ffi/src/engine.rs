@@ -1,9 +1,10 @@
 use crate::platform::{parse_op_kind, CalmPlatformOps, PlatformOp};
 use calumma_core::limits::{AUTOSAVE_INTERVAL_MS, BRUSH_SIZE_MAX, BRUSH_SIZE_MIN, IMPORT_MAX_SIDE};
 use calumma_core::{
-    project_color, unpremultiply_rgba, BoardColors, Document, Tool, PROJECT_COLORS,
+    project_color, unpremultiply_rgba, Adjustments, BlendMode, BoardColors, Document, Tool,
+    PROJECT_COLORS,
 };
-use calumma_io::{ProjectListItem, ProjectStore};
+use calumma_io::{encode_psd, ProjectListItem, ProjectStore};
 use calumma_ops::{
     apply_output, layer_input, run_op_on_document, Backend, Op, OpParams, OpRegistry,
 };
@@ -266,6 +267,23 @@ pub unsafe extern "C" fn calm_engine_resize(
                 ((h as f32 * dpr).round() as u32).max(1),
             );
             renderer.invalidate();
+        }
+        Ok(())
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn calm_engine_resize_document(
+    engine: *mut CalmEngine,
+    width: u32,
+    height: u32,
+) -> CalmStatus {
+    with_inner(engine, |inner| {
+        let doc = inner.doc.as_mut().ok_or(())?;
+        doc.resize(width, height);
+        inner.dirty_save = true;
+        if let Some(r) = &mut inner.renderer {
+            r.invalidate();
         }
         Ok(())
     })
@@ -576,6 +594,32 @@ pub unsafe extern "C" fn calm_engine_set_dark(engine: *mut CalmEngine, dark: u8)
 }
 
 #[no_mangle]
+pub unsafe extern "C" fn calm_engine_set_shift(engine: *mut CalmEngine, held: u8) -> CalmStatus {
+    with_inner(engine, |inner| {
+        if let Some(doc) = &mut inner.doc {
+            doc.set_shift_held(held != 0);
+        }
+        Ok(())
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn calm_engine_reset_layer_transform(
+    engine: *mut CalmEngine,
+    index: u32,
+) -> CalmStatus {
+    with_inner(engine, |inner| {
+        let doc = inner.doc.as_mut().ok_or(())?;
+        doc.reset_layer_transform(index as usize);
+        inner.dirty_save = true;
+        if let Some(r) = &mut inner.renderer {
+            r.invalidate();
+        }
+        Ok(())
+    })
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn calm_engine_undo(engine: *mut CalmEngine) -> CalmStatus {
     with_inner(engine, |inner| {
         if let Some(doc) = &mut inner.doc {
@@ -683,6 +727,184 @@ pub unsafe extern "C" fn calm_engine_set_active_layer(
             if let Some(r) = &mut inner.renderer {
                 r.invalidate();
             }
+        }
+        Ok(())
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn calm_engine_duplicate_layer(
+    engine: *mut CalmEngine,
+    index: u32,
+) -> CalmStatus {
+    with_inner(engine, |inner| {
+        let doc = inner.doc.as_mut().ok_or(())?;
+        if !doc.duplicate_layer(index as usize) {
+            return Err(());
+        }
+        inner.dirty_save = true;
+        if let Some(r) = &mut inner.renderer {
+            r.invalidate();
+        }
+        Ok(())
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn calm_engine_merge_layer_down(
+    engine: *mut CalmEngine,
+    index: u32,
+) -> CalmStatus {
+    with_inner(engine, |inner| {
+        let doc = inner.doc.as_mut().ok_or(())?;
+        if !doc.merge_layer_down(index as usize) {
+            return Err(());
+        }
+        inner.dirty_save = true;
+        if let Some(r) = &mut inner.renderer {
+            r.invalidate();
+        }
+        Ok(())
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn calm_engine_set_layer_opacity(
+    engine: *mut CalmEngine,
+    index: u32,
+    opacity: f32,
+) -> CalmStatus {
+    with_inner(engine, |inner| {
+        let doc = inner.doc.as_mut().ok_or(())?;
+        doc.set_layer_opacity(index as usize, opacity);
+        inner.dirty_save = true;
+        if let Some(r) = &mut inner.renderer {
+            r.invalidate();
+        }
+        Ok(())
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn calm_engine_set_layer_blend_mode(
+    engine: *mut CalmEngine,
+    index: u32,
+    mode: u32,
+) -> CalmStatus {
+    with_inner(engine, |inner| {
+        let doc = inner.doc.as_mut().ok_or(())?;
+        let mode = BlendMode::from_u32(mode).ok_or(())?;
+        doc.set_layer_blend_mode(index as usize, mode);
+        inner.dirty_save = true;
+        if let Some(r) = &mut inner.renderer {
+            r.invalidate();
+        }
+        Ok(())
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn calm_engine_layer_opacity(engine: *mut CalmEngine, index: u32) -> f32 {
+    if engine.is_null() {
+        return 1.0;
+    }
+    match catch_unwind(AssertUnwindSafe(|| {
+        let mutex = unsafe { &*(engine as *const Mutex<Inner>) };
+        let inner = mutex.lock().map_err(|_| ())?;
+        let doc = inner.doc.as_ref().ok_or(())?;
+        let layer = doc.layers.get(index as usize).ok_or(())?;
+        Ok::<f32, ()>(layer.opacity)
+    })) {
+        Ok(Ok(v)) => v,
+        _ => 1.0,
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn calm_engine_layer_blend_mode(engine: *mut CalmEngine, index: u32) -> u32 {
+    if engine.is_null() {
+        return 0;
+    }
+    match catch_unwind(AssertUnwindSafe(|| {
+        let mutex = unsafe { &*(engine as *const Mutex<Inner>) };
+        let inner = mutex.lock().map_err(|_| ())?;
+        let doc = inner.doc.as_ref().ok_or(())?;
+        let layer = doc.layers.get(index as usize).ok_or(())?;
+        Ok::<u32, ()>(layer.blend_mode.as_u32())
+    })) {
+        Ok(Ok(v)) => v,
+        _ => 0,
+    }
+}
+
+#[repr(C)]
+pub struct CalmAdjustments {
+    pub brightness: f32,
+    pub contrast: f32,
+    pub vibrance: f32,
+    pub saturation: f32,
+    pub levels_black: f32,
+    pub levels_white: f32,
+    pub levels_gamma: f32,
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn calm_engine_set_layer_adjustments(
+    engine: *mut CalmEngine,
+    index: u32,
+    brightness: f32,
+    contrast: f32,
+    vibrance: f32,
+    saturation: f32,
+    levels_black: f32,
+    levels_white: f32,
+    levels_gamma: f32,
+) -> CalmStatus {
+    with_inner(engine, |inner| {
+        let doc = inner.doc.as_mut().ok_or(())?;
+        doc.set_layer_adjustments(
+            index as usize,
+            Adjustments {
+                brightness,
+                contrast,
+                vibrance,
+                saturation,
+                levels_black,
+                levels_white,
+                levels_gamma,
+            },
+        );
+        inner.dirty_save = true;
+        if let Some(r) = &mut inner.renderer {
+            r.invalidate();
+        }
+        Ok(())
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn calm_engine_layer_adjustments(
+    engine: *mut CalmEngine,
+    index: u32,
+    out: *mut CalmAdjustments,
+) -> CalmStatus {
+    if out.is_null() {
+        return CalmStatus::Null;
+    }
+    with_inner(engine, |inner| {
+        let doc = inner.doc.as_ref().ok_or(())?;
+        let layer = doc.layers.get(index as usize).ok_or(())?;
+        let adj = layer.adjustments.unwrap_or_default();
+        unsafe {
+            *out = CalmAdjustments {
+                brightness: adj.brightness,
+                contrast: adj.contrast,
+                vibrance: adj.vibrance,
+                saturation: adj.saturation,
+                levels_black: adj.levels_black,
+                levels_white: adj.levels_white,
+                levels_gamma: adj.levels_gamma,
+            };
         }
         Ok(())
     })
@@ -889,6 +1111,39 @@ pub unsafe extern "C" fn calm_engine_composite_rgba(
             *out_rgba = ptr;
             *out_w = w;
             *out_h = h;
+        }
+        Ok::<(), ()>(())
+    })) {
+        Ok(Ok(())) => CalmStatus::Ok,
+        _ => CalmStatus::Error,
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn calm_engine_export_psd(
+    engine: *mut CalmEngine,
+    out_bytes: *mut *mut u8,
+    out_len: *mut usize,
+) -> CalmStatus {
+    if engine.is_null() || out_bytes.is_null() || out_len.is_null() {
+        return CalmStatus::Null;
+    }
+    unsafe {
+        *out_bytes = ptr::null_mut();
+        *out_len = 0;
+    }
+    match catch_unwind(AssertUnwindSafe(|| {
+        let mutex = unsafe { &*(engine as *const Mutex<Inner>) };
+        let inner = mutex.lock().map_err(|_| ())?;
+        let doc = inner.doc.as_ref().ok_or(())?;
+        let bytes = encode_psd(doc);
+        let mut boxed = bytes.into_boxed_slice();
+        let len = boxed.len();
+        let ptr = boxed.as_mut_ptr();
+        std::mem::forget(boxed);
+        unsafe {
+            *out_bytes = ptr;
+            *out_len = len;
         }
         Ok::<(), ()>(())
     })) {

@@ -31,3 +31,7 @@ pub fn numbered_vector_layer(n: usize) -> String {
 pub fn numbered_pasted_layer(n: usize) -> String {
     format!("{PASTED_LAYER_PREFIX} {n}")
 }
+
+pub fn duplicate_layer_name(base: &str) -> String {
+    format!("{base} copy")
+}

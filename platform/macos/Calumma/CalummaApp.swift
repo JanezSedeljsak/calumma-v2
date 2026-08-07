@@ -38,6 +38,17 @@ struct CalummaApp: App {
                     .keyboardShortcut("n", modifiers: [.command])
                     .disabled(app.showLanding)
             }
+            CommandGroup(after: .newItem) {
+                Menu(app.l10n.exportMenu) {
+                    ForEach(ExportFormat.allCases) { format in
+                        Button(app.l10n.formatKey("exportAs", format.label)) {
+                            app.exportComposite(as: format)
+                        }
+                    }
+                    Button(app.l10n.formatKey("exportAs", "PSD")) { app.exportPSD() }
+                }
+                .disabled(app.showLanding)
+            }
             CommandGroup(replacing: .undoRedo) {
                 Button(app.l10n.undo) { app.engine.undo() }
                     .keyboardShortcut("z", modifiers: [.command])
@@ -46,13 +57,15 @@ struct CalummaApp: App {
                     .keyboardShortcut("z", modifiers: [.command, .shift])
                     .disabled(!app.engine.state.canRedo)
             }
+            CommandGroup(replacing: .appSettings) {
+                Button(app.l10n.settings) { app.settingsOpen = true }
+                    .keyboardShortcut(",", modifiers: [.command])
+            }
             CommandMenu(app.l10n.boardMenu) {
                 Button(app.l10n.fitToView) { app.engine.fit() }
                     .keyboardShortcut("0", modifiers: [])
                 Button(app.l10n.toggleLayers) { app.layersOpen.toggle() }
                     .keyboardShortcut("l", modifiers: [.command, .option])
-                Button(app.l10n.settings) { app.settingsOpen = true }
-                    .keyboardShortcut(",", modifiers: [.command])
             }
         }
     }

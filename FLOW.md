@@ -152,7 +152,7 @@ Swift.
 | Store | OS-native app-data dir + `Calumma/calumma.sqlite` (macOS: `~/Library/Application Support/…`) |
 | Autosave / explicit save | Engine dirty flag + `⌘S`; tab switch and close save first |
 | One board per project | Bounded document size chosen at create time |
-| Export image | **Shipped** — PNG / JPEG / WebP / AVIF via the toolbar Export menu. PDF and PSD export are still deferred (PSD needs a from-scratch file-format writer; ImageIO has no PSD encoder). |
+| Export image | **Shipped** — PNG / JPEG / WebP / AVIF / PSD via File → Export. PDF is still deferred; PSD is layered (real per-layer opacity/blend mode/pixels, hand-written encoder since ImageIO can only read PSD). |
 | Import image / PSD | **Shipped** — new project from PNG / JPG / AVIF / WEBP / PSD / HEIC / SVG (SVG rasterized on import) |
 | Clipboard paste artwork | **Shipped** — `⌘V`, drag-and-drop, or click on the island (creates a new project) |
 | Import into an existing board | **Shipped** — drag-and-drop onto the canvas island, or `⌘V`, both add the image as a new layer (see Selection below) |
@@ -168,8 +168,27 @@ live in `engine/core`; the actual PNG/JPEG/WebP/AVIF **encode** happens in the s
 - Raster layers (sparse 256×256 tiles); optional non-destructive mask.
 - Add layer: `⌘⇧N` (shell).
 - Clear active layer: `⌘⌫` — clears just the active **selection** instead if one exists.
-- Copy a specific layer: the copy icon on its row in the layers panel. Raster layers copy
-  as PNG; vector layers (none by default today) copy as SVG instead.
+- Each layer row keeps only the visibility toggle and a delete button directly visible; every
+  other layer action lives behind a single `…` icon (`AppIcon.more`) that opens a per-layer
+  settings popover (`LayerSettingsCard.swift`): **Copy** (PNG, or SVG if the layer is vector
+  content), **Duplicate** (cheap, shares tile data via `Arc` until edited), **Merge Down**
+  (composites onto the layer below respecting opacity/blend mode/adjustments, then removes
+  the source — disabled when the layer below is Paper), **Reset Transform**, an **Opacity**
+  slider, a **Blend Mode** picker (Normal / Multiply / Screen — see `AGENTS.md` → Layers for
+  why only these three), and seven **Filter** sliders (brightness, contrast, vibrance,
+  saturation, levels black/white/gamma) with a reset button. All of it is live on the canvas
+  and non-destructive — nothing here is undo-tracked (matches add/remove layer), and there is
+  no explicit "bake into pixels" action; `merge_layer_down` and PSD export are the only two
+  places any of it gets baked into concrete bytes today.
+- Canvas resize: width/height fields docked at the bottom of the layers panel, commit on
+  Enter (`Document::resize`). Top-left anchored; shrinking never discards off-canvas tile
+  data, so growing back restores it exactly.
+- **Transform (`⌘T`):** shows scale/rotate handles around the *active* layer (selected via
+  the layers panel — clicking a layer's content directly on the canvas doesn't pick it yet,
+  see `plans/03-layer-click-to-select.md`). Drag a corner to scale — proportional by
+  default, hold **Shift** for free (non-uniform) scale; drag the handle above top-center to
+  rotate; drag inside the box to move. Fully live and non-destructive on the canvas; a
+  "Reset Transform" action in the layer's `…` popover clears it back to identity.
 - **Remove Background:** AI menu on the tools island → macOS Vision via `calm_engine_run_op` when available.
   Shell never mutates the stack after the op. Details: `AGENTS.md` → AI ops.
 
@@ -206,11 +225,15 @@ simplification, not a real "insert above" primitive.
 
 ## Export
 
-Toolbar → Export menu (top-right, next to Settings) → PNG / JPEG / WebP / AVIF. Flattens the
-full layer stack (`Document::composite_rgba`, respecting visibility and masks) and opens a
-native save panel. PDF and layered/flattened PSD export are not implemented — PSD in
-particular needs a hand-written file-format encoder, since ImageIO can only *read* PSD, not
-write it.
+File → Export → PNG / JPEG / WebP / AVIF / PSD (moved out of the toolbar into the native
+menu bar, alongside Settings under the app menu — `CalummaApp.swift`'s `.commands`, not a
+toolbar button anymore). The raster formats flatten the full layer stack
+(`Document::composite_rgba`, respecting
+visibility, masks, opacity, blend mode, and adjustments) and opens a native save panel. PSD
+is layered rather than flattened — each raster layer becomes a real PSD layer with its own
+opacity and blend-mode signature (`engine/io/src/psd.rs`, hand-written since ImageIO can only
+*read* PSD, not write it; RAW/uncompressed channel data, not PackBits RLE). PDF export is not
+implemented.
 
 ---
 
@@ -244,6 +267,7 @@ panel toggles are shell knobs.
 | `E` | Eraser | Yes |
 | `M` | Selection (rect / ellipse / lasso — last one used) | Yes (Ps Marquee) |
 | `G` | Fill (bucket) | Yes (Ps Paint Bucket, shared with Gradient) |
+| `⌘T` | Transform the active layer (scale/rotate/move) | Yes (Ps Free Transform) |
 | `F` | Toggle shape fill | — |
 | `[` / `]` | Brush smaller / larger | Yes |
 
@@ -289,9 +313,9 @@ pointing hand on chrome controls.
 
 ## What is intentionally out of FLOW (for now)
 
-PDF export, layered/flattened **PSD export** (PNG/JPEG/WebP/AVIF export shipped instead —
-see Export above), layered PSD **import** (we import the flattened composite only),
-importing arbitrary drag/drop into an existing board (⌘V paste-as-layer is shipped; drag-
-and-drop onto an open board is not), text layers, eyedropper, vectorize, generate-texture,
-BiRefNet core remove-bg — see `AGENTS.md` deferred list.
-Add a FLOW section when a feature ships, not before.
+PDF export (PNG/JPEG/WebP/AVIF/PSD export shipped instead — see Export above), layered PSD
+**import** (we import the flattened composite only; PSD *export* is layered and shipped),
+click-to-pick a layer on the canvas (per-layer transform itself is shipped — see
+Layers and ops above — picking the transform target is still layers-panel-only),
+text layers, eyedropper, vectorize, generate-texture, BiRefNet core remove-bg — see
+`AGENTS.md` deferred list. Add a FLOW section when a feature ships, not before.

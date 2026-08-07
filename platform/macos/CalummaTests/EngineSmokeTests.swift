@@ -22,6 +22,6 @@ final class EngineSmokeTests: XCTestCase {
         XCTAssertEqual(status, CalmStatusOk)
         XCTAssertEqual(state.width, 64)
         XCTAssertEqual(state.height, 64)
-        XCTAssertEqual(state.layer_count, 1)
+        XCTAssertEqual(state.layer_count, 2)
     }
 }

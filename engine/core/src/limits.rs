@@ -34,3 +34,6 @@ pub const ALPHA_ROUND_BIAS: u32 = ALPHA_MAX / 2;
 pub const DEFAULT_INK: [u8; 4] = [26, 26, 26, ALPHA_OPAQUE];
 
 pub const FILL_TOLERANCE_DEFAULT: u8 = 24;
+
+pub const MIN_CANVAS_SIDE: u32 = 16;
+pub const MAX_CANVAS_SIDE: u32 = 8192;

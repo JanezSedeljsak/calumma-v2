@@ -76,4 +76,16 @@ enum AppIcon {
     static func copyIcon(color: Color) -> some View {
         SvgIcon(name: "copy", color: color)
     }
+
+    static func adjust(color: Color) -> some View {
+        SvgIcon(name: "adjust", color: color)
+    }
+
+    static func more(color: Color) -> some View {
+        SvgIcon(name: "more", color: color)
+    }
+
+    static func transform(color: Color) -> some View {
+        SvgIcon(name: "transform", color: color)
+    }
 }

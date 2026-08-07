@@ -142,15 +142,41 @@ pub enum LayerContent {
 }
 ```
 
-- No per-layer transform. Paths/tiles live in document space.
+- `layer.transform: Option<LayerTransform>` (`engine/core/src/transform.rs`)
+  — offset/scale/rotation around the layer's `content_bounds()` center, raster
+  layers only (`Tool::Transform`, `⌘T`). Same non-destructive contract as
+  everything else on `Layer`: never baked into tile bytes. Live view applies
+  it as a per-layer GPU uniform in `vs_tile` (`board.wgsl`); flattening
+  (`composite_rgba`/`layer_rgba`/PSD export, all via
+  `Document::copy_layer_into_rgba`) resamples it with nearest-neighbor,
+  not bilinear — a known, disclosed gap between the (smooth, GPU-linear-
+  filtered) live view and a flattened/exported result at extreme
+  scale/rotation. Selecting *which* layer to transform still goes through
+  the layers panel only — there is no click-a-layer-on-the-canvas picking
+  yet (see `plans/03-layer-click-to-select.md`).
 - **Paper** (`Layer::paper`) is an ordinary raster layer, name-matched via
   `Layer::is_paper()`, pre-filled fully opaque white at creation — not a
   cheap vector fill. It is paintable/eraseable/editable like any other
   layer; clearing it exposes transparency through to the desk. This costs a
   full-size white bitmap per project (no longer free), a deliberate
-  trade-off for making it directly editable.
+  trade-off for making it directly editable. `merge_layer_down` refuses to
+  merge anything into Paper.
 - Optional `layer.mask: Option<Vec<u8>>` (full-document coverage 0–255). Masks do **not**
   mutate tile bytes; the renderer multiplies alpha when uploading GPU tiles.
+- `layer.opacity: f32` (0–1, default 1) and `layer.blend_mode: BlendMode`
+  (Normal/Multiply/Screen) — same non-destructive contract as masks: never
+  baked into tile bytes, applied at GPU-upload time (opacity, via the same
+  CPU step masks use) or via per-layer GPU pipeline selection (blend mode,
+  since it needs the destination framebuffer — see `board.wgsl`'s `fs_tile`
+  premultiply + the three `tile_pipeline_*` blend states in `renderer.rs`).
+- `layer.adjustments: Option<Adjustments>` (`engine/core/src/filters.rs`) —
+  brightness/contrast/vibrance/saturation/levels, `None` = neutral. Also
+  applied at CPU upload time, no shader involvement (unlike blend mode,
+  adjustments only ever read the source layer's own pixels).
+- `Document::duplicate_layer`/`merge_layer_down`/`resize` are **not**
+  undo-tracked, matching the existing precedent that `add_layer`/
+  `remove_layer` aren't either — structural layer-list/document edits sit
+  outside the tile-diff history model on purpose, not as an oversight.
 - Vector compositing is not finished — filled closed paths render, but no
   layer uses `LayerContent::Vector` by default today (Paper is a raster
   layer pre-filled white, see Layers below); other vector work is deferred.
@@ -361,7 +387,8 @@ Pin versions in `[workspace.dependencies]`. Never `*` or bare `^`.
 
 Workspaces-as-products beyond SQLite projects, vector compositing polish, BiRefNet /
 `ort`, GenerateTexture model manager, SuggestShape, Vectorize (`vtracer`), PDF export,
-PSD export (PNG/JPEG/WebP/AVIF export shipped — see FLOW.md), layered PSD import (import
-is flattened composite only), drag-and-drop into an existing board (⌘V paste-as-layer is
-shipped), text layers, eyedropper — add only as considered features, not by restoring old
-app code.
+layered PSD import (import is flattened composite only; PSD *export* is layered and
+shipped — see FLOW.md), click-to-pick a layer on the canvas (per-layer
+transform itself has shipped — see Layers above — but selecting the
+transform target still only goes through the layers panel), text layers,
+eyedropper — add only as considered features, not by restoring old app code.

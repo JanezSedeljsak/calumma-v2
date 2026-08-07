@@ -159,6 +159,7 @@ final class BoardMTKView: MTKView {
             refreshCursor()
         } else {
             painting = true
+            coordinator.engine.setShift(event.modifierFlags.contains(.shift))
             coordinator.engine.pointerDown(x: Float(point.x), y: Float(point.y))
             refreshCursor()
         }
@@ -172,6 +173,7 @@ final class BoardMTKView: MTKView {
             self.lastDrag = point
             refreshCursor()
         } else if painting {
+            coordinator.engine.setShift(event.modifierFlags.contains(.shift))
             coordinator.engine.pointerMove(x: Float(point.x), y: Float(point.y))
         }
     }

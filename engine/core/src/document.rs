@@ -2,13 +2,15 @@ use crate::camera::Camera;
 use crate::history::{History, TileSnapshot};
 use crate::layer::Layer;
 use crate::limits::{
-    BRUSH_SIZE_DEFAULT, DEFAULT_INK, FILL_TOLERANCE_DEFAULT, MIN_STAMP_SPACING,
-    MIN_STROKE_POINT_DISTANCE, STAMP_COVERAGE_PADDING, STAMP_SPACING_RATIO, STROKE_POINT_CAPACITY,
+    BRUSH_SIZE_DEFAULT, DEFAULT_INK, FILL_TOLERANCE_DEFAULT, MAX_CANVAS_SIDE, MIN_CANVAS_SIDE,
+    MIN_STAMP_SPACING, MIN_STROKE_POINT_DISTANCE, STAMP_COVERAGE_PADDING, STAMP_SPACING_RATIO,
+    STROKE_POINT_CAPACITY,
 };
 use crate::palette::BoardColors;
 use crate::selection::{Selection, SelectionShape};
 use crate::shape::{Shape, Tool};
-use crate::tile::{blend_over, DirtyChannel, DocRect, TileCoord, TILE_SIZE};
+use crate::tile::{blend_over, blend_with_mode, DirtyChannel, DocRect, TileCoord, TILE_SIZE};
+use crate::transform::{bounds_center, LayerTransform};
 use std::collections::HashSet;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -56,6 +58,48 @@ fn apply_mask(rgba: &mut [u8], mask: Option<&[u8]>) {
     for (i, chunk) in rgba.chunks_exact_mut(4).enumerate() {
         if let Some(&m) = mask.get(i) {
             chunk[3] = ((chunk[3] as u32 * m as u32) / 255) as u8;
+        }
+    }
+}
+
+fn copy_layer_into_rgba(layer: &Layer, buf: &mut [u8], w: u32, h: u32) {
+    let Some(tiles) = layer.tiles() else {
+        return;
+    };
+    let Some(t) = layer.transform else {
+        tiles.copy_into_rgba(buf, w, h);
+        return;
+    };
+    let Some(raw_bounds) = layer.content_bounds() else {
+        return;
+    };
+    let pivot = bounds_center(raw_bounds);
+    for y in 0..h as i32 {
+        for x in 0..w as i32 {
+            let (rx, ry) = t.inverse(pivot, (x as f32 + 0.5, y as f32 + 0.5));
+            let px = tiles.get_pixel(rx.floor() as i32, ry.floor() as i32);
+            if px[3] == 0 {
+                continue;
+            }
+            let i = ((y as usize) * (w as usize) + (x as usize)) * 4;
+            buf[i..i + 4].copy_from_slice(&px);
+        }
+    }
+}
+
+fn apply_layer_effects(rgba: &mut [u8], layer: &Layer) {
+    let adjustments = layer.adjustments.as_ref();
+    let opacity = layer.opacity;
+    if adjustments.is_none() && opacity >= 1.0 {
+        return;
+    }
+    for chunk in rgba.chunks_exact_mut(4) {
+        if let Some(adj) = adjustments {
+            let rgb = crate::filters::apply([chunk[0], chunk[1], chunk[2]], adj);
+            chunk[0..3].copy_from_slice(&rgb);
+        }
+        if opacity < 1.0 {
+            chunk[3] = ((chunk[3] as f32) * opacity).round().clamp(0.0, 255.0) as u8;
         }
     }
 }
@@ -112,7 +156,63 @@ pub struct Document {
     pub stroke_points: Vec<StrokePoint>,
     pub preview_shape: Option<Shape>,
     pub selection: Option<Selection>,
+    pub shift_held: bool,
+    transform_drag: Option<TransformDrag>,
     stroke_before: TileSnapshot,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum TransformHandle {
+    TopLeft,
+    TopRight,
+    BottomRight,
+    BottomLeft,
+    Rotate,
+    Move,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct TransformDrag {
+    layer_index: usize,
+    handle: TransformHandle,
+    pivot: (f32, f32),
+    raw_bounds: (f32, f32, f32, f32),
+    start_transform: LayerTransform,
+    start_pointer: (f32, f32),
+}
+
+pub type TransformHandles = (usize, [(f32, f32); 4], (f32, f32));
+
+const HANDLE_HIT_RADIUS_PX: f32 = 10.0;
+const ROTATE_HANDLE_OFFSET_PX: f32 = 24.0;
+const TRANSFORM_MIN_SCALE_GUARD: f32 = 0.02;
+
+fn point_dist(a: (f32, f32), b: (f32, f32)) -> f32 {
+    ((a.0 - b.0).powi(2) + (a.1 - b.1).powi(2)).sqrt()
+}
+
+fn angle_from(pivot: (f32, f32), p: (f32, f32)) -> f32 {
+    (p.1 - pivot.1).atan2(p.0 - pivot.0)
+}
+
+fn point_in_quad(p: (f32, f32), quad: [(f32, f32); 4]) -> bool {
+    let mut sign = 0.0f32;
+    for i in 0..4 {
+        let a = quad[i];
+        let b = quad[(i + 1) % 4];
+        let edge = (b.0 - a.0, b.1 - a.1);
+        let to_p = (p.0 - a.0, p.1 - a.1);
+        let cross = edge.0 * to_p.1 - edge.1 * to_p.0;
+        if cross.abs() < 1e-6 {
+            continue;
+        }
+        if sign == 0.0 {
+            sign = cross.signum();
+        } else if cross.signum() != sign {
+            return false;
+        }
+    }
+    true
 }
 
 impl Document {
@@ -142,6 +242,8 @@ impl Document {
             stroke_points: Vec::with_capacity(STROKE_POINT_CAPACITY),
             preview_shape: None,
             selection: None,
+            shift_held: false,
+            transform_drag: None,
             stroke_before: TileSnapshot::new(),
         }
     }
@@ -224,6 +326,290 @@ impl Document {
         }
     }
 
+    pub fn set_layer_opacity(&mut self, index: usize, opacity: f32) {
+        if let Some(layer) = self.layers.get_mut(index) {
+            layer.opacity = opacity.clamp(0.0, 1.0);
+            layer.mark_all_dirty();
+        }
+    }
+
+    pub fn set_layer_blend_mode(&mut self, index: usize, mode: crate::layer::BlendMode) {
+        if let Some(layer) = self.layers.get_mut(index) {
+            layer.blend_mode = mode;
+        }
+    }
+
+    pub fn set_layer_adjustments(
+        &mut self,
+        index: usize,
+        adjustments: crate::filters::Adjustments,
+    ) {
+        if let Some(layer) = self.layers.get_mut(index) {
+            let adjustments = adjustments.clamped();
+            layer.adjustments = if adjustments.is_neutral() {
+                None
+            } else {
+                Some(adjustments)
+            };
+            layer.mark_all_dirty();
+        }
+    }
+
+    pub fn set_shift_held(&mut self, held: bool) {
+        self.shift_held = held;
+    }
+
+    pub fn reset_layer_transform(&mut self, index: usize) {
+        if let Some(layer) = self.layers.get_mut(index) {
+            layer.transform = None;
+        }
+    }
+
+    pub fn layer_transform(&self, index: usize) -> LayerTransform {
+        self.layers
+            .get(index)
+            .and_then(|l| l.transform)
+            .unwrap_or_default()
+    }
+
+    fn rotate_handle_position(
+        pivot: (f32, f32),
+        raw_bounds: (f32, f32, f32, f32),
+        t: LayerTransform,
+        zoom: f32,
+    ) -> (f32, f32) {
+        let top_mid_raw = ((raw_bounds.0 + raw_bounds.2) * 0.5, raw_bounds.1);
+        let top_mid = t.forward(pivot, top_mid_raw);
+        let dir = (top_mid.0 - pivot.0, top_mid.1 - pivot.1);
+        let dir_len = point_dist(pivot, top_mid).max(1e-3);
+        (
+            top_mid.0 + dir.0 / dir_len * ROTATE_HANDLE_OFFSET_PX / zoom.max(1e-6),
+            top_mid.1 + dir.1 / dir_len * ROTATE_HANDLE_OFFSET_PX / zoom.max(1e-6),
+        )
+    }
+
+    pub fn transform_handles(&self) -> Option<TransformHandles> {
+        if self.tool != Tool::Transform {
+            return None;
+        }
+        let index = self.active_layer;
+        let layer = self.layers.get(index)?;
+        if !layer.content.is_raster() {
+            return None;
+        }
+        let raw_bounds = layer.content_bounds()?;
+        let pivot = bounds_center(raw_bounds);
+        let t = layer.transform.unwrap_or_default();
+        let corners = t.transformed_corners(pivot, raw_bounds);
+        let rotate_handle = Self::rotate_handle_position(pivot, raw_bounds, t, self.camera.zoom);
+        Some((index, corners, rotate_handle))
+    }
+
+    fn transform_handle_at(&self, doc_x: f32, doc_y: f32) -> Option<TransformDrag> {
+        let index = self.active_layer;
+        let layer = self.layers.get(index)?;
+        if !layer.content.is_raster() {
+            return None;
+        }
+        let raw_bounds = layer.content_bounds()?;
+        let pivot = bounds_center(raw_bounds);
+        let t = layer.transform.unwrap_or_default();
+        let corners = t.transformed_corners(pivot, raw_bounds);
+        let zoom = self.camera.zoom.max(1e-6);
+        let hit_r = HANDLE_HIT_RADIUS_PX / zoom;
+        let names = [
+            TransformHandle::TopLeft,
+            TransformHandle::TopRight,
+            TransformHandle::BottomRight,
+            TransformHandle::BottomLeft,
+        ];
+        let point = (doc_x, doc_y);
+        for (corner, handle) in corners.iter().zip(names) {
+            if point_dist(*corner, point) <= hit_r {
+                return Some(TransformDrag {
+                    layer_index: index,
+                    handle,
+                    pivot,
+                    raw_bounds,
+                    start_transform: t,
+                    start_pointer: point,
+                });
+            }
+        }
+        let rotate_handle = Self::rotate_handle_position(pivot, raw_bounds, t, zoom);
+        if point_dist(rotate_handle, point) <= hit_r {
+            return Some(TransformDrag {
+                layer_index: index,
+                handle: TransformHandle::Rotate,
+                pivot,
+                raw_bounds,
+                start_transform: t,
+                start_pointer: point,
+            });
+        }
+        if point_in_quad(point, corners) {
+            return Some(TransformDrag {
+                layer_index: index,
+                handle: TransformHandle::Move,
+                pivot,
+                raw_bounds,
+                start_transform: t,
+                start_pointer: point,
+            });
+        }
+        None
+    }
+
+    fn begin_transform_drag(&mut self, doc_x: f32, doc_y: f32) {
+        self.transform_drag = self.transform_handle_at(doc_x, doc_y);
+    }
+
+    fn update_transform_drag(&mut self, doc_x: f32, doc_y: f32) {
+        let Some(drag) = self.transform_drag else {
+            return;
+        };
+        let mut next = drag.start_transform;
+        match drag.handle {
+            TransformHandle::Move => {
+                next.offset_x = drag.start_transform.offset_x + (doc_x - drag.start_pointer.0);
+                next.offset_y = drag.start_transform.offset_y + (doc_y - drag.start_pointer.1);
+            }
+            TransformHandle::Rotate => {
+                let start_angle = angle_from(drag.pivot, drag.start_pointer);
+                let now_angle = angle_from(drag.pivot, (doc_x, doc_y));
+                next.rotation = drag.start_transform.rotation + (now_angle - start_angle);
+            }
+            corner => {
+                let (sign_x, sign_y) = match corner {
+                    TransformHandle::TopLeft => (-1.0, -1.0),
+                    TransformHandle::TopRight => (1.0, -1.0),
+                    TransformHandle::BottomRight => (1.0, 1.0),
+                    TransformHandle::BottomLeft => (-1.0, 1.0),
+                    TransformHandle::Rotate | TransformHandle::Move => unreachable!(),
+                };
+                let half_w = ((drag.raw_bounds.2 - drag.raw_bounds.0) * 0.5).max(1e-3);
+                let half_h = ((drag.raw_bounds.3 - drag.raw_bounds.1) * 0.5).max(1e-3);
+                let local_now = drag.start_transform.to_local(drag.pivot, (doc_x, doc_y));
+                let raw_x = sign_x * half_w;
+                let raw_y = sign_y * half_h;
+                if self.shift_held {
+                    next.scale_x = (local_now.0 / raw_x).abs().max(TRANSFORM_MIN_SCALE_GUARD);
+                    next.scale_y = (local_now.1 / raw_y).abs().max(TRANSFORM_MIN_SCALE_GUARD);
+                } else {
+                    let raw_dist = point_dist((0.0, 0.0), (raw_x, raw_y)).max(1e-3);
+                    let now_dist = point_dist((0.0, 0.0), local_now);
+                    let s = (now_dist / raw_dist).max(TRANSFORM_MIN_SCALE_GUARD);
+                    next.scale_x = s;
+                    next.scale_y = s;
+                }
+            }
+        }
+        let next = next.clamped();
+        if let Some(layer) = self.layers.get_mut(drag.layer_index) {
+            layer.transform = Some(next);
+        }
+    }
+
+    pub fn duplicate_layer(&mut self, index: usize) -> bool {
+        let Some(source) = self.layers.get(index) else {
+            return false;
+        };
+        let base_name = source.name.clone();
+        let mut copy = source.clone();
+        copy.id = uuid::Uuid::new_v4().to_string();
+        copy.name = crate::names::duplicate_layer_name(&base_name);
+        self.layers.insert(index + 1, copy);
+        self.active_layer = index + 1;
+        true
+    }
+
+    pub fn merge_layer_down(&mut self, index: usize) -> bool {
+        if index == 0 || index >= self.layers.len() {
+            return false;
+        }
+        if self.layers[index - 1].is_paper() {
+            return false;
+        }
+        if self.layers[index].tiles().is_none() {
+            return false;
+        }
+        if self.layers[index - 1].tiles().is_none() {
+            return false;
+        }
+        let mode = self.layers[index].blend_mode;
+        let w = self.width.max(1);
+        let h = self.height.max(1);
+        let mut src_buf = vec![0u8; (w as usize) * (h as usize) * 4];
+        copy_layer_into_rgba(&self.layers[index], &mut src_buf, w, h);
+        apply_layer_effects(&mut src_buf, &self.layers[index]);
+
+        let dst = self.layers[index - 1].tiles_mut().unwrap();
+        dst.paint_rect(DocRect::from_size(w, h), |x, y, dst_px| {
+            let i = ((y as usize) * (w as usize) + (x as usize)) * 4;
+            let src_px = [src_buf[i], src_buf[i + 1], src_buf[i + 2], src_buf[i + 3]];
+            if src_px[3] == 0 {
+                return None;
+            }
+            Some(blend_with_mode(dst_px, src_px, mode))
+        });
+
+        self.layers.remove(index);
+        if self.active_layer >= self.layers.len() {
+            self.active_layer = self.layers.len().saturating_sub(1);
+        } else if self.active_layer > index {
+            self.active_layer -= 1;
+        } else {
+            self.active_layer = index - 1;
+        }
+        true
+    }
+
+    pub fn resize(&mut self, new_width: u32, new_height: u32) {
+        let new_width = new_width.clamp(MIN_CANVAS_SIDE, MAX_CANVAS_SIDE);
+        let new_height = new_height.clamp(MIN_CANVAS_SIDE, MAX_CANVAS_SIDE);
+        let (old_width, old_height) = (self.width, self.height);
+        if new_width == old_width && new_height == old_height {
+            return;
+        }
+        for layer in &mut self.layers {
+            layer.resize_mask(old_width, old_height, new_width, new_height);
+            let is_paper = layer.is_paper();
+            let Some(tiles) = layer.tiles_mut() else {
+                continue;
+            };
+            tiles.width = new_width;
+            tiles.height = new_height;
+            if !is_paper {
+                continue;
+            }
+            if new_width > old_width {
+                tiles.paint_rect(
+                    DocRect::new(
+                        old_width as i32,
+                        0,
+                        new_width as i32 - 1,
+                        new_height as i32 - 1,
+                    ),
+                    |_, _, _| Some([255, 255, 255, 255]),
+                );
+            }
+            if new_height > old_height {
+                tiles.paint_rect(
+                    DocRect::new(
+                        0,
+                        old_height as i32,
+                        old_width as i32 - 1,
+                        new_height as i32 - 1,
+                    ),
+                    |_, _, _| Some([255, 255, 255, 255]),
+                );
+            }
+        }
+        self.width = new_width;
+        self.height = new_height;
+        self.fit_to_view();
+    }
+
     pub fn resize_viewport(&mut self, width: f32, height: f32, dpr: f32) {
         self.camera.viewport_width = width.max(1.0);
         self.camera.viewport_height = height.max(1.0);
@@ -238,6 +624,10 @@ impl Document {
 
     pub fn pointer_down(&mut self, screen_x: f32, screen_y: f32) {
         let (dx, dy) = self.camera.to_doc(screen_x, screen_y);
+        if self.tool == Tool::Transform {
+            self.begin_transform_drag(dx, dy);
+            return;
+        }
         if self.tool == Tool::Fill {
             self.commit_fill(dx, dy);
             return;
@@ -263,6 +653,10 @@ impl Document {
 
     pub fn pointer_move(&mut self, screen_x: f32, screen_y: f32) {
         let (dx, dy) = self.camera.to_doc(screen_x, screen_y);
+        if self.tool == Tool::Transform {
+            self.update_transform_drag(dx, dy);
+            return;
+        }
         if matches!(self.tool, Tool::Pen | Tool::Eraser | Tool::SelectLasso) && self.stroke_active {
             self.push_stroke_point(dx, dy);
         } else if let Some(shape) = &mut self.preview_shape {
@@ -274,6 +668,10 @@ impl Document {
 
     pub fn pointer_up(&mut self, screen_x: f32, screen_y: f32) {
         let (dx, dy) = self.camera.to_doc(screen_x, screen_y);
+        if self.tool == Tool::Transform {
+            self.transform_drag = None;
+            return;
+        }
         if matches!(self.tool, Tool::Pen | Tool::Eraser | Tool::SelectLasso) {
             self.push_stroke_point(dx, dy);
             if self.tool == Tool::SelectLasso {
@@ -519,19 +917,21 @@ impl Document {
             if !layer.visible {
                 continue;
             }
-            let Some(tiles) = layer.tiles() else {
+            if layer.tiles().is_none() {
                 continue;
-            };
+            }
             layer_buf.iter_mut().for_each(|b| *b = 0);
-            tiles.copy_into_rgba(&mut layer_buf, w, h);
+            copy_layer_into_rgba(layer, &mut layer_buf, w, h);
             apply_mask(&mut layer_buf, layer.mask());
+            apply_layer_effects(&mut layer_buf, layer);
             for (dst, src) in out.chunks_exact_mut(4).zip(layer_buf.chunks_exact(4)) {
                 if src[3] == 0 {
                     continue;
                 }
-                let blended = blend_over(
+                let blended = blend_with_mode(
                     [dst[0], dst[1], dst[2], dst[3]],
                     [src[0], src[1], src[2], src[3]],
+                    layer.blend_mode,
                 );
                 dst.copy_from_slice(&blended);
             }
@@ -541,12 +941,18 @@ impl Document {
 
     pub fn layer_rgba(&self, index: usize) -> Option<(u32, u32, Vec<u8>)> {
         let layer = self.layers.get(index)?;
-        let tiles = layer.tiles()?;
+        layer.tiles()?;
         let w = self.width.max(1);
         let h = self.height.max(1);
         let mut buf = vec![0u8; (w as usize) * (h as usize) * 4];
-        tiles.copy_into_rgba(&mut buf, w, h);
+        copy_layer_into_rgba(layer, &mut buf, w, h);
         apply_mask(&mut buf, layer.mask());
+        if let Some(adj) = &layer.adjustments {
+            for px in buf.chunks_exact_mut(4) {
+                let rgb = crate::filters::apply([px[0], px[1], px[2]], adj);
+                px[0..3].copy_from_slice(&rgb);
+            }
+        }
         Some((w, h, buf))
     }
 
@@ -723,6 +1129,7 @@ impl Document {
             || self.preview_shape.is_some()
             || self.hover_layer.is_some()
             || self.selection.is_some()
+            || self.tool == Tool::Transform
     }
 
     pub fn tile_size(&self) -> u32 {
@@ -1035,6 +1442,245 @@ mod tests {
         assert!(doc.history.can_undo());
         assert!(doc.undo());
         assert_eq!(pixel(&doc, doc.active_layer, 32, 32), [0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn resize_grows_paper_and_preserves_content() {
+        let mut doc = Document::new("p".into(), "t", 64, 64);
+        doc.layers[doc.active_layer]
+            .tiles_mut()
+            .unwrap()
+            .set_pixel(10, 10, [1, 2, 3, 255]);
+        doc.resize(128, 96);
+        assert_eq!((doc.width, doc.height), (128, 96));
+        assert_eq!(pixel(&doc, doc.active_layer, 10, 10), [1, 2, 3, 255]);
+        assert_eq!(pixel(&doc, 0, 100, 10), [255, 255, 255, 255]);
+        assert_eq!(pixel(&doc, 0, 10, 80), [255, 255, 255, 255]);
+        assert_eq!(pixel(&doc, 0, 10, 10), [255, 255, 255, 255]);
+    }
+
+    #[test]
+    fn resize_shrink_hides_but_does_not_delete_content() {
+        let mut doc = Document::new("p".into(), "t", 64, 64);
+        doc.layers[doc.active_layer]
+            .tiles_mut()
+            .unwrap()
+            .set_pixel(50, 50, [9, 8, 7, 255]);
+        doc.resize(20, 20);
+        assert_eq!((doc.width, doc.height), (20, 20));
+        let (w, _, rgba) = doc.composite_rgba();
+        assert_eq!(w, 20);
+        assert!(!rgba.chunks_exact(4).any(|px| px == [9, 8, 7, 255]));
+        doc.resize(64, 64);
+        assert_eq!(pixel(&doc, doc.active_layer, 50, 50), [9, 8, 7, 255]);
+    }
+
+    #[test]
+    fn resize_clamps_to_canvas_limits() {
+        let mut doc = Document::new("p".into(), "t", 64, 64);
+        doc.resize(0, 999_999);
+        assert_eq!(doc.width, crate::limits::MIN_CANVAS_SIDE);
+        assert_eq!(doc.height, crate::limits::MAX_CANVAS_SIDE);
+    }
+
+    fn paint_transform_target(doc: &mut Document) {
+        let idx = doc.active_layer;
+        doc.layers[idx]
+            .tiles_mut()
+            .unwrap()
+            .paint_rect(DocRect::new(50, 50, 149, 149), |_, _, _| {
+                Some([200, 30, 30, 255])
+            });
+    }
+
+    #[test]
+    fn transform_corner_drag_scales_proportionally_without_shift() {
+        let mut doc = Document::new("p".into(), "t", 200, 200);
+        doc.resize_viewport(200.0, 200.0, 1.0);
+        doc.fit_to_view();
+        paint_transform_target(&mut doc);
+        doc.tool = Tool::Transform;
+        let (index, corners, _) = doc.transform_handles().expect("handles");
+        assert_eq!(index, doc.active_layer);
+        let br = corners[2];
+        let (sx, sy) = doc.camera.to_screen(br.0, br.1);
+        doc.pointer_down(sx, sy);
+        let (sx2, sy2) = doc.camera.to_screen(br.0 + 25.0, br.1 + 25.0);
+        doc.pointer_move(sx2, sy2);
+        let t = doc.layer_transform(doc.active_layer);
+        assert!(t.scale_x > 1.0);
+        assert!((t.scale_x - t.scale_y).abs() < 1e-3);
+        doc.pointer_up(sx2, sy2);
+        assert_eq!(t, doc.layer_transform(doc.active_layer));
+    }
+
+    #[test]
+    fn transform_corner_drag_scales_freely_with_shift() {
+        let mut doc = Document::new("p".into(), "t", 200, 200);
+        doc.resize_viewport(200.0, 200.0, 1.0);
+        doc.fit_to_view();
+        paint_transform_target(&mut doc);
+        doc.tool = Tool::Transform;
+        doc.shift_held = true;
+        let (_, corners, _) = doc.transform_handles().expect("handles");
+        let br = corners[2];
+        let (sx, sy) = doc.camera.to_screen(br.0, br.1);
+        doc.pointer_down(sx, sy);
+        let (sx2, sy2) = doc.camera.to_screen(br.0 + 60.0, br.1 + 5.0);
+        doc.pointer_move(sx2, sy2);
+        let t = doc.layer_transform(doc.active_layer);
+        assert!((t.scale_x - t.scale_y).abs() > 0.1);
+    }
+
+    #[test]
+    fn transform_move_drag_updates_offset() {
+        let mut doc = Document::new("p".into(), "t", 200, 200);
+        doc.resize_viewport(200.0, 200.0, 1.0);
+        doc.fit_to_view();
+        paint_transform_target(&mut doc);
+        doc.tool = Tool::Transform;
+        let (sx, sy) = doc.camera.to_screen(100.0, 100.0);
+        doc.pointer_down(sx, sy);
+        let (sx2, sy2) = doc.camera.to_screen(120.0, 130.0);
+        doc.pointer_move(sx2, sy2);
+        let t = doc.layer_transform(doc.active_layer);
+        assert!((t.offset_x - 20.0).abs() < 1.0);
+        assert!((t.offset_y - 30.0).abs() < 1.0);
+    }
+
+    #[test]
+    fn transform_rotate_handle_updates_rotation() {
+        let mut doc = Document::new("p".into(), "t", 200, 200);
+        doc.resize_viewport(200.0, 200.0, 1.0);
+        doc.fit_to_view();
+        paint_transform_target(&mut doc);
+        doc.tool = Tool::Transform;
+        let (_, _, rotate_handle) = doc.transform_handles().expect("handles");
+        let (sx, sy) = doc.camera.to_screen(rotate_handle.0, rotate_handle.1);
+        doc.pointer_down(sx, sy);
+        let (sx2, sy2) = doc.camera.to_screen(180.0, 100.0);
+        doc.pointer_move(sx2, sy2);
+        let t = doc.layer_transform(doc.active_layer);
+        assert!(t.rotation.abs() > 0.1);
+    }
+
+    #[test]
+    fn reset_layer_transform_clears_it() {
+        let mut doc = Document::new("p".into(), "t", 200, 200);
+        doc.resize_viewport(200.0, 200.0, 1.0);
+        doc.fit_to_view();
+        paint_transform_target(&mut doc);
+        doc.tool = Tool::Transform;
+        let (_, corners, _) = doc.transform_handles().expect("handles");
+        let br = corners[2];
+        let (sx, sy) = doc.camera.to_screen(br.0, br.1);
+        doc.pointer_down(sx, sy);
+        let (sx2, sy2) = doc.camera.to_screen(br.0 + 25.0, br.1 + 25.0);
+        doc.pointer_move(sx2, sy2);
+        assert_ne!(
+            doc.layer_transform(doc.active_layer),
+            LayerTransform::default()
+        );
+        doc.reset_layer_transform(doc.active_layer);
+        assert_eq!(
+            doc.layer_transform(doc.active_layer),
+            LayerTransform::default()
+        );
+    }
+
+    #[test]
+    fn duplicate_layer_inserts_a_copy_above_and_selects_it() {
+        let mut doc = Document::new("p".into(), "t", 32, 32);
+        doc.layers[doc.active_layer]
+            .tiles_mut()
+            .unwrap()
+            .set_pixel(5, 5, [1, 2, 3, 255]);
+        let before = doc.layers.len();
+        assert!(doc.duplicate_layer(doc.active_layer));
+        assert_eq!(doc.layers.len(), before + 1);
+        assert_eq!(pixel(&doc, doc.active_layer, 5, 5), [1, 2, 3, 255]);
+        assert_ne!(
+            doc.layers[doc.active_layer - 1].id,
+            doc.layers[doc.active_layer].id
+        );
+    }
+
+    #[test]
+    fn set_layer_opacity_fades_composite() {
+        let mut doc = Document::new("p".into(), "t", 4, 4);
+        doc.layers[doc.active_layer]
+            .tiles_mut()
+            .unwrap()
+            .set_pixel(0, 0, [255, 0, 0, 255]);
+        doc.set_layer_opacity(doc.active_layer, 0.5);
+        let (_, _, rgba) = doc.composite_rgba();
+        // Paint is red over an opaque white Paper layer: at half opacity the
+        // red channel stays saturated (255 mixed with 255), but green/blue
+        // move partway from 0 toward white's 255.
+        assert!(rgba[1] > 50 && rgba[1] < 220);
+    }
+
+    #[test]
+    fn merge_layer_down_bakes_pixels_and_removes_source() {
+        let mut doc = Document::new("p".into(), "t", 32, 32);
+        doc.add_layer("Top");
+        let top = doc.active_layer;
+        doc.layers[top]
+            .tiles_mut()
+            .unwrap()
+            .set_pixel(3, 3, [10, 20, 30, 255]);
+        let before = doc.layers.len();
+        assert!(doc.merge_layer_down(top));
+        assert_eq!(doc.layers.len(), before - 1);
+        assert_eq!(pixel(&doc, doc.active_layer, 3, 3), [10, 20, 30, 255]);
+    }
+
+    #[test]
+    fn composite_respects_layer_transform_offset() {
+        let mut doc = Document::new("p".into(), "t", 64, 64);
+        let idx = doc.active_layer;
+        doc.layers[idx]
+            .tiles_mut()
+            .unwrap()
+            .set_pixel(10, 10, [200, 30, 30, 255]);
+        doc.layers[idx].transform = Some(LayerTransform {
+            offset_x: 20.0,
+            offset_y: 0.0,
+            ..LayerTransform::default()
+        });
+        let (w, _, rgba) = doc.composite_rgba();
+        let at = |x: i32, y: i32| -> [u8; 4] {
+            let i = ((y as usize) * (w as usize) + (x as usize)) * 4;
+            [rgba[i], rgba[i + 1], rgba[i + 2], rgba[i + 3]]
+        };
+        assert_eq!(at(30, 10), [200, 30, 30, 255]);
+        assert_eq!(at(10, 10), [255, 255, 255, 255]);
+    }
+
+    #[test]
+    fn merge_layer_down_bakes_transform_into_destination_pixels() {
+        let mut doc = Document::new("p".into(), "t", 64, 64);
+        doc.add_layer("Top");
+        let top = doc.active_layer;
+        doc.layers[top]
+            .tiles_mut()
+            .unwrap()
+            .set_pixel(10, 10, [10, 20, 30, 255]);
+        doc.layers[top].transform = Some(LayerTransform {
+            offset_x: 15.0,
+            offset_y: 0.0,
+            ..LayerTransform::default()
+        });
+        assert!(doc.merge_layer_down(top));
+        assert_eq!(pixel(&doc, doc.active_layer, 25, 10), [10, 20, 30, 255]);
+        assert_eq!(pixel(&doc, doc.active_layer, 10, 10), [0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn merge_layer_into_paper_is_disallowed() {
+        let mut doc = Document::new("p".into(), "t", 16, 16);
+        let paint_index = doc.active_layer;
+        assert!(!doc.merge_layer_down(paint_index));
     }
 
     #[test]

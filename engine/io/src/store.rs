@@ -1,12 +1,13 @@
 use calumma_core::limits::RECENT_PROJECTS_LIMIT;
 use calumma_core::tile::{DirtyChannel, TileCoord, TILE_BYTES};
-use calumma_core::{Document, Layer, LayerContent};
+use calumma_core::{BlendMode, Document, Layer, LayerContent};
 use rusqlite::{params, params_from_iter, Connection, OptionalExtension};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 use thiserror::Error;
 use uuid::Uuid;
 
+use crate::adjustments_blob;
 use crate::vector_blob;
 
 #[derive(Debug, Error)]
@@ -96,6 +97,9 @@ impl ProjectStore {
                 mask BLOB,
                 content_kind INTEGER NOT NULL DEFAULT 0,
                 vector_data BLOB,
+                opacity REAL NOT NULL DEFAULT 1.0,
+                blend_mode INTEGER NOT NULL DEFAULT 0,
+                adjustments BLOB,
                 PRIMARY KEY (project_id, layer_id),
                 FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
             );
@@ -144,12 +148,18 @@ impl ProjectStore {
         let mut has_mask = false;
         let mut has_kind = false;
         let mut has_vector = false;
+        let mut has_opacity = false;
+        let mut has_blend_mode = false;
+        let mut has_adjustments = false;
         let columns = stmt.query_map([], |row| row.get::<_, String>(1))?;
         for column in columns {
             match column?.as_str() {
                 "mask" => has_mask = true,
                 "content_kind" => has_kind = true,
                 "vector_data" => has_vector = true,
+                "opacity" => has_opacity = true,
+                "blend_mode" => has_blend_mode = true,
+                "adjustments" => has_adjustments = true,
                 _ => {}
             }
         }
@@ -166,6 +176,22 @@ impl ProjectStore {
         if !has_vector {
             self.conn
                 .execute("ALTER TABLE layers ADD COLUMN vector_data BLOB", [])?;
+        }
+        if !has_opacity {
+            self.conn.execute(
+                "ALTER TABLE layers ADD COLUMN opacity REAL NOT NULL DEFAULT 1.0",
+                [],
+            )?;
+        }
+        if !has_blend_mode {
+            self.conn.execute(
+                "ALTER TABLE layers ADD COLUMN blend_mode INTEGER NOT NULL DEFAULT 0",
+                [],
+            )?;
+        }
+        if !has_adjustments {
+            self.conn
+                .execute("ALTER TABLE layers ADD COLUMN adjustments BLOB", [])?;
         }
         Ok(())
     }
@@ -245,7 +271,7 @@ impl ProjectStore {
         doc.layers.clear();
 
         let mut layer_stmt = self.conn.prepare(
-            "SELECT layer_id, name, visible, mask, content_kind, vector_data FROM layers WHERE project_id = ?1 ORDER BY z_index ASC",
+            "SELECT layer_id, name, visible, mask, content_kind, vector_data, opacity, blend_mode, adjustments FROM layers WHERE project_id = ?1 ORDER BY z_index ASC",
         )?;
         let layer_rows = layer_stmt.query_map(params![id], |row| {
             Ok((
@@ -255,6 +281,9 @@ impl ProjectStore {
                 row.get::<_, Option<Vec<u8>>>(3)?,
                 row.get::<_, i64>(4)?,
                 row.get::<_, Option<Vec<u8>>>(5)?,
+                row.get::<_, f64>(6)? as f32,
+                row.get::<_, i64>(7)? as u32,
+                row.get::<_, Option<Vec<u8>>>(8)?,
             ))
         })?;
 
@@ -264,7 +293,17 @@ impl ProjectStore {
             .prepare("SELECT tx, ty, pixels FROM tiles WHERE project_id = ?1 AND layer_id = ?2")?;
 
         for layer_row in layer_rows {
-            let (layer_id, name, visible, mask, content_kind, vector_data) = layer_row?;
+            let (
+                layer_id,
+                name,
+                visible,
+                mask,
+                content_kind,
+                vector_data,
+                opacity,
+                blend_mode,
+                adjustments,
+            ) = layer_row?;
             let mut layer = if content_kind == 1 {
                 let paths = vector_data
                     .as_deref()
@@ -277,6 +316,9 @@ impl ProjectStore {
                 Layer::with_id(layer_id.clone(), name, width, height)
             };
             layer.visible = visible;
+            layer.opacity = opacity.clamp(0.0, 1.0);
+            layer.blend_mode = BlendMode::from_u32(blend_mode).unwrap_or_default();
+            layer.adjustments = adjustments.as_deref().and_then(adjustments_blob::decode);
             if content_kind != 1 {
                 layer.set_mask(mask.filter(|m| m.len() == mask_len));
 
@@ -349,14 +391,17 @@ impl ProjectStore {
 
         {
             let mut upsert_layer = tx.prepare(
-                "INSERT INTO layers (project_id, layer_id, name, visible, z_index, mask, content_kind, vector_data) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+                "INSERT INTO layers (project_id, layer_id, name, visible, z_index, mask, content_kind, vector_data, opacity, blend_mode, adjustments) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
                  ON CONFLICT(project_id, layer_id) DO UPDATE SET
                     name = excluded.name,
                     visible = excluded.visible,
                     z_index = excluded.z_index,
                     mask = excluded.mask,
                     content_kind = excluded.content_kind,
-                    vector_data = excluded.vector_data",
+                    vector_data = excluded.vector_data,
+                    opacity = excluded.opacity,
+                    blend_mode = excluded.blend_mode,
+                    adjustments = excluded.adjustments",
             )?;
             let mut upsert_tile = tx.prepare(
                 "INSERT INTO tiles (project_id, layer_id, tx, ty, pixels) VALUES (?1, ?2, ?3, ?4, ?5)
@@ -372,6 +417,7 @@ impl ProjectStore {
                         LayerContent::Raster(_) => (0, None, layer.mask()),
                         LayerContent::Vector(paths) => (1, Some(vector_blob::encode(paths)), None),
                     };
+                let adjustments = layer.adjustments.as_ref().map(adjustments_blob::encode);
                 upsert_layer.execute(params![
                     doc.id,
                     layer.id,
@@ -380,7 +426,10 @@ impl ProjectStore {
                     z as i64,
                     mask,
                     content_kind,
-                    vector_data
+                    vector_data,
+                    layer.opacity as f64,
+                    layer.blend_mode.as_u32() as i64,
+                    adjustments
                 ])?;
 
                 let Some(grid) = layer.tiles() else {
@@ -501,6 +550,29 @@ mod tests {
             loaded.layers[i].tiles().unwrap().get_pixel(3, 3),
             [1, 2, 3, 4]
         );
+    }
+
+    #[test]
+    fn layer_effects_round_trip() {
+        let (_dir, store) = store();
+        let mut doc = store.create("Effects", 32, 32).unwrap();
+        let i = paint_index(&doc);
+        doc.set_layer_opacity(i, 0.4);
+        doc.set_layer_blend_mode(i, BlendMode::Multiply);
+        doc.set_layer_adjustments(
+            i,
+            calumma_core::Adjustments {
+                brightness: 0.3,
+                ..Default::default()
+            },
+        );
+        store.save(&mut doc).unwrap();
+        let loaded = store.open_project(&doc.id).unwrap();
+        let i = paint_index(&loaded);
+        assert!((loaded.layers[i].opacity - 0.4).abs() < 1e-4);
+        assert_eq!(loaded.layers[i].blend_mode, BlendMode::Multiply);
+        let adj = loaded.layers[i].adjustments.expect("adjustments persisted");
+        assert!((adj.brightness - 0.3).abs() < 1e-4);
     }
 
     #[test]

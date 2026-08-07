@@ -3,7 +3,9 @@ use calumma_core::limits::{
     GPU_TILE_RETENTION_MARGIN_TILES, STROKE_INSTANCE_CAPACITY, SURFACE_FRAME_LATENCY,
 };
 use calumma_core::tile::{DirtyChannel, TileCoord, TileGrid, TILE_BYTES, TILE_SIZE};
-use calumma_core::{Document, Selection, SelectionShape, StrokePoint, Tool};
+use calumma_core::{
+    BlendMode, Document, Layer, Selection, SelectionShape, StrokePoint, Tool, TransformHandles,
+};
 use std::collections::{HashMap, HashSet};
 use std::num::NonZeroU64;
 use std::time::Instant;
@@ -60,6 +62,28 @@ struct TilePlacement {
 
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
+struct LayerXform {
+    pivot: [f32; 2],
+    offset: [f32; 2],
+    scale: [f32; 2],
+    rotation: f32,
+    _pad: f32,
+}
+
+impl Default for LayerXform {
+    fn default() -> Self {
+        Self {
+            pivot: [0.0, 0.0],
+            offset: [0.0, 0.0],
+            scale: [1.0, 1.0],
+            rotation: 0.0,
+            _pad: 0.0,
+        }
+    }
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
 struct PreviewUniforms {
     pan: [f32; 2],
     zoom: f32,
@@ -95,7 +119,9 @@ pub struct Renderer {
     surface: wgpu::Surface<'static>,
     config: wgpu::SurfaceConfiguration,
     paper_pipeline: wgpu::RenderPipeline,
-    tile_pipeline: wgpu::RenderPipeline,
+    tile_pipeline_normal: wgpu::RenderPipeline,
+    tile_pipeline_multiply: wgpu::RenderPipeline,
+    tile_pipeline_screen: wgpu::RenderPipeline,
     stroke_pipeline: wgpu::RenderPipeline,
     shape_pipeline: wgpu::RenderPipeline,
     paper_buf: wgpu::Buffer,
@@ -108,6 +134,7 @@ pub struct Renderer {
     stroke_capacity: usize,
     sampler: wgpu::Sampler,
     tiles: HashMap<TileKey, GpuTile>,
+    layer_transform_bufs: HashMap<String, wgpu::Buffer>,
     layer_slots: HashMap<String, u32>,
     next_layer_slot: u32,
     started: Instant,
@@ -231,6 +258,7 @@ impl Renderer {
                     count: None,
                 },
                 uniform_entry(3, std::mem::size_of::<TilePlacement>()),
+                uniform_entry(4, std::mem::size_of::<LayerXform>()),
             ],
         });
         let tile_camera_buf = device.create_buffer(&wgpu::BufferDescriptor {
@@ -250,27 +278,32 @@ impl Renderer {
             bind_group_layouts: &[Some(&tile_bgl)],
             ..Default::default()
         });
-        let tile_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("tile"),
-            layout: Some(&tile_pl),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: Some("vs_tile"),
-                compilation_options: Default::default(),
-                buffers: &[],
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: Some("fs_tile"),
-                compilation_options: Default::default(),
-                targets: &[Some(alpha_target(format))],
-            }),
-            primitive: wgpu::PrimitiveState::default(),
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState::default(),
-            multiview_mask: None,
-            cache: None,
-        });
+        let tile_pipeline_for = |label: &str, target: wgpu::ColorTargetState| {
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some(label),
+                layout: Some(&tile_pl),
+                vertex: wgpu::VertexState {
+                    module: &shader,
+                    entry_point: Some("vs_tile"),
+                    compilation_options: Default::default(),
+                    buffers: &[],
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &shader,
+                    entry_point: Some("fs_tile"),
+                    compilation_options: Default::default(),
+                    targets: &[Some(target)],
+                }),
+                primitive: wgpu::PrimitiveState::default(),
+                depth_stencil: None,
+                multisample: wgpu::MultisampleState::default(),
+                multiview_mask: None,
+                cache: None,
+            })
+        };
+        let tile_pipeline_normal = tile_pipeline_for("tile-normal", premultiplied_target(format));
+        let tile_pipeline_multiply = tile_pipeline_for("tile-multiply", multiply_target(format));
+        let tile_pipeline_screen = tile_pipeline_for("tile-screen", screen_target(format));
 
         let preview_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("preview-bgl"),
@@ -360,7 +393,9 @@ impl Renderer {
             surface,
             config,
             paper_pipeline,
-            tile_pipeline,
+            tile_pipeline_normal,
+            tile_pipeline_multiply,
+            tile_pipeline_screen,
             stroke_pipeline,
             shape_pipeline,
             paper_buf,
@@ -373,11 +408,20 @@ impl Renderer {
             stroke_capacity,
             sampler,
             tiles: HashMap::new(),
+            layer_transform_bufs: HashMap::new(),
             layer_slots: HashMap::new(),
             next_layer_slot: 0,
             started: Instant::now(),
             dirty: true,
         })
+    }
+
+    fn tile_pipeline(&self, mode: BlendMode) -> &wgpu::RenderPipeline {
+        match mode {
+            BlendMode::Normal => &self.tile_pipeline_normal,
+            BlendMode::Multiply => &self.tile_pipeline_multiply,
+            BlendMode::Screen => &self.tile_pipeline_screen,
+        }
     }
 
     fn layer_slot(&mut self, layer_id: &str) -> u32 {
@@ -388,6 +432,44 @@ impl Renderer {
         self.next_layer_slot += 1;
         self.layer_slots.insert(layer_id.to_string(), slot);
         slot
+    }
+
+    fn ensure_layer_transform_buf(&mut self, layer_id: &str) {
+        if self.layer_transform_bufs.contains_key(layer_id) {
+            return;
+        }
+        let buf = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("layer-transform"),
+            size: std::mem::size_of::<LayerXform>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        self.queue
+            .write_buffer(&buf, 0, bytemuck::bytes_of(&LayerXform::default()));
+        self.layer_transform_bufs.insert(layer_id.to_string(), buf);
+    }
+
+    fn write_layer_transforms(&mut self, doc: &Document) {
+        for layer in &doc.layers {
+            if !layer.content.is_raster() {
+                continue;
+            }
+            self.ensure_layer_transform_buf(&layer.id);
+            let Some(buf) = self.layer_transform_bufs.get(&layer.id) else {
+                continue;
+            };
+            let xform = match (layer.transform, layer.content_bounds()) {
+                (Some(t), Some(bounds)) => LayerXform {
+                    pivot: [(bounds.0 + bounds.2) * 0.5, (bounds.1 + bounds.3) * 0.5],
+                    offset: [t.offset_x, t.offset_y],
+                    scale: [t.scale_x, t.scale_y],
+                    rotation: t.rotation,
+                    _pad: 0.0,
+                },
+                _ => LayerXform::default(),
+            };
+            self.queue.write_buffer(buf, 0, bytemuck::bytes_of(&xform));
+        }
     }
 
     pub fn cached_tile_count(&self) -> usize {
@@ -444,8 +526,8 @@ impl Renderer {
                 continue;
             };
             let slot = self.layer_slot(&layer.id);
+            self.ensure_layer_transform_buf(&layer.id);
             let dirty = grid.dirty_tiles(DirtyChannel::Render);
-            let mask = layer.mask();
 
             for (coord, pixels) in grid.iter() {
                 let cell = TileGrid::tile_rect(coord);
@@ -464,7 +546,8 @@ impl Renderer {
                 uploads.push((layer_index, coord));
 
                 if let Some(existing) = self.tiles.get(&key) {
-                    let upload = masked_tile_bytes(pixels, coord, mask, doc_width, &mut scratch);
+                    let upload =
+                        composited_tile_bytes(pixels, coord, layer, doc_width, &mut scratch);
                     self.queue.write_texture(
                         wgpu::TexelCopyTextureInfo {
                             texture: &existing.texture,
@@ -486,7 +569,7 @@ impl Renderer {
                     );
                     continue;
                 }
-                let upload = masked_tile_bytes(pixels, coord, mask, doc_width, &mut scratch);
+                let upload = composited_tile_bytes(pixels, coord, layer, doc_width, &mut scratch);
                 let texture = self.device.create_texture(&wgpu::TextureDescriptor {
                     label: Some("tile"),
                     size: wgpu::Extent3d {
@@ -537,6 +620,10 @@ impl Renderer {
                         _pad: 0.0,
                     }),
                 );
+                let xform_buf = self
+                    .layer_transform_bufs
+                    .get(&layer.id)
+                    .expect("layer transform buffer ensured by caller");
                 let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
                     label: Some("tile-bg"),
                     layout: &self.tile_bgl,
@@ -557,6 +644,10 @@ impl Renderer {
                             binding: 3,
                             resource: placement_buf.as_entire_binding(),
                         },
+                        wgpu::BindGroupEntry {
+                            binding: 4,
+                            resource: xform_buf.as_entire_binding(),
+                        },
                     ],
                 });
                 self.tiles.insert(
@@ -573,6 +664,8 @@ impl Renderer {
         let live_layers: HashSet<&str> = doc.layers.iter().map(|l| l.id.as_str()).collect();
         self.layer_slots
             .retain(|id, _| live_layers.contains(id.as_str()));
+        self.layer_transform_bufs
+            .retain(|id, _| live_layers.contains(id.as_str()));
 
         for (layer_index, coord) in uploads {
             if let Some(grid) = doc.layers.get_mut(layer_index).and_then(|l| l.tiles_mut()) {
@@ -581,7 +674,7 @@ impl Renderer {
         }
     }
 
-    fn visible_tile_keys(&mut self, doc: &Document) -> Vec<TileKey> {
+    fn visible_tile_groups(&mut self, doc: &Document) -> Vec<(BlendMode, Vec<TileKey>)> {
         let Some(visible) = doc.visible_rect() else {
             return Vec::new();
         };
@@ -596,10 +689,14 @@ impl Renderer {
             let Some(slot) = self.layer_slots.get(&layer.id).copied() else {
                 continue;
             };
+            let mut keys = Vec::new();
             for coord in grid.coords() {
                 if TileGrid::tile_rect(coord).intersects(visible) {
-                    out.push((slot, coord.x, coord.y));
+                    keys.push((slot, coord.x, coord.y));
                 }
+            }
+            if !keys.is_empty() {
+                out.push((layer.blend_mode, keys));
             }
         }
         out
@@ -610,6 +707,7 @@ impl Renderer {
             return;
         }
 
+        self.write_layer_transforms(doc);
         self.sync_tiles(doc);
 
         let (dw, dh) = doc.camera.device_size();
@@ -716,6 +814,8 @@ impl Renderer {
         };
         let instances = if !doc.stroke_points.is_empty() {
             stroke_instances(&doc.stroke_points, radius, stroke_color)
+        } else if let Some(handles) = doc.transform_handles() {
+            transform_overlay_instances(handles)
         } else if let Some(points) = selection_lasso_points(doc) {
             stroke_instances(&points, SELECTION_OUTLINE_WIDTH, SELECTION_OUTLINE_COLOR)
         } else {
@@ -837,8 +937,8 @@ impl Renderer {
             }
         }
 
-        let draws = self.visible_tile_keys(doc);
-        if !draws.is_empty() {
+        let tile_groups = self.visible_tile_groups(doc);
+        if !tile_groups.is_empty() {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("tiles"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -855,13 +955,15 @@ impl Renderer {
                 occlusion_query_set: None,
                 ..Default::default()
             });
-            pass.set_pipeline(&self.tile_pipeline);
-            for key in draws {
-                let Some(gpu) = self.tiles.get(&key) else {
-                    continue;
-                };
-                pass.set_bind_group(0, &gpu.bind_group, &[]);
-                pass.draw(0..6, 0..1);
+            for (mode, keys) in &tile_groups {
+                pass.set_pipeline(self.tile_pipeline(*mode));
+                for key in keys {
+                    let Some(gpu) = self.tiles.get(key) else {
+                        continue;
+                    };
+                    pass.set_bind_group(0, &gpu.bind_group, &[]);
+                    pass.draw(0..6, 0..1);
+                }
             }
         }
 
@@ -919,6 +1021,38 @@ impl Renderer {
 const ERASER_PREVIEW_COLOR: [f32; 4] = [0.5, 0.5, 0.5, 0.5];
 const SELECTION_OUTLINE_COLOR: [f32; 4] = [1.0, 1.0, 1.0, 0.9];
 const SELECTION_OUTLINE_WIDTH: f32 = 1.5;
+const TRANSFORM_OUTLINE_COLOR: [f32; 4] = [0.24, 0.78, 0.84, 0.95];
+const TRANSFORM_OUTLINE_WIDTH: f32 = 1.0;
+const TRANSFORM_HANDLE_COLOR: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
+const TRANSFORM_HANDLE_RADIUS: f32 = 4.0;
+
+fn transform_overlay_instances(handles: TransformHandles) -> Vec<StrokeInstance> {
+    let (_, corners, rotate_handle) = handles;
+    let mut out = Vec::with_capacity(4 + 1 + 5);
+    let outline = |a: (f32, f32), b: (f32, f32)| StrokeInstance {
+        segment: [a.0, a.1, b.0, b.1],
+        color: TRANSFORM_OUTLINE_COLOR,
+        radius: TRANSFORM_OUTLINE_WIDTH,
+        _pad: [0.0; 3],
+    };
+    for i in 0..4 {
+        out.push(outline(corners[i], corners[(i + 1) % 4]));
+    }
+    let top_mid = (
+        (corners[0].0 + corners[1].0) * 0.5,
+        (corners[0].1 + corners[1].1) * 0.5,
+    );
+    out.push(outline(top_mid, rotate_handle));
+    for p in corners.iter().chain(std::iter::once(&rotate_handle)) {
+        out.push(StrokeInstance {
+            segment: [p.0, p.1, p.0, p.1],
+            color: TRANSFORM_HANDLE_COLOR,
+            radius: TRANSFORM_HANDLE_RADIUS,
+            _pad: [0.0; 3],
+        });
+    }
+    out
+}
 
 fn selection_rect_or_ellipse(doc: &Document) -> Option<([f32; 2], [f32; 2], Tool)> {
     match &doc.selection.as_ref()?.shape {
@@ -975,16 +1109,19 @@ fn uniform_entry(binding: u32, size: usize) -> wgpu::BindGroupLayoutEntry {
     }
 }
 
-fn masked_tile_bytes<'a>(
+fn composited_tile_bytes<'a>(
     pixels: &'a [u8],
     coord: TileCoord,
-    mask: Option<&[u8]>,
+    layer: &Layer,
     doc_width: u32,
     scratch: &'a mut Vec<u8>,
 ) -> &'a [u8] {
-    let Some(mask) = mask else {
+    let mask = layer.mask();
+    let adjustments = layer.adjustments.as_ref();
+    let opacity = layer.opacity;
+    if mask.is_none() && adjustments.is_none() && opacity >= 1.0 {
         return pixels;
-    };
+    }
     scratch.clear();
     scratch.extend_from_slice(pixels);
     if scratch.len() < TILE_BYTES {
@@ -995,18 +1132,28 @@ fn masked_tile_bytes<'a>(
         for tx in 0..TILE_SIZE {
             let x = ox + tx as i32;
             let y = oy + ty as i32;
+            let i = ((ty * TILE_SIZE + tx) * 4) as usize;
+            if let Some(adj) = adjustments {
+                let rgb =
+                    calumma_core::filters::apply([scratch[i], scratch[i + 1], scratch[i + 2]], adj);
+                scratch[i..i + 3].copy_from_slice(&rgb);
+            }
             if x < 0 || y < 0 {
                 continue;
             }
-            let mi = (y as u32)
-                .saturating_mul(doc_width)
-                .saturating_add(x as u32) as usize;
-            if mi >= mask.len() {
-                continue;
+            if let Some(mask) = mask {
+                let mi = (y as u32)
+                    .saturating_mul(doc_width)
+                    .saturating_add(x as u32) as usize;
+                if let Some(&m) = mask.get(mi) {
+                    let a = scratch[i + 3] as u16 * m as u16 / 255;
+                    scratch[i + 3] = a as u8;
+                }
             }
-            let i = ((ty * TILE_SIZE + tx) * 4) as usize;
-            let a = scratch[i + 3] as u16 * mask[mi] as u16 / 255;
-            scratch[i + 3] = a as u8;
+            if opacity < 1.0 {
+                let a = (scratch[i + 3] as f32) * opacity;
+                scratch[i + 3] = a.round().clamp(0.0, 255.0) as u8;
+            }
         }
     }
     scratch.as_slice()
@@ -1016,6 +1163,53 @@ fn replace_target(format: wgpu::TextureFormat) -> wgpu::ColorTargetState {
     wgpu::ColorTargetState {
         format,
         blend: Some(wgpu::BlendState::REPLACE),
+        write_mask: wgpu::ColorWrites::ALL,
+    }
+}
+
+const PREMULTIPLIED_ALPHA_COMPONENT: wgpu::BlendComponent = wgpu::BlendComponent {
+    src_factor: wgpu::BlendFactor::One,
+    dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+    operation: wgpu::BlendOperation::Add,
+};
+
+fn premultiplied_target(format: wgpu::TextureFormat) -> wgpu::ColorTargetState {
+    wgpu::ColorTargetState {
+        format,
+        blend: Some(wgpu::BlendState {
+            color: PREMULTIPLIED_ALPHA_COMPONENT,
+            alpha: PREMULTIPLIED_ALPHA_COMPONENT,
+        }),
+        write_mask: wgpu::ColorWrites::ALL,
+    }
+}
+
+fn multiply_target(format: wgpu::TextureFormat) -> wgpu::ColorTargetState {
+    wgpu::ColorTargetState {
+        format,
+        blend: Some(wgpu::BlendState {
+            color: wgpu::BlendComponent {
+                src_factor: wgpu::BlendFactor::Dst,
+                dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                operation: wgpu::BlendOperation::Add,
+            },
+            alpha: PREMULTIPLIED_ALPHA_COMPONENT,
+        }),
+        write_mask: wgpu::ColorWrites::ALL,
+    }
+}
+
+fn screen_target(format: wgpu::TextureFormat) -> wgpu::ColorTargetState {
+    wgpu::ColorTargetState {
+        format,
+        blend: Some(wgpu::BlendState {
+            color: wgpu::BlendComponent {
+                src_factor: wgpu::BlendFactor::One,
+                dst_factor: wgpu::BlendFactor::OneMinusSrc,
+                operation: wgpu::BlendOperation::Add,
+            },
+            alpha: PREMULTIPLIED_ALPHA_COMPONENT,
+        }),
         write_mask: wgpu::ColorWrites::ALL,
     }
 }

@@ -2,6 +2,28 @@ import AppKit
 import Foundation
 import SwiftUI
 
+enum CalmBlendMode: UInt32, CaseIterable, Identifiable {
+    case normal = 0
+    case multiply = 1
+    case screen = 2
+
+    var id: UInt32 { rawValue }
+}
+
+struct LayerAdjustments: Equatable {
+    var brightness: Float = 0
+    var contrast: Float = 0
+    var vibrance: Float = 0
+    var saturation: Float = 0
+    var levelsBlack: Float = 0
+    var levelsWhite: Float = 1
+    var levelsGamma: Float = 1
+
+    var isNeutral: Bool {
+        self == LayerAdjustments()
+    }
+}
+
 enum CalmTool: UInt32 {
     case pen = 0
     case line = 1
@@ -13,6 +35,7 @@ enum CalmTool: UInt32 {
     case selectEllipse = 7
     case selectLasso = 8
     case bucket = 9
+    case transform = 10
 
     var isShape: Bool {
         switch self {
@@ -91,6 +114,9 @@ final class Engine: ObservableObject, @unchecked Sendable {
     @Published var recents: [ProjectInfo] = []
     @Published var layerNames: [String] = []
     @Published var layerVisibles: [Bool] = []
+    @Published var layerOpacities: [Float] = []
+    @Published var layerBlendModes: [CalmBlendMode] = []
+    @Published var layerAdjustments: [LayerAdjustments] = []
 
     init() {
         ptr = calm_engine_new(nil)
@@ -116,6 +142,14 @@ final class Engine: ObservableObject, @unchecked Sendable {
     func resize(width: UInt32, height: UInt32, scale: Float) {
         guard let ptr else { return }
         _ = calm_engine_resize(ptr, width, height, scale)
+    }
+
+    func resizeDocument(width: Int, height: Int) {
+        guard let ptr else { return }
+        _ = calm_engine_resize_document(ptr, UInt32(width), UInt32(height))
+        syncState()
+        refreshLayers()
+        render()
     }
 
     func render() {
@@ -254,6 +288,17 @@ final class Engine: ObservableObject, @unchecked Sendable {
         syncState()
     }
 
+    func setShift(_ held: Bool) {
+        guard let ptr else { return }
+        _ = calm_engine_set_shift(ptr, held ? 1 : 0)
+    }
+
+    func resetLayerTransform(_ index: Int) {
+        guard let ptr else { return }
+        _ = calm_engine_reset_layer_transform(ptr, UInt32(index))
+        render()
+    }
+
     func undo() {
         guard let ptr else { return }
         _ = calm_engine_undo(ptr)
@@ -286,6 +331,53 @@ final class Engine: ObservableObject, @unchecked Sendable {
     func setLayerVisible(_ index: Int, visible: Bool) {
         guard let ptr else { return }
         _ = calm_engine_set_layer_visible(ptr, UInt32(index), visible ? 1 : 0)
+        refreshLayers()
+        render()
+    }
+
+    func duplicateLayer(_ index: Int) {
+        guard let ptr else { return }
+        _ = calm_engine_duplicate_layer(ptr, UInt32(index))
+        syncState()
+        refreshLayers()
+        render()
+    }
+
+    func mergeLayerDown(_ index: Int) {
+        guard let ptr else { return }
+        _ = calm_engine_merge_layer_down(ptr, UInt32(index))
+        syncState()
+        refreshLayers()
+        render()
+    }
+
+    func setLayerOpacity(_ index: Int, _ opacity: Float) {
+        guard let ptr else { return }
+        _ = calm_engine_set_layer_opacity(ptr, UInt32(index), opacity)
+        refreshLayers()
+        render()
+    }
+
+    func setLayerBlendMode(_ index: Int, _ mode: CalmBlendMode) {
+        guard let ptr else { return }
+        _ = calm_engine_set_layer_blend_mode(ptr, UInt32(index), mode.rawValue)
+        refreshLayers()
+        render()
+    }
+
+    func setLayerAdjustments(_ index: Int, _ adjustments: LayerAdjustments) {
+        guard let ptr else { return }
+        _ = calm_engine_set_layer_adjustments(
+            ptr,
+            UInt32(index),
+            adjustments.brightness,
+            adjustments.contrast,
+            adjustments.vibrance,
+            adjustments.saturation,
+            adjustments.levelsBlack,
+            adjustments.levelsWhite,
+            adjustments.levelsGamma
+        )
         refreshLayers()
         render()
     }
@@ -364,6 +456,9 @@ final class Engine: ObservableObject, @unchecked Sendable {
         syncState()
         layerNames = []
         layerVisibles = []
+        layerOpacities = []
+        layerBlendModes = []
+        layerAdjustments = []
     }
 
     func save() {
@@ -433,6 +528,9 @@ final class Engine: ObservableObject, @unchecked Sendable {
         guard let ptr else { return }
         var names: [String] = []
         var visibles: [Bool] = []
+        var opacities: [Float] = []
+        var blendModes: [CalmBlendMode] = []
+        var adjustments: [LayerAdjustments] = []
         for i in 0..<state.layerCount {
             if let namePtr = calm_engine_layer_name(ptr, i) {
                 let raw = String(cString: namePtr)
@@ -442,9 +540,27 @@ final class Engine: ObservableObject, @unchecked Sendable {
                 names.append(L10nStore.catalog.formatKey("layerNamed", "\(i + 1)"))
             }
             visibles.append(calm_engine_layer_visible(ptr, i) == 1)
+            opacities.append(calm_engine_layer_opacity(ptr, i))
+            blendModes.append(CalmBlendMode(rawValue: calm_engine_layer_blend_mode(ptr, i)) ?? .normal)
+            var raw = CalmAdjustments()
+            _ = calm_engine_layer_adjustments(ptr, i, &raw)
+            adjustments.append(
+                LayerAdjustments(
+                    brightness: raw.brightness,
+                    contrast: raw.contrast,
+                    vibrance: raw.vibrance,
+                    saturation: raw.saturation,
+                    levelsBlack: raw.levels_black,
+                    levelsWhite: raw.levels_white,
+                    levelsGamma: raw.levels_gamma
+                )
+            )
         }
         layerNames = names
         layerVisibles = visibles
+        layerOpacities = opacities
+        layerBlendModes = blendModes
+        layerAdjustments = adjustments
     }
 
     func layerThumbnail(index: Int, maxSide: UInt32 = 160) -> NSImage? {
@@ -510,6 +626,17 @@ final class Engine: ObservableObject, @unchecked Sendable {
             shouldInterpolate: true,
             intent: .defaultIntent
         )
+    }
+
+    func exportPSD() -> Data? {
+        guard let ptr else { return nil }
+        var bytesPtr: UnsafeMutablePointer<UInt8>?
+        var len: Int = 0
+        let status = calm_engine_export_psd(ptr, &bytesPtr, &len)
+        guard status == CalmStatusOk, let bytesPtr, len > 0 else { return nil }
+        let data = Data(bytes: bytesPtr, count: len)
+        calm_buffer_free(bytesPtr, len)
+        return data
     }
 
     func compositeCGImage() -> CGImage? {
