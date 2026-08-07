@@ -148,7 +148,7 @@ Swift.
 
 | Concern | Behaviour |
 | --- | --- |
-| Store | `~/Library/Application Support/Calumma/calumma.sqlite` |
+| Store | OS-native app-data dir + `Calumma/calumma.sqlite` (macOS: `~/Library/Application Support/…`) |
 | Autosave / explicit save | Engine dirty flag + `⌘S`; tab switch and close save first |
 | One board per project | Bounded document size chosen at create time |
 | Export image / PDF | **Not shipped** (deferred) |

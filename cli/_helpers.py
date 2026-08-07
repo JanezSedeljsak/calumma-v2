@@ -23,6 +23,7 @@ from constants import (
     ENGINE_LOCK,
     ENGINE_MANIFEST,
     ENGINE_TARGET,
+    ENV_GITHUB_STEP_SUMMARY,
     MACOS,
     MSG_N_A,
     PKG_CORE,
@@ -62,11 +63,13 @@ __all__ = [
     "cargo_cmd",
     "crate_for_path",
     "ensure_engine_env",
+    "format_coverage_markdown",
     "format_pct",
     "hex_to_srgb",
     "load_tokens",
     "print_coverage_table",
     "run",
+    "write_github_summary",
     "swift_color_lit",
     "token_colors",
     "token_presets",
@@ -205,6 +208,27 @@ def print_coverage_table(rows: list[dict[str, object]]) -> None:
             f"{str(row['regions']):>7}"
         )
     print()
+
+
+def format_coverage_markdown(rows: list[dict[str, object]], title: str) -> str:
+    lines = [
+        f"### {title}",
+        "",
+        "| crate | lines | funcs | regions |",
+        "| --- | ---: | ---: | ---: |",
+    ]
+    for row in rows:
+        lines.append(f"| {row['crate']} | {row['lines']} | {row['funcs']} | {row['regions']} |")
+    lines.append("")
+    return "\n".join(lines)
+
+
+def write_github_summary(markdown: str) -> None:
+    summary_path = os.environ.get(ENV_GITHUB_STEP_SUMMARY)
+    if not summary_path:
+        return
+    with open(summary_path, "a", encoding=ENCODING_UTF8) as f:
+        f.write(markdown + "\n")
 
 
 def accent_pair(mode: dict[str, object]) -> tuple[str, str]:

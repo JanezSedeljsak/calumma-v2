@@ -33,7 +33,9 @@ Run the **Calumma** scheme. Landing → create/preset/recent → editor with top
 
 ## Notes
 
-- Projects: `~/Library/Application Support/Calumma/calumma.sqlite`
+- Projects: OS-native app-data dir + `Calumma/calumma.sqlite` (`ProjectStore::default_path`,
+  via the `dirs` crate — `~/Library/Application Support/Calumma/…` on macOS,
+  `~/.local/share/Calumma/…` on Linux, `%APPDATA%\Calumma\…` on Windows)
 - Tab switch clean-loads from DB (no preload)
 - Shell knobs only; canvas/state in Rust
 - Custom icons only; no icon libraries

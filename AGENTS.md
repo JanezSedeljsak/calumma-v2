@@ -110,7 +110,10 @@ have to be read together.
 
 ## Projects and navigation
 
-- DB path: `~/Library/Application Support/Calumma/calumma.sqlite`.
+- DB path: OS-native app-data directory + `Calumma/calumma.sqlite`, resolved by
+  `ProjectStore::default_path` (`engine/io/src/store.rs`) via the `dirs` crate —
+  never a hardcoded Unix path. macOS: `~/Library/Application Support/Calumma/…`;
+  Linux: `~/.local/share/Calumma/…`; Windows: `%APPDATA%\Calumma\…`.
 - Landing: name + resolution, presets from tokens, recents list, Paste Artwork island.
   Same view (`NewProjectView`) serves the separate, smaller **New Project** window opened
   by the editor `+` / `⌘N`; it reflows to one column below `Tokens.Window.wideLayoutWidth`.

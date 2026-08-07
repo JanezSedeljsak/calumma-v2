@@ -130,4 +130,6 @@ MSG_DENY_SKIP = "cargo-deny not installed; skip"
 MSG_COVERAGE_TOTAL = "total"
 MSG_N_A = "n/a"
 
+ENV_GITHUB_STEP_SUMMARY = "GITHUB_STEP_SUMMARY"
+
 ENCODING_UTF8 = "utf-8"

@@ -50,10 +50,12 @@ from _helpers import (  # noqa: E402
     cargo_cmd,
     crate_for_path,
     ensure_engine_env,
+    format_coverage_markdown,
     format_pct,
     print_coverage_table,
     run,
     which,
+    write_github_summary,
 )
 
 
@@ -267,11 +269,14 @@ def cmd_coverage(args: argparse.Namespace) -> int:
     )
     payload = json.loads(COVERAGE_JSON.read_text(encoding=ENCODING_UTF8))
     rows = parse_llvm_cov_json(payload)
+    title = f"Coverage ({args.package})" if args.package else "Coverage (workspace)"
     if not rows:
         print(MSG_NO_COVERAGE)
         run(cargo_cmd("llvm-cov", "report", "--summary-only"), check=False)
+        write_github_summary(f"### {title}\n\n{MSG_NO_COVERAGE}")
         return 1
     print_coverage_table(rows)
+    write_github_summary(format_coverage_markdown(rows, title))
     return 0
 
 

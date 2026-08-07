@@ -438,8 +438,10 @@ impl ProjectStore {
     }
 
     pub fn default_path() -> PathBuf {
-        let home = std::env::var_os("HOME").unwrap_or_default();
-        PathBuf::from(home).join("Library/Application Support/Calumma/calumma.sqlite")
+        dirs::data_dir()
+            .unwrap_or_else(std::env::temp_dir)
+            .join("Calumma")
+            .join("calumma.sqlite")
     }
 }
 
