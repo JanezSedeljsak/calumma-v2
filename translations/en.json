@@ -60,9 +60,14 @@
   "contrast": "Contrast",
   "vibrance": "Vibrance",
   "saturation": "Saturation",
-  "levelsBlack": "Black Point",
-  "levelsWhite": "White Point",
   "levelsGamma": "Gamma",
   "resetFilters": "Reset",
-  "resetTransform": "Reset Transform"
+  "resetTransform": "Reset Transform",
+  "toolPen": "Pen",
+  "toolEraser": "Eraser",
+  "toolBucket": "Bucket",
+  "toolTransform": "Transform",
+  "brushSize": "Size",
+  "color": "Colour",
+  "hex": "Hex"
 }

@@ -77,8 +77,6 @@ typedef struct CalmAdjustments {
     float contrast;
     float vibrance;
     float saturation;
-    float levels_black;
-    float levels_white;
     float levels_gamma;
 } CalmAdjustments;
 
@@ -139,7 +137,7 @@ CalmStatus calm_engine_set_layer_opacity(CalmEngine *engine, uint32_t index, flo
 float calm_engine_layer_opacity(CalmEngine *engine, uint32_t index);
 CalmStatus calm_engine_set_layer_blend_mode(CalmEngine *engine, uint32_t index, uint32_t mode);
 uint32_t calm_engine_layer_blend_mode(CalmEngine *engine, uint32_t index);
-CalmStatus calm_engine_set_layer_adjustments(CalmEngine *engine, uint32_t index, float brightness, float contrast, float vibrance, float saturation, float levels_black, float levels_white, float levels_gamma);
+CalmStatus calm_engine_set_layer_adjustments(CalmEngine *engine, uint32_t index, float brightness, float contrast, float vibrance, float saturation, float levels_gamma);
 CalmStatus calm_engine_layer_adjustments(CalmEngine *engine, uint32_t index, CalmAdjustments *out);
 CalmStatus calm_engine_set_hover_layer(CalmEngine *engine, int32_t index);
 CalmStatus calm_engine_clear_layer(CalmEngine *engine);

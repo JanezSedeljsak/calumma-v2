@@ -11,6 +11,7 @@ struct BoardCanvas: NSViewRepresentable {
 
     func makeNSView(context: Context) -> MTKView {
         let view = BoardMTKView(frame: .zero, device: MTLCreateSystemDefaultDevice())
+        view.app = app
         view.delegate = context.coordinator
         view.enableSetNeedsDisplay = false
         view.isPaused = false
@@ -30,12 +31,16 @@ struct BoardCanvas: NSViewRepresentable {
     func updateNSView(_ nsView: MTKView, context: Context) {
         context.coordinator.spacePan = app.spacePan
         context.coordinator.attachIfNeeded(view: nsView)
-        (nsView as? BoardMTKView)?.refreshCursor()
+        if let board = nsView as? BoardMTKView {
+            board.app = app
+            board.refreshCursor()
+        }
     }
 
     static func dismantleNSView(_ nsView: MTKView, coordinator: Coordinator) {
         if let board = nsView as? BoardMTKView {
             board.boardCoordinator = nil
+            board.app = nil
         }
     }
 
@@ -90,12 +95,30 @@ private let middleButton = 2
 
 final class BoardMTKView: MTKView {
     weak var boardCoordinator: BoardCanvas.Coordinator?
+    /// Clicking the board makes it first responder, so it has to serve the same editor
+    /// shortcuts the catcher does — otherwise the keyboard goes dead after the first stroke
+    /// and a held Space never gets its key-up, wedging the board in pan mode.
+    nonisolated(unsafe) weak var app: AppModel?
     private var lastDrag: CGPoint?
     private var painting = false
     private var panning = false
     private var trackingArea: NSTrackingArea?
 
     override var acceptsFirstResponder: Bool { true }
+
+    override func keyDown(with event: NSEvent) {
+        let handled = MainActor.assumeIsolated { app?.handleEditorKeyDown(event) ?? false }
+        if !handled {
+            super.keyDown(with: event)
+        }
+    }
+
+    override func keyUp(with event: NSEvent) {
+        let handled = MainActor.assumeIsolated { app?.handleEditorKeyUp(event) ?? false }
+        if !handled {
+            super.keyUp(with: event)
+        }
+    }
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
@@ -247,8 +270,14 @@ final class BoardMTKView: MTKView {
         )
     }
 
+    /// Read straight off the model rather than the coordinator copy — the copy only
+    /// refreshes on the next SwiftUI update, which can land after the mouse-down that
+    /// was supposed to pan.
     private var spaceHeld: Bool {
-        boardCoordinator?.spacePan == true
+        if let app {
+            return MainActor.assumeIsolated { app.spacePan }
+        }
+        return boardCoordinator?.spacePan == true
     }
 
     private func shouldPan(with event: NSEvent) -> Bool {

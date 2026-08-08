@@ -21,19 +21,6 @@ struct NewProjectView: View {
         }
         .calmScreen()
         .background(ArtworkPasteCatcher(app: app))
-        .toolbar {
-            if isLanding {
-                ToolbarItem(placement: .primaryAction) {
-                    CalmIconButton {
-                        app.settingsOpen = true
-                    } icon: {
-                        AppIcon.settings(color: colors.textMuted)
-                    }
-                    .help(l10n.settings)
-                    .calmPointer()
-                }
-            }
-        }
         .onAppear {
             if name.isEmpty { name = l10n.newProject }
             app.clearArtworkError()

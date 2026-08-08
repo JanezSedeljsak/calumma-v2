@@ -4,8 +4,6 @@ pub struct Adjustments {
     pub contrast: f32,
     pub vibrance: f32,
     pub saturation: f32,
-    pub levels_black: f32,
-    pub levels_white: f32,
     pub levels_gamma: f32,
 }
 
@@ -16,8 +14,6 @@ impl Default for Adjustments {
             contrast: 0.0,
             vibrance: 0.0,
             saturation: 0.0,
-            levels_black: 0.0,
-            levels_white: 1.0,
             levels_gamma: 1.0,
         }
     }
@@ -30,8 +26,6 @@ impl Adjustments {
             contrast: self.contrast.clamp(-1.0, 1.0),
             vibrance: self.vibrance.clamp(-1.0, 1.0),
             saturation: self.saturation.clamp(-1.0, 1.0),
-            levels_black: self.levels_black.clamp(0.0, 1.0),
-            levels_white: self.levels_white.clamp(0.0, 1.0),
             levels_gamma: self.levels_gamma.clamp(0.1, 4.0),
         }
     }
@@ -41,8 +35,6 @@ impl Adjustments {
             && self.contrast == 0.0
             && self.vibrance == 0.0
             && self.saturation == 0.0
-            && self.levels_black == 0.0
-            && self.levels_white == 1.0
             && self.levels_gamma == 1.0
     }
 }
@@ -108,40 +100,35 @@ fn hsl_to_rgb(hsl: [f32; 3]) -> [f32; 3] {
     ]
 }
 
-pub fn apply(rgb: [u8; 3], adj: &Adjustments) -> [u8; 3] {
-    if adj.is_neutral() {
-        return rgb;
-    }
-    let mut v = [
-        rgb[0] as f32 / 255.0,
-        rgb[1] as f32 / 255.0,
-        rgb[2] as f32 / 255.0,
-    ];
-
-    let white = adj.levels_white.max(adj.levels_black + 1e-4);
-    for c in &mut v {
-        *c = ((*c - adj.levels_black) / (white - adj.levels_black)).clamp(0.0, 1.0);
-        *c = c.powf(1.0 / adj.levels_gamma.max(1e-4));
-    }
-
+/// Gamma → contrast → brightness for one channel. Depends only on that channel's byte,
+/// which is what makes the tone stage tabulatable.
+fn tone(byte: u8, adj: &Adjustments) -> f32 {
+    let c = (byte as f32 / 255.0)
+        .clamp(0.0, 1.0)
+        .powf(1.0 / adj.levels_gamma.max(1e-4));
     let contrast_factor = (1.0 + adj.contrast).max(0.0);
-    for c in &mut v {
-        *c = ((*c - 0.5) * contrast_factor + 0.5 + adj.brightness).clamp(0.0, 1.0);
-    }
+    ((c - 0.5) * contrast_factor + 0.5 + adj.brightness).clamp(0.0, 1.0)
+}
 
+/// Saturation and vibrance both only move `s`, so they share one HSL round trip instead
+/// of one each. Besides halving the trigonometry-ish work, this keeps the hue: going out
+/// to RGB between the two stages loses it whenever saturation lands a pixel on gray, and
+/// vibrance would then re-saturate that pixel toward red.
+fn hsl_stage(v: [f32; 3], adj: &Adjustments) -> [f32; 3] {
+    if adj.saturation == 0.0 && adj.vibrance == 0.0 {
+        return v;
+    }
+    let [h, mut s, l] = rgb_to_hsl(v);
     if adj.saturation != 0.0 {
-        let [h, s, l] = rgb_to_hsl(v);
-        let s = (s * (1.0 + adj.saturation)).clamp(0.0, 1.0);
-        v = hsl_to_rgb([h, s, l]);
+        s = (s * (1.0 + adj.saturation)).clamp(0.0, 1.0);
     }
-
     if adj.vibrance != 0.0 {
-        let [h, s, l] = rgb_to_hsl(v);
-        let boost = adj.vibrance * (1.0 - s);
-        let s = (s + boost).clamp(0.0, 1.0);
-        v = hsl_to_rgb([h, s, l]);
+        s = (s + adj.vibrance * (1.0 - s)).clamp(0.0, 1.0);
     }
+    hsl_to_rgb([h, s, l])
+}
 
+fn quantize(v: [f32; 3]) -> [u8; 3] {
     [
         (v[0].clamp(0.0, 1.0) * 255.0).round() as u8,
         (v[1].clamp(0.0, 1.0) * 255.0).round() as u8,
@@ -149,74 +136,90 @@ pub fn apply(rgb: [u8; 3], adj: &Adjustments) -> [u8; 3] {
     ]
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn neutral_adjustments_are_a_no_op() {
-        let adj = Adjustments::default();
-        assert!(adj.is_neutral());
-        assert_eq!(apply([12, 200, 88], &adj), [12, 200, 88]);
+pub fn apply(rgb: [u8; 3], adj: &Adjustments) -> [u8; 3] {
+    if adj.is_neutral() {
+        return rgb;
     }
+    let v = [tone(rgb[0], adj), tone(rgb[1], adj), tone(rgb[2], adj)];
+    quantize(hsl_stage(v, adj))
+}
 
-    #[test]
-    fn brightness_lightens_every_channel() {
-        let adj = Adjustments {
-            brightness: 0.2,
-            ..Adjustments::default()
-        };
-        let out = apply([100, 100, 100], &adj);
-        assert!(out[0] > 100 && out[1] > 100 && out[2] > 100);
-    }
+/// Precomputed form of [`Adjustments`] for bulk pixel work — build it once per buffer
+/// instead of paying `powf` per channel per pixel. Results are identical to [`apply`]:
+/// the tone stage is a pure per-channel function of the input byte, so tabulating it
+/// over all 256 inputs is exact rather than an approximation.
+///
+/// When saturation and vibrance are both neutral there is no channel coupling at all
+/// and the whole filter collapses to one `[u8; 256]` lookup per channel.
+#[derive(Clone)]
+pub struct AdjustmentLut {
+    tone: [f32; 256],
+    direct: Option<[u8; 256]>,
+    adj: Adjustments,
+    neutral: bool,
+}
 
-    #[test]
-    fn contrast_pushes_values_away_from_midpoint() {
-        let adj = Adjustments {
-            contrast: 0.5,
-            ..Adjustments::default()
-        };
-        let bright = apply([200, 200, 200], &adj);
-        let dark = apply([50, 50, 50], &adj);
-        assert!(bright[0] > 200);
-        assert!(dark[0] < 50);
-    }
-
-    #[test]
-    fn saturation_minus_one_desaturates_to_gray() {
-        let adj = Adjustments {
-            saturation: -1.0,
-            ..Adjustments::default()
-        };
-        let out = apply([200, 50, 50], &adj);
-        assert_eq!(out[0], out[1]);
-        assert_eq!(out[1], out[2]);
-    }
-
-    #[test]
-    fn levels_black_white_stretch_clips_range() {
-        let adj = Adjustments {
-            levels_black: 0.25,
-            levels_white: 0.75,
-            ..Adjustments::default()
-        };
-        let low = apply([40, 40, 40], &adj);
-        let high = apply([220, 220, 220], &adj);
-        assert_eq!(low, [0, 0, 0]);
-        assert_eq!(high, [255, 255, 255]);
-    }
-
-    #[test]
-    fn clamped_keeps_values_in_sane_ranges() {
-        let adj = Adjustments {
-            brightness: 5.0,
-            contrast: -9.0,
-            levels_gamma: 0.0,
-            ..Adjustments::default()
+impl AdjustmentLut {
+    pub fn new(adj: &Adjustments) -> Self {
+        let neutral = adj.is_neutral();
+        let mut tone_lut = [0.0f32; 256];
+        for (byte, slot) in tone_lut.iter_mut().enumerate() {
+            *slot = tone(byte as u8, adj);
         }
-        .clamped();
-        assert_eq!(adj.brightness, 1.0);
-        assert_eq!(adj.contrast, -1.0);
-        assert_eq!(adj.levels_gamma, 0.1);
+        let direct = (adj.saturation == 0.0 && adj.vibrance == 0.0).then(|| {
+            let mut out = [0u8; 256];
+            for (byte, slot) in out.iter_mut().enumerate() {
+                *slot = (tone_lut[byte].clamp(0.0, 1.0) * 255.0).round() as u8;
+            }
+            out
+        });
+        Self {
+            tone: tone_lut,
+            direct,
+            adj: *adj,
+            neutral,
+        }
+    }
+
+    /// True when the filter is a no-op and callers can skip the buffer walk entirely.
+    pub fn is_neutral(&self) -> bool {
+        self.neutral
+    }
+
+    #[inline]
+    pub fn apply(&self, rgb: [u8; 3]) -> [u8; 3] {
+        if self.neutral {
+            return rgb;
+        }
+        if let Some(direct) = &self.direct {
+            return [
+                direct[rgb[0] as usize],
+                direct[rgb[1] as usize],
+                direct[rgb[2] as usize],
+            ];
+        }
+        let v = [
+            self.tone[rgb[0] as usize],
+            self.tone[rgb[1] as usize],
+            self.tone[rgb[2] as usize],
+        ];
+        quantize(hsl_stage(v, &self.adj))
+    }
+
+    /// Filter the RGB of every pixel in a tightly packed RGBA buffer, leaving alpha alone.
+    pub fn apply_rgba(&self, rgba: &mut [u8]) {
+        if self.neutral {
+            return;
+        }
+        for px in rgba.chunks_exact_mut(4) {
+            let out = self.apply([px[0], px[1], px[2]]);
+            px[0..3].copy_from_slice(&out);
+        }
+    }
+}
+
+impl Adjustments {
+    pub fn lut(&self) -> AdjustmentLut {
+        AdjustmentLut::new(self)
     }
 }

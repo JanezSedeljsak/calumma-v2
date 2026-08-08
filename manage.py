@@ -27,6 +27,7 @@ from constants import (  # noqa: E402
     CONFIG_RELEASE,
     COVERAGE_JSON,
     DEST_MACOS,
+    DIST,
     ENCODING_UTF8,
     FILE_CARGO_TOML,
     MACOS,
@@ -42,6 +43,7 @@ from constants import (  # noqa: E402
     SCHEME_CALUMMA,
 )
 from gen_tokens_swift import generate_tokens_swift  # noqa: E402
+from package_macos import package_macos  # noqa: E402
 from _helpers import (  # noqa: E402
     ENGINE,
     ENGINE_LOCK,
@@ -98,6 +100,14 @@ def cmd_build(_: argparse.Namespace) -> int:
             "build",
         ]
     )
+    return 0
+
+
+def cmd_package(args: argparse.Namespace) -> int:
+    generate_tokens_swift()
+    run(cargo_cmd("build", "--release", "-p", PKG_FFI))
+    xcodegen_generate()
+    package_macos(args.version)
     return 0
 
 
@@ -296,7 +306,7 @@ def cmd_outdated(_: argparse.Namespace) -> int:
 
 def cmd_clean(_: argparse.Namespace) -> int:
     run(cargo_cmd("clean"), check=False)
-    for path in (MACOS_BUILD, MACOS_DERIVED):
+    for path in (MACOS_BUILD, MACOS_DERIVED, DIST):
         if path.exists():
             shutil.rmtree(path)
     return 0
@@ -318,6 +328,11 @@ def build_parser() -> argparse.ArgumentParser:
         func=cmd_dev
     )
     sub.add_parser("build", help="release build of app").set_defaults(func=cmd_build)
+    package_parser = sub.add_parser("package", help="release build + ad-hoc sign + dist/*.dmg")
+    package_parser.add_argument(
+        "--version", help="version stamped into the app and dmg name (default: workspace version)"
+    )
+    package_parser.set_defaults(func=cmd_package)
     sub.add_parser("test", help="cargo test --workspace").set_defaults(func=cmd_test)
     sub.add_parser("test-swift", help="xcodebuild test").set_defaults(func=cmd_test_swift)
     sub.add_parser("fmt", help="rustfmt (+ swift-format / taplo when present)").set_defaults(

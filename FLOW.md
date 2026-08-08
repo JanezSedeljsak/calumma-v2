@@ -141,7 +141,12 @@ tab's dot opens a card with the project name and the palette; both persist immed
 | Maximise window | Double-click the titlebar (standard macOS zoom) |
 
 Camera clamping, zoom floor, and dirty-flag render live in Rust — never reimplemented in
-Swift.
+Swift. Pan is clamped with slack rather than pinned: the paper can be dragged around at any
+zoom, including a fitted one, as long as half of it (`limits::PAN_KEEP_VISIBLE`) stays on
+screen. `Fit` still centres the paper.
+
+Space-pan is a hold, not a mode — it ends on key-up wherever focus is, and on app
+deactivation, so a Space held across ⌘-Tab cannot leave the board stuck panning.
 
 ---
 
@@ -175,8 +180,9 @@ live in `engine/core`; the actual PNG/JPEG/WebP/AVIF **encode** happens in the s
   (composites onto the layer below respecting opacity/blend mode/adjustments, then removes
   the source — disabled when the layer below is Paper), **Reset Transform**, an **Opacity**
   slider, a **Blend Mode** picker (Normal / Multiply / Screen — see `AGENTS.md` → Layers for
-  why only these three), and seven **Filter** sliders (brightness, contrast, vibrance,
-  saturation, levels black/white/gamma) with a reset button. All of it is live on the canvas
+  why only these three), and five **Filter** sliders (brightness, contrast, vibrance,
+  saturation, gamma — levels black/white points were removed as redundant with
+  brightness/contrast) with a reset button. All of it is live on the canvas
   and non-destructive — nothing here is undo-tracked (matches add/remove layer), and there is
   no explicit "bake into pixels" action; `merge_layer_down` and PSD export are the only two
   places any of it gets baked into concrete bytes today.
@@ -185,7 +191,7 @@ live in `engine/core`; the actual PNG/JPEG/WebP/AVIF **encode** happens in the s
   data, so growing back restores it exactly.
 - **Transform (`⌘T`):** shows scale/rotate handles around the *active* layer (selected via
   the layers panel — clicking a layer's content directly on the canvas doesn't pick it yet,
-  see `plans/03-layer-click-to-select.md`). Drag a corner to scale — proportional by
+  see `plans/02-layer-click-to-select.md`). Drag a corner to scale — proportional by
   default, hold **Shift** for free (non-uniform) scale; drag the handle above top-center to
   rotate; drag inside the box to move. Fully live and non-destructive on the canvas; a
   "Reset Transform" action in the layer's `…` popover clears it back to identity.

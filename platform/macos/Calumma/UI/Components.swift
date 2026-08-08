@@ -232,6 +232,17 @@ struct CalmToolButton<Icon: View>: View {
     }
 }
 
+struct CalmDivider: View {
+    @Environment(\.themeColors) private var colors
+
+    var body: some View {
+        Rectangle()
+            .fill(colors.islandBorder)
+            .frame(height: 1)
+            .frame(maxWidth: .infinity)
+    }
+}
+
 struct CalmSection<Content: View>: View {
     let title: String
     var accent: Color? = nil

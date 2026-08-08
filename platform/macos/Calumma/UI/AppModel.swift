@@ -20,13 +20,20 @@ final class AppModel: ObservableObject {
     @Published var lastShapeTool: CalmTool = .rect
     @Published var lastSelectTool: CalmTool = .selectRect
     @Published var color: Color = Color(red: 0.1, green: 0.1, blue: 0.1) {
-        didSet { quickColors[activeQuickColorIndex] = color }
+        didSet {
+            quickColors[activeQuickColorIndex] = color
+            if !editingHSB {
+                hsb = HSBColor(color)
+            }
+        }
     }
     @Published var quickColors: [Color] = [
         Color(red: 0.1, green: 0.1, blue: 0.1),
         Color.white,
     ]
     @Published var activeQuickColorIndex = 0
+    @Published private(set) var hsb = HSBColor(Color(red: 0.1, green: 0.1, blue: 0.1))
+    private var editingHSB = false
     @Published var brushSize: Float = 3
     @Published var fill = false
     @Published var layersOpen = true
@@ -45,6 +52,13 @@ final class AppModel: ObservableObject {
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
                 self?.objectWillChange.send()
+            }
+            .store(in: &cancellables)
+        NotificationCenter.default
+            .publisher(for: NSApplication.didResignActiveNotification)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                MainActor.assumeIsolated { self?.endSpacePan() }
             }
             .store(in: &cancellables)
     }
@@ -203,20 +217,11 @@ final class AppModel: ObservableObject {
         color = quickColors[index]
     }
 
-    var colorHue: Float {
-        var hue: CGFloat = 0
-        (NSColor(color).usingColorSpace(.sRGB) ?? .black)
-            .getHue(&hue, saturation: nil, brightness: nil, alpha: nil)
-        return Float(hue)
-    }
-
-    func setHue(_ hue: Float) {
-        let ns = NSColor(color).usingColorSpace(.sRGB) ?? .black
-        var saturation: CGFloat = 0
-        var brightness: CGFloat = 0
-        var alpha: CGFloat = 0
-        ns.getHue(nil, saturation: &saturation, brightness: &brightness, alpha: &alpha)
-        color = Color(hue: Double(hue), saturation: Double(saturation), brightness: Double(brightness), opacity: Double(alpha))
+    func updateHSB(_ next: HSBColor) {
+        hsb = next
+        editingHSB = true
+        color = next.color
+        editingHSB = false
     }
 
     private func maximizeMainWindow() {

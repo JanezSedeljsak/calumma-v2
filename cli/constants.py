@@ -16,6 +16,7 @@ DIR_UI = "UI"
 DIR_THEME = "Theme"
 DIR_TARGET = "target"
 DIR_TRANSLATIONS = "translations"
+DIR_DIST = "dist"
 
 FILE_CARGO_TOML = "Cargo.toml"
 FILE_CARGO_LOCK = "Cargo.lock"
@@ -47,6 +48,10 @@ XCODE_PROJECT = MACOS / FILE_XCODEPROJ
 MACOS_SOURCES = MACOS / DIR_CALUMMA
 MACOS_BUILD = MACOS / "build"
 MACOS_DERIVED = MACOS / "DerivedData"
+MACOS_RELEASE_PRODUCTS = MACOS_DERIVED / "Build" / "Products" / "Release"
+
+DIST = ROOT / DIR_DIST
+DIST_STAGING = DIST / "dmg-root"
 
 CRATE_DIRS = ("core", "io", "ops", "render", "ffi")
 CRATE_PREFIX = "calumma-"
@@ -114,11 +119,24 @@ BIN_CARGO_LLVM_COV = "cargo-llvm-cov"
 BIN_CARGO_OUTDATED = "cargo-outdated"
 BIN_CARGO_AUDIT = "cargo-audit"
 BIN_CARGO_DENY = "cargo-deny"
+BIN_HDIUTIL = "hdiutil"
+BIN_CODESIGN = "codesign"
+BIN_DITTO = "ditto"
 
 SCHEME_CALUMMA = "Calumma"
 CONFIG_DEBUG = "Debug"
 CONFIG_RELEASE = "Release"
 DEST_MACOS = "platform=macOS"
+
+APP_NAME = "Calumma"
+APP_BUNDLE = f"{APP_NAME}.app"
+APPLICATIONS_LINK = "Applications"
+APPLICATIONS_TARGET = "/Applications"
+DMG_FORMAT = "UDZO"
+DMG_SUFFIX = ".dmg"
+CHECKSUM_SUFFIX = ".sha256"
+SIGN_IDENTITY_ADHOC = "-"
+SIGN_OPTIONS_RUNTIME = "runtime"
 
 MSG_WROTE = "wrote"
 MSG_CORE_CLEAN = "calumma-core dependency tree is clean"
@@ -129,6 +147,13 @@ MSG_NO_COVERAGE = "no coverage rows parsed; raw summary:"
 MSG_DENY_SKIP = "cargo-deny not installed; skip"
 MSG_COVERAGE_TOTAL = "total"
 MSG_N_A = "n/a"
+MSG_NO_APP = "release build produced no app bundle at"
+MSG_PACKAGED = "packaged"
+MSG_SIGNED_ADHOC = "ad-hoc signed (no Developer ID); Gatekeeper will require right-click → Open"
+
+ENV_GITHUB_OUTPUT = "GITHUB_OUTPUT"
+OUTPUT_KEY_DMG = "dmg"
+OUTPUT_KEY_VERSION = "version"
 
 ENV_GITHUB_STEP_SUMMARY = "GITHUB_STEP_SUMMARY"
 

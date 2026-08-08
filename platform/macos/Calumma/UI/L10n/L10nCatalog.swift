@@ -131,11 +131,16 @@ struct L10nCatalog: Equatable {
     var contrast: String { self["contrast"] }
     var vibrance: String { self["vibrance"] }
     var saturation: String { self["saturation"] }
-    var levelsBlack: String { self["levelsBlack"] }
-    var levelsWhite: String { self["levelsWhite"] }
     var levelsGamma: String { self["levelsGamma"] }
     var resetFilters: String { self["resetFilters"] }
     var resetTransform: String { self["resetTransform"] }
+    var toolPen: String { self["toolPen"] }
+    var toolEraser: String { self["toolEraser"] }
+    var toolBucket: String { self["toolBucket"] }
+    var toolTransform: String { self["toolTransform"] }
+    var brushSize: String { self["brushSize"] }
+    var color: String { self["color"] }
+    var hex: String { self["hex"] }
 
     func languageName(_ language: AppLanguage) -> String {
         self[language.displayKey]

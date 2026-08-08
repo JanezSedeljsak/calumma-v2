@@ -1,0 +1,209 @@
+import SwiftUI
+
+struct ToolsPanel: View {
+    @EnvironmentObject private var app: AppModel
+    @Environment(\.themeColors) private var colors
+    @Environment(\.l10n) private var l10n
+
+    static let width: CGFloat = 112
+
+    var body: some View {
+        CalmIsland(padding: Tokens.Space.xs) {
+            VStack(spacing: Tokens.Space.sm) {
+                toolGrid
+
+                CalmDivider()
+
+                VStack(spacing: Tokens.Space.xs) {
+                    CalmText.label(toolTitle)
+                    toolOptions
+                }
+
+                Spacer(minLength: Tokens.Space.xs)
+
+                CalmDivider()
+
+                VStack(spacing: Tokens.Space.xs) {
+                    CalmText.label(l10n.color)
+                    QuickColorPicker()
+                }
+
+                CalmDivider()
+
+                aiSection
+            }
+            .frame(maxHeight: .infinity, alignment: .top)
+        }
+        .frame(width: Self.width)
+    }
+
+    private var toolGrid: some View {
+        LazyVGrid(
+            columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())],
+            spacing: Tokens.Space.xs
+        ) {
+            toolButton(.pen) { AppIcon.pen(color: iconColor(.pen)) }
+            toolButton(.eraser) { AppIcon.eraser(color: iconColor(.eraser)) }
+            shapeToolButton
+            selectToolButton
+            toolButton(.bucket) { AppIcon.bucket(color: iconColor(.bucket)) }
+            toolButton(.transform) { AppIcon.transform(color: iconColor(.transform)) }
+        }
+    }
+
+    private var toolTitle: String {
+        if app.tool.isShape { return l10n.shapes }
+        if app.tool.isSelection { return l10n.selectionTools }
+        switch app.tool {
+        case .pen: return l10n.toolPen
+        case .eraser: return l10n.toolEraser
+        case .bucket: return l10n.toolBucket
+        case .transform: return l10n.toolTransform
+        default: return l10n.toolPen
+        }
+    }
+
+    @ViewBuilder
+    private var toolOptions: some View {
+        VStack(spacing: Tokens.Space.sm) {
+            if app.tool.isShape {
+                HStack(spacing: Tokens.Space.xs) {
+                    shapePick(.line)
+                    shapePick(.rect)
+                    shapePick(.ellipse)
+                    shapePick(.arrow)
+                }
+            }
+
+            if app.tool.isSelection {
+                HStack(spacing: Tokens.Space.xs) {
+                    selectPick(.selectRect)
+                    selectPick(.selectEllipse)
+                    selectPick(.selectLasso)
+                }
+            }
+
+            if showsBrushSize {
+                VStack(spacing: 2) {
+                    HStack {
+                        CalmText.muted(l10n.brushSize)
+                        Spacer()
+                        CalmText.muted("\(Int(app.brushSize))", mono: true)
+                    }
+                    Slider(value: Binding(
+                        get: { Double(app.brushSize) },
+                        set: { app.brushSize = Float($0) }
+                    ), in: 1...96)
+                    .controlSize(.mini)
+                }
+            }
+
+            if app.tool.isShape {
+                HStack {
+                    CalmText.muted(l10n.fill)
+                    Spacer()
+                    Toggle("", isOn: $app.fill)
+                        .toggleStyle(.switch)
+                        .controlSize(.mini)
+                        .labelsHidden()
+                }
+                .help(l10n.fill)
+            }
+        }
+    }
+
+    private var showsBrushSize: Bool {
+        !app.tool.isSelection && app.tool != .bucket && app.tool != .transform
+    }
+
+    private var aiSection: some View {
+        Menu {
+            Button(l10n.removeBackground) {
+                app.engine.removeBackground()
+            }
+            .disabled(!app.engine.canRemoveBackground)
+        } label: {
+            HStack(spacing: Tokens.Space.xs) {
+                AppIcon.ai(color: colors.textMuted)
+                CalmText.label(l10n.ai)
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 28)
+            .contentShape(Rectangle())
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .help(l10n.ai)
+        .calmPointer()
+    }
+
+    private var shapeToolButton: some View {
+        let active = app.tool.isShape
+        let current = active ? app.tool : app.lastShapeTool
+        return CalmToolButton(selected: active, action: {
+            app.selectTool(app.lastShapeTool)
+        }) {
+            shapeIcon(current, color: active ? colors.accentTeal : colors.textMuted)
+        }
+        .help(l10n.shapes)
+    }
+
+    private func shapePick(_ tool: CalmTool) -> some View {
+        CalmToolButton(selected: app.tool == tool, action: {
+            app.selectTool(tool)
+        }) {
+            shapeIcon(tool, color: app.tool == tool ? colors.accentTeal : colors.textMuted)
+        }
+    }
+
+    @ViewBuilder
+    private func shapeIcon(_ tool: CalmTool, color: Color) -> some View {
+        switch tool {
+        case .line: AppIcon.line(color: color)
+        case .rect: AppIcon.shape(color: color)
+        case .ellipse: AppIcon.ellipse(color: color)
+        case .arrow: AppIcon.arrow(color: color)
+        case .pen: AppIcon.pen(color: color)
+        case .eraser: AppIcon.eraser(color: color)
+        case .bucket: AppIcon.bucket(color: color)
+        case .transform: AppIcon.transform(color: color)
+        case .selectRect, .selectEllipse, .selectLasso: AppIcon.selectRect(color: color)
+        }
+    }
+
+    private var selectToolButton: some View {
+        let active = app.tool.isSelection
+        let current = active ? app.tool : app.lastSelectTool
+        return CalmToolButton(selected: active, action: {
+            app.selectTool(app.lastSelectTool)
+        }) {
+            selectionIcon(current, color: active ? colors.accentTeal : colors.textMuted)
+        }
+        .help(l10n.selectionTools)
+    }
+
+    private func selectPick(_ tool: CalmTool) -> some View {
+        CalmToolButton(selected: app.tool == tool, action: {
+            app.selectTool(tool)
+        }) {
+            selectionIcon(tool, color: app.tool == tool ? colors.accentTeal : colors.textMuted)
+        }
+    }
+
+    @ViewBuilder
+    private func selectionIcon(_ tool: CalmTool, color: Color) -> some View {
+        switch tool {
+        case .selectEllipse: AppIcon.selectEllipse(color: color)
+        case .selectLasso: AppIcon.selectLasso(color: color)
+        default: AppIcon.selectRect(color: color)
+        }
+    }
+
+    private func toolButton<Icon: View>(_ tool: CalmTool, @ViewBuilder icon: () -> Icon) -> some View {
+        CalmToolButton(selected: app.tool == tool, action: { app.selectTool(tool) }) { icon() }
+    }
+
+    private func iconColor(_ tool: CalmTool) -> Color {
+        app.tool == tool ? colors.accentTeal : colors.textMuted
+    }
+}

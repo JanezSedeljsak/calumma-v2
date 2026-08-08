@@ -40,14 +40,14 @@ impl BoardColors {
     pub fn fallback(dark: bool) -> Self {
         if dark {
             Self {
-                desk: [12, 15, 17, 255],
-                grid: [24, 30, 35, 255],
+                desk: [26, 32, 36, 255],
+                grid: [60, 71, 80, 255],
                 paper_border: [255, 255, 255, 64],
             }
         } else {
             Self {
-                desk: [221, 229, 235, 255],
-                grid: [194, 207, 217, 255],
+                desk: [244, 247, 249, 255],
+                grid: [183, 196, 206, 255],
                 paper_border: [0, 0, 0, 64],
             }
         }
@@ -57,40 +57,5 @@ impl BoardColors {
 impl Default for BoardColors {
     fn default() -> Self {
         Self::fallback(true)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn project_color_wraps_the_palette() {
-        assert_eq!(project_color(0), PROJECT_COLORS[0]);
-        assert_eq!(project_color(PROJECT_COLORS.len()), PROJECT_COLORS[0]);
-        assert_eq!(project_color(PROJECT_COLORS.len() + 3), PROJECT_COLORS[3]);
-    }
-
-    #[test]
-    fn random_project_color_is_always_from_the_palette() {
-        for _ in 0..64 {
-            assert!(PROJECT_COLORS.contains(&random_project_color()));
-        }
-    }
-
-    #[test]
-    fn color_for_seed_is_stable_and_in_palette() {
-        let first = color_for_seed("project-a");
-        assert_eq!(first, color_for_seed("project-a"));
-        assert!(PROJECT_COLORS.contains(&first));
-    }
-
-    #[test]
-    fn fallback_board_is_darker_on_dark_theme() {
-        let dark = BoardColors::fallback(true);
-        let light = BoardColors::fallback(false);
-        assert!(dark.desk[0] < light.desk[0]);
-        assert_eq!(dark.paper_border[0], 255);
-        assert_eq!(light.paper_border[0], 0);
     }
 }

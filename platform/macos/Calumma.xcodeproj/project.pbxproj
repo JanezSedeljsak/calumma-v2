@@ -7,7 +7,9 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		003758EFE9AFCEC31EBE0916 /* QuickColorPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 325DCF49B2075A1668143925 /* QuickColorPicker.swift */; };
 		22FD5D2BC31EF4DCDBDE5C44 /* PasteArtworkIsland.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A68AB27B47F3D877681F5A5 /* PasteArtworkIsland.swift */; };
+		439C1853EC6CE0C2FA36F8CE /* ToolsPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A14A1D292C2FDA030B798F55 /* ToolsPanel.swift */; };
 		457103E8669325D73966619A /* ProjectSettingsCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8785BD6BC0D2FF8DDBFB7CD2 /* ProjectSettingsCard.swift */; };
 		4BAE76E9B75FCA7CAB639C21 /* L10nCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5684C95544F7D3CCEAFB2DA7 /* L10nCatalog.swift */; };
 		5532C71BBF3A5EED57200013 /* BoardCanvas.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39E6D658C6F44E0516A14BB4 /* BoardCanvas.swift */; };
@@ -33,6 +35,7 @@
 		D8928EDB95C0B122F7C03701 /* NewProjectView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE709E2E9424992120C350AD /* NewProjectView.swift */; };
 		DDC892B0235664E0FC2816FC /* CalummaApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7DCA78B24B6AD85210634C47 /* CalummaApp.swift */; };
 		E1BA85C44692027425973C63 /* L10nEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = D488F0962728FB92355DF3E4 /* L10nEnvironment.swift */; };
+		EBF6F8C722173971A6B44925 /* EditorShortcuts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C94D8D05B75D28AA4D7C234 /* EditorShortcuts.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -49,8 +52,10 @@
 		19DFAFAA7AD5666942643F1A /* SvgIcon.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SvgIcon.swift; sourceTree = "<group>"; };
 		1D71706379045E8B7E735105 /* icons */ = {isa = PBXFileReference; lastKnownFileType = folder; name = icons; path = ../../design/icons; sourceTree = SOURCE_ROOT; };
 		21E774F5B09444C6679E12D2 /* WindowChrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowChrome.swift; sourceTree = "<group>"; };
+		325DCF49B2075A1668143925 /* QuickColorPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickColorPicker.swift; sourceTree = "<group>"; };
 		34AA2EDC7B1CF298E5BA7DA8 /* Calumma.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Calumma.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		39E6D658C6F44E0516A14BB4 /* BoardCanvas.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BoardCanvas.swift; sourceTree = "<group>"; };
+		3C94D8D05B75D28AA4D7C234 /* EditorShortcuts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorShortcuts.swift; sourceTree = "<group>"; };
 		49ADDD086F4F4484B4F9E882 /* L10nStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = L10nStore.swift; sourceTree = "<group>"; };
 		5373C498C69FB0F7E4616689 /* Icons.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Icons.swift; sourceTree = "<group>"; };
 		5684C95544F7D3CCEAFB2DA7 /* L10nCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = L10nCatalog.swift; sourceTree = "<group>"; };
@@ -65,6 +70,7 @@
 		8785BD6BC0D2FF8DDBFB7CD2 /* ProjectSettingsCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectSettingsCard.swift; sourceTree = "<group>"; };
 		8A68AB27B47F3D877681F5A5 /* PasteArtworkIsland.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PasteArtworkIsland.swift; sourceTree = "<group>"; };
 		922F3BA26E2EF9E7A344668F /* ArtworkImport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtworkImport.swift; sourceTree = "<group>"; };
+		A14A1D292C2FDA030B798F55 /* ToolsPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolsPanel.swift; sourceTree = "<group>"; };
 		A259FF110DE306B5F4001C98 /* Engine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Engine.swift; sourceTree = "<group>"; };
 		AAC1FBC27CAF75677BD5FA2A /* CalummaTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CalummaTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		ACA3D649974787064B7F4E57 /* Tokens.generated.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tokens.generated.swift; sourceTree = "<group>"; };
@@ -157,14 +163,17 @@
 			children = (
 				84F6D524731F2D8CD1FB6BBA /* AppModel.swift */,
 				67686C7F92215B7F5788DDCA /* Components.swift */,
+				3C94D8D05B75D28AA4D7C234 /* EditorShortcuts.swift */,
 				B5253321F872EAF646F41752 /* EditorView.swift */,
 				5373C498C69FB0F7E4616689 /* Icons.swift */,
 				6CA77DF5B64A985BACFD3D5F /* LayerSettingsCard.swift */,
 				CE709E2E9424992120C350AD /* NewProjectView.swift */,
 				8A68AB27B47F3D877681F5A5 /* PasteArtworkIsland.swift */,
 				8785BD6BC0D2FF8DDBFB7CD2 /* ProjectSettingsCard.swift */,
+				325DCF49B2075A1668143925 /* QuickColorPicker.swift */,
 				6B5E7EEC191F5C7229542B29 /* SettingsView.swift */,
 				19DFAFAA7AD5666942643F1A /* SvgIcon.swift */,
+				A14A1D292C2FDA030B798F55 /* ToolsPanel.swift */,
 				21E774F5B09444C6679E12D2 /* WindowChrome.swift */,
 				8285B9E7F19A010757F350E0 /* L10n */,
 				6B79FEB7792F22AECCE42DAE /* Theme */,
@@ -311,6 +320,7 @@
 				5532C71BBF3A5EED57200013 /* BoardCanvas.swift in Sources */,
 				DDC892B0235664E0FC2816FC /* CalummaApp.swift in Sources */,
 				9B5C47125EA5CBBD6F34AD08 /* Components.swift in Sources */,
+				EBF6F8C722173971A6B44925 /* EditorShortcuts.swift in Sources */,
 				87755761F779CE9B1C56775F /* EditorView.swift in Sources */,
 				6FBFB2280DF99421D6C40CA1 /* Engine.swift in Sources */,
 				7AE274FD18EAA2171ABD2734 /* Icons.swift in Sources */,
@@ -322,10 +332,12 @@
 				D8928EDB95C0B122F7C03701 /* NewProjectView.swift in Sources */,
 				22FD5D2BC31EF4DCDBDE5C44 /* PasteArtworkIsland.swift in Sources */,
 				457103E8669325D73966619A /* ProjectSettingsCard.swift in Sources */,
+				003758EFE9AFCEC31EBE0916 /* QuickColorPicker.swift in Sources */,
 				98D7BC93FC54FD64A9C6285E /* SettingsView.swift in Sources */,
 				69E2FE9AE763FCDBACE3EE9C /* SvgIcon.swift in Sources */,
 				5A7B3293EAC1F7F674A6A491 /* Theme.swift in Sources */,
 				8EFC1F5633FB04D55BA323AB /* Tokens.generated.swift in Sources */,
+				439C1853EC6CE0C2FA36F8CE /* ToolsPanel.swift in Sources */,
 				73A5E53754D26728ADB855A6 /* VisionPlatformOps.swift in Sources */,
 				7A7467919BDC8A4BEF1466AC /* WindowChrome.swift in Sources */,
 			);

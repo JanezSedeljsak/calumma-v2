@@ -153,7 +153,7 @@ pub enum LayerContent {
   filtered) live view and a flattened/exported result at extreme
   scale/rotation. Selecting *which* layer to transform still goes through
   the layers panel only — there is no click-a-layer-on-the-canvas picking
-  yet (see `plans/03-layer-click-to-select.md`).
+  yet (see `plans/02-layer-click-to-select.md`).
 - **Paper** (`Layer::paper`) is an ordinary raster layer, name-matched via
   `Layer::is_paper()`, pre-filled fully opaque white at creation — not a
   cheap vector fill. It is paintable/eraseable/editable like any other
@@ -364,7 +364,17 @@ Never branch on bare literals (`tool == 1u`). Use named consts matching Rust
 ./manage.py check        # fmt + lint + test
 ./manage.py purity       # core has no platform/GPU deps
 ./manage.py dev          # build ffi, xcodegen, open Xcode
+./manage.py package      # Release .app, ad-hoc signed, wrapped in dist/Calumma-<version>.dmg
 ```
+
+Distribution: pushing a `v*` tag runs `.github/workflows/release.yml`, which runs
+`./manage.py package` on a macOS runner and publishes the `.dmg` + `.sha256` as
+**GitHub Release** assets (GitHub Packages hosts only npm/Maven/NuGet/RubyGems/
+container registries — a `.dmg` cannot live there). Version comes from the tag,
+falling back to `[workspace.package] version` in `engine/Cargo.toml`; it is stamped
+into the bundle as `MARKETING_VERSION`. Builds are **ad-hoc signed, not notarized**
+— there is no Developer ID in CI secrets, so Gatekeeper blocks the first launch
+until the user right-clicks → Open.
 
 Expectations:
 
@@ -385,10 +395,13 @@ Pin versions in `[workspace.dependencies]`. Never `*` or bare `^`.
 
 ## Deliberately deferred
 
-Workspaces-as-products beyond SQLite projects, vector compositing polish, BiRefNet /
-`ort`, GenerateTexture model manager, SuggestShape, Vectorize (`vtracer`), PDF export,
-layered PSD import (import is flattened composite only; PSD *export* is layered and
-shipped — see FLOW.md), click-to-pick a layer on the canvas (per-layer
-transform itself has shipped — see Layers above — but selecting the
-transform target still only goes through the layers panel), text layers,
-eyedropper — add only as considered features, not by restoring old app code.
+Vector compositing polish, BiRefNet / `ort`, GenerateTexture model manager, SuggestShape,
+Vectorize (`vtracer`), PDF export, layered PSD import (import is flattened composite only;
+PSD *export* is layered and shipped — see FLOW.md), click-to-pick a layer on the canvas
+(per-layer transform itself has shipped — see Layers above — but selecting the transform
+target still only goes through the layers panel), text layers — add only as considered
+features, not by restoring old app code.
+
+**Promoted out of this list** and now carrying plans in `plans/`: the eyedropper
+(`05-eyedropper.md`) and workspaces (`07-workspaces.md`, the old
+"Workspaces-as-products beyond SQLite projects" entry).

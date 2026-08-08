@@ -1,11 +1,15 @@
+use crate::compose::{
+    composited_tile_payload, rgba_unit, selection_lasso_points, selection_rect_or_ellipse,
+    stroke_instances, transform_overlay_instances, StrokeInstance,
+};
 use bytemuck::{Pod, Zeroable};
+use calumma_core::filters::AdjustmentLut;
 use calumma_core::limits::{
     GPU_TILE_RETENTION_MARGIN_TILES, STROKE_INSTANCE_CAPACITY, SURFACE_FRAME_LATENCY,
 };
-use calumma_core::tile::{DirtyChannel, TileCoord, TileGrid, TILE_BYTES, TILE_SIZE};
-use calumma_core::{
-    BlendMode, Document, Layer, Selection, SelectionShape, StrokePoint, Tool, TransformHandles,
-};
+use calumma_core::tile::{DirtyChannel, TileCoord, TileGrid, TILE_SIZE};
+use calumma_core::{BlendMode, Document, Tool};
+use rayon::prelude::*;
 use std::collections::{HashMap, HashSet};
 use std::num::NonZeroU64;
 use std::time::Instant;
@@ -31,15 +35,6 @@ struct PaperUniforms {
     _pad0: f32,
     _pad1: f32,
     _pad2: f32,
-}
-
-fn rgba_unit(rgba: [u8; 4]) -> [f32; 4] {
-    [
-        rgba[0] as f32 / 255.0,
-        rgba[1] as f32 / 255.0,
-        rgba[2] as f32 / 255.0,
-        rgba[3] as f32 / 255.0,
-    ]
 }
 
 #[repr(C)]
@@ -97,15 +92,6 @@ struct PreviewUniforms {
     tool: f32,
     fill: f32,
     _pad: f32,
-}
-
-#[repr(C)]
-#[derive(Clone, Copy, Pod, Zeroable)]
-struct StrokeInstance {
-    segment: [f32; 4],
-    color: [f32; 4],
-    radius: f32,
-    _pad: [f32; 3],
 }
 
 struct GpuTile {
@@ -514,8 +500,7 @@ impl Renderer {
         let doc_width = doc.width;
 
         let mut live: HashSet<TileKey> = HashSet::new();
-        let mut uploads: Vec<(usize, TileCoord)> = Vec::new();
-        let mut scratch = Vec::new();
+        let mut uploads: Vec<(usize, TileCoord, TileKey)> = Vec::new();
 
         for layer_index in 0..doc.layers.len() {
             let layer = &doc.layers[layer_index];
@@ -529,7 +514,7 @@ impl Renderer {
             self.ensure_layer_transform_buf(&layer.id);
             let dirty = grid.dirty_tiles(DirtyChannel::Render);
 
-            for (coord, pixels) in grid.iter() {
+            for (coord, _) in grid.iter() {
                 let cell = TileGrid::tile_rect(coord);
                 if !cell.intersects(retained) {
                     continue;
@@ -543,50 +528,48 @@ impl Renderer {
                 if known && !dirty.contains(&coord) {
                     continue;
                 }
-                uploads.push((layer_index, coord));
+                uploads.push((layer_index, coord, key));
+            }
+        }
 
-                if let Some(existing) = self.tiles.get(&key) {
-                    let upload =
-                        composited_tile_bytes(pixels, coord, layer, doc_width, &mut scratch);
-                    self.queue.write_texture(
-                        wgpu::TexelCopyTextureInfo {
-                            texture: &existing.texture,
-                            mip_level: 0,
-                            origin: wgpu::Origin3d::ZERO,
-                            aspect: wgpu::TextureAspect::All,
-                        },
-                        upload,
-                        wgpu::TexelCopyBufferLayout {
-                            offset: 0,
-                            bytes_per_row: Some(TILE_SIZE * 4),
-                            rows_per_image: Some(TILE_SIZE),
-                        },
-                        wgpu::Extent3d {
-                            width: TILE_SIZE,
-                            height: TILE_SIZE,
-                            depth_or_array_layers: 1,
-                        },
-                    );
-                    continue;
-                }
-                let upload = composited_tile_bytes(pixels, coord, layer, doc_width, &mut scratch);
-                let texture = self.device.create_texture(&wgpu::TextureDescriptor {
-                    label: Some("tile"),
-                    size: wgpu::Extent3d {
-                        width: TILE_SIZE,
-                        height: TILE_SIZE,
-                        depth_or_array_layers: 1,
-                    },
-                    mip_level_count: 1,
-                    sample_count: 1,
-                    dimension: wgpu::TextureDimension::D2,
-                    format: wgpu::TextureFormat::Rgba8UnormSrgb,
-                    usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-                    view_formats: &[],
-                });
+        // Bake mask/adjustments/opacity for every dirty tile up front and in parallel —
+        // dragging a filter slider re-composites the whole visible tile set each frame,
+        // which is the one CPU cost that scales with viewport size at 60fps. The wgpu
+        // calls below stay sequential; only the pixel math goes wide.
+        let luts: Vec<Option<AdjustmentLut>> = doc
+            .layers
+            .iter()
+            .map(|l| l.adjustments.map(|a| a.lut()))
+            .collect();
+        let payloads: Vec<Option<Vec<u8>>> = uploads
+            .par_iter()
+            .map(|(layer_index, coord, _)| {
+                let layer = doc.layers.get(*layer_index)?;
+                let pixels = layer.tiles()?.get(*coord)?;
+                composited_tile_payload(
+                    pixels,
+                    *coord,
+                    layer,
+                    luts[*layer_index].as_ref(),
+                    doc_width,
+                )
+            })
+            .collect();
+
+        for ((layer_index, coord, key), payload) in uploads.iter().zip(payloads.iter()) {
+            let (layer_index, coord, key) = (*layer_index, *coord, *key);
+            let Some(layer) = doc.layers.get(layer_index) else {
+                continue;
+            };
+            let Some(pixels) = layer.tiles().and_then(|g| g.get(coord)) else {
+                continue;
+            };
+            let upload: &[u8] = payload.as_deref().unwrap_or(pixels.as_slice());
+
+            if let Some(existing) = self.tiles.get(&key) {
                 self.queue.write_texture(
                     wgpu::TexelCopyTextureInfo {
-                        texture: &texture,
+                        texture: &existing.texture,
                         mip_level: 0,
                         origin: wgpu::Origin3d::ZERO,
                         aspect: wgpu::TextureAspect::All,
@@ -603,61 +586,95 @@ impl Renderer {
                         depth_or_array_layers: 1,
                     },
                 );
-                let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-                let (ox, oy) = coord.origin();
-                let placement_buf = self.device.create_buffer(&wgpu::BufferDescriptor {
-                    label: Some("tile-placement"),
-                    size: std::mem::size_of::<TilePlacement>() as u64,
-                    usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-                    mapped_at_creation: false,
-                });
-                self.queue.write_buffer(
-                    &placement_buf,
-                    0,
-                    bytemuck::bytes_of(&TilePlacement {
-                        origin: [ox as f32, oy as f32],
-                        tile_size: TILE_SIZE as f32,
-                        _pad: 0.0,
-                    }),
-                );
-                let xform_buf = self
-                    .layer_transform_bufs
-                    .get(&layer.id)
-                    .expect("layer transform buffer ensured by caller");
-                let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                    label: Some("tile-bg"),
-                    layout: &self.tile_bgl,
-                    entries: &[
-                        wgpu::BindGroupEntry {
-                            binding: 0,
-                            resource: self.tile_camera_buf.as_entire_binding(),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 1,
-                            resource: wgpu::BindingResource::TextureView(&view),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 2,
-                            resource: wgpu::BindingResource::Sampler(&self.sampler),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 3,
-                            resource: placement_buf.as_entire_binding(),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 4,
-                            resource: xform_buf.as_entire_binding(),
-                        },
-                    ],
-                });
-                self.tiles.insert(
-                    key,
-                    GpuTile {
-                        texture,
-                        bind_group,
-                    },
-                );
+                continue;
             }
+            let texture = self.device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("tile"),
+                size: wgpu::Extent3d {
+                    width: TILE_SIZE,
+                    height: TILE_SIZE,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba8UnormSrgb,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                view_formats: &[],
+            });
+            self.queue.write_texture(
+                wgpu::TexelCopyTextureInfo {
+                    texture: &texture,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                },
+                upload,
+                wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(TILE_SIZE * 4),
+                    rows_per_image: Some(TILE_SIZE),
+                },
+                wgpu::Extent3d {
+                    width: TILE_SIZE,
+                    height: TILE_SIZE,
+                    depth_or_array_layers: 1,
+                },
+            );
+            let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+            let (ox, oy) = coord.origin();
+            let placement_buf = self.device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("tile-placement"),
+                size: std::mem::size_of::<TilePlacement>() as u64,
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
+            self.queue.write_buffer(
+                &placement_buf,
+                0,
+                bytemuck::bytes_of(&TilePlacement {
+                    origin: [ox as f32, oy as f32],
+                    tile_size: TILE_SIZE as f32,
+                    _pad: 0.0,
+                }),
+            );
+            let xform_buf = self
+                .layer_transform_bufs
+                .get(&layer.id)
+                .expect("layer transform buffer ensured by caller");
+            let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("tile-bg"),
+                layout: &self.tile_bgl,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: self.tile_camera_buf.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::TextureView(&view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: wgpu::BindingResource::Sampler(&self.sampler),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 3,
+                        resource: placement_buf.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 4,
+                        resource: xform_buf.as_entire_binding(),
+                    },
+                ],
+            });
+            self.tiles.insert(
+                key,
+                GpuTile {
+                    texture,
+                    bind_group,
+                },
+            );
         }
 
         self.tiles.retain(|k, _| live.contains(k));
@@ -667,7 +684,7 @@ impl Renderer {
         self.layer_transform_bufs
             .retain(|id, _| live_layers.contains(id.as_str()));
 
-        for (layer_index, coord) in uploads {
+        for (layer_index, coord, _) in uploads {
             if let Some(grid) = doc.layers.get_mut(layer_index).and_then(|l| l.tiles_mut()) {
                 grid.clear_dirty_tile(DirtyChannel::Render, coord);
             }
@@ -1021,81 +1038,6 @@ impl Renderer {
 const ERASER_PREVIEW_COLOR: [f32; 4] = [0.5, 0.5, 0.5, 0.5];
 const SELECTION_OUTLINE_COLOR: [f32; 4] = [1.0, 1.0, 1.0, 0.9];
 const SELECTION_OUTLINE_WIDTH: f32 = 1.5;
-const TRANSFORM_OUTLINE_COLOR: [f32; 4] = [0.24, 0.78, 0.84, 0.95];
-const TRANSFORM_OUTLINE_WIDTH: f32 = 1.0;
-const TRANSFORM_HANDLE_COLOR: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
-const TRANSFORM_HANDLE_RADIUS: f32 = 4.0;
-
-fn transform_overlay_instances(handles: TransformHandles) -> Vec<StrokeInstance> {
-    let (_, corners, rotate_handle) = handles;
-    let mut out = Vec::with_capacity(4 + 1 + 5);
-    let outline = |a: (f32, f32), b: (f32, f32)| StrokeInstance {
-        segment: [a.0, a.1, b.0, b.1],
-        color: TRANSFORM_OUTLINE_COLOR,
-        radius: TRANSFORM_OUTLINE_WIDTH,
-        _pad: [0.0; 3],
-    };
-    for i in 0..4 {
-        out.push(outline(corners[i], corners[(i + 1) % 4]));
-    }
-    let top_mid = (
-        (corners[0].0 + corners[1].0) * 0.5,
-        (corners[0].1 + corners[1].1) * 0.5,
-    );
-    out.push(outline(top_mid, rotate_handle));
-    for p in corners.iter().chain(std::iter::once(&rotate_handle)) {
-        out.push(StrokeInstance {
-            segment: [p.0, p.1, p.0, p.1],
-            color: TRANSFORM_HANDLE_COLOR,
-            radius: TRANSFORM_HANDLE_RADIUS,
-            _pad: [0.0; 3],
-        });
-    }
-    out
-}
-
-fn selection_rect_or_ellipse(doc: &Document) -> Option<([f32; 2], [f32; 2], Tool)> {
-    match &doc.selection.as_ref()?.shape {
-        SelectionShape::Rect { start, end } => {
-            Some(([start.0, start.1], [end.0, end.1], Tool::Rect))
-        }
-        SelectionShape::Ellipse { start, end } => {
-            Some(([start.0, start.1], [end.0, end.1], Tool::Ellipse))
-        }
-        SelectionShape::Lasso { .. } => None,
-    }
-}
-
-fn selection_lasso_points(doc: &Document) -> Option<Vec<StrokePoint>> {
-    let Selection {
-        shape: SelectionShape::Lasso { points },
-    } = doc.selection.as_ref()?
-    else {
-        return None;
-    };
-    let mut closed: Vec<StrokePoint> = points.iter().map(|&(x, y)| StrokePoint { x, y }).collect();
-    if let Some(&first) = closed.first() {
-        closed.push(first);
-    }
-    Some(closed)
-}
-
-fn stroke_instances(points: &[StrokePoint], radius: f32, color: [f32; 4]) -> Vec<StrokeInstance> {
-    if points.is_empty() {
-        return Vec::new();
-    }
-    let instance = |a: &StrokePoint, b: &StrokePoint| StrokeInstance {
-        segment: [a.x, a.y, b.x, b.y],
-        color,
-        radius,
-        _pad: [0.0; 3],
-    };
-    if points.len() == 1 {
-        return vec![instance(&points[0], &points[0])];
-    }
-    points.windows(2).map(|p| instance(&p[0], &p[1])).collect()
-}
-
 fn uniform_entry(binding: u32, size: usize) -> wgpu::BindGroupLayoutEntry {
     wgpu::BindGroupLayoutEntry {
         binding,
@@ -1107,56 +1049,6 @@ fn uniform_entry(binding: u32, size: usize) -> wgpu::BindGroupLayoutEntry {
         },
         count: None,
     }
-}
-
-fn composited_tile_bytes<'a>(
-    pixels: &'a [u8],
-    coord: TileCoord,
-    layer: &Layer,
-    doc_width: u32,
-    scratch: &'a mut Vec<u8>,
-) -> &'a [u8] {
-    let mask = layer.mask();
-    let adjustments = layer.adjustments.as_ref();
-    let opacity = layer.opacity;
-    if mask.is_none() && adjustments.is_none() && opacity >= 1.0 {
-        return pixels;
-    }
-    scratch.clear();
-    scratch.extend_from_slice(pixels);
-    if scratch.len() < TILE_BYTES {
-        scratch.resize(TILE_BYTES, 0);
-    }
-    let (ox, oy) = coord.origin();
-    for ty in 0..TILE_SIZE {
-        for tx in 0..TILE_SIZE {
-            let x = ox + tx as i32;
-            let y = oy + ty as i32;
-            let i = ((ty * TILE_SIZE + tx) * 4) as usize;
-            if let Some(adj) = adjustments {
-                let rgb =
-                    calumma_core::filters::apply([scratch[i], scratch[i + 1], scratch[i + 2]], adj);
-                scratch[i..i + 3].copy_from_slice(&rgb);
-            }
-            if x < 0 || y < 0 {
-                continue;
-            }
-            if let Some(mask) = mask {
-                let mi = (y as u32)
-                    .saturating_mul(doc_width)
-                    .saturating_add(x as u32) as usize;
-                if let Some(&m) = mask.get(mi) {
-                    let a = scratch[i + 3] as u16 * m as u16 / 255;
-                    scratch[i + 3] = a as u8;
-                }
-            }
-            if opacity < 1.0 {
-                let a = (scratch[i + 3] as f32) * opacity;
-                scratch[i + 3] = a.round().clamp(0.0, 255.0) as u8;
-            }
-        }
-    }
-    scratch.as_slice()
 }
 
 fn replace_target(format: wgpu::TextureFormat) -> wgpu::ColorTargetState {

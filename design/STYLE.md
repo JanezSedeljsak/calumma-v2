@@ -17,6 +17,11 @@ bits use `{0}`, `{1}`, … filled by `l10n.formatKey(...)`. Visual tokens stay i
    Artwork, the zoom pill) is stroked with `color.islandBorder` — a subtle, low-alpha
    tint of the theme's edge colour, not a hard line. Everywhere else, surfaces still
    separate by background contrast only; do not add borders to non-island controls.
+   The one exception is a **section separator inside an island** (`CalmDivider`, used
+   by the tools panel to split tools / tool options / colour / AI): a 1px
+   `color.islandBorder` rule. It separates *stacked sections of one island*, which
+   contrast alone cannot do — it is not an outline around a control, which is what
+   the rule above and the "Do not" list forbid.
 2. **Corner radius.** Controls use `radius.sm` / `radius.md`. Islands use `radius.island`
    (rounded, not square). Tools, canvas, and layers sit apart with a minimal gap
    (`space.sm`) and a minimal margin from the window edge (`space.sm`) — they no longer
@@ -27,8 +32,15 @@ bits use `{0}`, `{1}`, … filled by `l10n.formatKey(...)`. Visual tokens stay i
    shell toggles theme; the engine receives dark-paper via FFI.
 5. **Filled controls.** Inputs, buttons, and cards are solid surfaces. Hover and
    active states shift luminance, not outline weight.
-6. **Native colour picker.** On macOS use SwiftUI `ColorPicker`, wrapped so its
-   chrome matches token radii and surfaces.
+6. **Native colour picker, plus an inline quick picker.** On macOS use SwiftUI
+   `ColorPicker`, wrapped so its chrome matches token radii and surfaces — it stays
+   the way to reach opacity and the system palettes. Above it, `QuickColorPicker`
+   offers the fast path without opening a system panel: two quick swatches, a
+   saturation/brightness gradient field, a hue slider, and a hex field. Both edit the
+   *active* quick swatch. Hue/saturation/brightness are held as model state
+   (`AppModel.hsb`), not re-derived from the RGB colour on every read — deriving loses
+   the hue as soon as saturation or brightness hits zero, which makes a gradient field
+   jump under the cursor.
 7. **Canvas stays Rust.** Anything *drawn on the board* (paper, strokes, shapes, desk grid,
    layer hover outline) is WGSL — the shell never paints board content. Board colours are
    pushed from tokens into the engine, never hardcoded in the shader. Small chrome controls
@@ -84,9 +96,7 @@ tight (`space.xs`) so the board starts close under the titlebar.
 
 Tools, canvas, and layers are three **rounded, bordered islands**, full-height, separated
 by a minimal gap (`space.sm`) with a matching margin from the window edge — no longer flush
-or square-cornered. The tools island is two tool columns wide; the shape tool's sub-picker
-(and other tool-specific options, like brush size) live in a panel below the grid instead of
-a popover. The **zoom pill** floats bottom-trailing *inside* the canvas island: `−`, log
+or square-cornered. The **zoom pill** floats bottom-trailing *inside* the canvas island: `−`, log
 slider, `+`, percentage, a fit-to-view icon (tooltip, no label). Layer list rows stay
 compact; hovering a row shows a thumbnail popover. Board hover outline remains a dashed
 WGSL stroke, not a Swift overlay.

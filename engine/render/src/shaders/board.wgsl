@@ -34,18 +34,31 @@ fn vs_main(@builtin(vertex_index) idx: u32) -> VsOut {
     return out;
 }
 
-const DESK_CELL: f32 = 39.0;
+const DESK_CELL: f32 = 26.0;
 const DESK_LINE_W: f32 = 1.0;
+const DESK_CROSS_ARM: f32 = 3.5;
+const DESK_CROSS_LINE_W: f32 = 1.1;
 const PAPER_BORDER_W: f32 = 2.0;
 
 fn desk_pattern(screen: vec2<f32>) -> vec3<f32> {
+    var rgb = u.desk.rgb;
+
     let cell_id = floor(screen / DESK_CELL);
-    let local = screen - cell_id * DESK_CELL;
-    let on_line = local.x < DESK_LINE_W || local.y < DESK_LINE_W;
+    let line_local = screen - cell_id * DESK_CELL;
+    let on_line = line_local.x < DESK_LINE_W || line_local.y < DESK_LINE_W;
     if on_line {
-        return mix(u.desk.rgb, u.grid.rgb, u.grid.a);
+        rgb = mix(rgb, u.grid.rgb, u.grid.a * 0.4);
     }
-    return u.desk.rgb;
+
+    let nearest = round(screen / DESK_CELL) * DESK_CELL;
+    let cross_local = screen - nearest;
+    let on_cross = (abs(cross_local.x) < DESK_CROSS_LINE_W * 0.5 && abs(cross_local.y) < DESK_CROSS_ARM)
+        || (abs(cross_local.y) < DESK_CROSS_LINE_W * 0.5 && abs(cross_local.x) < DESK_CROSS_ARM);
+    if on_cross {
+        rgb = mix(rgb, u.grid.rgb, u.grid.a);
+    }
+
+    return rgb;
 }
 
 @fragment

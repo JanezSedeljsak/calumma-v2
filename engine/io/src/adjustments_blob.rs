@@ -1,6 +1,6 @@
 use calumma_core::Adjustments;
 
-const FIELD_COUNT: usize = 7;
+const FIELD_COUNT: usize = 5;
 const BLOB_LEN: usize = FIELD_COUNT * 4;
 
 pub fn encode(adj: &Adjustments) -> Vec<u8> {
@@ -10,8 +10,6 @@ pub fn encode(adj: &Adjustments) -> Vec<u8> {
         adj.contrast,
         adj.vibrance,
         adj.saturation,
-        adj.levels_black,
-        adj.levels_white,
         adj.levels_gamma,
     ] {
         out.extend_from_slice(&value.to_le_bytes());
@@ -28,9 +26,7 @@ pub fn decode(bytes: &[u8]) -> Option<Adjustments> {
         contrast: f32::from_le_bytes(bytes[4..8].try_into().ok()?),
         vibrance: f32::from_le_bytes(bytes[8..12].try_into().ok()?),
         saturation: f32::from_le_bytes(bytes[12..16].try_into().ok()?),
-        levels_black: f32::from_le_bytes(bytes[16..20].try_into().ok()?),
-        levels_white: f32::from_le_bytes(bytes[20..24].try_into().ok()?),
-        levels_gamma: f32::from_le_bytes(bytes[24..28].try_into().ok()?),
+        levels_gamma: f32::from_le_bytes(bytes[16..20].try_into().ok()?),
     })
 }
 
@@ -45,8 +41,6 @@ mod tests {
             contrast: -0.1,
             vibrance: 0.4,
             saturation: -0.3,
-            levels_black: 0.05,
-            levels_white: 0.95,
             levels_gamma: 1.2,
         };
         let bytes = encode(&adj);
@@ -56,5 +50,11 @@ mod tests {
     #[test]
     fn rejects_wrong_length() {
         assert_eq!(decode(&[0u8; 3]), None);
+    }
+
+    #[test]
+    fn rejects_stale_seven_field_blob() {
+        let stale = vec![0u8; 28];
+        assert_eq!(decode(&stale), None);
     }
 }

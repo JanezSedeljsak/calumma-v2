@@ -15,8 +15,6 @@ struct LayerAdjustments: Equatable {
     var contrast: Float = 0
     var vibrance: Float = 0
     var saturation: Float = 0
-    var levelsBlack: Float = 0
-    var levelsWhite: Float = 1
     var levelsGamma: Float = 1
 
     var isNeutral: Bool {
@@ -374,8 +372,6 @@ final class Engine: ObservableObject, @unchecked Sendable {
             adjustments.contrast,
             adjustments.vibrance,
             adjustments.saturation,
-            adjustments.levelsBlack,
-            adjustments.levelsWhite,
             adjustments.levelsGamma
         )
         refreshLayers()
@@ -550,8 +546,6 @@ final class Engine: ObservableObject, @unchecked Sendable {
                     contrast: raw.contrast,
                     vibrance: raw.vibrance,
                     saturation: raw.saturation,
-                    levelsBlack: raw.levels_black,
-                    levelsWhite: raw.levels_white,
                     levelsGamma: raw.levels_gamma
                 )
             )

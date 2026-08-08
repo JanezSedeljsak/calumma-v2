@@ -6,6 +6,7 @@ license.workspace = true
 
 [dependencies]
 uuid = { workspace = true, features = ["v4", "serde"] }
+rayon = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }

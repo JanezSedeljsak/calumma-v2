@@ -1,4 +1,5 @@
 use crate::platform::{parse_op_kind, CalmPlatformOps, PlatformOp};
+use anyhow::{anyhow, bail, Context};
 use calumma_core::limits::{AUTOSAVE_INTERVAL_MS, BRUSH_SIZE_MAX, BRUSH_SIZE_MIN, IMPORT_MAX_SIDE};
 use calumma_core::{
     project_color, unpremultiply_rgba, Adjustments, BlendMode, BoardColors, Document, Tool,
@@ -22,7 +23,7 @@ pub struct CalmEngine {
 }
 
 #[repr(i32)]
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CalmStatus {
     Ok = 0,
     Error = 1,
@@ -152,20 +153,42 @@ impl Inner {
     }
 }
 
+/// The C ABI can only carry a `CalmStatus`, so nothing downstream ever matches on an error
+/// variant — every failure in here is "it broke, and here is why". That is exactly what
+/// `anyhow` is for: `?` composes `rusqlite`, `io`, `StoreError` and friends without an enum
+/// per module, and the context chain survives all the way up to this one place.
+fn report(err: &anyhow::Error) {
+    // No logging framework in the engine yet; in debug builds the chain at least reaches
+    // the Xcode console instead of being discarded at the ABI boundary.
+    #[cfg(debug_assertions)]
+    eprintln!("calumma-ffi: {err:#}");
+    #[cfg(not(debug_assertions))]
+    let _ = err;
+}
+
 fn with_inner<F>(engine: *mut CalmEngine, f: F) -> CalmStatus
 where
-    F: FnOnce(&mut Inner) -> Result<(), ()> + std::panic::UnwindSafe,
+    F: FnOnce(&mut Inner) -> anyhow::Result<()> + std::panic::UnwindSafe,
 {
     if engine.is_null() {
         return CalmStatus::Null;
     }
     match catch_unwind(AssertUnwindSafe(|| {
         let mutex = unsafe { &*(engine as *const Mutex<Inner>) };
-        let mut inner = mutex.lock().map_err(|_| ())?;
+        let mut inner = mutex
+            .lock()
+            .map_err(|_| anyhow!("engine mutex poisoned by an earlier panic"))?;
         f(&mut inner)
     })) {
         Ok(Ok(())) => CalmStatus::Ok,
-        _ => CalmStatus::Error,
+        Ok(Err(err)) => {
+            report(&err);
+            CalmStatus::Error
+        }
+        Err(_) => {
+            report(&anyhow!("panic caught at the FFI boundary"));
+            CalmStatus::Error
+        }
     }
 }
 
@@ -224,13 +247,13 @@ pub unsafe extern "C" fn calm_engine_attach_surface(
 ) -> CalmStatus {
     with_inner(engine, |inner| {
         if layer.is_null() || w == 0 || h == 0 {
-            return Err(());
+            bail!("attach needs a non-null layer and a non-empty size, got {w}x{h}");
         }
         let surface = unsafe {
             inner
                 .instance
                 .create_surface_unsafe(wgpu::SurfaceTargetUnsafe::CoreAnimationLayer(layer))
-                .map_err(|_| ())?
+                .context("creating a wgpu surface for the CoreAnimation layer")?
         };
         let (pw, ph) = {
             let dpr = scale.max(1.0);
@@ -239,7 +262,8 @@ pub unsafe extern "C" fn calm_engine_attach_surface(
                 ((h as f32 * dpr).round() as u32).max(1),
             )
         };
-        let renderer = Renderer::from_surface(surface, &inner.instance, pw, ph).map_err(|_| ())?;
+        let renderer = Renderer::from_surface(surface, &inner.instance, pw, ph)
+            .map_err(|e| anyhow!("creating the Metal renderer: {e}"))?;
         inner.renderer = Some(renderer);
         if let Some(doc) = &mut inner.doc {
             doc.resize_viewport(w as f32, h as f32, scale);
@@ -279,7 +303,7 @@ pub unsafe extern "C" fn calm_engine_resize_document(
     height: u32,
 ) -> CalmStatus {
     with_inner(engine, |inner| {
-        let doc = inner.doc.as_mut().ok_or(())?;
+        let doc = inner.doc.as_mut().context("no project is open")?;
         doc.resize(width, height);
         inner.dirty_save = true;
         if let Some(r) = &mut inner.renderer {
@@ -496,13 +520,17 @@ pub unsafe extern "C" fn calm_project_rename(
         return CalmStatus::Null;
     }
     with_inner(engine, |inner| {
-        let id = unsafe { CStr::from_ptr(id) }.to_str().map_err(|_| ())?;
-        let name = unsafe { CStr::from_ptr(name) }.to_str().map_err(|_| ())?;
+        let id = unsafe { CStr::from_ptr(id) }
+            .to_str()
+            .context("project id is not valid UTF-8")?;
+        let name = unsafe { CStr::from_ptr(name) }
+            .to_str()
+            .context("project name is not valid UTF-8")?;
         let name = name.trim();
         if name.is_empty() {
-            return Err(());
+            bail!("a project name cannot be empty");
         }
-        inner.store.rename(id, name).map_err(|_| ())?;
+        inner.store.rename(id, name).context("renaming project")?;
         if let Some(doc) = inner.doc.as_mut() {
             if doc.id == id {
                 doc.name = name.to_string();
@@ -522,9 +550,14 @@ pub unsafe extern "C" fn calm_project_set_accent(
         return CalmStatus::Null;
     }
     with_inner(engine, |inner| {
-        let id = unsafe { CStr::from_ptr(id) }.to_str().map_err(|_| ())?;
+        let id = unsafe { CStr::from_ptr(id) }
+            .to_str()
+            .context("project id is not valid UTF-8")?;
         let rgb = unpack_rgb(accent);
-        inner.store.set_accent(id, rgb).map_err(|_| ())?;
+        inner
+            .store
+            .set_accent(id, rgb)
+            .context("setting project accent")?;
         if let Some(doc) = inner.doc.as_mut() {
             if doc.id == id {
                 doc.accent = rgb;
@@ -538,7 +571,7 @@ pub unsafe extern "C" fn calm_project_set_accent(
 pub unsafe extern "C" fn calm_engine_set_tool(engine: *mut CalmEngine, tool: u32) -> CalmStatus {
     with_inner(engine, |inner| {
         if let Some(doc) = &mut inner.doc {
-            doc.tool = Tool::from_u32(tool).ok_or(())?;
+            doc.tool = Tool::from_u32(tool).with_context(|| format!("unknown tool id {tool}"))?;
         }
         Ok(())
     })
@@ -609,7 +642,7 @@ pub unsafe extern "C" fn calm_engine_reset_layer_transform(
     index: u32,
 ) -> CalmStatus {
     with_inner(engine, |inner| {
-        let doc = inner.doc.as_mut().ok_or(())?;
+        let doc = inner.doc.as_mut().context("no project is open")?;
         doc.reset_layer_transform(index as usize);
         inner.dirty_save = true;
         if let Some(r) = &mut inner.renderer {
@@ -670,7 +703,7 @@ pub unsafe extern "C" fn calm_engine_remove_layer(
     with_inner(engine, |inner| {
         if let Some(doc) = &mut inner.doc {
             if !doc.remove_layer(index as usize) {
-                return Err(());
+                bail!("layer {index} cannot be removed");
             }
             inner.dirty_save = true;
             if let Some(r) = &mut inner.renderer {
@@ -706,10 +739,15 @@ pub unsafe extern "C" fn calm_engine_layer_visible(engine: *mut CalmEngine, inde
     }
     match catch_unwind(AssertUnwindSafe(|| {
         let mutex = unsafe { &*(engine as *const Mutex<Inner>) };
-        let inner = mutex.lock().map_err(|_| ())?;
-        let doc = inner.doc.as_ref().ok_or(())?;
-        let layer = doc.layers.get(index as usize).ok_or(())?;
-        Ok::<c_int, ()>(if layer.visible { 1 } else { 0 })
+        let inner = mutex
+            .lock()
+            .map_err(|_| anyhow!("engine mutex poisoned by an earlier panic"))?;
+        let doc = inner.doc.as_ref().context("no project is open")?;
+        let layer = doc
+            .layers
+            .get(index as usize)
+            .with_context(|| format!("layer index {index} out of range"))?;
+        Ok::<c_int, anyhow::Error>(if layer.visible { 1 } else { 0 })
     })) {
         Ok(Ok(v)) => v,
         _ => -1,
@@ -738,9 +776,9 @@ pub unsafe extern "C" fn calm_engine_duplicate_layer(
     index: u32,
 ) -> CalmStatus {
     with_inner(engine, |inner| {
-        let doc = inner.doc.as_mut().ok_or(())?;
+        let doc = inner.doc.as_mut().context("no project is open")?;
         if !doc.duplicate_layer(index as usize) {
-            return Err(());
+            bail!("layer {index} cannot be duplicated");
         }
         inner.dirty_save = true;
         if let Some(r) = &mut inner.renderer {
@@ -756,9 +794,9 @@ pub unsafe extern "C" fn calm_engine_merge_layer_down(
     index: u32,
 ) -> CalmStatus {
     with_inner(engine, |inner| {
-        let doc = inner.doc.as_mut().ok_or(())?;
+        let doc = inner.doc.as_mut().context("no project is open")?;
         if !doc.merge_layer_down(index as usize) {
-            return Err(());
+            bail!("layer {index} cannot be merged down");
         }
         inner.dirty_save = true;
         if let Some(r) = &mut inner.renderer {
@@ -775,7 +813,7 @@ pub unsafe extern "C" fn calm_engine_set_layer_opacity(
     opacity: f32,
 ) -> CalmStatus {
     with_inner(engine, |inner| {
-        let doc = inner.doc.as_mut().ok_or(())?;
+        let doc = inner.doc.as_mut().context("no project is open")?;
         doc.set_layer_opacity(index as usize, opacity);
         inner.dirty_save = true;
         if let Some(r) = &mut inner.renderer {
@@ -792,8 +830,9 @@ pub unsafe extern "C" fn calm_engine_set_layer_blend_mode(
     mode: u32,
 ) -> CalmStatus {
     with_inner(engine, |inner| {
-        let doc = inner.doc.as_mut().ok_or(())?;
-        let mode = BlendMode::from_u32(mode).ok_or(())?;
+        let doc = inner.doc.as_mut().context("no project is open")?;
+        let mode =
+            BlendMode::from_u32(mode).with_context(|| format!("unknown blend mode id {mode}"))?;
         doc.set_layer_blend_mode(index as usize, mode);
         inner.dirty_save = true;
         if let Some(r) = &mut inner.renderer {
@@ -810,10 +849,15 @@ pub unsafe extern "C" fn calm_engine_layer_opacity(engine: *mut CalmEngine, inde
     }
     match catch_unwind(AssertUnwindSafe(|| {
         let mutex = unsafe { &*(engine as *const Mutex<Inner>) };
-        let inner = mutex.lock().map_err(|_| ())?;
-        let doc = inner.doc.as_ref().ok_or(())?;
-        let layer = doc.layers.get(index as usize).ok_or(())?;
-        Ok::<f32, ()>(layer.opacity)
+        let inner = mutex
+            .lock()
+            .map_err(|_| anyhow!("engine mutex poisoned by an earlier panic"))?;
+        let doc = inner.doc.as_ref().context("no project is open")?;
+        let layer = doc
+            .layers
+            .get(index as usize)
+            .with_context(|| format!("layer index {index} out of range"))?;
+        Ok::<f32, anyhow::Error>(layer.opacity)
     })) {
         Ok(Ok(v)) => v,
         _ => 1.0,
@@ -827,10 +871,15 @@ pub unsafe extern "C" fn calm_engine_layer_blend_mode(engine: *mut CalmEngine, i
     }
     match catch_unwind(AssertUnwindSafe(|| {
         let mutex = unsafe { &*(engine as *const Mutex<Inner>) };
-        let inner = mutex.lock().map_err(|_| ())?;
-        let doc = inner.doc.as_ref().ok_or(())?;
-        let layer = doc.layers.get(index as usize).ok_or(())?;
-        Ok::<u32, ()>(layer.blend_mode.as_u32())
+        let inner = mutex
+            .lock()
+            .map_err(|_| anyhow!("engine mutex poisoned by an earlier panic"))?;
+        let doc = inner.doc.as_ref().context("no project is open")?;
+        let layer = doc
+            .layers
+            .get(index as usize)
+            .with_context(|| format!("layer index {index} out of range"))?;
+        Ok::<u32, anyhow::Error>(layer.blend_mode.as_u32())
     })) {
         Ok(Ok(v)) => v,
         _ => 0,
@@ -843,8 +892,6 @@ pub struct CalmAdjustments {
     pub contrast: f32,
     pub vibrance: f32,
     pub saturation: f32,
-    pub levels_black: f32,
-    pub levels_white: f32,
     pub levels_gamma: f32,
 }
 
@@ -856,12 +903,10 @@ pub unsafe extern "C" fn calm_engine_set_layer_adjustments(
     contrast: f32,
     vibrance: f32,
     saturation: f32,
-    levels_black: f32,
-    levels_white: f32,
     levels_gamma: f32,
 ) -> CalmStatus {
     with_inner(engine, |inner| {
-        let doc = inner.doc.as_mut().ok_or(())?;
+        let doc = inner.doc.as_mut().context("no project is open")?;
         doc.set_layer_adjustments(
             index as usize,
             Adjustments {
@@ -869,8 +914,6 @@ pub unsafe extern "C" fn calm_engine_set_layer_adjustments(
                 contrast,
                 vibrance,
                 saturation,
-                levels_black,
-                levels_white,
                 levels_gamma,
             },
         );
@@ -892,8 +935,11 @@ pub unsafe extern "C" fn calm_engine_layer_adjustments(
         return CalmStatus::Null;
     }
     with_inner(engine, |inner| {
-        let doc = inner.doc.as_ref().ok_or(())?;
-        let layer = doc.layers.get(index as usize).ok_or(())?;
+        let doc = inner.doc.as_ref().context("no project is open")?;
+        let layer = doc
+            .layers
+            .get(index as usize)
+            .with_context(|| format!("layer index {index} out of range"))?;
         let adj = layer.adjustments.unwrap_or_default();
         unsafe {
             *out = CalmAdjustments {
@@ -901,8 +947,6 @@ pub unsafe extern "C" fn calm_engine_layer_adjustments(
                 contrast: adj.contrast,
                 vibrance: adj.vibrance,
                 saturation: adj.saturation,
-                levels_black: adj.levels_black,
-                levels_white: adj.levels_white,
                 levels_gamma: adj.levels_gamma,
             };
         }
@@ -1050,9 +1094,14 @@ pub unsafe extern "C" fn calm_engine_layer_thumbnail(
     }
     match catch_unwind(AssertUnwindSafe(|| {
         let mutex = unsafe { &*(engine as *const Mutex<Inner>) };
-        let inner = mutex.lock().map_err(|_| ())?;
-        let doc = inner.doc.as_ref().ok_or(())?;
-        let layer = doc.layers.get(layer_index as usize).ok_or(())?;
+        let inner = mutex
+            .lock()
+            .map_err(|_| anyhow!("engine mutex poisoned by an earlier panic"))?;
+        let doc = inner.doc.as_ref().context("no project is open")?;
+        let layer = doc
+            .layers
+            .get(layer_index as usize)
+            .with_context(|| format!("layer index {layer_index} out of range"))?;
         let (w, h, rgba) = if let Some(tiles) = layer.tiles() {
             tiles.thumbnail(max_side.max(1))
         } else if let Some(paths) = layer.content.paths() {
@@ -1067,7 +1116,7 @@ pub unsafe extern "C" fn calm_engine_layer_thumbnail(
             }
             (side, side, rgba)
         } else {
-            return Err(());
+            bail!("no project is open and no accent colour to fall back on");
         };
         let mut boxed = rgba.into_boxed_slice();
         let ptr = boxed.as_mut_ptr();
@@ -1077,7 +1126,7 @@ pub unsafe extern "C" fn calm_engine_layer_thumbnail(
             *out_w = w;
             *out_h = h;
         }
-        Ok::<(), ()>(())
+        Ok::<(), anyhow::Error>(())
     })) {
         Ok(Ok(())) => CalmStatus::Ok,
         _ => CalmStatus::Error,
@@ -1101,8 +1150,10 @@ pub unsafe extern "C" fn calm_engine_composite_rgba(
     }
     match catch_unwind(AssertUnwindSafe(|| {
         let mutex = unsafe { &*(engine as *const Mutex<Inner>) };
-        let inner = mutex.lock().map_err(|_| ())?;
-        let doc = inner.doc.as_ref().ok_or(())?;
+        let inner = mutex
+            .lock()
+            .map_err(|_| anyhow!("engine mutex poisoned by an earlier panic"))?;
+        let doc = inner.doc.as_ref().context("no project is open")?;
         let (w, h, rgba) = doc.composite_rgba();
         let mut boxed = rgba.into_boxed_slice();
         let ptr = boxed.as_mut_ptr();
@@ -1112,7 +1163,7 @@ pub unsafe extern "C" fn calm_engine_composite_rgba(
             *out_w = w;
             *out_h = h;
         }
-        Ok::<(), ()>(())
+        Ok::<(), anyhow::Error>(())
     })) {
         Ok(Ok(())) => CalmStatus::Ok,
         _ => CalmStatus::Error,
@@ -1134,8 +1185,10 @@ pub unsafe extern "C" fn calm_engine_export_psd(
     }
     match catch_unwind(AssertUnwindSafe(|| {
         let mutex = unsafe { &*(engine as *const Mutex<Inner>) };
-        let inner = mutex.lock().map_err(|_| ())?;
-        let doc = inner.doc.as_ref().ok_or(())?;
+        let inner = mutex
+            .lock()
+            .map_err(|_| anyhow!("engine mutex poisoned by an earlier panic"))?;
+        let doc = inner.doc.as_ref().context("no project is open")?;
         let bytes = encode_psd(doc);
         let mut boxed = bytes.into_boxed_slice();
         let len = boxed.len();
@@ -1145,7 +1198,7 @@ pub unsafe extern "C" fn calm_engine_export_psd(
             *out_bytes = ptr;
             *out_len = len;
         }
-        Ok::<(), ()>(())
+        Ok::<(), anyhow::Error>(())
     })) {
         Ok(Ok(())) => CalmStatus::Ok,
         _ => CalmStatus::Error,
@@ -1170,9 +1223,13 @@ pub unsafe extern "C" fn calm_engine_layer_rgba(
     }
     match catch_unwind(AssertUnwindSafe(|| {
         let mutex = unsafe { &*(engine as *const Mutex<Inner>) };
-        let inner = mutex.lock().map_err(|_| ())?;
-        let doc = inner.doc.as_ref().ok_or(())?;
-        let (w, h, rgba) = doc.layer_rgba(layer_index as usize).ok_or(())?;
+        let inner = mutex
+            .lock()
+            .map_err(|_| anyhow!("engine mutex poisoned by an earlier panic"))?;
+        let doc = inner.doc.as_ref().context("no project is open")?;
+        let (w, h, rgba) = doc
+            .layer_rgba(layer_index as usize)
+            .context("layer has no raster content")?;
         let mut boxed = rgba.into_boxed_slice();
         let ptr = boxed.as_mut_ptr();
         std::mem::forget(boxed);
@@ -1181,7 +1238,7 @@ pub unsafe extern "C" fn calm_engine_layer_rgba(
             *out_w = w;
             *out_h = h;
         }
-        Ok::<(), ()>(())
+        Ok::<(), anyhow::Error>(())
     })) {
         Ok(Ok(())) => CalmStatus::Ok,
         _ => CalmStatus::Error,
@@ -1198,10 +1255,14 @@ pub unsafe extern "C" fn calm_engine_layer_svg(
     }
     match catch_unwind(AssertUnwindSafe(|| {
         let mutex = unsafe { &*(engine as *const Mutex<Inner>) };
-        let inner = mutex.lock().map_err(|_| ())?;
-        let doc = inner.doc.as_ref().ok_or(())?;
-        let svg = doc.layer_svg(layer_index as usize).ok_or(())?;
-        CString::new(svg).map_err(|_| ())
+        let inner = mutex
+            .lock()
+            .map_err(|_| anyhow!("engine mutex poisoned by an earlier panic"))?;
+        let doc = inner.doc.as_ref().context("no project is open")?;
+        let svg = doc
+            .layer_svg(layer_index as usize)
+            .context("layer has no vector content")?;
+        CString::new(svg).context("svg contained an interior NUL")
     })) {
         Ok(Ok(svg)) => svg.into_raw(),
         _ => ptr::null_mut(),
@@ -1225,9 +1286,13 @@ pub unsafe extern "C" fn calm_engine_selection_rgba(
     }
     match catch_unwind(AssertUnwindSafe(|| {
         let mutex = unsafe { &*(engine as *const Mutex<Inner>) };
-        let inner = mutex.lock().map_err(|_| ())?;
-        let doc = inner.doc.as_ref().ok_or(())?;
-        let (w, h, rgba) = doc.selection_rgba().ok_or(())?;
+        let inner = mutex
+            .lock()
+            .map_err(|_| anyhow!("engine mutex poisoned by an earlier panic"))?;
+        let doc = inner.doc.as_ref().context("no project is open")?;
+        let (w, h, rgba) = doc
+            .selection_rgba()
+            .context("there is no active selection")?;
         let mut boxed = rgba.into_boxed_slice();
         let ptr = boxed.as_mut_ptr();
         std::mem::forget(boxed);
@@ -1236,7 +1301,7 @@ pub unsafe extern "C" fn calm_engine_selection_rgba(
             *out_w = w;
             *out_h = h;
         }
-        Ok::<(), ()>(())
+        Ok::<(), anyhow::Error>(())
     })) {
         Ok(Ok(())) => CalmStatus::Ok,
         _ => CalmStatus::Error,
@@ -1250,9 +1315,11 @@ pub unsafe extern "C" fn calm_engine_has_selection(engine: *mut CalmEngine) -> c
     }
     match catch_unwind(AssertUnwindSafe(|| {
         let mutex = unsafe { &*(engine as *const Mutex<Inner>) };
-        let inner = mutex.lock().map_err(|_| ())?;
-        let doc = inner.doc.as_ref().ok_or(())?;
-        Ok::<bool, ()>(doc.selection.is_some())
+        let inner = mutex
+            .lock()
+            .map_err(|_| anyhow!("engine mutex poisoned by an earlier panic"))?;
+        let doc = inner.doc.as_ref().context("no project is open")?;
+        Ok::<bool, anyhow::Error>(doc.selection.is_some())
     })) {
         Ok(Ok(true)) => 1,
         _ => 0,
@@ -1298,13 +1365,13 @@ pub unsafe extern "C" fn calm_engine_paste_image(
         return CalmStatus::Null;
     }
     with_inner(engine, |inner| {
-        let doc = inner.doc.as_mut().ok_or(())?;
+        let doc = inner.doc.as_mut().context("no project is open")?;
         let mut rgba = unsafe { std::slice::from_raw_parts(premultiplied_rgba, len) }.to_vec();
         unpremultiply_rgba(&mut rgba);
         let n = doc.layers.len() + 1;
         let name = calumma_core::names::numbered_pasted_layer(n);
         if !doc.paste_image_as_layer(name, &rgba, width, height) {
-            return Err(());
+            bail!("pasting a {width}x{height} image as a new layer failed");
         }
         inner.dirty_save = true;
         if let Some(r) = &mut inner.renderer {
@@ -1326,11 +1393,16 @@ pub unsafe extern "C" fn calm_project_create(
     }
     match catch_unwind(AssertUnwindSafe(|| {
         let mutex = unsafe { &*(engine as *const Mutex<Inner>) };
-        let mut inner = mutex.lock().map_err(|_| ())?;
+        let mut inner = mutex
+            .lock()
+            .map_err(|_| anyhow!("engine mutex poisoned by an earlier panic"))?;
         let name = unsafe { CStr::from_ptr(name) }
             .to_str()
             .unwrap_or(calumma_core::UNTITLED);
-        let doc = inner.store.create(name, width, height).map_err(|_| ())?;
+        let doc = inner
+            .store
+            .create(name, width, height)
+            .with_context(|| format!("creating project {name} at {width}x{height}"))?;
         let id = doc.id.clone();
         if let Some(mut old) = inner.doc.take() {
             let _ = inner.store.save(&mut old);
@@ -1340,7 +1412,7 @@ pub unsafe extern "C" fn calm_project_create(
         if let Some(r) = &mut inner.renderer {
             r.invalidate();
         }
-        Ok::<_, ()>(cstring(&id))
+        Ok::<_, anyhow::Error>(cstring(&id))
     })) {
         Ok(Ok(p)) => p,
         _ => ptr::null_mut(),
@@ -1377,17 +1449,22 @@ pub unsafe extern "C" fn calm_project_create_from_image(
     }
     match catch_unwind(AssertUnwindSafe(|| {
         let mutex = unsafe { &*(engine as *const Mutex<Inner>) };
-        let mut inner = mutex.lock().map_err(|_| ())?;
+        let mut inner = mutex
+            .lock()
+            .map_err(|_| anyhow!("engine mutex poisoned by an earlier panic"))?;
         let name = unsafe { CStr::from_ptr(name) }
             .to_str()
             .unwrap_or(calumma_core::UNTITLED);
         let mut rgba = unsafe { std::slice::from_raw_parts(premultiplied_rgba, len) }.to_vec();
         unpremultiply_rgba(&mut rgba);
-        let mut doc = inner.store.create(name, width, height).map_err(|_| ())?;
+        let mut doc = inner
+            .store
+            .create(name, width, height)
+            .with_context(|| format!("creating project {name} at {width}x{height}"))?;
         if !doc.place_image(&rgba, width, height) {
-            return Err(());
+            bail!("placing a {width}x{height} image into the new project failed");
         }
-        inner.store.save(&mut doc).map_err(|_| ())?;
+        inner.store.save(&mut doc).context("saving project")?;
         let id = doc.id.clone();
         if let Some(mut old) = inner.doc.take() {
             let _ = inner.store.save(&mut old);
@@ -1397,7 +1474,7 @@ pub unsafe extern "C" fn calm_project_create_from_image(
         if let Some(r) = &mut inner.renderer {
             r.invalidate();
         }
-        Ok::<_, ()>(cstring(&id))
+        Ok::<_, anyhow::Error>(cstring(&id))
     })) {
         Ok(Ok(p)) => p,
         _ => ptr::null_mut(),
@@ -1413,11 +1490,16 @@ pub unsafe extern "C" fn calm_project_open(
         return CalmStatus::Null;
     }
     with_inner(engine, |inner| {
-        let id = unsafe { CStr::from_ptr(id) }.to_str().map_err(|_| ())?;
+        let id = unsafe { CStr::from_ptr(id) }
+            .to_str()
+            .context("project id is not valid UTF-8")?;
         if let Some(mut old) = inner.doc.take() {
             let _ = inner.store.save(&mut old);
         }
-        let mut doc = inner.store.open_project(id).map_err(|_| ())?;
+        let mut doc = inner
+            .store
+            .open_project(id)
+            .with_context(|| format!("opening project {id}"))?;
         if inner.renderer.is_some() {
             doc.fit_to_view();
         }
@@ -1486,8 +1568,10 @@ pub unsafe extern "C" fn calm_project_delete(
         return CalmStatus::Null;
     }
     with_inner(engine, |inner| {
-        let id = unsafe { CStr::from_ptr(id) }.to_str().map_err(|_| ())?;
-        inner.store.delete(id).map_err(|_| ())?;
+        let id = unsafe { CStr::from_ptr(id) }
+            .to_str()
+            .context("project id is not valid UTF-8")?;
+        inner.store.delete(id).context("deleting project")?;
         if inner.doc.as_ref().map(|d| d.id.as_str()) == Some(id) {
             inner.doc = None;
         }
@@ -1506,7 +1590,7 @@ pub unsafe extern "C" fn calm_project_save(engine: *mut CalmEngine) -> CalmStatu
             ..
         } = inner;
         if let Some(doc) = doc.as_mut() {
-            store.save(doc).map_err(|_| ())?;
+            store.save(doc).context("saving project")?;
             *dirty_save = false;
             *last_save = Instant::now();
         }
@@ -1576,7 +1660,9 @@ pub unsafe extern "C" fn calm_engine_run_op(
         }
 
         let prepared = {
-            let mut inner = mutex.lock().map_err(|_| ())?;
+            let mut inner = mutex
+                .lock()
+                .map_err(|_| anyhow!("engine mutex poisoned by an earlier panic"))?;
             match inner.registry.backend_for(op_kind) {
                 Some(Backend::Core) => {
                     let Inner {
@@ -1586,9 +1672,9 @@ pub unsafe extern "C" fn calm_engine_run_op(
                         dirty_save,
                         ..
                     } = &mut *inner;
-                    let doc = doc.as_mut().ok_or(())?;
+                    let doc = doc.as_mut().context("no project is open")?;
                     run_op_on_document(registry, doc, layer_index, op_kind, &OpParams::default())
-                        .map_err(|_| ())?;
+                        .context("running the core op")?;
                     *dirty_save = true;
                     if let Some(r) = renderer {
                         r.invalidate();
@@ -1597,30 +1683,33 @@ pub unsafe extern "C" fn calm_engine_run_op(
                 }
                 Some(Backend::Platform) => {
                     if !inner.registry.available(op_kind) {
-                        return Err(());
+                        bail!("op {op_kind:?} has no registered platform backend");
                     }
-                    let ops = inner.platform_ops.ok_or(())?;
-                    let doc = inner.doc.as_ref().ok_or(())?;
-                    let input = layer_input(doc, layer_index).map_err(|_| ())?;
+                    let ops = inner.platform_ops.context("no platform ops registered")?;
+                    let doc = inner.doc.as_ref().context("no project is open")?;
+                    let input =
+                        layer_input(doc, layer_index).context("reading the layer for the op")?;
                     Prepared::Platform { input, ops }
                 }
-                None => return Err(()),
+                None => bail!("op {op_kind:?} is not available on this platform"),
             }
         };
 
         if let Prepared::Platform { input, ops } = prepared {
             let output = PlatformOp::for_kind(op_kind, ops)
                 .run(input, &OpParams::default())
-                .map_err(|_| ())?;
-            let mut inner = mutex.lock().map_err(|_| ())?;
+                .context("running the platform op")?;
+            let mut inner = mutex
+                .lock()
+                .map_err(|_| anyhow!("engine mutex poisoned by an earlier panic"))?;
             let Inner {
                 doc,
                 renderer,
                 dirty_save,
                 ..
             } = &mut *inner;
-            let doc = doc.as_mut().ok_or(())?;
-            apply_output(doc, layer_index, output).map_err(|_| ())?;
+            let doc = doc.as_mut().context("no project is open")?;
+            apply_output(doc, layer_index, output).context("applying the op result")?;
             *dirty_save = true;
             if let Some(r) = renderer {
                 r.invalidate();

@@ -10,6 +10,7 @@ Read **`AGENTS.md`**, **`FLOW.md`**, and **`design/STYLE.md`**.
 ```bash
 ./manage.py tokens   # regenerate Swift tokens from design/tokens.json
 ./manage.py dev      # build ffi + open Xcode
+./manage.py package  # Release build → dist/Calumma-<version>.dmg
 ```
 
 Run the **Calumma** scheme. Landing → create/preset/recent → editor with top tabs.
@@ -30,6 +31,18 @@ Run the **Calumma** scheme. Landing → create/preset/recent → editor with top
 | `platform/macos` | SwiftUI shell + `.swift-format` |
 | `manage.py` | Python 3.14 task runner |
 | `cli/` | Python helpers + leaf tools used by `manage.py` |
+
+## Install (macOS)
+
+Grab the latest `Calumma-<version>.dmg` from
+[Releases](https://github.com/JanezSedeljsak/calumma-v2/releases), open it, and drag
+**Calumma** into **Applications**. Apple Silicon, macOS 26+.
+
+Builds are ad-hoc signed rather than notarized, so the first launch needs
+right-click → **Open** (or `xattr -dr com.apple.quarantine /Applications/Calumma.app`).
+
+A `v*` tag push publishes a release; `release.yml` can also be dispatched manually to
+produce a prerelease or a plain workflow artifact.
 
 ## Notes
 

@@ -15,6 +15,10 @@ pub const ZOOM_STEP: f32 = 1.25;
 pub const MIN_ZOOM_FILL: f32 = 0.5;
 pub const MAX_ZOOM_IN_FACTOR: f32 = 10.0;
 pub const MIN_VISIBLE_DOC_SIDE: f32 = 400.0;
+/// How much of the paper (as a fraction of whichever is smaller, paper or viewport)
+/// has to stay on screen. Panning is free inside that slack, so the paper can be
+/// dragged around even when it fits the viewport whole.
+pub const PAN_KEEP_VISIBLE: f32 = 0.5;
 pub const MAX_ZOOM_HARD: f32 = 64.0;
 pub const VIEWPORT_CULL_PADDING_PX: f32 = 1.0;
 
@@ -34,6 +38,9 @@ pub const ALPHA_ROUND_BIAS: u32 = ALPHA_MAX / 2;
 pub const DEFAULT_INK: [u8; 4] = [26, 26, 26, ALPHA_OPAQUE];
 
 pub const FILL_TOLERANCE_DEFAULT: u8 = 24;
+
+pub const MIN_SCALE: f32 = 0.02;
+pub const MAX_SCALE: f32 = 50.0;
 
 pub const MIN_CANVAS_SIDE: u32 = 16;
 pub const MAX_CANVAS_SIDE: u32 = 8192;

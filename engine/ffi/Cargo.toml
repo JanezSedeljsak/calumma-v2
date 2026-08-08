@@ -13,6 +13,10 @@ calumma-core = { path = "../core" }
 calumma-io = { path = "../io" }
 calumma-ops = { path = "../ops" }
 calumma-render = { path = "../render" }
+anyhow = { workspace = true }
 bytemuck = { workspace = true, features = ["derive"] }
 pollster = { workspace = true }
 wgpu = { workspace = true, default-features = false, features = ["metal", "wgsl"] }
+
+[dev-dependencies]
+tempfile = { workspace = true }

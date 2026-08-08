@@ -81,14 +81,6 @@ struct LayerSettingsCard: View {
                     onChange: update { $0.saturation = $1 }
                 )
                 filterSlider(
-                    l10n.levelsBlack, value: adjustments.levelsBlack, range: 0...1,
-                    onChange: update { $0.levelsBlack = $1 }
-                )
-                filterSlider(
-                    l10n.levelsWhite, value: adjustments.levelsWhite, range: 0...1,
-                    onChange: update { $0.levelsWhite = $1 }
-                )
-                filterSlider(
                     l10n.levelsGamma, value: adjustments.levelsGamma, range: 0.1...4,
                     onChange: update { $0.levelsGamma = $1 }
                 )

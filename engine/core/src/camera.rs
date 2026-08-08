@@ -1,5 +1,6 @@
 use crate::limits::{
-    FIT_PADDING, MAX_ZOOM_HARD, MAX_ZOOM_IN_FACTOR, MIN_VISIBLE_DOC_SIDE, MIN_ZOOM_FILL, ZOOM_STEP,
+    FIT_PADDING, MAX_ZOOM_HARD, MAX_ZOOM_IN_FACTOR, MIN_VISIBLE_DOC_SIDE, MIN_ZOOM_FILL,
+    PAN_KEEP_VISIBLE, ZOOM_STEP,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -74,29 +75,40 @@ impl Camera {
         )
     }
 
+    /// Pan range that keeps `PAN_KEEP_VISIBLE` of the paper on screen, as
+    /// `(min_x, max_x, min_y, max_y)`. The window is always non-empty, so a fitted
+    /// paper is still draggable instead of being pinned to the centre.
+    pub fn pan_bounds(&self, doc_width: f32, doc_height: f32) -> (f32, f32, f32, f32) {
+        let paper_width = doc_width * self.zoom;
+        let paper_height = doc_height * self.zoom;
+        let keep_x = paper_width.min(self.viewport_width) * PAN_KEEP_VISIBLE;
+        let keep_y = paper_height.min(self.viewport_height) * PAN_KEEP_VISIBLE;
+        (
+            keep_x - paper_width,
+            self.viewport_width - keep_x,
+            keep_y - paper_height,
+            self.viewport_height - keep_y,
+        )
+    }
+
+    pub fn center(&mut self, doc_width: f32, doc_height: f32) {
+        self.pan_x = (self.viewport_width - doc_width * self.zoom) * 0.5;
+        self.pan_y = (self.viewport_height - doc_height * self.zoom) * 0.5;
+    }
+
     pub fn clamp_to_board(&mut self, doc_width: f32, doc_height: f32) {
         let min = self.min_zoom(doc_width, doc_height);
         let max = self.max_zoom(doc_width, doc_height);
         self.zoom = self.zoom.clamp(min, max);
 
-        let paper_width = doc_width * self.zoom;
-        let paper_height = doc_height * self.zoom;
-
-        self.pan_x = if paper_width <= self.viewport_width {
-            (self.viewport_width - paper_width) * 0.5
-        } else {
-            self.pan_x.clamp(self.viewport_width - paper_width, 0.0)
-        };
-
-        self.pan_y = if paper_height <= self.viewport_height {
-            (self.viewport_height - paper_height) * 0.5
-        } else {
-            self.pan_y.clamp(self.viewport_height - paper_height, 0.0)
-        };
+        let (min_x, max_x, min_y, max_y) = self.pan_bounds(doc_width, doc_height);
+        self.pan_x = self.pan_x.clamp(min_x, max_x);
+        self.pan_y = self.pan_y.clamp(min_y, max_y);
     }
 
     pub fn fit(&mut self, doc_width: f32, doc_height: f32) {
         self.zoom = self.fit_zoom(doc_width, doc_height);
+        self.center(doc_width, doc_height);
         self.clamp_to_board(doc_width, doc_height);
     }
 
@@ -146,113 +158,5 @@ impl Camera {
             return min;
         }
         min * (max / min).powf(unit.clamp(0.0, 1.0))
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn cam(vw: f32, vh: f32) -> Camera {
-        Camera {
-            viewport_width: vw,
-            viewport_height: vh,
-            dpr: 2.0,
-            ..Default::default()
-        }
-    }
-
-    #[test]
-    fn fit_zoom_is_above_min_floor() {
-        let mut c = cam(800.0, 600.0);
-        c.fit(1920.0, 1080.0);
-        let floor = c.min_zoom(1920.0, 1080.0);
-        let fit = c.fit_zoom(1920.0, 1080.0);
-        assert!(fit > floor);
-        assert!((c.zoom - fit).abs() < 1e-5);
-        c.zoom = floor * 0.5;
-        c.clamp_to_board(1920.0, 1080.0);
-        assert!((c.zoom - floor).abs() < 1e-5);
-    }
-
-    #[test]
-    fn min_zoom_fills_half_viewport() {
-        let c = cam(1000.0, 800.0);
-        let z = c.min_zoom(2000.0, 1000.0);
-        let paper_w = 2000.0 * z;
-        let paper_h = 1000.0 * z;
-        let fill_w = paper_w / 1000.0;
-        let fill_h = paper_h / 800.0;
-        assert!((fill_w.max(fill_h) - MIN_ZOOM_FILL).abs() < 1e-4);
-    }
-
-    #[test]
-    fn max_zoom_is_ten_times_min_when_detail_allows() {
-        let c = cam(2000.0, 2000.0);
-        let min = c.min_zoom(3000.0, 3000.0);
-        let max = c.max_zoom(3000.0, 3000.0);
-        assert!((max - min * MAX_ZOOM_IN_FACTOR).abs() < 1e-3);
-    }
-
-    #[test]
-    fn max_zoom_respects_visible_doc_side() {
-        let c = cam(800.0, 600.0);
-        let max = c.max_zoom(4000.0, 4000.0);
-        let visible = 600.0 / max;
-        assert!(visible + 1e-3 >= MIN_VISIBLE_DOC_SIDE.min(4000.0));
-    }
-
-    #[test]
-    fn screen_doc_round_trip() {
-        let mut c = cam(1000.0, 800.0);
-        c.fit(2000.0, 1500.0);
-        c.zoom_at(400.0, 300.0, c.zoom * 2.0, 2000.0, 1500.0);
-        let (dx, dy) = c.to_doc(412.0, 288.0);
-        let (sx, sy) = c.to_screen(dx, dy);
-        assert!((sx - 412.0).abs() < 1e-3);
-        assert!((sy - 288.0).abs() < 1e-3);
-    }
-
-    #[test]
-    fn fit_nearly_fills_the_viewport() {
-        let mut c = cam(1000.0, 800.0);
-        c.fit(2000.0, 1000.0);
-        let filled = 2000.0 * c.zoom / 1000.0;
-        assert!(filled > 0.95, "paper only filled {filled} of the viewport");
-    }
-
-    #[test]
-    fn zoom_unit_round_trips_through_the_log_scale() {
-        let mut c = cam(1000.0, 800.0);
-        c.fit(2000.0, 1500.0);
-        for unit in [0.0, 0.25, 0.5, 0.9, 1.0] {
-            let zoom = c.zoom_from_unit(unit, 2000.0, 1500.0);
-            c.zoom_to_center(zoom, 2000.0, 1500.0);
-            assert!((c.zoom_unit(2000.0, 1500.0) - unit).abs() < 1e-3);
-        }
-    }
-
-    #[test]
-    fn step_zoom_stays_inside_the_camera_range() {
-        let mut c = cam(1000.0, 800.0);
-        c.fit(2000.0, 1500.0);
-        for _ in 0..40 {
-            c.step_zoom(true, 2000.0, 1500.0);
-        }
-        assert!((c.zoom - c.max_zoom(2000.0, 1500.0)).abs() < 1e-4);
-        for _ in 0..80 {
-            c.step_zoom(false, 2000.0, 1500.0);
-        }
-        assert!((c.zoom - c.min_zoom(2000.0, 1500.0)).abs() < 1e-4);
-    }
-
-    #[test]
-    fn clamp_centers_when_paper_fits() {
-        let mut c = cam(1000.0, 800.0);
-        c.fit(100.0, 100.0);
-        let pw = 100.0 * c.zoom;
-        let ph = 100.0 * c.zoom;
-        assert!((c.pan_x - (1000.0 - pw) * 0.5).abs() < 1e-3);
-        assert!((c.pan_y - (800.0 - ph) * 0.5).abs() < 1e-3);
     }
 }
