@@ -1,7 +1,7 @@
 import SwiftUI
 
-struct ProjectSettingsCard: View {
-    let project: ProjectInfo
+struct WorkspaceSettingsCard: View {
+    let workspace: WorkspaceInfo
 
     @EnvironmentObject private var app: AppModel
     @Environment(\.themeColors) private var colors
@@ -11,20 +11,19 @@ struct ProjectSettingsCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: Tokens.Space.md) {
             VStack(alignment: .leading, spacing: Tokens.Space.xs) {
-                CalmText.label(l10n.projectName)
+                CalmText.label(l10n.workspaceName)
                 CalmField(text: $name)
                     .onSubmit { commitName() }
             }
 
             VStack(alignment: .leading, spacing: Tokens.Space.sm) {
-                CalmText.label(l10n.projectColor)
+                CalmText.label(l10n.workspaceColor)
                 CalmPaletteRow(colors: Engine.palette, selected: current) { color in
-                    app.setAccent(projectId: project.id, color: color)
+                    app.setWorkspaceAccent(id: workspace.id, color: color)
                 }
             }
 
             HStack {
-                CalmText.muted("\(project.width) × \(project.height)")
                 Spacer()
                 CalmPlainButton(title: l10n.done, accent: true) { commitName() }
             }
@@ -32,14 +31,14 @@ struct ProjectSettingsCard: View {
         .padding(Tokens.Space.md)
         .frame(width: 280)
         .background(colors.surface)
-        .onAppear { name = project.name }
+        .onAppear { name = workspace.name }
     }
 
     private var current: Color {
-        project.accentColor
+        app.openWorkspaces.first { $0.id == workspace.id }?.accentColor ?? workspace.accentColor
     }
 
     private func commitName() {
-        app.rename(projectId: project.id, to: name)
+        app.renameWorkspace(id: workspace.id, to: name)
     }
 }

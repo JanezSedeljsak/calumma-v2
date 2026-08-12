@@ -68,6 +68,51 @@ fn apply_mask(rgba: &mut [u8], mask: Option<&[u8]>) {
     }
 }
 
+fn layer_source_pixel(layer: &Layer, doc_x: f32, doc_y: f32) -> [u8; 4] {
+    let Some(tiles) = layer.tiles() else {
+        return [0, 0, 0, 0];
+    };
+    let (sx, sy) = match layer.transform {
+        Some(t) => {
+            let Some(raw_bounds) = layer.content_bounds() else {
+                return [0, 0, 0, 0];
+            };
+            t.inverse(bounds_center(raw_bounds), (doc_x, doc_y))
+        }
+        None => (doc_x, doc_y),
+    };
+    tiles.get_pixel(sx.floor() as i32, sy.floor() as i32)
+}
+
+fn layer_composited_pixel(layer: &Layer, doc_x: f32, doc_y: f32, doc_w: u32, doc_h: u32) -> [u8; 4] {
+    let mut px = layer_source_pixel(layer, doc_x, doc_y);
+    if px[3] == 0 {
+        return px;
+    }
+    if let Some(mask) = layer.mask() {
+        let ix = doc_x.floor() as i32;
+        let iy = doc_y.floor() as i32;
+        if ix >= 0 && iy >= 0 && (ix as u32) < doc_w && (iy as u32) < doc_h {
+            let index = (iy as u32 * doc_w + ix as u32) as usize;
+            if let Some(&m) = mask.get(index) {
+                px[3] = ((px[3] as u32 * m as u32) / 255) as u8;
+            }
+        } else {
+            px[3] = 0;
+        }
+    }
+    if let Some(adj) = layer.adjustments.as_ref().filter(|a| !a.is_neutral()) {
+        let rgb = crate::filters::apply([px[0], px[1], px[2]], adj);
+        px[0] = rgb[0];
+        px[1] = rgb[1];
+        px[2] = rgb[2];
+    }
+    if layer.opacity < 1.0 {
+        px[3] = ((px[3] as f32) * layer.opacity).round().clamp(0.0, 255.0) as u8;
+    }
+    px
+}
+
 fn copy_layer_into_rgba(layer: &Layer, buf: &mut [u8], w: u32, h: u32) {
     let Some(tiles) = layer.tiles() else {
         return;
@@ -80,8 +125,6 @@ fn copy_layer_into_rgba(layer: &Layer, buf: &mut [u8], w: u32, h: u32) {
         return;
     };
     let pivot = bounds_center(raw_bounds);
-    // One inverse-transform plus a tile lookup per pixel — rows are independent, so this
-    // is the one place in the composite worth spreading across cores.
     let row_bytes = (w as usize) * 4;
     buf.par_chunks_mut(row_bytes)
         .enumerate()
@@ -172,6 +215,7 @@ pub struct Document {
     pub preview_shape: Option<Shape>,
     pub selection: Option<Selection>,
     pub shift_held: bool,
+    pub transform_active: bool,
     transform_drag: Option<TransformDrag>,
     stroke_before: TileSnapshot,
 }
@@ -258,6 +302,7 @@ impl Document {
             preview_shape: None,
             selection: None,
             shift_held: false,
+            transform_active: false,
             transform_drag: None,
             stroke_before: TileSnapshot::new(),
         }
@@ -387,6 +432,31 @@ impl Document {
             .unwrap_or_default()
     }
 
+    pub fn enter_transform(&mut self) -> bool {
+        let Some(layer) = self.layers.get(self.active_layer) else {
+            return false;
+        };
+        if !layer.content.is_raster() || layer.content_bounds().is_none() {
+            return false;
+        }
+        self.transform_active = true;
+        true
+    }
+
+    pub fn exit_transform(&mut self) {
+        self.transform_active = false;
+        self.transform_drag = None;
+    }
+
+    pub fn toggle_transform(&mut self) -> bool {
+        if self.transform_active {
+            self.exit_transform();
+            false
+        } else {
+            self.enter_transform()
+        }
+    }
+
     fn rotate_handle_position(
         pivot: (f32, f32),
         raw_bounds: (f32, f32, f32, f32),
@@ -404,7 +474,7 @@ impl Document {
     }
 
     pub fn transform_handles(&self) -> Option<TransformHandles> {
-        if self.tool != Tool::Transform {
+        if !self.transform_active {
             return None;
         }
         let index = self.active_layer;
@@ -475,8 +545,9 @@ impl Document {
         None
     }
 
-    fn begin_transform_drag(&mut self, doc_x: f32, doc_y: f32) {
+    fn begin_transform_drag(&mut self, doc_x: f32, doc_y: f32) -> bool {
         self.transform_drag = self.transform_handle_at(doc_x, doc_y);
+        self.transform_drag.is_some()
     }
 
     fn update_transform_drag(&mut self, doc_x: f32, doc_y: f32) {
@@ -640,12 +711,18 @@ impl Document {
 
     pub fn pointer_down(&mut self, screen_x: f32, screen_y: f32) {
         let (dx, dy) = self.camera.to_doc(screen_x, screen_y);
-        if self.tool == Tool::Transform {
-            self.begin_transform_drag(dx, dy);
+        if self.transform_active {
+            if !self.begin_transform_drag(dx, dy) {
+                self.exit_transform();
+            }
             return;
         }
         if self.tool == Tool::Fill {
             self.commit_fill(dx, dy);
+            return;
+        }
+        if self.tool == Tool::Eyedropper {
+            let _ = self.pick_color(dx, dy);
             return;
         }
         if matches!(self.tool, Tool::Pen | Tool::Eraser | Tool::SelectLasso) {
@@ -669,7 +746,7 @@ impl Document {
 
     pub fn pointer_move(&mut self, screen_x: f32, screen_y: f32) {
         let (dx, dy) = self.camera.to_doc(screen_x, screen_y);
-        if self.tool == Tool::Transform {
+        if self.transform_active {
             self.update_transform_drag(dx, dy);
             return;
         }
@@ -684,7 +761,7 @@ impl Document {
 
     pub fn pointer_up(&mut self, screen_x: f32, screen_y: f32) {
         let (dx, dy) = self.camera.to_doc(screen_x, screen_y);
-        if self.tool == Tool::Transform {
+        if self.transform_active {
             self.transform_drag = None;
             return;
         }
@@ -864,6 +941,7 @@ impl Document {
     }
 
     pub fn deselect(&mut self) {
+        self.exit_transform();
         self.selection = None;
     }
 
@@ -941,7 +1019,6 @@ impl Document {
             apply_mask(&mut layer_buf, layer.mask());
             let lut = layer.adjustments.map(|a| a.lut());
             apply_layer_effects(&mut layer_buf, layer, lut.as_ref());
-            // Layers still stack in order; only the pixels within one layer go wide.
             let mode = layer.blend_mode;
             out.par_chunks_mut(EFFECT_CHUNK_BYTES)
                 .zip(layer_buf.par_chunks(EFFECT_CHUNK_BYTES))
@@ -960,6 +1037,129 @@ impl Document {
                 });
         }
         (w, h, out)
+    }
+
+    pub fn sample_color(&self, doc_x: f32, doc_y: f32) -> Option<[u8; 4]> {
+        let ix = doc_x.floor() as i32;
+        let iy = doc_y.floor() as i32;
+        if ix < 0 || iy < 0 || (ix as u32) >= self.width || (iy as u32) >= self.height {
+            return None;
+        }
+        let mut acc = [0u8; 4];
+        for layer in &self.layers {
+            if !layer.visible || layer.tiles().is_none() {
+                continue;
+            }
+            let src = layer_composited_pixel(layer, doc_x, doc_y, self.width, self.height);
+            if src[3] == 0 {
+                continue;
+            }
+            acc = blend_with_mode(acc, src, layer.blend_mode);
+        }
+        if acc[3] == 0 {
+            None
+        } else {
+            Some(acc)
+        }
+    }
+
+    pub fn pick_color(&mut self, doc_x: f32, doc_y: f32) -> Option<[u8; 4]> {
+        let color = self.sample_color(doc_x, doc_y)?;
+        self.color = color;
+        Some(color)
+    }
+
+    pub fn composite_thumbnail(&self, max_side: u32) -> (u32, u32, Vec<u8>) {
+        let max_side = max_side.max(1);
+        let (dw, dh, full) = self.composite_rgba();
+        let (crop_x, crop_y, crop_w, crop_h) = self
+            .painted_content_bounds()
+            .map(|(x0, y0, x1, y1)| {
+                let x0 = x0.floor().max(0.0) as u32;
+                let y0 = y0.floor().max(0.0) as u32;
+                let x1 = x1.ceil().min(dw as f32).max(x0 as f32 + 1.0) as u32;
+                let y1 = y1.ceil().min(dh as f32).max(y0 as f32 + 1.0) as u32;
+                (x0, y0, (x1 - x0).max(1).min(dw), (y1 - y0).max(1).min(dh))
+            })
+            .unwrap_or((0, 0, dw, dh));
+        let crop_w = crop_w.min(dw.saturating_sub(crop_x)).max(1);
+        let crop_h = crop_h.min(dh.saturating_sub(crop_y)).max(1);
+
+        let scale = (max_side as f32 / crop_w as f32)
+            .min(max_side as f32 / crop_h as f32)
+            .min(1.0);
+        let tw = ((crop_w as f32) * scale).round().max(1.0) as u32;
+        let th = ((crop_h as f32) * scale).round().max(1.0) as u32;
+
+        if tw == dw && th == dh && crop_x == 0 && crop_y == 0 {
+            return (dw, dh, full);
+        }
+
+        let mut rgba = vec![0u8; (tw as usize) * (th as usize) * 4];
+        for ty in 0..th {
+            for tx in 0..tw {
+                let sx = if tw <= 1 {
+                    crop_x
+                } else {
+                    crop_x
+                        + ((tx as f32) * ((crop_w - 1) as f32) / ((tw - 1) as f32)).round() as u32
+                };
+                let sy = if th <= 1 {
+                    crop_y
+                } else {
+                    crop_y
+                        + ((ty as f32) * ((crop_h - 1) as f32) / ((th - 1) as f32)).round() as u32
+                };
+                let si = ((sy as usize) * (dw as usize) + (sx as usize)) * 4;
+                let di = ((ty as usize) * (tw as usize) + (tx as usize)) * 4;
+                rgba[di..di + 4].copy_from_slice(&full[si..si + 4]);
+            }
+        }
+        (tw, th, rgba)
+    }
+
+    pub fn painted_content_bounds(&self) -> Option<(f32, f32, f32, f32)> {
+        let mut min_x = f32::INFINITY;
+        let mut min_y = f32::INFINITY;
+        let mut max_x = f32::NEG_INFINITY;
+        let mut max_y = f32::NEG_INFINITY;
+        let mut any = false;
+        for layer in &self.layers {
+            if !layer.visible || layer.is_paper() {
+                continue;
+            }
+            let Some(raw) = layer.opaque_pixel_bounds() else {
+                continue;
+            };
+            let corners = match layer.transform {
+                Some(t) if !t.is_identity() => {
+                    let pivot = bounds_center(raw);
+                    t.transformed_corners(pivot, raw)
+                }
+                _ => [
+                    (raw.0, raw.1),
+                    (raw.2, raw.1),
+                    (raw.2, raw.3),
+                    (raw.0, raw.3),
+                ],
+            };
+            for (x, y) in corners {
+                min_x = min_x.min(x);
+                min_y = min_y.min(y);
+                max_x = max_x.max(x);
+                max_y = max_y.max(y);
+                any = true;
+            }
+        }
+        if !any {
+            return None;
+        }
+        Some((
+            min_x.clamp(0.0, self.width as f32),
+            min_y.clamp(0.0, self.height as f32),
+            max_x.clamp(0.0, self.width as f32),
+            max_y.clamp(0.0, self.height as f32),
+        ))
     }
 
     pub fn layer_rgba(&self, index: usize) -> Option<(u32, u32, Vec<u8>)> {
@@ -1151,7 +1351,7 @@ impl Document {
             || self.preview_shape.is_some()
             || self.hover_layer.is_some()
             || self.selection.is_some()
-            || self.tool == Tool::Transform
+            || self.transform_active
     }
 
     pub fn tile_size(&self) -> u32 {

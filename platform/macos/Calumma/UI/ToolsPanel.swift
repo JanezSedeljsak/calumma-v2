@@ -47,7 +47,7 @@ struct ToolsPanel: View {
             shapeToolButton
             selectToolButton
             toolButton(.bucket) { AppIcon.bucket(color: iconColor(.bucket)) }
-            toolButton(.transform) { AppIcon.transform(color: iconColor(.transform)) }
+            toolButton(.eyedropper) { AppIcon.eyedropper(color: iconColor(.eyedropper)) }
         }
     }
 
@@ -58,7 +58,7 @@ struct ToolsPanel: View {
         case .pen: return l10n.toolPen
         case .eraser: return l10n.toolEraser
         case .bucket: return l10n.toolBucket
-        case .transform: return l10n.toolTransform
+        case .eyedropper: return l10n.toolEyedropper
         default: return l10n.toolPen
         }
     }
@@ -67,11 +67,20 @@ struct ToolsPanel: View {
     private var toolOptions: some View {
         VStack(spacing: Tokens.Space.sm) {
             if app.tool.isShape {
-                HStack(spacing: Tokens.Space.xs) {
+                LazyVGrid(
+                    columns: [
+                        GridItem(.flexible()),
+                        GridItem(.flexible()),
+                        GridItem(.flexible()),
+                    ],
+                    spacing: Tokens.Space.xs
+                ) {
                     shapePick(.line)
                     shapePick(.rect)
                     shapePick(.ellipse)
                     shapePick(.arrow)
+                    shapePick(.triangle)
+                    shapePick(.pentagon)
                 }
             }
 
@@ -113,7 +122,7 @@ struct ToolsPanel: View {
     }
 
     private var showsBrushSize: Bool {
-        !app.tool.isSelection && app.tool != .bucket && app.tool != .transform
+        !app.tool.isSelection && app.tool != .bucket && app.tool != .eyedropper
     }
 
     private var aiSection: some View {
@@ -133,25 +142,30 @@ struct ToolsPanel: View {
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
-        .help(l10n.ai)
+        .calmTooltip(l10n.aiTools, edge: .trailing)
         .calmPointer()
     }
 
     private var shapeToolButton: some View {
         let active = app.tool.isShape
         let current = active ? app.tool : app.lastShapeTool
-        return CalmToolButton(selected: active, action: {
-            app.selectTool(app.lastShapeTool)
-        }) {
+        return CalmToolButton(
+            selected: active,
+            action: { app.selectTool(app.lastShapeTool) },
+            tooltip: l10n.shapes,
+            tooltipEdge: .trailing
+        ) {
             shapeIcon(current, color: active ? colors.accentTeal : colors.textMuted)
         }
-        .help(l10n.shapes)
     }
 
     private func shapePick(_ tool: CalmTool) -> some View {
-        CalmToolButton(selected: app.tool == tool, action: {
-            app.selectTool(tool)
-        }) {
+        CalmToolButton(
+            selected: app.tool == tool,
+            action: { app.selectTool(tool) },
+            tooltip: toolHelp(tool),
+            tooltipEdge: .trailing
+        ) {
             shapeIcon(tool, color: app.tool == tool ? colors.accentTeal : colors.textMuted)
         }
     }
@@ -163,10 +177,12 @@ struct ToolsPanel: View {
         case .rect: AppIcon.shape(color: color)
         case .ellipse: AppIcon.ellipse(color: color)
         case .arrow: AppIcon.arrow(color: color)
+        case .triangle: AppIcon.triangle(color: color)
+        case .pentagon: AppIcon.pentagon(color: color)
         case .pen: AppIcon.pen(color: color)
         case .eraser: AppIcon.eraser(color: color)
         case .bucket: AppIcon.bucket(color: color)
-        case .transform: AppIcon.transform(color: color)
+        case .eyedropper: AppIcon.eyedropper(color: color)
         case .selectRect, .selectEllipse, .selectLasso: AppIcon.selectRect(color: color)
         }
     }
@@ -174,18 +190,23 @@ struct ToolsPanel: View {
     private var selectToolButton: some View {
         let active = app.tool.isSelection
         let current = active ? app.tool : app.lastSelectTool
-        return CalmToolButton(selected: active, action: {
-            app.selectTool(app.lastSelectTool)
-        }) {
+        return CalmToolButton(
+            selected: active,
+            action: { app.selectTool(app.lastSelectTool) },
+            tooltip: l10n.selectionTools,
+            tooltipEdge: .trailing
+        ) {
             selectionIcon(current, color: active ? colors.accentTeal : colors.textMuted)
         }
-        .help(l10n.selectionTools)
     }
 
     private func selectPick(_ tool: CalmTool) -> some View {
-        CalmToolButton(selected: app.tool == tool, action: {
-            app.selectTool(tool)
-        }) {
+        CalmToolButton(
+            selected: app.tool == tool,
+            action: { app.selectTool(tool) },
+            tooltip: toolHelp(tool),
+            tooltipEdge: .trailing
+        ) {
             selectionIcon(tool, color: app.tool == tool ? colors.accentTeal : colors.textMuted)
         }
     }
@@ -200,7 +221,30 @@ struct ToolsPanel: View {
     }
 
     private func toolButton<Icon: View>(_ tool: CalmTool, @ViewBuilder icon: () -> Icon) -> some View {
-        CalmToolButton(selected: app.tool == tool, action: { app.selectTool(tool) }) { icon() }
+        CalmToolButton(
+            selected: app.tool == tool,
+            action: { app.selectTool(tool) },
+            tooltip: toolHelp(tool),
+            tooltipEdge: .trailing
+        ) { icon() }
+    }
+
+    private func toolHelp(_ tool: CalmTool) -> String {
+        switch tool {
+        case .pen: return l10n.toolPen
+        case .eraser: return l10n.toolEraser
+        case .bucket: return l10n.toolBucket
+        case .line: return l10n.toolLine
+        case .rect: return l10n.toolRect
+        case .ellipse: return l10n.toolEllipse
+        case .arrow: return l10n.toolArrow
+        case .triangle: return l10n.toolTriangle
+        case .pentagon: return l10n.toolPentagon
+        case .selectRect: return l10n.toolSelectRect
+        case .selectEllipse: return l10n.toolSelectEllipse
+        case .selectLasso: return l10n.toolSelectLasso
+        case .eyedropper: return l10n.toolEyedropper
+        }
     }
 
     private func iconColor(_ tool: CalmTool) -> Color {

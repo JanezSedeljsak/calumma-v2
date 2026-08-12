@@ -89,6 +89,14 @@ typedef struct CalmProjectInfo {
     uint32_t accent;
 } CalmProjectInfo;
 
+typedef struct CalmWorkspaceInfo {
+    char *id;
+    char *name;
+    uint32_t accent;
+    char *active_project_id;
+    int64_t opened_at;
+} CalmWorkspaceInfo;
+
 void calm_string_free(char *s);
 void calm_buffer_free(uint8_t *ptr, size_t len);
 
@@ -104,7 +112,11 @@ CalmStatus calm_engine_pointer_down(CalmEngine *engine, float x, float y);
 CalmStatus calm_engine_pointer_move(CalmEngine *engine, float x, float y);
 CalmStatus calm_engine_pointer_up(CalmEngine *engine, float x, float y);
 CalmStatus calm_engine_pan(CalmEngine *engine, float dx, float dy);
+
+CalmStatus calm_engine_pan_scroll(CalmEngine *engine, float dx, float dy, uint8_t precise);
 CalmStatus calm_engine_zoom(CalmEngine *engine, float x, float y, float factor);
+CalmStatus calm_engine_zoom_scroll(CalmEngine *engine, float x, float y, float delta,
+                                   uint8_t precise);
 CalmStatus calm_engine_fit(CalmEngine *engine);
 CalmStatus calm_engine_set_zoom(CalmEngine *engine, float zoom);
 CalmStatus calm_engine_step_zoom(CalmEngine *engine, uint8_t zoom_in);
@@ -118,11 +130,15 @@ CalmStatus calm_project_set_accent(CalmEngine *engine, const char *id, uint32_t 
 
 CalmStatus calm_engine_set_tool(CalmEngine *engine, uint32_t tool);
 CalmStatus calm_engine_set_color(CalmEngine *engine, uint8_t r, uint8_t g, uint8_t b, uint8_t a);
+CalmStatus calm_engine_sample_color(CalmEngine *engine, float x, float y, uint32_t *out_rgba);
+CalmStatus calm_engine_pick_color(CalmEngine *engine, float x, float y, uint32_t *out_rgba);
 CalmStatus calm_engine_set_brush(CalmEngine *engine, float size);
 CalmStatus calm_engine_set_fill(CalmEngine *engine, uint8_t fill);
 CalmStatus calm_engine_set_dark(CalmEngine *engine, uint8_t dark);
 CalmStatus calm_engine_set_shift(CalmEngine *engine, uint8_t held);
 CalmStatus calm_engine_reset_layer_transform(CalmEngine *engine, uint32_t index);
+CalmStatus calm_engine_toggle_transform(CalmEngine *engine);
+CalmStatus calm_engine_exit_transform(CalmEngine *engine);
 
 CalmStatus calm_engine_undo(CalmEngine *engine);
 CalmStatus calm_engine_redo(CalmEngine *engine);
@@ -162,6 +178,23 @@ CalmStatus calm_project_close(CalmEngine *engine);
 size_t calm_project_list(CalmEngine *engine, CalmProjectInfo *out, size_t cap);
 CalmStatus calm_project_delete(CalmEngine *engine, const char *id);
 CalmStatus calm_project_save(CalmEngine *engine);
+CalmStatus calm_project_thumbnail(CalmEngine *engine, const char *project_id, uint8_t **out_png, size_t *out_len);
+
+size_t calm_workspace_list(CalmEngine *engine, CalmWorkspaceInfo *out, size_t cap);
+char *calm_workspace_create(CalmEngine *engine, const char *name);
+CalmStatus calm_workspace_rename(CalmEngine *engine, const char *id, const char *name);
+CalmStatus calm_workspace_set_accent(CalmEngine *engine, const char *id, uint32_t accent);
+CalmStatus calm_workspace_delete(CalmEngine *engine, const char *id);
+CalmStatus calm_workspace_add_project(CalmEngine *engine, const char *workspace_id, const char *project_id);
+CalmStatus calm_workspace_remove_project(CalmEngine *engine, const char *workspace_id, const char *project_id);
+size_t calm_workspace_projects(CalmEngine *engine, const char *workspace_id, CalmProjectInfo *out, size_t cap);
+CalmStatus calm_workspace_set_active_project(CalmEngine *engine, const char *workspace_id, const char *project_id);
+CalmStatus calm_workspace_touch(CalmEngine *engine, const char *id);
+CalmStatus calm_workspace_get(CalmEngine *engine, const char *id, CalmWorkspaceInfo *out);
+char *calm_workspace_create_for_project(CalmEngine *engine, const char *project_id, const char *name);
+char *calm_workspace_for_project(CalmEngine *engine, const char *project_id);
+size_t calm_open_workspace_tabs(CalmEngine *engine, char **out, size_t cap);
+CalmStatus calm_set_open_workspace_tabs(CalmEngine *engine, const char *const *ids, size_t count);
 
 CalmStatus calm_engine_install_platform_ops(CalmEngine *engine, const CalmPlatformOps *ops);
 bool calm_engine_op_available(CalmEngine *engine, uint32_t kind);

@@ -13,6 +13,9 @@ pub enum Tool {
     SelectLasso = 8,
     Fill = 9,
     Transform = 10,
+    Eyedropper = 11,
+    Triangle = 12,
+    Pentagon = 13,
 }
 
 impl Tool {
@@ -29,12 +32,23 @@ impl Tool {
             8 => Some(Self::SelectLasso),
             9 => Some(Self::Fill),
             10 => Some(Self::Transform),
+            11 => Some(Self::Eyedropper),
+            12 => Some(Self::Triangle),
+            13 => Some(Self::Pentagon),
             _ => None,
         }
     }
 
     pub fn is_shape(self) -> bool {
-        matches!(self, Tool::Line | Tool::Rect | Tool::Ellipse | Tool::Arrow)
+        matches!(
+            self,
+            Tool::Line
+                | Tool::Rect
+                | Tool::Ellipse
+                | Tool::Arrow
+                | Tool::Triangle
+                | Tool::Pentagon
+        )
     }
 
     pub fn is_selection(self) -> bool {
@@ -45,7 +59,10 @@ impl Tool {
     }
 
     pub fn takes_fill(self) -> bool {
-        matches!(self, Tool::Rect | Tool::Ellipse)
+        matches!(
+            self,
+            Tool::Rect | Tool::Ellipse | Tool::Triangle | Tool::Pentagon
+        )
     }
 }
 
@@ -95,6 +112,60 @@ fn sd_ellipse(p: (f32, f32), center: (f32, f32), radii: (f32, f32)) -> f32 {
         return -rx.min(ry);
     }
     (outer - 1.0) * outer / gradient
+}
+
+fn sd_polygon(p: (f32, f32), verts: &[(f32, f32)]) -> f32 {
+    let Some(&first) = verts.first() else {
+        return f32::MAX;
+    };
+    let mut d = {
+        let dx = p.0 - first.0;
+        let dy = p.1 - first.1;
+        dx * dx + dy * dy
+    };
+    let mut s = 1.0f32;
+    let n = verts.len();
+    for i in 0..n {
+        let j = (i + 1) % n;
+        let (e0, e1) = (verts[j].0 - verts[i].0, verts[j].1 - verts[i].1);
+        let (w0, w1) = (p.0 - verts[i].0, p.1 - verts[i].1);
+        let e_len2 = e0 * e0 + e1 * e1;
+        let t = if e_len2 > 0.0 {
+            ((w0 * e0 + w1 * e1) / e_len2).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        let (b0, b1) = (w0 - e0 * t, w1 - e1 * t);
+        d = d.min(b0 * b0 + b1 * b1);
+
+        let c0 = p.1 >= verts[i].1;
+        let c1 = p.1 < verts[j].1;
+        let c2 = e0 * w1 > e1 * w0;
+        if (c0 && c1 && c2) || (!c0 && !c1 && !c2) {
+            s = -s;
+        }
+    }
+    s * d.sqrt()
+}
+
+fn triangle_verts(start: (f32, f32), end: (f32, f32)) -> [(f32, f32); 3] {
+    let x0 = start.0.min(end.0);
+    let y0 = start.1.min(end.1);
+    let x1 = start.0.max(end.0);
+    let y1 = start.1.max(end.1);
+    [((x0 + x1) * 0.5, y0), (x1, y1), (x0, y1)]
+}
+
+fn pentagon_verts(start: (f32, f32), end: (f32, f32)) -> [(f32, f32); 5] {
+    let center = ((start.0 + end.0) * 0.5, (start.1 + end.1) * 0.5);
+    let rx = ((end.0 - start.0).abs() * 0.5).max(1e-3);
+    let ry = ((end.1 - start.1).abs() * 0.5).max(1e-3);
+    let mut verts = [(0.0, 0.0); 5];
+    for (i, slot) in verts.iter_mut().enumerate() {
+        let angle = -std::f32::consts::FRAC_PI_2 + (i as f32) * std::f32::consts::TAU / 5.0;
+        *slot = (center.0 + angle.cos() * rx, center.1 + angle.sin() * ry);
+    }
+    verts
 }
 
 impl Shape {
@@ -148,7 +219,8 @@ impl Shape {
             | Tool::SelectEllipse
             | Tool::SelectLasso
             | Tool::Fill
-            | Tool::Transform => f32::MAX,
+            | Tool::Transform
+            | Tool::Eyedropper => f32::MAX,
             Tool::Line => sd_segment(p, self.start, self.end) - self.half_width,
             Tool::Arrow => self.arrow_distance(p) - self.half_width,
             Tool::Rect => {
@@ -161,6 +233,24 @@ impl Shape {
             }
             Tool::Ellipse => {
                 let d = sd_ellipse(p, self.center(), self.half_extent());
+                if self.fill {
+                    d
+                } else {
+                    d.abs() - self.half_width
+                }
+            }
+            Tool::Triangle => {
+                let verts = triangle_verts(self.start, self.end);
+                let d = sd_polygon(p, &verts);
+                if self.fill {
+                    d
+                } else {
+                    d.abs() - self.half_width
+                }
+            }
+            Tool::Pentagon => {
+                let verts = pentagon_verts(self.start, self.end);
+                let d = sd_polygon(p, &verts);
                 if self.fill {
                     d
                 } else {

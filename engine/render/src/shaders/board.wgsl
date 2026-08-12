@@ -165,12 +165,75 @@ const TOOL_RECT: u32 = 2u;
 const TOOL_ELLIPSE: u32 = 3u;
 const TOOL_ARROW: u32 = 4u;
 const TOOL_ERASER: u32 = 5u;
+const TOOL_TRIANGLE: u32 = 12u;
+const TOOL_PENTAGON: u32 = 13u;
 
 const FILL_OUTLINE: f32 = 0.0;
 const FILL_SOLID: f32 = 1.0;
+const TAU: f32 = 6.28318530718;
+const FRAC_PI_2: f32 = 1.57079632679;
 
 fn is_filled(fill: f32) -> bool {
     return fill > 0.5;
+}
+
+fn sd_segment_pts(p: vec2<f32>, a: vec2<f32>, b: vec2<f32>) -> f32 {
+    let pa = p - a;
+    let ba = b - a;
+    let h = select(0.0, clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0), dot(ba, ba) > 0.0);
+    return length(pa - ba * h);
+}
+
+fn sd_polygon3(p: vec2<f32>, v0: vec2<f32>, v1: vec2<f32>, v2: vec2<f32>) -> f32 {
+    var d = dot(p - v0, p - v0);
+    var s = 1.0;
+    let e0 = v1 - v0;
+    let w0 = p - v0;
+    let b0 = w0 - e0 * select(0.0, clamp(dot(w0, e0) / dot(e0, e0), 0.0, 1.0), dot(e0, e0) > 0.0);
+    d = min(d, dot(b0, b0));
+    let c00 = p.y >= v0.y;
+    let c01 = p.y < v1.y;
+    let c02 = e0.x * w0.y > e0.y * w0.x;
+    if (c00 && c01 && c02) || (!c00 && !c01 && !c02) { s = -s; }
+
+    let e1 = v2 - v1;
+    let w1 = p - v1;
+    let b1 = w1 - e1 * select(0.0, clamp(dot(w1, e1) / dot(e1, e1), 0.0, 1.0), dot(e1, e1) > 0.0);
+    d = min(d, dot(b1, b1));
+    let c10 = p.y >= v1.y;
+    let c11 = p.y < v2.y;
+    let c12 = e1.x * w1.y > e1.y * w1.x;
+    if (c10 && c11 && c12) || (!c10 && !c11 && !c12) { s = -s; }
+
+    let e2 = v0 - v2;
+    let w2 = p - v2;
+    let b2 = w2 - e2 * select(0.0, clamp(dot(w2, e2) / dot(e2, e2), 0.0, 1.0), dot(e2, e2) > 0.0);
+    d = min(d, dot(b2, b2));
+    let c20 = p.y >= v2.y;
+    let c21 = p.y < v0.y;
+    let c22 = e2.x * w2.y > e2.y * w2.x;
+    if (c20 && c21 && c22) || (!c20 && !c21 && !c22) { s = -s; }
+
+    return s * sqrt(d);
+}
+
+fn sd_polygon5(p: vec2<f32>, v: array<vec2<f32>, 5>) -> f32 {
+    var d = dot(p - v[0], p - v[0]);
+    var s = 1.0;
+    for (var i = 0u; i < 5u; i = i + 1u) {
+        let j = (i + 1u) % 5u;
+        let e = v[j] - v[i];
+        let w = p - v[i];
+        let b = w - e * select(0.0, clamp(dot(w, e) / dot(e, e), 0.0, 1.0), dot(e, e) > 0.0);
+        d = min(d, dot(b, b));
+        let c0 = p.y >= v[i].y;
+        let c1 = p.y < v[j].y;
+        let c2 = e.x * w.y > e.y * w.x;
+        if (c0 && c1 && c2) || (!c0 && !c1 && !c2) {
+            s = -s;
+        }
+    }
+    return s * sqrt(d);
 }
 
 fn shape_distance(tool: u32, p0: vec2<f32>, p1: vec2<f32>, half_width: f32, fill: f32, p: vec2<f32>) -> f32 {
@@ -197,14 +260,8 @@ fn shape_distance(tool: u32, p0: vec2<f32>, p1: vec2<f32>, half_width: f32, fill
                 let c = cos(ang);
                 let left = p1 + vec2<f32>(ux * c - uy * s, ux * s + uy * c);
                 let right = p1 + vec2<f32>(ux * c + uy * s, -ux * s + uy * c);
-                let pa_l = p - p1;
-                let ba_l = left - p1;
-                let h_l = select(0.0, clamp(dot(pa_l, ba_l) / dot(ba_l, ba_l), 0.0, 1.0), dot(ba_l, ba_l) > 0.0);
-                let pa_r = p - p1;
-                let ba_r = right - p1;
-                let h_r = select(0.0, clamp(dot(pa_r, ba_r) / dot(ba_r, ba_r), 0.0, 1.0), dot(ba_r, ba_r) > 0.0);
-                d = min(d, length(pa_l - ba_l * h_l));
-                d = min(d, length(pa_r - ba_r * h_r));
+                d = min(d, sd_segment_pts(p, p1, left));
+                d = min(d, sd_segment_pts(p, p1, right));
             }
             return d - half_width;
         }
@@ -235,6 +292,35 @@ fn shape_distance(tool: u32, p0: vec2<f32>, p1: vec2<f32>, half_width: f32, fill
                 return ed;
             }
             return abs(ed) - half_width;
+        }
+        case TOOL_TRIANGLE: {
+            let x0 = min(p0.x, p1.x);
+            let y0 = min(p0.y, p1.y);
+            let x1 = max(p0.x, p1.x);
+            let y1 = max(p0.y, p1.y);
+            let v0 = vec2<f32>((x0 + x1) * 0.5, y0);
+            let v1 = vec2<f32>(x1, y1);
+            let v2 = vec2<f32>(x0, y1);
+            let d = sd_polygon3(p, v0, v1, v2);
+            if is_filled(fill) {
+                return d;
+            }
+            return abs(d) - half_width;
+        }
+        case TOOL_PENTAGON: {
+            let center = (p0 + p1) * 0.5;
+            let rx = max(abs(p1.x - p0.x) * 0.5, 1e-3);
+            let ry = max(abs(p1.y - p0.y) * 0.5, 1e-3);
+            var verts: array<vec2<f32>, 5>;
+            for (var i = 0u; i < 5u; i = i + 1u) {
+                let angle = -FRAC_PI_2 + f32(i) * TAU / 5.0;
+                verts[i] = center + vec2<f32>(cos(angle) * rx, sin(angle) * ry);
+            }
+            let d = sd_polygon5(p, verts);
+            if is_filled(fill) {
+                return d;
+            }
+            return abs(d) - half_width;
         }
         case TOOL_PEN, default: {
             return 1e9;

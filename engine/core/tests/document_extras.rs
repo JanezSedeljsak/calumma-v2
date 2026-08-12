@@ -145,7 +145,11 @@ fn tool_helpers() {
     assert!(!Tool::Pen.is_shape());
     assert!(Tool::Line.is_shape());
     assert!(Tool::Rect.takes_fill());
+    assert!(Tool::Triangle.takes_fill());
+    assert!(Tool::Pentagon.takes_fill());
     assert!(!Tool::Line.takes_fill());
     assert_eq!(Tool::from_u32(2), Some(Tool::Rect));
+    assert_eq!(Tool::from_u32(12), Some(Tool::Triangle));
+    assert_eq!(Tool::from_u32(13), Some(Tool::Pentagon));
     assert_eq!(Tool::from_u32(99), None);
 }

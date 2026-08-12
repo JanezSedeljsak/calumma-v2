@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import QuartzCore
 import SwiftUI
 
 enum CalmBlendMode: UInt32, CaseIterable, Identifiable {
@@ -33,11 +34,13 @@ enum CalmTool: UInt32 {
     case selectEllipse = 7
     case selectLasso = 8
     case bucket = 9
-    case transform = 10
+    case eyedropper = 11
+    case triangle = 12
+    case pentagon = 13
 
     var isShape: Bool {
         switch self {
-        case .line, .rect, .ellipse, .arrow: return true
+        case .line, .rect, .ellipse, .arrow, .triangle, .pentagon: return true
         default: return false
         }
     }
@@ -57,6 +60,16 @@ struct ProjectInfo: Identifiable, Hashable {
     let height: Int
     let openedAt: Int64
     var accent: UInt32 = 0
+
+    var accentColor: Color { Color(rgb: accent) }
+}
+
+struct WorkspaceInfo: Identifiable, Hashable {
+    let id: String
+    var name: String
+    var accent: UInt32
+    var activeProjectId: String?
+    let openedAt: Int64
 
     var accentColor: Color { Color(rgb: accent) }
 }
@@ -110,11 +123,21 @@ final class Engine: ObservableObject, @unchecked Sendable {
     private var ptr: OpaquePointer?
     @Published var state = EngineState()
     @Published var recents: [ProjectInfo] = []
+    @Published var workspaces: [WorkspaceInfo] = []
     @Published var layerNames: [String] = []
     @Published var layerVisibles: [Bool] = []
     @Published var layerOpacities: [Float] = []
     @Published var layerBlendModes: [CalmBlendMode] = []
     @Published var layerAdjustments: [LayerAdjustments] = []
+    @Published private(set) var thumbnailRevision: UInt64 = 0
+
+    /// A fit asked for while the window is still growing to its final size lands against
+    /// the viewport the board *had*, which is how a freshly opened project ends up
+    /// off-centre. `fitToScreen` keeps the request open for this long so every resize that
+    /// arrives in the meantime re-fits, and the board settles on the size the user sees.
+    private static let fitGraceSeconds: CFTimeInterval = 0.8
+    private var fitDeadline: CFTimeInterval = 0
+    private var stateDirty = false
 
     init() {
         ptr = calm_engine_new(nil)
@@ -122,6 +145,7 @@ final class Engine: ObservableObject, @unchecked Sendable {
             VisionPlatformOps.install(into: ptr)
         }
         refreshRecents()
+        refreshWorkspaces()
     }
 
     deinit {
@@ -140,6 +164,11 @@ final class Engine: ObservableObject, @unchecked Sendable {
     func resize(width: UInt32, height: UInt32, scale: Float) {
         guard let ptr else { return }
         _ = calm_engine_resize(ptr, width, height, scale)
+        if CACurrentMediaTime() < fitDeadline {
+            _ = calm_engine_fit(ptr)
+        }
+        // The zoom bounds are viewport-relative, so the slider is stale until this lands.
+        syncStateSoon()
     }
 
     func resizeDocument(width: Int, height: Int) {
@@ -175,19 +204,46 @@ final class Engine: ObservableObject, @unchecked Sendable {
 
     func pan(dx: Float, dy: Float) {
         guard let ptr else { return }
+        fitDeadline = 0
         _ = calm_engine_pan(ptr, dx, dy)
-        syncState()
+        syncStateSoon()
+    }
+
+    func panScroll(dx: Float, dy: Float, precise: Bool) {
+        guard let ptr else { return }
+        fitDeadline = 0
+        _ = calm_engine_pan_scroll(ptr, dx, dy, precise ? 1 : 0)
+        syncStateSoon()
     }
 
     func zoom(x: Float, y: Float, factor: Float) {
         guard let ptr else { return }
+        fitDeadline = 0
         _ = calm_engine_zoom(ptr, x, y, factor)
-        syncState()
+        syncStateSoon()
+    }
+
+    func zoomScroll(x: Float, y: Float, delta: Float, precise: Bool) {
+        guard let ptr else { return }
+        fitDeadline = 0
+        _ = calm_engine_zoom_scroll(ptr, x, y, delta, precise ? 1 : 0)
+        syncStateSoon()
     }
 
     func fit() {
         guard let ptr else { return }
+        fitDeadline = 0
         _ = calm_engine_fit(ptr)
+        syncState()
+    }
+
+    /// Fit now *and* on every resize for the next moment — see `fitGraceSeconds`. Use this
+    /// wherever the board is shown for the first time (opening a project, attaching the
+    /// surface); `fit()` is the plain one for a user asking to fit right now.
+    func fitToScreen() {
+        guard let ptr else { return }
+        _ = calm_engine_fit(ptr)
+        fitDeadline = CACurrentMediaTime() + Self.fitGraceSeconds
         syncState()
     }
 
@@ -264,6 +320,32 @@ final class Engine: ObservableObject, @unchecked Sendable {
         _ = calm_engine_set_color(ptr, channel(r), channel(g), channel(b), channel(a))
     }
 
+    func sampleColor(x: Float, y: Float) -> Color? {
+        guard let ptr else { return nil }
+        var packed: UInt32 = 0
+        guard calm_engine_sample_color(ptr, x, y, &packed) == CalmStatusOk else {
+            return nil
+        }
+        return Self.color(fromPackedRGBA: packed)
+    }
+
+    func pickColor(x: Float, y: Float) -> Color? {
+        guard let ptr else { return nil }
+        var packed: UInt32 = 0
+        guard calm_engine_pick_color(ptr, x, y, &packed) == CalmStatusOk else {
+            return nil
+        }
+        return Self.color(fromPackedRGBA: packed)
+    }
+
+    private static func color(fromPackedRGBA packed: UInt32) -> Color {
+        let r = Double((packed >> 24) & 0xFF) / 255
+        let g = Double((packed >> 16) & 0xFF) / 255
+        let b = Double((packed >> 8) & 0xFF) / 255
+        let a = Double(packed & 0xFF) / 255
+        return Color(.sRGB, red: r, green: g, blue: b, opacity: a)
+    }
+
     private func channel(_ value: CGFloat) -> UInt8 {
         let scaled = (value * 255).rounded()
         guard scaled.isFinite else { return 0 }
@@ -294,6 +376,19 @@ final class Engine: ObservableObject, @unchecked Sendable {
     func resetLayerTransform(_ index: Int) {
         guard let ptr else { return }
         _ = calm_engine_reset_layer_transform(ptr, UInt32(index))
+        render()
+    }
+
+    func toggleTransform() {
+        guard let ptr else { return }
+        _ = calm_engine_toggle_transform(ptr)
+        render()
+        syncState()
+    }
+
+    func exitTransform() {
+        guard let ptr else { return }
+        _ = calm_engine_exit_transform(ptr)
         render()
     }
 
@@ -460,7 +555,260 @@ final class Engine: ObservableObject, @unchecked Sendable {
     func save() {
         guard let ptr else { return }
         _ = calm_project_save(ptr)
+        bumpThumbnailRevision()
         refreshRecents()
+    }
+
+    func bumpThumbnailRevision() {
+        thumbnailRevision &+= 1
+    }
+
+    func projectThumbnailPNG(projectId: String) -> Data? {
+        guard let ptr else { return nil }
+        var out: UnsafeMutablePointer<UInt8>?
+        var len: Int = 0
+        let status = projectId.withCString { calm_project_thumbnail(ptr, $0, &out, &len) }
+        guard status == CalmStatusOk, let out, len > 0 else { return nil }
+        let data = Data(bytes: out, count: len)
+        calm_buffer_free(out, len)
+        return data
+    }
+
+    func refreshWorkspaces() {
+        guard let ptr else { return }
+        var buffer = Array(
+            repeating: CalmWorkspaceInfo(
+                id: nil,
+                name: nil,
+                accent: 0,
+                active_project_id: nil,
+                opened_at: 0
+            ),
+            count: 64
+        )
+        let count = buffer.withUnsafeMutableBufferPointer {
+            calm_workspace_list(ptr, $0.baseAddress, 64)
+        }
+        var items: [WorkspaceInfo] = []
+        for i in 0..<count {
+            let info = buffer[i]
+            guard let idPtr = info.id, let namePtr = info.name else { continue }
+            let active = info.active_project_id.map { String(cString: $0) }
+            items.append(
+                WorkspaceInfo(
+                    id: String(cString: idPtr),
+                    name: String(cString: namePtr),
+                    accent: info.accent,
+                    activeProjectId: active,
+                    openedAt: info.opened_at
+                )
+            )
+            calm_string_free(idPtr)
+            calm_string_free(namePtr)
+            if let activePtr = info.active_project_id {
+                calm_string_free(activePtr)
+            }
+        }
+        workspaces = items
+    }
+
+    @discardableResult
+    func createWorkspace(name: String) -> String? {
+        guard let ptr else { return nil }
+        let idPtr = name.withCString { calm_workspace_create(ptr, $0) }
+        guard let idPtr else { return nil }
+        let id = String(cString: idPtr)
+        calm_string_free(idPtr)
+        refreshWorkspaces()
+        return id
+    }
+
+    @discardableResult
+    func createWorkspaceForProject(projectId: String, name: String) -> String? {
+        guard let ptr else { return nil }
+        let idPtr = projectId.withCString { projectPtr in
+            name.withCString { namePtr in
+                calm_workspace_create_for_project(ptr, projectPtr, namePtr)
+            }
+        }
+        guard let idPtr else { return nil }
+        let id = String(cString: idPtr)
+        calm_string_free(idPtr)
+        refreshWorkspaces()
+        return id
+    }
+
+    func workspaceForProject(projectId: String) -> String? {
+        guard let ptr else { return nil }
+        let idPtr = projectId.withCString { calm_workspace_for_project(ptr, $0) }
+        guard let idPtr else { return nil }
+        let id = String(cString: idPtr)
+        calm_string_free(idPtr)
+        return id
+    }
+
+    func renameWorkspace(id: String, to name: String) {
+        guard let ptr else { return }
+        _ = id.withCString { idPtr in
+            name.withCString { namePtr in
+                calm_workspace_rename(ptr, idPtr, namePtr)
+            }
+        }
+        refreshWorkspaces()
+    }
+
+    func setWorkspaceAccent(id: String, color: Color) {
+        guard let ptr else { return }
+        _ = id.withCString { calm_workspace_set_accent(ptr, $0, color.packedRGB) }
+        refreshWorkspaces()
+    }
+
+    func deleteWorkspace(id: String) {
+        guard let ptr else { return }
+        _ = id.withCString { calm_workspace_delete(ptr, $0) }
+        refreshWorkspaces()
+    }
+
+    func addProjectToWorkspace(workspaceId: String, projectId: String) {
+        guard let ptr else { return }
+        _ = workspaceId.withCString { wsPtr in
+            projectId.withCString { projectPtr in
+                calm_workspace_add_project(ptr, wsPtr, projectPtr)
+            }
+        }
+        refreshWorkspaces()
+    }
+
+    func removeProjectFromWorkspace(workspaceId: String, projectId: String) {
+        guard let ptr else { return }
+        _ = workspaceId.withCString { wsPtr in
+            projectId.withCString { projectPtr in
+                calm_workspace_remove_project(ptr, wsPtr, projectPtr)
+            }
+        }
+        refreshWorkspaces()
+    }
+
+    func workspaceProjects(workspaceId: String) -> [ProjectInfo] {
+        guard let ptr else { return [] }
+        var buffer = Array(
+            repeating: CalmProjectInfo(
+                id: nil,
+                name: nil,
+                width: 0,
+                height: 0,
+                opened_at: 0,
+                accent: 0
+            ),
+            count: 32
+        )
+        let count = workspaceId.withCString { wsPtr in
+            buffer.withUnsafeMutableBufferPointer {
+                calm_workspace_projects(ptr, wsPtr, $0.baseAddress, 32)
+            }
+        }
+        var items: [ProjectInfo] = []
+        for i in 0..<count {
+            let info = buffer[i]
+            guard let idPtr = info.id, let namePtr = info.name else { continue }
+            items.append(
+                ProjectInfo(
+                    id: String(cString: idPtr),
+                    name: String(cString: namePtr),
+                    width: Int(info.width),
+                    height: Int(info.height),
+                    openedAt: info.opened_at,
+                    accent: info.accent
+                )
+            )
+            calm_string_free(idPtr)
+            calm_string_free(namePtr)
+        }
+        return items
+    }
+
+    func setWorkspaceActiveProject(workspaceId: String, projectId: String?) {
+        guard let ptr else { return }
+        _ = workspaceId.withCString { wsPtr in
+            if let projectId {
+                projectId.withCString { calm_workspace_set_active_project(ptr, wsPtr, $0) }
+            } else {
+                calm_workspace_set_active_project(ptr, wsPtr, nil)
+            }
+        }
+        refreshWorkspaces()
+    }
+
+    func touchWorkspace(id: String) {
+        guard let ptr else { return }
+        _ = id.withCString { calm_workspace_touch(ptr, $0) }
+        refreshWorkspaces()
+    }
+
+    func workspace(id: String) -> WorkspaceInfo? {
+        guard let ptr else { return nil }
+        var info = CalmWorkspaceInfo(
+            id: nil,
+            name: nil,
+            accent: 0,
+            active_project_id: nil,
+            opened_at: 0
+        )
+        let status = id.withCString { calm_workspace_get(ptr, $0, &info) }
+        guard status == CalmStatusOk, let idPtr = info.id, let namePtr = info.name else {
+            return nil
+        }
+        let active = info.active_project_id.map { String(cString: $0) }
+        let item = WorkspaceInfo(
+            id: String(cString: idPtr),
+            name: String(cString: namePtr),
+            accent: info.accent,
+            activeProjectId: active,
+            openedAt: info.opened_at
+        )
+        calm_string_free(idPtr)
+        calm_string_free(namePtr)
+        if let activePtr = info.active_project_id {
+            calm_string_free(activePtr)
+        }
+        return item
+    }
+
+    func loadOpenWorkspaceTabs() -> [String] {
+        guard let ptr else { return [] }
+        var buffer = Array(repeating: Optional<UnsafeMutablePointer<CChar>>.none, count: 64)
+        let count = buffer.withUnsafeMutableBufferPointer {
+            calm_open_workspace_tabs(ptr, $0.baseAddress, 64)
+        }
+        var ids: [String] = []
+        for i in 0..<count {
+            guard let idPtr = buffer[i] else { continue }
+            ids.append(String(cString: idPtr))
+            calm_string_free(idPtr)
+        }
+        return ids
+    }
+
+    func persistOpenWorkspaceTabs(_ ids: [String]) {
+        guard let ptr else { return }
+        if ids.isEmpty {
+            _ = calm_set_open_workspace_tabs(ptr, nil, 0)
+            return
+        }
+        var owned = ids.map { strdup($0) }
+        defer {
+            for item in owned {
+                if let item { free(item) }
+            }
+        }
+        owned.withUnsafeMutableBufferPointer { buffer in
+            buffer.baseAddress?.withMemoryRebound(
+                to: UnsafePointer<CChar>?.self,
+                capacity: ids.count
+            ) { rebound in
+                _ = calm_set_open_workspace_tabs(ptr, rebound, ids.count)
+            }
+        }
     }
 
     func refreshRecents() {
@@ -497,7 +845,21 @@ final class Engine: ObservableObject, @unchecked Sendable {
         recents = items
     }
 
+    /// Pan and zoom events arrive faster than the display refreshes, and every published
+    /// state drags the whole SwiftUI editor through a diff. Mark the state stale instead
+    /// and let the canvas flush it once per frame.
+    func syncStateSoon() {
+        stateDirty = true
+    }
+
+    /// Called from the render loop, so the UI still tracks the camera — just at frame rate.
+    func flushPendingState() {
+        guard stateDirty else { return }
+        syncState()
+    }
+
     func syncState() {
+        stateDirty = false
         guard let ptr else { return }
         var raw = CalmState()
         _ = calm_engine_state(ptr, &raw)

@@ -1,7 +1,18 @@
 use crate::limits::{
     FIT_PADDING, MAX_ZOOM_HARD, MAX_ZOOM_IN_FACTOR, MIN_VISIBLE_DOC_SIDE, MIN_ZOOM_FILL,
-    PAN_KEEP_VISIBLE, ZOOM_STEP,
+    PAN_KEEP_VISIBLE, SCROLL_LINE_PIXELS, SCROLL_PAN_MAX_GAIN, ZOOM_PER_SCROLL_LINE,
+    ZOOM_PER_SCROLL_PIXEL, ZOOM_STEP,
 };
+
+/// Scroll deltas reach the camera in whatever unit the input device speaks: pixels from a
+/// trackpad, lines from a wheel. Everything below works in pixels.
+fn scroll_pixels(delta: f32, precise: bool) -> f32 {
+    if precise {
+        delta
+    } else {
+        delta * SCROLL_LINE_PIXELS
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Camera {
@@ -135,6 +146,62 @@ impl Camera {
         self.pan_x += dx;
         self.pan_y += dy;
         self.clamp_to_board(doc_width, doc_height);
+    }
+
+    /// Speed-up applied to scroll-wheel panning as the board zooms out. A pointer drag
+    /// tracks the cursor one-for-one and needs no gain; a scroll notch is a fixed pixel
+    /// amount, so the same notch covers proportionally less board the further out you go.
+    /// Anchored at `fit_zoom` (gain 1 at Fit) and never less than 1.
+    pub fn scroll_pan_gain(&self, doc_width: f32, doc_height: f32) -> f32 {
+        let zoom = self.zoom.max(f32::MIN_POSITIVE);
+        (self.fit_zoom(doc_width, doc_height) / zoom).clamp(1.0, SCROLL_PAN_MAX_GAIN)
+    }
+
+    pub fn pan_by_scroll(
+        &mut self,
+        dx: f32,
+        dy: f32,
+        precise: bool,
+        doc_width: f32,
+        doc_height: f32,
+    ) {
+        let gain = self.scroll_pan_gain(doc_width, doc_height);
+        self.pan_by(
+            scroll_pixels(dx, precise) * gain,
+            scroll_pixels(dy, precise) * gain,
+            doc_width,
+            doc_height,
+        );
+    }
+
+    /// Scroll-wheel zoom, anchored under the pointer. Exponential in the delta, so a notch
+    /// multiplies the zoom by a constant factor wherever you already are on the curve.
+    /// A positive delta (content pulled down) zooms out, matching the pan direction.
+    pub fn zoom_by_scroll(
+        &mut self,
+        screen_x: f32,
+        screen_y: f32,
+        delta: f32,
+        precise: bool,
+        doc_width: f32,
+        doc_height: f32,
+    ) {
+        let weight = if precise {
+            ZOOM_PER_SCROLL_PIXEL
+        } else {
+            ZOOM_PER_SCROLL_LINE
+        };
+        let step = delta * weight;
+        if step == 0.0 {
+            return;
+        }
+        self.zoom_at(
+            screen_x,
+            screen_y,
+            self.zoom * (-step).exp(),
+            doc_width,
+            doc_height,
+        );
     }
 
     pub fn step_zoom(&mut self, zoom_in: bool, doc_width: f32, doc_height: f32) {

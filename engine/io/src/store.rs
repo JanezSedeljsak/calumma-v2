@@ -1,6 +1,8 @@
-use calumma_core::limits::RECENT_PROJECTS_LIMIT;
+use calumma_core::limits::{PROJECT_THUMB_MAX_SIDE, RECENT_PROJECTS_LIMIT};
 use calumma_core::tile::{DirtyChannel, TileCoord, TILE_BYTES};
 use calumma_core::{BlendMode, Document, Layer, LayerContent};
+use image::codecs::png::PngEncoder;
+use image::{ColorType, ImageEncoder};
 use rusqlite::{params, params_from_iter, Connection, OptionalExtension};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -31,11 +33,11 @@ pub struct ProjectListItem {
     pub accent: [u8; 3],
 }
 
-fn pack_accent(accent: [u8; 3]) -> i64 {
+pub(crate) fn pack_accent(accent: [u8; 3]) -> i64 {
     ((accent[0] as i64) << 16) | ((accent[1] as i64) << 8) | accent[2] as i64
 }
 
-fn unpack_accent(packed: i64) -> [u8; 3] {
+pub(crate) fn unpack_accent(packed: i64) -> [u8; 3] {
     [
         ((packed >> 16) & 0xFF) as u8,
         ((packed >> 8) & 0xFF) as u8,
@@ -43,18 +45,18 @@ fn unpack_accent(packed: i64) -> [u8; 3] {
     ]
 }
 
-fn accent_or_seed(packed: Option<i64>, id: &str) -> [u8; 3] {
+pub(crate) fn accent_or_seed(packed: Option<i64>, id: &str) -> [u8; 3] {
     packed
         .map(unpack_accent)
         .unwrap_or_else(|| calumma_core::palette::color_for_seed(id))
 }
 
 pub struct ProjectStore {
-    conn: Connection,
+    pub(crate) conn: Connection,
     path: PathBuf,
 }
 
-fn now_secs() -> i64 {
+pub(crate) fn now_secs() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)
@@ -124,7 +126,8 @@ impl ProjectStore {
 
     fn migrate(&self) -> Result<(), StoreError> {
         self.migrate_projects()?;
-        self.migrate_layers()
+        self.migrate_layers()?;
+        self.migrate_workspaces()
     }
 
     fn migrate_projects(&self) -> Result<(), StoreError> {
@@ -451,7 +454,35 @@ impl ProjectStore {
 
         tx.commit()?;
         doc.clear_layer_dirty(DirtyChannel::Store);
+        self.write_project_thumbnail(doc)?;
         Ok(())
+    }
+
+    fn write_project_thumbnail(&self, doc: &Document) -> Result<(), StoreError> {
+        let (w, h, rgba) = doc.composite_thumbnail(PROJECT_THUMB_MAX_SIDE);
+        let mut png = Vec::new();
+        let encoder = PngEncoder::new(&mut png);
+        encoder
+            .write_image(&rgba, w, h, ColorType::Rgba8.into())
+            .map_err(|e| StoreError::Io(std::io::Error::other(e)))?;
+        self.conn.execute(
+            "UPDATE projects SET thumb = ?1 WHERE id = ?2",
+            params![png, doc.id],
+        )?;
+        Ok(())
+    }
+
+    pub fn project_thumbnail(&self, id: &str) -> Result<Vec<u8>, StoreError> {
+        let thumb: Option<Vec<u8>> = self
+            .conn
+            .query_row(
+                "SELECT thumb FROM projects WHERE id = ?1",
+                params![id],
+                |row| row.get(0),
+            )
+            .optional()?
+            .ok_or(StoreError::NotFound)?;
+        thumb.ok_or(StoreError::NotFound)
     }
 
     pub fn rename(&self, id: &str, name: &str) -> Result<(), StoreError> {

@@ -69,7 +69,7 @@ extension AppModel {
             return true
         }
         if flags.contains(.command), chars.lowercased() == "t" {
-            selectTool(.transform)
+            engine.toggleTransform()
             return true
         }
         if flags.contains(.command), flags.contains(.option), chars.lowercased() == "l" {
@@ -82,9 +82,12 @@ extension AppModel {
         case "r": selectTool(.rect)
         case "o": selectTool(.ellipse)
         case "a": selectTool(.arrow)
+        case "t": selectTool(.triangle)
+        case "y": selectTool(.pentagon)
         case "e": selectTool(.eraser)
         case "m": selectTool(lastSelectTool)
         case "g": selectTool(.bucket)
+        case "i": selectTool(.eyedropper)
         case "f": fill.toggle()
         case "0": engine.fit()
         case "[": brushSize = max(1, brushSize - 1)

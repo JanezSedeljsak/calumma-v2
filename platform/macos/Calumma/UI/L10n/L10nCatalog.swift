@@ -81,7 +81,24 @@ struct L10nCatalog: Equatable {
     var resolution: String { self["resolution"] }
     var create: String { self["create"] }
     var newProject: String { self["newProject"] }
+    var addLayer: String { self["addLayer"] }
+    var showWorkspaces: String { self["showWorkspaces"] }
+    var addWorkspace: String { self["addWorkspace"] }
+    var deleteWorkspace: String { self["deleteWorkspace"] }
+    var deleteProject: String { self["deleteProject"] }
+    var layerVisibility: String { self["layerVisibility"] }
+    var layerSettings: String { self["layerSettings"] }
+    var deleteLayer: String { self["deleteLayer"] }
+    var zoomIn: String { self["zoomIn"] }
+    var zoomOut: String { self["zoomOut"] }
     var untitled: String { self["untitled"] }
+    var untitledWorkspace: String { self["untitledWorkspace"] }
+    var workspaces: String { self["workspaces"] }
+    var workspaceName: String { self["workspaceName"] }
+    var workspaceColor: String { self["workspaceColor"] }
+    var newWorkspace: String { self["newWorkspace"] }
+    var noWorkspaces: String { self["noWorkspaces"] }
+    var deleteWorkspaceTitle: String { self["deleteWorkspaceTitle"] }
     var presets: String { self["presets"] }
     var recents: String { self["recents"] }
     var noRecents: String { self["noRecents"] }
@@ -95,6 +112,7 @@ struct L10nCatalog: Equatable {
     var shapes: String { self["shapes"] }
     var zoom: String { self["zoom"] }
     var ai: String { self["ai"] }
+    var aiTools: String { self["aiTools"] }
     var removeBackground: String { self["removeBackground"] }
     var cutBackground: String { self["cutBackground"] }
     var undo: String { self["undo"] }
@@ -137,9 +155,21 @@ struct L10nCatalog: Equatable {
     var toolPen: String { self["toolPen"] }
     var toolEraser: String { self["toolEraser"] }
     var toolBucket: String { self["toolBucket"] }
+    var toolEyedropper: String { self["toolEyedropper"] }
     var toolTransform: String { self["toolTransform"] }
+    var toolLine: String { self["toolLine"] }
+    var toolRect: String { self["toolRect"] }
+    var toolEllipse: String { self["toolEllipse"] }
+    var toolArrow: String { self["toolArrow"] }
+    var toolTriangle: String { self["toolTriangle"] }
+    var toolPentagon: String { self["toolPentagon"] }
+    var toolSelectRect: String { self["toolSelectRect"] }
+    var toolSelectEllipse: String { self["toolSelectEllipse"] }
+    var toolSelectLasso: String { self["toolSelectLasso"] }
     var brushSize: String { self["brushSize"] }
     var color: String { self["color"] }
+    var primaryColor: String { self["primaryColor"] }
+    var secondaryColor: String { self["secondaryColor"] }
     var hex: String { self["hex"] }
 
     func languageName(_ language: AppLanguage) -> String {

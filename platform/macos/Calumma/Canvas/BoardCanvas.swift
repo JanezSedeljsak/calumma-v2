@@ -15,10 +15,10 @@ struct BoardCanvas: NSViewRepresentable {
         view.delegate = context.coordinator
         view.enableSetNeedsDisplay = false
         view.isPaused = false
-        view.preferredFramesPerSecond = 60
+        view.preferredFramesPerSecond = NSScreen.main?.maximumFramesPerSecond ?? 60
         view.framebufferOnly = true
         view.colorPixelFormat = .bgra8Unorm_srgb
-        view.clearColor = MTLClearColor(red: 0.05, green: 0.07, blue: 0.09, alpha: 1)
+        view.clearColor = MTLClearColor(red: 0.055, green: 0.071, blue: 0.086, alpha: 1)
         view.autoResizeDrawable = true
         view.boardCoordinator = context.coordinator
         view.wantsLayer = true
@@ -44,10 +44,17 @@ struct BoardCanvas: NSViewRepresentable {
         }
     }
 
+    private struct Surface: Equatable {
+        var width: UInt32
+        var height: UInt32
+        var scale: Float
+    }
+
     final class Coordinator: NSObject, MTKViewDelegate {
         let engine: Engine
         var spacePan = false
         private var attached = false
+        private var lastSurface: Surface?
 
         init(engine: Engine) {
             self.engine = engine
@@ -57,30 +64,51 @@ struct BoardCanvas: NSViewRepresentable {
             guard let layer = view.layer else { return }
             let scale = Float(view.window?.backingScaleFactor ?? view.layer?.contentsScale ?? 2)
             layer.contentsScale = CGFloat(scale)
-            let width = UInt32(max(view.bounds.width, 1).rounded())
-            let height = UInt32(max(view.bounds.height, 1).rounded())
+            let next = currentSurface(of: view, scale: scale)
             if !attached {
                 let layerPtr = Unmanaged.passUnretained(layer).toOpaque()
-                engine.attach(layer: layerPtr, width: width, height: height, scale: scale)
+                engine.attach(
+                    layer: layerPtr,
+                    width: next.width,
+                    height: next.height,
+                    scale: scale
+                )
                 attached = true
-                engine.fit()
+                lastSurface = next
+                engine.fitToScreen()
             } else {
-                engine.resize(width: width, height: height, scale: scale)
+                resize(to: next)
             }
         }
 
         func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {
             let scale = Float(view.window?.backingScaleFactor ?? view.layer?.contentsScale ?? 2)
             view.layer?.contentsScale = CGFloat(scale)
-            let width = UInt32(max(view.bounds.width, 1).rounded())
-            let height = UInt32(max(view.bounds.height, 1).rounded())
-            engine.resize(width: width, height: height, scale: scale)
+            resize(to: currentSurface(of: view, scale: scale))
+        }
+
+        private func currentSurface(of view: MTKView, scale: Float) -> Surface {
+            Surface(
+                width: UInt32(max(view.bounds.width, 1).rounded()),
+                height: UInt32(max(view.bounds.height, 1).rounded()),
+                scale: scale
+            )
+        }
+
+        /// SwiftUI re-runs `updateNSView` on every published engine state, and a resize
+        /// publishes state of its own — so a resize per update would loop. Only a real size
+        /// change reaches the engine.
+        private func resize(to next: Surface) {
+            guard lastSurface != next else { return }
+            lastSurface = next
+            engine.resize(width: next.width, height: next.height, scale: next.scale)
         }
 
         func draw(in view: MTKView) {
             if !attached {
                 attachIfNeeded(view: view)
             }
+            engine.flushPendingState()
             engine.render()
         }
 
@@ -141,6 +169,7 @@ final class BoardMTKView: MTKView {
         super.viewDidMoveToWindow()
         let scale = window?.backingScaleFactor ?? 2
         layer?.contentsScale = scale
+        syncRefreshRate()
         boardCoordinator?.attachIfNeeded(view: self)
         refreshCursor()
     }
@@ -149,7 +178,15 @@ final class BoardMTKView: MTKView {
         super.viewDidChangeBackingProperties()
         let scale = window?.backingScaleFactor ?? 2
         layer?.contentsScale = scale
+        syncRefreshRate()
         boardCoordinator?.attachIfNeeded(view: self)
+    }
+
+    /// A ProMotion display runs at 120Hz; pinned to 60 every pan looks like it is dropping
+    /// every other frame. Follow whichever screen the window is actually on.
+    private func syncRefreshRate() {
+        let screen = window?.screen ?? NSScreen.main
+        preferredFramesPerSecond = screen?.maximumFramesPerSecond ?? 60
     }
 
     override func cursorUpdate(with event: NSEvent) {
@@ -162,10 +199,12 @@ final class BoardMTKView: MTKView {
 
     override func mouseMoved(with event: NSEvent) {
         refreshCursor()
+        updateEyedropper(with: event)
     }
 
     override func mouseExited(with event: NSEvent) {
         NSCursor.arrow.set()
+        MainActor.assumeIsolated { app?.clearEyedropperLoupe() }
     }
 
     override func flagsChanged(with event: NSEvent) {
@@ -179,6 +218,15 @@ final class BoardMTKView: MTKView {
         if shouldPan(with: event) {
             panning = true
             lastDrag = point
+            refreshCursor()
+        } else if MainActor.assumeIsolated({ app?.tool == .eyedropper }) {
+            if let color = coordinator.engine.pickColor(x: Float(point.x), y: Float(point.y)) {
+                let local = convert(event.locationInWindow, from: nil)
+                let uiPoint = CGPoint(x: local.x, y: bounds.height - local.y)
+                MainActor.assumeIsolated {
+                    app?.applyEyedropperSample(color, at: uiPoint)
+                }
+            }
             refreshCursor()
         } else {
             painting = true
@@ -195,6 +243,8 @@ final class BoardMTKView: MTKView {
             coordinator.engine.pan(dx: Float(point.x - lastDrag.x), dy: Float(point.y - lastDrag.y))
             self.lastDrag = point
             refreshCursor()
+        } else if MainActor.assumeIsolated({ app?.tool == .eyedropper }) {
+            updateEyedropper(with: event)
         } else if painting {
             coordinator.engine.setShift(event.modifierFlags.contains(.shift))
             coordinator.engine.pointerMove(x: Float(point.x), y: Float(point.y))
@@ -252,11 +302,20 @@ final class BoardMTKView: MTKView {
         guard let coordinator = boardCoordinator else { return }
         let point = coordinator.screenPoint(in: self, event: event)
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        let precise = event.hasPreciseScrollingDeltas
         if flags.contains(.command) || flags.contains(.option) {
-            let factor = exp(-Float(event.scrollingDeltaY) * 0.01)
-            coordinator.engine.zoom(x: Float(point.x), y: Float(point.y), factor: factor)
+            coordinator.engine.zoomScroll(
+                x: Float(point.x),
+                y: Float(point.y),
+                delta: Float(event.scrollingDeltaY),
+                precise: precise
+            )
         } else {
-            coordinator.engine.pan(dx: Float(event.scrollingDeltaX), dy: -Float(event.scrollingDeltaY))
+            coordinator.engine.panScroll(
+                dx: Float(event.scrollingDeltaX),
+                dy: Float(event.scrollingDeltaY),
+                precise: precise
+            )
         }
     }
 
@@ -284,6 +343,25 @@ final class BoardMTKView: MTKView {
         if spaceHeld { return true }
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         return flags.contains(.option) || flags.contains(.command)
+    }
+
+    private func updateEyedropper(with event: NSEvent) {
+        guard let coordinator = boardCoordinator else { return }
+        let eyedropper = MainActor.assumeIsolated { app?.tool == .eyedropper }
+        guard eyedropper, !panning, !spaceHeld else {
+            MainActor.assumeIsolated { app?.clearEyedropperLoupe() }
+            return
+        }
+        let point = coordinator.screenPoint(in: self, event: event)
+        let local = convert(event.locationInWindow, from: nil)
+        let uiPoint = CGPoint(x: local.x, y: bounds.height - local.y)
+        if let color = coordinator.engine.sampleColor(x: Float(point.x), y: Float(point.y)) {
+            MainActor.assumeIsolated {
+                app?.applyEyedropperSample(color, at: uiPoint)
+            }
+        } else {
+            MainActor.assumeIsolated { app?.clearEyedropperLoupe() }
+        }
     }
 
     func refreshCursor() {

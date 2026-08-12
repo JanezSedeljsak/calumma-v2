@@ -137,8 +137,12 @@ struct NewProjectView: View {
                         } label: {
                             CalmRow(
                                 leading: {
-                                    CalmThumb(tint: project.accentColor)
-                                        .overlay(AppIcon.image(color: .white.opacity(0.9)))
+                                    ProjectThumbView(
+                                        projectId: project.id,
+                                        tint: project.accentColor,
+                                        width: 36,
+                                        height: 36
+                                    )
                                 },
                                 title: project.name,
                                 subtitle: "\(project.width) × \(project.height)",
@@ -154,6 +158,7 @@ struct NewProjectView: View {
                             AppIcon.trash(color: colors.danger)
                         }
                         .buttonStyle(.plain)
+                        .help(l10n.deleteProject)
                         .calmPointer()
                     }
                     .padding(Tokens.Space.md)

@@ -289,6 +289,101 @@ fn composite_rgba_blends_visible_layers_and_skips_hidden() {
 }
 
 #[test]
+fn sample_color_matches_composite_at_a_point() {
+    let mut doc = Document::new("p".into(), "t", 4, 4);
+    doc.layers[1]
+        .tiles_mut()
+        .unwrap()
+        .set_pixel(1, 1, [10, 20, 30, 255]);
+    let (_, _, rgba) = doc.composite_rgba();
+    let i = (1 * 4 + 1) * 4;
+    let expected = [rgba[i], rgba[i + 1], rgba[i + 2], rgba[i + 3]];
+    assert_eq!(doc.sample_color(1.5, 1.5), Some(expected));
+}
+
+#[test]
+fn pick_color_sets_ink_and_skips_transparent() {
+    let mut doc = Document::new("p".into(), "t", 4, 4);
+    doc.layers[0].clear();
+    doc.layers[1].clear();
+    assert_eq!(doc.sample_color(1.5, 1.5), None);
+    let before = doc.color;
+    assert!(doc.pick_color(1.5, 1.5).is_none());
+    assert_eq!(doc.color, before);
+
+    doc.layers[1]
+        .tiles_mut()
+        .unwrap()
+        .set_pixel(2, 2, [40, 50, 60, 255]);
+    assert_eq!(doc.pick_color(2.5, 2.5), Some([40, 50, 60, 255]));
+    assert_eq!(doc.color, [40, 50, 60, 255]);
+}
+
+#[test]
+fn eyedropper_tool_picks_on_pointer_down() {
+    let mut doc = Document::new("p".into(), "t", 32, 32);
+    doc.resize_viewport(32.0, 32.0, 1.0);
+    doc.fit_to_view();
+    doc.layers[1]
+        .tiles_mut()
+        .unwrap()
+        .set_pixel(8, 8, [70, 80, 90, 255]);
+    doc.tool = Tool::Eyedropper;
+    let (sx, sy) = doc.camera.to_screen(8.5, 8.5);
+    doc.pointer_down(sx, sy);
+    assert_eq!(doc.color, [70, 80, 90, 255]);
+}
+
+#[test]
+fn composite_thumbnail_crops_to_painted_pixels() {
+    let mut doc = Document::new("p".into(), "t", 200, 100);
+    doc.layers[1]
+        .tiles_mut()
+        .unwrap()
+        .set_pixel(10, 10, [1, 2, 3, 255]);
+    doc.layers[1]
+        .tiles_mut()
+        .unwrap()
+        .set_pixel(12, 11, [4, 5, 6, 255]);
+    let (w, h, rgba) = doc.composite_thumbnail(64);
+    assert!(w <= 4 && h <= 3, "expected tight crop, got {w}x{h}");
+    assert_eq!(rgba.len(), (w as usize) * (h as usize) * 4);
+}
+
+#[test]
+fn composite_thumbnail_respects_max_side() {
+    let mut doc = Document::new("p".into(), "t", 400, 200);
+    doc.layers[1]
+        .tiles_mut()
+        .unwrap()
+        .paint_rect(DocRect::new(20, 20, 219, 119), |_, _, _| {
+            Some([10, 20, 30, 255])
+        });
+    let (w, h, rgba) = doc.composite_thumbnail(64);
+    assert!(w <= 64 && h <= 64);
+    assert_eq!(rgba.len(), (w as usize) * (h as usize) * 4);
+    assert_eq!(w, 64);
+    assert_eq!(h, 32);
+}
+
+#[test]
+fn composite_thumbnail_returns_full_buffer_when_already_small() {
+    let doc = Document::new("p".into(), "t", 16, 12);
+    let (full_w, full_h, full) = doc.composite_rgba();
+    let (w, h, rgba) = doc.composite_thumbnail(256);
+    assert_eq!((w, h), (full_w, full_h));
+    assert_eq!(rgba, full);
+}
+
+#[test]
+fn composite_thumbnail_treats_zero_max_side_as_one() {
+    let doc = Document::new("p".into(), "t", 32, 32);
+    let (w, h, rgba) = doc.composite_thumbnail(0);
+    assert_eq!((w, h), (1, 1));
+    assert_eq!(rgba.len(), 4);
+}
+
+#[test]
 fn fill_tool_commits_on_pointer_down_and_undoes() {
     let mut doc = Document::new("p".into(), "t", 64, 64);
     doc.tool = Tool::Fill;
@@ -358,7 +453,7 @@ fn transform_corner_drag_scales_proportionally_without_shift() {
     doc.resize_viewport(200.0, 200.0, 1.0);
     doc.fit_to_view();
     paint_transform_target(&mut doc);
-    doc.tool = Tool::Transform;
+    assert!(doc.enter_transform());
     let (index, corners, _) = doc.transform_handles().expect("handles");
     assert_eq!(index, doc.active_layer);
     let br = corners[2];
@@ -379,7 +474,7 @@ fn transform_corner_drag_scales_freely_with_shift() {
     doc.resize_viewport(200.0, 200.0, 1.0);
     doc.fit_to_view();
     paint_transform_target(&mut doc);
-    doc.tool = Tool::Transform;
+    assert!(doc.enter_transform());
     doc.shift_held = true;
     let (_, corners, _) = doc.transform_handles().expect("handles");
     let br = corners[2];
@@ -397,7 +492,7 @@ fn transform_move_drag_updates_offset() {
     doc.resize_viewport(200.0, 200.0, 1.0);
     doc.fit_to_view();
     paint_transform_target(&mut doc);
-    doc.tool = Tool::Transform;
+    assert!(doc.enter_transform());
     let (sx, sy) = doc.camera.to_screen(100.0, 100.0);
     doc.pointer_down(sx, sy);
     let (sx2, sy2) = doc.camera.to_screen(120.0, 130.0);
@@ -413,7 +508,7 @@ fn transform_rotate_handle_updates_rotation() {
     doc.resize_viewport(200.0, 200.0, 1.0);
     doc.fit_to_view();
     paint_transform_target(&mut doc);
-    doc.tool = Tool::Transform;
+    assert!(doc.enter_transform());
     let (_, _, rotate_handle) = doc.transform_handles().expect("handles");
     let (sx, sy) = doc.camera.to_screen(rotate_handle.0, rotate_handle.1);
     doc.pointer_down(sx, sy);
@@ -429,7 +524,7 @@ fn reset_layer_transform_clears_it() {
     doc.resize_viewport(200.0, 200.0, 1.0);
     doc.fit_to_view();
     paint_transform_target(&mut doc);
-    doc.tool = Tool::Transform;
+    assert!(doc.enter_transform());
     let (_, corners, _) = doc.transform_handles().expect("handles");
     let br = corners[2];
     let (sx, sy) = doc.camera.to_screen(br.0, br.1);
@@ -445,6 +540,32 @@ fn reset_layer_transform_clears_it() {
         doc.layer_transform(doc.active_layer),
         LayerTransform::default()
     );
+}
+
+#[test]
+fn transform_click_outside_exits_mode() {
+    let mut doc = Document::new("p".into(), "t", 200, 200);
+    doc.resize_viewport(200.0, 200.0, 1.0);
+    doc.fit_to_view();
+    paint_transform_target(&mut doc);
+    assert!(doc.enter_transform());
+    assert!(doc.transform_handles().is_some());
+    let (sx, sy) = doc.camera.to_screen(-40.0, -40.0);
+    doc.pointer_down(sx, sy);
+    assert!(!doc.transform_active);
+    assert!(doc.transform_handles().is_none());
+    doc.pointer_up(sx, sy);
+}
+
+#[test]
+fn deselect_exits_transform_mode() {
+    let mut doc = Document::new("p".into(), "t", 200, 200);
+    doc.resize_viewport(200.0, 200.0, 1.0);
+    doc.fit_to_view();
+    paint_transform_target(&mut doc);
+    assert!(doc.enter_transform());
+    doc.deselect();
+    assert!(!doc.transform_active);
 }
 
 #[test]

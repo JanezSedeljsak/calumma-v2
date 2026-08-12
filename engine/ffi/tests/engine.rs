@@ -586,3 +586,231 @@ fn null_engine_pointer_is_handled_everywhere() {
     .is_null());
     assert!(!unsafe { calm_engine_op_available(ptr::null_mut(), 0) });
 }
+
+#[test]
+fn scroll_pan_and_zoom_entry_points() {
+    let engine = TestEngine::new();
+    engine.create_project("Scroll", 128, 128);
+    assert_eq!(unsafe { calm_engine_fit(engine.ptr) }, CalmStatus::Ok);
+    assert_eq!(
+        unsafe { calm_engine_pan_scroll(engine.ptr, 12.0, -8.0, 1) },
+        CalmStatus::Ok
+    );
+    assert_eq!(
+        unsafe { calm_engine_pan_scroll(engine.ptr, 12.0, -8.0, 0) },
+        CalmStatus::Ok
+    );
+    assert_eq!(
+        unsafe { calm_engine_zoom_scroll(engine.ptr, 40.0, 40.0, 1.0, 1) },
+        CalmStatus::Ok
+    );
+    assert_eq!(
+        unsafe { calm_engine_zoom_scroll(engine.ptr, 40.0, 40.0, -1.0, 0) },
+        CalmStatus::Ok
+    );
+    assert_eq!(
+        unsafe { calm_engine_pan_scroll(ptr::null_mut(), 1.0, 1.0, 1) },
+        CalmStatus::Null
+    );
+    assert_eq!(
+        unsafe { calm_engine_zoom_scroll(ptr::null_mut(), 0.0, 0.0, 1.0, 1) },
+        CalmStatus::Null
+    );
+}
+
+#[test]
+fn attach_surface_rejects_null_layer_and_empty_size() {
+    let engine = TestEngine::new();
+    engine.create_project("Surface", 32, 32);
+    assert_eq!(
+        unsafe { calm_engine_attach_surface(engine.ptr, ptr::null_mut(), 64, 64, 1.0) },
+        CalmStatus::Error
+    );
+    assert_eq!(
+        unsafe { calm_engine_attach_surface(engine.ptr, 0x1 as *mut _, 0, 64, 1.0) },
+        CalmStatus::Error
+    );
+    assert_eq!(
+        unsafe { calm_engine_attach_surface(engine.ptr, 0x1 as *mut _, 64, 0, 1.0) },
+        CalmStatus::Error
+    );
+    assert_eq!(
+        unsafe { calm_engine_attach_surface(ptr::null_mut(), 0x1 as *mut _, 64, 64, 1.0) },
+        CalmStatus::Null
+    );
+}
+
+#[test]
+fn opening_a_second_project_saves_and_replaces_the_first() {
+    let engine = TestEngine::new();
+    let first = engine.create_project("First", 16, 16);
+    let second = {
+        let name = CString::new("Second").unwrap();
+        let id_ptr = unsafe { calm_project_create(engine.ptr, name.as_ptr(), 24, 24) };
+        assert!(!id_ptr.is_null());
+        let id = unsafe { CStr::from_ptr(id_ptr) }
+            .to_str()
+            .unwrap()
+            .to_string();
+        unsafe { calm_string_free(id_ptr) };
+        id
+    };
+    assert_eq!(engine.state().width, 24);
+    let first_c = CString::new(first.as_str()).unwrap();
+    assert_eq!(
+        unsafe { calm_project_open(engine.ptr, first_c.as_ptr()) },
+        CalmStatus::Ok
+    );
+    assert_eq!(engine.state().width, 16);
+    let second_c = CString::new(second.as_str()).unwrap();
+    assert_eq!(
+        unsafe { calm_project_open(engine.ptr, second_c.as_ptr()) },
+        CalmStatus::Ok
+    );
+    assert_eq!(engine.state().width, 24);
+}
+
+extern "C" fn fake_op_unavailable(_kind: CalmOpKind) -> bool {
+    false
+}
+
+extern "C" fn fake_op_run_fail(
+    _kind: CalmOpKind,
+    _input: *const CalmOpInput,
+    _out: *mut CalmOpOutput,
+) -> c_int {
+    1
+}
+
+extern "C" fn fake_op_run_mask(
+    _kind: CalmOpKind,
+    input: *const CalmOpInput,
+    out: *mut CalmOpOutput,
+) -> c_int {
+    unsafe {
+        let inp = &*input;
+        let len = (inp.w * inp.h) as usize;
+        let buf = vec![255u8; len];
+        let boxed = buf.into_boxed_slice();
+        let data = Box::into_raw(boxed) as *mut u8;
+        *out = CalmOpOutput {
+            kind: CalmOpOutputKind::Mask,
+            data,
+            len,
+            w: inp.w,
+            h: inp.h,
+        };
+    }
+    0
+}
+
+extern "C" fn fake_op_run_none(
+    _kind: CalmOpKind,
+    _input: *const CalmOpInput,
+    out: *mut CalmOpOutput,
+) -> c_int {
+    unsafe {
+        *out = CalmOpOutput {
+            kind: CalmOpOutputKind::None,
+            data: ptr::null_mut(),
+            len: 0,
+            w: 0,
+            h: 0,
+        };
+    }
+    0
+}
+
+#[test]
+fn platform_ops_cover_unavailable_failed_and_mask_paths() {
+    let engine = TestEngine::new();
+    engine.create_project("Ops", 4, 4);
+    let active = engine.state().active_layer;
+
+    let unavailable = CalmPlatformOps {
+        available: Some(fake_op_unavailable),
+        run: Some(fake_op_run),
+        free_output: Some(fake_op_free),
+    };
+    assert_eq!(
+        unsafe { calm_engine_install_platform_ops(engine.ptr, &unavailable) },
+        CalmStatus::Ok
+    );
+    assert!(!unsafe { calm_engine_op_available(engine.ptr, 0) });
+
+    let missing_run = CalmPlatformOps {
+        available: Some(fake_op_available),
+        run: None,
+        free_output: Some(fake_op_free),
+    };
+    assert_eq!(
+        unsafe { calm_engine_install_platform_ops(engine.ptr, &missing_run) },
+        CalmStatus::Ok
+    );
+    assert_eq!(
+        unsafe { calm_engine_run_op(engine.ptr, 0, active) },
+        CalmStatus::Error
+    );
+
+    let failing = CalmPlatformOps {
+        available: Some(fake_op_available),
+        run: Some(fake_op_run_fail),
+        free_output: Some(fake_op_free),
+    };
+    assert_eq!(
+        unsafe { calm_engine_install_platform_ops(engine.ptr, &failing) },
+        CalmStatus::Ok
+    );
+    assert_eq!(
+        unsafe { calm_engine_run_op(engine.ptr, 0, active) },
+        CalmStatus::Error
+    );
+
+    let none_out = CalmPlatformOps {
+        available: Some(fake_op_available),
+        run: Some(fake_op_run_none),
+        free_output: Some(fake_op_free),
+    };
+    assert_eq!(
+        unsafe { calm_engine_install_platform_ops(engine.ptr, &none_out) },
+        CalmStatus::Ok
+    );
+    assert_eq!(
+        unsafe { calm_engine_run_op(engine.ptr, 0, active) },
+        CalmStatus::Error
+    );
+
+    let mask = CalmPlatformOps {
+        available: Some(fake_op_available),
+        run: Some(fake_op_run_mask),
+        free_output: Some(fake_op_free),
+    };
+    assert_eq!(
+        unsafe { calm_engine_install_platform_ops(engine.ptr, &mask) },
+        CalmStatus::Ok
+    );
+    assert_eq!(
+        unsafe { calm_engine_run_op(engine.ptr, 0, active) },
+        CalmStatus::Ok
+    );
+    assert!(!unsafe { calm_engine_op_available(engine.ptr, 999) });
+}
+
+#[test]
+fn create_from_image_rejects_bad_lengths_and_null_pixels() {
+    let engine = TestEngine::new();
+    let name = CString::new("Bad").unwrap();
+    let rgba = [0u8; 16];
+    assert!(unsafe {
+        calm_project_create_from_image(engine.ptr, name.as_ptr(), 2, 2, ptr::null(), 16)
+    }
+    .is_null());
+    assert!(unsafe {
+        calm_project_create_from_image(engine.ptr, name.as_ptr(), 2, 2, rgba.as_ptr(), 8)
+    }
+    .is_null());
+    assert!(unsafe {
+        calm_project_create_from_image(engine.ptr, name.as_ptr(), 0, 2, rgba.as_ptr(), 0)
+    }
+    .is_null());
+}

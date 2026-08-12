@@ -41,6 +41,14 @@ enum AppIcon {
         SvgIcon(name: "arrow", color: color)
     }
 
+    static func triangle(color: Color) -> some View {
+        SvgIcon(name: "triangle", color: color)
+    }
+
+    static func pentagon(color: Color) -> some View {
+        SvgIcon(name: "pentagon", color: color)
+    }
+
     static func ai(color: Color) -> some View {
         SvgIcon(name: "ai", color: color)
     }
@@ -87,5 +95,9 @@ enum AppIcon {
 
     static func transform(color: Color) -> some View {
         SvgIcon(name: "transform", color: color)
+    }
+
+    static func eyedropper(color: Color) -> some View {
+        SvgIcon(name: "eyedropper", color: color)
     }
 }

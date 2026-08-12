@@ -1,3 +1,4 @@
+use crate::active_renderer::ActiveRenderer;
 use crate::platform::{parse_op_kind, CalmPlatformOps, PlatformOp};
 use anyhow::{anyhow, bail, Context};
 use calumma_core::limits::{AUTOSAVE_INTERVAL_MS, BRUSH_SIZE_MAX, BRUSH_SIZE_MIN, IMPORT_MAX_SIDE};
@@ -9,7 +10,6 @@ use calumma_io::{encode_psd, ProjectListItem, ProjectStore};
 use calumma_ops::{
     apply_output, layer_input, run_op_on_document, Backend, Op, OpParams, OpRegistry,
 };
-use calumma_render::Renderer;
 use std::ffi::{c_char, c_void, CStr, CString};
 use std::os::raw::c_int;
 use std::panic::{catch_unwind, AssertUnwindSafe};
@@ -66,7 +66,7 @@ pub struct CalmProjectInfo {
     pub accent: u32,
 }
 
-fn pack_rgb(rgb: [u8; 3]) -> u32 {
+pub(crate) fn pack_rgb(rgb: [u8; 3]) -> u32 {
     ((rgb[0] as u32) << 16) | ((rgb[1] as u32) << 8) | rgb[2] as u32
 }
 
@@ -87,10 +87,17 @@ fn unpack_rgba(packed: u32) -> [u8; 4] {
     ]
 }
 
-struct Inner {
-    doc: Option<Document>,
-    store: ProjectStore,
-    renderer: Option<Renderer>,
+fn pack_rgba(rgba: [u8; 4]) -> u32 {
+    ((rgba[0] as u32) << 24)
+        | ((rgba[1] as u32) << 16)
+        | ((rgba[2] as u32) << 8)
+        | rgba[3] as u32
+}
+
+pub(crate) struct Inner {
+    pub(crate) doc: Option<Document>,
+    pub(crate) store: ProjectStore,
+    renderer: Option<ActiveRenderer>,
     instance: wgpu::Instance,
     last_save: Instant,
     dirty_save: bool,
@@ -166,7 +173,7 @@ fn report(err: &anyhow::Error) {
     let _ = err;
 }
 
-fn with_inner<F>(engine: *mut CalmEngine, f: F) -> CalmStatus
+pub(crate) fn with_inner<F>(engine: *mut CalmEngine, f: F) -> CalmStatus
 where
     F: FnOnce(&mut Inner) -> anyhow::Result<()> + std::panic::UnwindSafe,
 {
@@ -192,7 +199,7 @@ where
     }
 }
 
-fn cstring(s: &str) -> *mut c_char {
+pub(crate) fn cstring(s: &str) -> *mut c_char {
     CString::new(s)
         .map(|c| c.into_raw())
         .unwrap_or(ptr::null_mut())
@@ -249,12 +256,6 @@ pub unsafe extern "C" fn calm_engine_attach_surface(
         if layer.is_null() || w == 0 || h == 0 {
             bail!("attach needs a non-null layer and a non-empty size, got {w}x{h}");
         }
-        let surface = unsafe {
-            inner
-                .instance
-                .create_surface_unsafe(wgpu::SurfaceTargetUnsafe::CoreAnimationLayer(layer))
-                .context("creating a wgpu surface for the CoreAnimation layer")?
-        };
         let (pw, ph) = {
             let dpr = scale.max(1.0);
             (
@@ -262,9 +263,23 @@ pub unsafe extern "C" fn calm_engine_attach_surface(
                 ((h as f32 * dpr).round() as u32).max(1),
             )
         };
-        let renderer = Renderer::from_surface(surface, &inner.instance, pw, ph)
-            .map_err(|e| anyhow!("creating the Metal renderer: {e}"))?;
-        inner.renderer = Some(renderer);
+        #[cfg(test)]
+        {
+            let _ = (layer, &inner.instance, pw, ph);
+            inner.renderer = Some(ActiveRenderer::Stub);
+        }
+        #[cfg(not(test))]
+        {
+            let surface = unsafe {
+                inner
+                    .instance
+                    .create_surface_unsafe(wgpu::SurfaceTargetUnsafe::CoreAnimationLayer(layer))
+                    .context("creating a wgpu surface for the CoreAnimation layer")?
+            };
+            let renderer = calumma_render::Renderer::from_surface(surface, &inner.instance, pw, ph)
+                .map_err(|e| anyhow!("creating the Metal renderer: {e}"))?;
+            inner.renderer = Some(ActiveRenderer::Gpu(renderer));
+        }
         if let Some(doc) = &mut inner.doc {
             doc.resize_viewport(w as f32, h as f32, scale);
             doc.fit_to_view();
@@ -388,6 +403,45 @@ pub unsafe extern "C" fn calm_engine_pan(engine: *mut CalmEngine, dx: f32, dy: f
         if let Some(doc) = &mut inner.doc {
             let (w, h) = (doc.width as f32, doc.height as f32);
             doc.camera.pan_by(dx, dy, w, h);
+            if let Some(r) = &mut inner.renderer {
+                r.invalidate();
+            }
+        }
+        Ok(())
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn calm_engine_pan_scroll(
+    engine: *mut CalmEngine,
+    dx: f32,
+    dy: f32,
+    precise: u8,
+) -> CalmStatus {
+    with_inner(engine, |inner| {
+        if let Some(doc) = &mut inner.doc {
+            let (w, h) = (doc.width as f32, doc.height as f32);
+            doc.camera.pan_by_scroll(dx, dy, precise != 0, w, h);
+            if let Some(r) = &mut inner.renderer {
+                r.invalidate();
+            }
+        }
+        Ok(())
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn calm_engine_zoom_scroll(
+    engine: *mut CalmEngine,
+    x: f32,
+    y: f32,
+    delta: f32,
+    precise: u8,
+) -> CalmStatus {
+    with_inner(engine, |inner| {
+        if let Some(doc) = &mut inner.doc {
+            let (w, h) = (doc.width as f32, doc.height as f32);
+            doc.camera.zoom_by_scroll(x, y, delta, precise != 0, w, h);
             if let Some(r) = &mut inner.renderer {
                 r.invalidate();
             }
@@ -571,7 +625,13 @@ pub unsafe extern "C" fn calm_project_set_accent(
 pub unsafe extern "C" fn calm_engine_set_tool(engine: *mut CalmEngine, tool: u32) -> CalmStatus {
     with_inner(engine, |inner| {
         if let Some(doc) = &mut inner.doc {
-            doc.tool = Tool::from_u32(tool).with_context(|| format!("unknown tool id {tool}"))?;
+            let next = Tool::from_u32(tool).with_context(|| format!("unknown tool id {tool}"))?;
+            if next == Tool::Transform {
+                doc.toggle_transform();
+            } else {
+                doc.exit_transform();
+                doc.tool = next;
+            }
         }
         Ok(())
     })
@@ -588,6 +648,52 @@ pub unsafe extern "C" fn calm_engine_set_color(
     with_inner(engine, |inner| {
         if let Some(doc) = &mut inner.doc {
             doc.color = [r, g, b, a];
+        }
+        Ok(())
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn calm_engine_sample_color(
+    engine: *mut CalmEngine,
+    x: f32,
+    y: f32,
+    out_rgba: *mut u32,
+) -> CalmStatus {
+    if out_rgba.is_null() {
+        return CalmStatus::Null;
+    }
+    with_inner(engine, |inner| {
+        let doc = inner.doc.as_ref().context("no project is open")?;
+        let (dx, dy) = doc.camera.to_doc(x, y);
+        let Some(color) = doc.sample_color(dx, dy) else {
+            bail!("no opaque colour under the cursor");
+        };
+        unsafe {
+            *out_rgba = pack_rgba(color);
+        }
+        Ok(())
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn calm_engine_pick_color(
+    engine: *mut CalmEngine,
+    x: f32,
+    y: f32,
+    out_rgba: *mut u32,
+) -> CalmStatus {
+    if out_rgba.is_null() {
+        return CalmStatus::Null;
+    }
+    with_inner(engine, |inner| {
+        let doc = inner.doc.as_mut().context("no project is open")?;
+        let (dx, dy) = doc.camera.to_doc(x, y);
+        let Some(color) = doc.pick_color(dx, dy) else {
+            bail!("no opaque colour under the cursor");
+        };
+        unsafe {
+            *out_rgba = pack_rgba(color);
         }
         Ok(())
     })
@@ -647,6 +753,31 @@ pub unsafe extern "C" fn calm_engine_reset_layer_transform(
         inner.dirty_save = true;
         if let Some(r) = &mut inner.renderer {
             r.invalidate();
+        }
+        Ok(())
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn calm_engine_toggle_transform(engine: *mut CalmEngine) -> CalmStatus {
+    with_inner(engine, |inner| {
+        let doc = inner.doc.as_mut().context("no project is open")?;
+        doc.toggle_transform();
+        if let Some(r) = &mut inner.renderer {
+            r.invalidate();
+        }
+        Ok(())
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn calm_engine_exit_transform(engine: *mut CalmEngine) -> CalmStatus {
+    with_inner(engine, |inner| {
+        if let Some(doc) = &mut inner.doc {
+            doc.exit_transform();
+            if let Some(r) = &mut inner.renderer {
+                r.invalidate();
+            }
         }
         Ok(())
     })
@@ -1719,5 +1850,51 @@ pub unsafe extern "C" fn calm_engine_run_op(
     })) {
         Ok(Ok(())) => CalmStatus::Ok,
         _ => CalmStatus::Error,
+    }
+}
+
+#[cfg(test)]
+mod stub_renderer_tests {
+    use super::*;
+    use std::ffi::CString;
+
+    fn engine_with_project() -> (tempfile::TempDir, *mut CalmEngine) {
+        let dir = tempfile::tempdir().unwrap();
+        let path = CString::new(dir.path().join("t.sqlite").to_str().unwrap()).unwrap();
+        let ptr = unsafe { calm_engine_new(path.as_ptr()) };
+        assert!(!ptr.is_null());
+        let name = CString::new("StubGpu").unwrap();
+        let id = unsafe { calm_project_create(ptr, name.as_ptr(), 64, 64) };
+        assert!(!id.is_null());
+        unsafe { calm_string_free(id) };
+        (dir, ptr)
+    }
+
+    #[test]
+    fn stub_attach_drives_resize_render_and_invalidate() {
+        let (_dir, ptr) = engine_with_project();
+        let layer = 0x1 as *mut c_void;
+        unsafe {
+            assert_eq!(
+                calm_engine_attach_surface(ptr, layer, 128, 96, 2.0),
+                CalmStatus::Ok
+            );
+            assert_eq!(calm_engine_resize(ptr, 160, 120, 1.0), CalmStatus::Ok);
+            assert_eq!(calm_engine_render(ptr), CalmStatus::Ok);
+            assert_eq!(
+                calm_engine_set_tool(ptr, Tool::Pen as u32),
+                CalmStatus::Ok
+            );
+            assert_eq!(calm_engine_pointer_down(ptr, 10.0, 10.0), CalmStatus::Ok);
+            assert_eq!(calm_engine_pointer_move(ptr, 20.0, 20.0), CalmStatus::Ok);
+            assert_eq!(calm_engine_pointer_up(ptr, 20.0, 20.0), CalmStatus::Ok);
+            assert_eq!(calm_engine_pan(ptr, 2.0, 2.0), CalmStatus::Ok);
+            assert_eq!(calm_engine_zoom(ptr, 30.0, 30.0, 1.1), CalmStatus::Ok);
+            assert_eq!(calm_engine_fit(ptr), CalmStatus::Ok);
+            assert_eq!(calm_engine_render(ptr), CalmStatus::Ok);
+            assert_eq!(calm_engine_resize_document(ptr, 80, 80), CalmStatus::Ok);
+            assert_eq!(calm_engine_render(ptr), CalmStatus::Ok);
+            calm_engine_free(ptr);
+        }
     }
 }

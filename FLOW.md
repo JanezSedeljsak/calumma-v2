@@ -19,7 +19,7 @@ cleanly. Platform-specific chords live in the shell; document them here when add
 ```
 Landing ──create / open recent / drop artwork──► Editor
    ▲                                 │  ▲
-   └──────── close last tab ─────────┘  │
+   └──── close last workspace tab ───┘  │
                     │                   │
                     │        New Project window (⌘N / titlebar +)
                     │
@@ -29,12 +29,12 @@ Landing ──create / open recent / drop artwork──► Editor
 | Screen | Purpose |
 | --- | --- |
 | **Landing** | Create a project (name + resolution / presets), open a recent, or import artwork |
-| **Editor** | Draw on one board; titlebar project tabs; floating tool + layers islands |
+| **Editor** | Draw on one board; titlebar **workspace** tabs; floating tool + layers islands |
 | **New Project** | Separate small window with the same create form; opens over the Editor |
 | **Settings** | Theme + language (shell knobs only) |
 
-There is no separate “project browser” beyond Landing recents. Closing the last editor tab
-returns to Landing.
+Landing create/open wraps the project in a **workspace** (or reopens the workspace that
+already contains it). Closing the last workspace tab returns to Landing.
 
 **Landing and New Project are one view** (`NewProjectView`) in one landscape layout — you
 get the same screen whether no project is open yet (Landing, in the main window) or one
@@ -77,35 +77,41 @@ tile grid.
 
 With a board already open, the titlebar **+** (or `⌘N`) opens a separate, smaller window
 carrying the same landscape screen — form, presets, recents, Paste Artwork island. Creating
-from it adds a tab to the Editor and closes the window. `⌘N` is disabled while Landing is
-showing — that screen already *is* the create form.
+from it adds the project to the **active workspace** and closes the window. `⌘N` is disabled
+while Landing is showing — that screen already *is* the create form.
 
 ---
 
 ## Editor layout
 
 ```
-┌─ ● ● ●  ●[tab] ●[tab] [+] ─────────────────── ⚙ ─────────┐
+┌─ ● ● ●  ●[workspace] ●[workspace] [+] [extend] ─── ⚙ ───┐
 ├────┬────────────────────────────────────────┬────────────┤
 │ 🛠 │          canvas island (Metal)          │   layers   │
 │ AI │                       [− ▭ + 100% Fit] │            │
 └────┴────────────────────────────────────────┴────────────┘
 ```
 
-- **Tabs:** compact titlebar (right of traffic lights); switch = save → close → open selected.
-  Each tab leads with its **project accent dot** — click it to rename or recolour.
+- **Workspace tabs:** one shared titlebar capsule (tabs + `+` + extend); switch = save →
+  open that workspace’s active project. Accent dot opens rename / recolour for the
+  **workspace**. Open tab order is persisted across launches.
+- **+:** new project into the active workspace.
+- **Extend:** scrollable overlay of **open** workspace tabs with cached project thumbnails
+  (cropped to painted pixel bounds); click a project to open it inside that workspace.
+  Create / delete workspaces live here.
 - **Tools / layers / canvas:** three rounded, bordered islands, full-height, separated by a
   minimal gap and window margin (`space.sm`) — each has its own `islandBorder` stroke.
-- **Tools island** (top to bottom): a 3-column tool grid (Pen, Eraser, Shape, Select, Fill);
-  a contextual options section below it that changes with the selected tool (shape/selection
-  sub-picker + fill toggle for shape tools, brush size for the tools that use one — not Fill
-  or the selection tools); a quick-colour section (two clickable swatches to flip between two
-  colours, a larger swatch that opens the full macOS colour panel, and a drag-to-scrub hue
-  strip); the AI menu pinned at the bottom.
+- **Tools island** (top to bottom): a 3-column tool grid (Pen, Eraser, Shape, Select, Fill,
+  Eyedropper); a contextual options section below it that changes with the selected tool
+  (shape/selection sub-picker + fill toggle for shape tools, brush size for the tools that
+  use one — not Fill, Eyedropper, or the selection tools); a colour section (two equal
+  quick swatches, a saturation/brightness field, a hue strip, and a hex field); the AI menu
+  pinned at the bottom.
 - **Board:** Metal surface clipped as its own island. Desk fill, grid, and the paper border
-  come from tokens via `calm_engine_set_board_colors` — the desk is darker than the app
-  background in both themes, and the paper border inverts with the theme (dark ring on the
-  light board, light ring on the dark board).
+  come from tokens via `calm_engine_set_board_colors` — in light mode the desk matches the
+  island surface; in dark mode the desk is a step darker than the window background so the
+  board field sits recessed against the raised side islands. The paper border inverts with the theme
+  (dark ring on the light board, light ring on the dark board).
 - **Layers:** add / select / visibility / delete; first layer is **Paper**, a normal
   white-filled raster layer — paintable/eraseable like any other layer, not a background
   decoration. The list shows the topmost (frontmost) layer first, matching stack order.
@@ -120,11 +126,13 @@ showing — that screen already *is* the create form.
 - **Fit** fills the canvas island rather than leaving a wide margin — opening a project or
   pressing `0` puts the paper edge-to-edge in the viewport.
 
-### Projects: colour and name
+### Projects and workspaces: colour and name
 
 New projects get a random colour from the core palette (`palette::PROJECT_COLORS`), stored
-on the project row. It appears on the titlebar tab and as the recents thumbnail tint. The
-tab's dot opens a card with the project name and the palette; both persist immediately.
+on the project row. It appears as the recents thumbnail tint (and as the artwork preview when
+a cached thumb exists). Workspaces carry their own accent on the titlebar chip; the chip’s
+dot opens a card with the workspace name and palette. Open workspace tabs persist across
+launches.
 
 ---
 
@@ -147,6 +155,14 @@ screen. `Fit` still centres the paper.
 
 Space-pan is a hold, not a mode — it ends on key-up wherever focus is, and on app
 deactivation, so a Space held across ⌘-Tab cannot leave the board stuck panning.
+
+Scroll-wheel and trackpad panning pass `scrollingDelta` through **unnegated** — AppKit has
+already applied the system's "natural scrolling" preference, so any sign flip in the shell
+would fight the user's setting rather than honour it. Scroll pan also carries a zoom-
+dependent gain (`Camera::scroll_pan_gain`, `limits::SCROLL_PAN_MAX_GAIN`): a notch is a
+fixed pixel amount, so without it a zoomed-out board crawls. Gain is 1 at Fit and never
+drops below 1, so zooming in never makes scrolling slower. Pointer **drag** panning has no
+gain — it tracks the cursor one-for-one by definition.
 
 ---
 
@@ -189,11 +205,14 @@ live in `engine/core`; the actual PNG/JPEG/WebP/AVIF **encode** happens in the s
 - Canvas resize: width/height fields docked at the bottom of the layers panel, commit on
   Enter (`Document::resize`). Top-left anchored; shrinking never discards off-canvas tile
   data, so growing back restores it exactly.
-- **Transform (`⌘T`):** shows scale/rotate handles around the *active* layer (selected via
+- **Transform (`⌘T`):** a transient *mode* on the active layer — not a tools-island
+  button (Select tools stay for region marquee/lasso; transforming a selection region
+  is separate). Shows scale/rotate handles around the *active* layer (selected via
   the layers panel — clicking a layer's content directly on the canvas doesn't pick it yet,
   see `plans/02-layer-click-to-select.md`). Drag a corner to scale — proportional by
   default, hold **Shift** for free (non-uniform) scale; drag the handle above top-center to
-  rotate; drag inside the box to move. Fully live and non-destructive on the canvas; a
+  rotate; drag inside the box to move. Click outside the handles, press `Esc`, or pick
+  another tool to exit the mode. Fully live and non-destructive on the canvas; a
   "Reset Transform" action in the layer's `…` popover clears it back to identity.
 - **Remove Background:** AI menu on the tools island → macOS Vision via `calm_engine_run_op` when available.
   Shell never mutates the stack after the op. Details: `AGENTS.md` → AI ops.
@@ -270,10 +289,13 @@ panel toggles are shell knobs.
 | `R` | Rectangle | Ps rectangle is often `U` (shape); `R` is fine for now |
 | `O` | Ellipse | Ps ellipse under shape (`U`) |
 | `A` | Arrow | Calumma-specific |
+| `T` | Triangle | — |
+| `Y` | Pentagon | — |
 | `E` | Eraser | Yes |
 | `M` | Selection (rect / ellipse / lasso — last one used) | Yes (Ps Marquee) |
 | `G` | Fill (bucket) | Yes (Ps Paint Bucket, shared with Gradient) |
-| `⌘T` | Transform the active layer (scale/rotate/move) | Yes (Ps Free Transform) |
+| `I` | Eyedropper (live sample under the cursor into the active primary/secondary swatch; loupe shows colour + hex) | Yes |
+| `⌘T` | Transform mode on the active layer (scale/rotate/move); click outside or `Esc` to exit | Yes (Ps Free Transform) |
 | `F` | Toggle shape fill | — |
 | `[` / `]` | Brush smaller / larger | Yes |
 
@@ -296,13 +318,13 @@ panel toggles are shell knobs.
 | Space (hold) | Temporary pan (open-hand cursor, applied as soon as the key goes down) |
 | Space-drag / Option-drag / ⌘-drag | Pan |
 | **Middle-button drag** | Pan — same as space-drag, no key needed |
-| Scroll | Pan |
+| Scroll | Pan — follows the system scroll direction, and speeds up as the board zooms out |
 | ⌘ + scroll or Option + scroll | Zoom toward cursor |
 | Pinch | Zoom |
 
-Cursors: crosshair on the board, **open hand** while space is held or the middle button is
-armed, **closed hand** while actually panning, zoom-in while ⌘/Option held over the board,
-pointing hand on chrome controls.
+Cursors: crosshair on the board (including Eyedropper), **open hand** while space is held
+or the middle button is armed, **closed hand** while actually panning, zoom-in while
+⌘/Option held over the board, pointing hand on chrome controls.
 
 ---
 
@@ -323,5 +345,5 @@ PDF export (PNG/JPEG/WebP/AVIF/PSD export shipped instead — see Export above),
 **import** (we import the flattened composite only; PSD *export* is layered and shipped),
 click-to-pick a layer on the canvas (per-layer transform itself is shipped — see
 Layers and ops above — picking the transform target is still layers-panel-only),
-text layers, eyedropper, vectorize, generate-texture, BiRefNet core remove-bg — see
+text layers, vectorize, generate-texture, BiRefNet core remove-bg — see
 `AGENTS.md` deferred list. Add a FLOW section when a feature ships, not before.

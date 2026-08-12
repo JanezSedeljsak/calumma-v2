@@ -279,3 +279,74 @@ fn layer_reorder_persists_z_index() {
     let loaded = store.open_project(&doc.id).unwrap();
     assert_eq!(loaded.layers[1].id, second);
 }
+
+#[test]
+fn save_writes_project_thumbnail_png() {
+    let (_dir, store) = store();
+    let mut doc = store.create("Thumb", 64, 48).unwrap();
+    let i = paint_index(&doc);
+    doc.layers[i]
+        .tiles_mut()
+        .unwrap()
+        .set_pixel(2, 2, [9, 8, 7, 255]);
+    store.save(&mut doc).unwrap();
+    let png = store.project_thumbnail(&doc.id).unwrap();
+    assert!(png.starts_with(&[0x89, b'P', b'N', b'G']));
+}
+
+#[test]
+fn workspace_crud_membership_and_open_tabs() {
+    let (_dir, store) = store();
+    let doc_a = store.create("A", 32, 32).unwrap();
+    let doc_b = store.create("B", 32, 32).unwrap();
+    let ws = store.create_workspace("Desk", None).unwrap();
+    store.add_project_to_workspace(&ws.id, &doc_a.id).unwrap();
+    store.add_project_to_workspace(&ws.id, &doc_b.id).unwrap();
+    let projects = store.workspace_projects(&ws.id).unwrap();
+    assert_eq!(projects.len(), 2);
+    assert_eq!(
+        store
+            .workspace_containing_project(&doc_a.id)
+            .unwrap()
+            .unwrap()
+            .id,
+        ws.id
+    );
+
+    store
+        .set_workspace_active_project(&ws.id, Some(&doc_b.id))
+        .unwrap();
+    assert_eq!(
+        store
+            .workspace(&ws.id)
+            .unwrap()
+            .active_project_id
+            .as_deref(),
+        Some(doc_b.id.as_str())
+    );
+
+    store
+        .set_open_workspace_tabs(std::slice::from_ref(&ws.id))
+        .unwrap();
+    assert_eq!(store.open_workspace_tabs().unwrap(), vec![ws.id.clone()]);
+
+    store
+        .remove_project_from_workspace(&ws.id, &doc_b.id)
+        .unwrap();
+    assert_eq!(store.workspace_projects(&ws.id).unwrap().len(), 1);
+    assert_eq!(
+        store
+            .workspace(&ws.id)
+            .unwrap()
+            .active_project_id
+            .as_deref(),
+        Some(doc_a.id.as_str())
+    );
+
+    store.delete(&doc_a.id).unwrap();
+    assert!(store.workspace_projects(&ws.id).unwrap().is_empty());
+
+    store.delete_workspace(&ws.id).unwrap();
+    assert!(store.list_workspaces(8).unwrap().is_empty());
+    assert!(store.open_workspace_tabs().unwrap().is_empty());
+}

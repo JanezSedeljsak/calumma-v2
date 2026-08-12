@@ -40,8 +40,8 @@ impl BoardColors {
     pub fn fallback(dark: bool) -> Self {
         if dark {
             Self {
-                desk: [26, 32, 36, 255],
-                grid: [60, 71, 80, 255],
+                desk: [14, 18, 22, 255],
+                grid: [26, 34, 40, 255],
                 paper_border: [255, 255, 255, 64],
             }
         } else {

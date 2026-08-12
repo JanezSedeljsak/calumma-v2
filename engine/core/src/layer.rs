@@ -262,4 +262,14 @@ impl Layer {
             }
         }
     }
+
+    pub fn opaque_pixel_bounds(&self) -> Option<(f32, f32, f32, f32)> {
+        match &self.content {
+            LayerContent::Raster(tiles) => {
+                let r = tiles.opaque_bounds()?;
+                Some((r.min_x as f32, r.min_y as f32, r.max_x as f32 + 1.0, r.max_y as f32 + 1.0))
+            }
+            LayerContent::Vector(_) => self.content_bounds(),
+        }
+    }
 }

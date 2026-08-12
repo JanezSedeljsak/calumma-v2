@@ -9,11 +9,13 @@ final class AppModel: ObservableObject {
     @Published var theme: AppTheme = .dark
     @Published var language: AppLanguage = .en
     @Published private(set) var l10n: L10nCatalog = .load(.en)
-    @Published var openTabs: [ProjectInfo] = []
-    @Published var activeTabId: String?
+    @Published var openWorkspaces: [WorkspaceInfo] = []
+    @Published var activeWorkspaceId: String?
+    @Published var activeProjectId: String?
     @Published var showLanding = true
     @Published var newProjectOpen = false
     @Published var settingsOpen = false
+    @Published var workspaceExtendOpen = false
     @Published var artworkError: String?
 
     @Published var tool: CalmTool = .pen
@@ -33,13 +35,18 @@ final class AppModel: ObservableObject {
     ]
     @Published var activeQuickColorIndex = 0
     @Published private(set) var hsb = HSBColor(Color(red: 0.1, green: 0.1, blue: 0.1))
+    @Published private(set) var eyedropperLoupe: EyedropperLoupe?
     private var editingHSB = false
     @Published var brushSize: Float = 3
     @Published var fill = false
     @Published var layersOpen = true
     @Published var spacePan = false
 
-    weak var mainWindow: NSWindow?
+    weak var mainWindow: NSWindow? {
+        didSet {
+            mainWindow?.tabbingMode = .disallowed
+        }
+    }
 
     private var cancellables = Set<AnyCancellable>()
 
@@ -50,7 +57,7 @@ final class AppModel: ObservableObject {
         L10nStore.catalog = l10n
         engine.objectWillChange
             .receive(on: RunLoop.main)
-            .sink { [weak self] _ in
+            .sink { [weak self] in
                 self?.objectWillChange.send()
             }
             .store(in: &cancellables)
@@ -61,6 +68,27 @@ final class AppModel: ObservableObject {
                 MainActor.assumeIsolated { self?.endSpacePan() }
             }
             .store(in: &cancellables)
+        restoreOpenWorkspaceTabs()
+    }
+
+    private func restoreOpenWorkspaceTabs() {
+        let ids = engine.loadOpenWorkspaceTabs()
+        guard !ids.isEmpty else { return }
+        openWorkspaces = ids.compactMap { engine.workspace(id: $0) }
+        if let first = openWorkspaces.first {
+            switchToWorkspace(id: first.id)
+        }
+    }
+
+    private func persistTabs() {
+        engine.persistOpenWorkspaceTabs(openWorkspaces.map(\.id))
+    }
+
+    private func refreshOpenWorkspace(_ id: String) {
+        guard let updated = engine.workspace(id: id) else { return }
+        if let index = openWorkspaces.firstIndex(where: { $0.id == id }) {
+            openWorkspaces[index] = updated
+        }
     }
 
     func create(name: String, width: Int, height: Int, accent: Color? = nil) {
@@ -71,7 +99,7 @@ final class AppModel: ObservableObject {
         if let accent {
             engine.setAccent(projectId: id, color: accent)
         }
-        adopt(id: id, name: resolved, width: width, height: height)
+        adoptProject(id: id, name: resolved)
     }
 
     func copySelectionOrCanvas() {
@@ -127,7 +155,7 @@ final class AppModel: ObservableObject {
             return
         }
         artworkError = nil
-        adopt(id: id, name: artwork.name, width: artwork.width, height: artwork.height)
+        adoptProject(id: id, name: artwork.name)
     }
 
     func importArtwork(url: URL) {
@@ -170,7 +198,12 @@ final class AppModel: ObservableObject {
     }
 
     private var activeProjectName: String {
-        openTabs.first { $0.id == activeTabId }?.name ?? l10n.untitled
+        if let activeProjectId,
+           let project = engine.recents.first(where: { $0.id == activeProjectId })
+        {
+            return project.name
+        }
+        return openWorkspaces.first { $0.id == activeWorkspaceId }?.name ?? l10n.untitled
     }
 
     func exportComposite(as format: ExportFormat) {
@@ -192,29 +225,183 @@ final class AppModel: ObservableObject {
         try? data.write(to: url)
     }
 
-    private func adopt(id: String, name: String, width: Int, height: Int) {
-        let info = ProjectInfo(
-            id: id,
-            name: name,
-            width: width,
-            height: height,
-            openedAt: 0,
-            accent: engine.state.accent
-        )
-        openTabs.removeAll { $0.id == id }
-        openTabs.append(info)
-        activeTabId = id
+    private func adoptProject(id: String, name: String) {
+        if let workspaceId = activeWorkspaceId, !showLanding {
+            engine.addProjectToWorkspace(workspaceId: workspaceId, projectId: id)
+            engine.setWorkspaceActiveProject(workspaceId: workspaceId, projectId: id)
+            activeProjectId = id
+            showLanding = false
+            newProjectOpen = false
+            refreshOpenWorkspace(workspaceId)
+            applyKnobs()
+            engine.fitToScreen()
+            maximizeMainWindow()
+            return
+        }
+        if let existing = engine.workspaceForProject(projectId: id),
+           let ws = engine.workspace(id: existing)
+        {
+            openWorkspaceTab(ws)
+            switchToProject(workspaceId: ws.id, projectId: id)
+            return
+        }
+        guard let workspaceId = engine.createWorkspaceForProject(projectId: id, name: name),
+              let ws = engine.workspace(id: workspaceId)
+        else {
+            return
+        }
+        openWorkspaceTab(ws)
+        switchToProject(workspaceId: workspaceId, projectId: id)
+    }
+
+    private func openWorkspaceTab(_ ws: WorkspaceInfo) {
+        if !openWorkspaces.contains(where: { $0.id == ws.id }) {
+            openWorkspaces.append(ws)
+            persistTabs()
+        }
+    }
+
+    func openRecent(_ project: ProjectInfo) {
+        if let existing = engine.workspaceForProject(projectId: project.id),
+           let ws = engine.workspace(id: existing)
+        {
+            openWorkspaceTab(ws)
+            switchToProject(workspaceId: ws.id, projectId: project.id)
+            return
+        }
+        guard let workspaceId = engine.createWorkspaceForProject(
+            projectId: project.id,
+            name: project.name
+        ),
+            let ws = engine.workspace(id: workspaceId)
+        else {
+            return
+        }
+        openWorkspaceTab(ws)
+        switchToProject(workspaceId: workspaceId, projectId: project.id)
+    }
+
+    func switchToWorkspace(id: String) {
+        if activeWorkspaceId == id, !showLanding {
+            return
+        }
+        guard let ws = openWorkspaces.first(where: { $0.id == id })
+            ?? engine.workspace(id: id)
+        else {
+            return
+        }
+        openWorkspaceTab(ws)
+        engine.touchWorkspace(id: id)
+        refreshOpenWorkspace(id)
+        let projectId = ws.activeProjectId
+            ?? engine.workspaceProjects(workspaceId: id).first?.id
+        if let projectId {
+            switchToProject(workspaceId: id, projectId: projectId)
+        } else {
+            if activeWorkspaceId != nil {
+                engine.save()
+                engine.closeProject()
+            }
+            activeWorkspaceId = id
+            activeProjectId = nil
+            showLanding = false
+            newProjectOpen = false
+            workspaceExtendOpen = false
+            applyKnobs()
+            maximizeMainWindow()
+        }
+    }
+
+    func switchToProject(workspaceId: String, projectId: String) {
+        if activeWorkspaceId == workspaceId, activeProjectId == projectId, !showLanding {
+            workspaceExtendOpen = false
+            return
+        }
+        if activeProjectId != nil {
+            engine.save()
+        }
+        engine.closeProject()
+        engine.openProject(id: projectId)
+        engine.setWorkspaceActiveProject(workspaceId: workspaceId, projectId: projectId)
+        engine.touchWorkspace(id: workspaceId)
+        if let ws = engine.workspace(id: workspaceId) {
+            openWorkspaceTab(ws)
+            refreshOpenWorkspace(workspaceId)
+        }
+        activeWorkspaceId = workspaceId
+        activeProjectId = projectId
         showLanding = false
         newProjectOpen = false
+        workspaceExtendOpen = false
         applyKnobs()
-        engine.fit()
+        engine.fitToScreen()
+        engine.syncState()
+        engine.refreshLayers()
         maximizeMainWindow()
+    }
+
+    func closeWorkspaceTab(_ id: String) {
+        openWorkspaces.removeAll { $0.id == id }
+        persistTabs()
+        if activeWorkspaceId == id {
+            engine.save()
+            engine.closeProject()
+            if let next = openWorkspaces.last {
+                switchToWorkspace(id: next.id)
+            } else {
+                activeWorkspaceId = nil
+                activeProjectId = nil
+                showLanding = true
+            }
+        }
+    }
+
+    func createEmptyWorkspace(name: String) {
+        let resolved = name.isEmpty ? l10n.untitledWorkspace : name
+        guard let id = engine.createWorkspace(name: resolved),
+              let ws = engine.workspace(id: id)
+        else {
+            return
+        }
+        openWorkspaceTab(ws)
+        switchToWorkspace(id: id)
+    }
+
+    func renameWorkspace(id: String, to name: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        engine.renameWorkspace(id: id, to: trimmed)
+        refreshOpenWorkspace(id)
+    }
+
+    func setWorkspaceAccent(id: String, color: Color) {
+        engine.setWorkspaceAccent(id: id, color: color)
+        refreshOpenWorkspace(id)
+    }
+
+    func deleteWorkspace(id: String) {
+        engine.deleteWorkspace(id: id)
+        closeWorkspaceTab(id)
+        engine.refreshWorkspaces()
     }
 
     func selectQuickColor(_ index: Int) {
         guard quickColors.indices.contains(index) else { return }
         activeQuickColorIndex = index
         color = quickColors[index]
+    }
+
+    func applyEyedropperSample(_ next: Color, at point: CGPoint) {
+        let hex = next.hexRGB
+        if eyedropperLoupe?.hex != hex {
+            color = next
+        }
+        eyedropperLoupe = EyedropperLoupe(color: next, hex: hex, x: point.x, y: point.y)
+    }
+
+    func clearEyedropperLoupe() {
+        guard eyedropperLoupe != nil else { return }
+        eyedropperLoupe = nil
     }
 
     func updateHSB(_ next: HSBColor) {
@@ -228,53 +415,6 @@ final class AppModel: ObservableObject {
         DispatchQueue.main.async { [weak self] in
             guard let window = self?.mainWindow, let screen = window.screen else { return }
             window.setFrame(screen.visibleFrame, display: true, animate: true)
-        }
-    }
-
-    func openRecent(_ project: ProjectInfo) {
-        switchTo(projectId: project.id, info: project)
-    }
-
-    func switchTo(projectId: String, info: ProjectInfo? = nil) {
-        if activeTabId == projectId, !showLanding {
-            return
-        }
-        if let activeTabId {
-            engine.save()
-            _ = activeTabId
-        }
-        engine.closeProject()
-        engine.openProject(id: projectId)
-        if let info {
-            if !openTabs.contains(where: { $0.id == info.id }) {
-                openTabs.append(info)
-            }
-        } else if let recent = engine.recents.first(where: { $0.id == projectId }),
-                  !openTabs.contains(where: { $0.id == projectId })
-        {
-            openTabs.append(recent)
-        }
-        activeTabId = projectId
-        showLanding = false
-        newProjectOpen = false
-        applyKnobs()
-        engine.fit()
-        engine.syncState()
-        engine.refreshLayers()
-        maximizeMainWindow()
-    }
-
-    func closeTab(_ id: String) {
-        openTabs.removeAll { $0.id == id }
-        if activeTabId == id {
-            engine.save()
-            engine.closeProject()
-            if let next = openTabs.last {
-                switchTo(projectId: next.id, info: next)
-            } else {
-                activeTabId = nil
-                showLanding = true
-            }
         }
     }
 
@@ -295,31 +435,10 @@ final class AppModel: ObservableObject {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         engine.rename(projectId: projectId, to: trimmed)
-        replaceTab(projectId) { ProjectInfo(
-            id: $0.id,
-            name: trimmed,
-            width: $0.width,
-            height: $0.height,
-            openedAt: $0.openedAt,
-            accent: $0.accent
-        ) }
     }
 
     func setAccent(projectId: String, color: Color) {
         engine.setAccent(projectId: projectId, color: color)
-        replaceTab(projectId) { ProjectInfo(
-            id: $0.id,
-            name: $0.name,
-            width: $0.width,
-            height: $0.height,
-            openedAt: $0.openedAt,
-            accent: color.packedRGB
-        ) }
-    }
-
-    private func replaceTab(_ id: String, _ transform: (ProjectInfo) -> ProjectInfo) {
-        guard let index = openTabs.firstIndex(where: { $0.id == id }) else { return }
-        openTabs[index] = transform(openTabs[index])
     }
 
     func selectTool(_ next: CalmTool) {
@@ -329,6 +448,9 @@ final class AppModel: ObservableObject {
         }
         if next.isSelection {
             lastSelectTool = next
+        }
+        if next != .eyedropper {
+            clearEyedropperLoupe()
         }
         applyKnobs()
     }
@@ -348,4 +470,11 @@ final class AppModel: ObservableObject {
         L10nStore.catalog = l10n
         engine.refreshLayers()
     }
+}
+
+struct EyedropperLoupe: Equatable {
+    var color: Color
+    var hex: String
+    var x: CGFloat
+    var y: CGFloat
 }

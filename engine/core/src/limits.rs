@@ -19,11 +19,27 @@ pub const MIN_VISIBLE_DOC_SIDE: f32 = 400.0;
 /// has to stay on screen. Panning is free inside that slack, so the paper can be
 /// dragged around even when it fits the viewport whole.
 pub const PAN_KEEP_VISIBLE: f32 = 0.5;
+/// Ceiling on the scroll-pan speed-up applied as the board zooms out. A drag moves the
+/// board one-for-one with the pointer, but a scroll notch is a fixed number of pixels,
+/// so without this a zoomed-out board crawls. Gain is `fit_zoom / zoom`, clamped to
+/// `[1, SCROLL_PAN_MAX_GAIN]` — never below 1, so zooming in cannot slow scrolling down.
+pub const SCROLL_PAN_MAX_GAIN: f32 = 4.0;
+/// A trackpad reports precise per-pixel scroll deltas; a wheel reports lines — one or three
+/// per notch. Lines are scaled to pixels by this so a notch moves a notch's worth of board
+/// instead of a few pixels.
+pub const SCROLL_LINE_PIXELS: f32 = 24.0;
+/// Scroll-wheel zoom is `e^(delta * weight)`. A trackpad gesture is many small deltas and a
+/// wheel notch is one big one, so the two units need different weights to land on a
+/// comparable amount of zoom per gesture.
+pub const ZOOM_PER_SCROLL_PIXEL: f32 = 0.01;
+pub const ZOOM_PER_SCROLL_LINE: f32 = 0.08;
 pub const MAX_ZOOM_HARD: f32 = 64.0;
 pub const VIEWPORT_CULL_PADDING_PX: f32 = 1.0;
 
 pub const AUTOSAVE_INTERVAL_MS: u64 = 800;
 pub const RECENT_PROJECTS_LIMIT: usize = 32;
+pub const WORKSPACES_LIMIT: usize = 64;
+pub const PROJECT_THUMB_MAX_SIDE: u32 = 1024;
 
 pub const IMPORT_MAX_SIDE: u32 = 4096;
 

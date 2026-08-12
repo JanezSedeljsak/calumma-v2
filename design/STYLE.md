@@ -32,15 +32,12 @@ bits use `{0}`, `{1}`, … filled by `l10n.formatKey(...)`. Visual tokens stay i
    shell toggles theme; the engine receives dark-paper via FFI.
 5. **Filled controls.** Inputs, buttons, and cards are solid surfaces. Hover and
    active states shift luminance, not outline weight.
-6. **Native colour picker, plus an inline quick picker.** On macOS use SwiftUI
-   `ColorPicker`, wrapped so its chrome matches token radii and surfaces — it stays
-   the way to reach opacity and the system palettes. Above it, `QuickColorPicker`
-   offers the fast path without opening a system panel: two quick swatches, a
-   saturation/brightness gradient field, a hue slider, and a hex field. Both edit the
-   *active* quick swatch. Hue/saturation/brightness are held as model state
-   (`AppModel.hsb`), not re-derived from the RGB colour on every read — deriving loses
-   the hue as soon as saturation or brightness hits zero, which makes a gradient field
-   jump under the cursor.
+6. **Inline colour picker.** `QuickColorPicker` is the only colour control: two equal
+   quick swatches side by side, a saturation/brightness gradient field, a hue slider, and
+   a hex field. Both edit the *active* quick swatch. Hue/saturation/brightness are held as
+   model state (`AppModel.hsb`), not re-derived from the RGB colour on every read —
+   deriving loses the hue as soon as saturation or brightness hits zero, which makes a
+   gradient field jump under the cursor.
 7. **Canvas stays Rust.** Anything *drawn on the board* (paper, strokes, shapes, desk grid,
    layer hover outline) is WGSL — the shell never paints board content. Board colours are
    pushed from tokens into the engine, never hardcoded in the shader. Small chrome controls
@@ -58,8 +55,8 @@ bits use `{0}`, `{1}`, … filled by `l10n.formatKey(...)`. Visual tokens stay i
 | Accent teal | `color.accent.teal` | Create, presets marker, brand start |
 | Accent orange | `color.accent.orange` | Recents marker, brand end |
 | Danger | `color.danger` | Destructive actions |
-| Desk | `color.desk` | Board background behind the paper (sits *under* the island) |
-| Desk grid | `color.deskGrid` | Board grid lines — must stay legible in light mode |
+| Desk | `color.desk` | Board background behind the paper. Light: matches island `surface`. Dark: a step darker than window `bg` so the board field reads recessed against raised islands. |
+| Desk grid | `color.deskGrid` | Board grid lines — must stay legible in light mode; stay quiet in dark mode so the desk reads with the chrome |
 | Paper border | `color.paperBorder` | Ring hugging the paper: dark on light, light on dark |
 
 Desk, desk grid, and paper border are the only tokens the engine consumes. They travel
@@ -90,9 +87,11 @@ the gradient brightens, no outline.
 
 ## Editor
 
-Project tabs sit in a **compact window titlebar** (right of the traffic lights), each with
-its project accent dot; clicking the dot opens the rename / recolour card. Top padding is
-tight (`space.xs`) so the board starts close under the titlebar.
+Project tabs sit in a **compact window titlebar** (right of the traffic lights) inside one
+shared capsule with the `+` / extend controls. Selected tab is a soft highlight clipped to
+that capsule — not a second nested pill. Each tab carries its workspace accent dot;
+clicking the dot opens the rename / recolour card. Top padding is tight (`space.xs`) so the
+board starts close under the titlebar.
 
 Tools, canvas, and layers are three **rounded, bordered islands**, full-height, separated
 by a minimal gap (`space.sm`) with a matching margin from the window edge — no longer flush

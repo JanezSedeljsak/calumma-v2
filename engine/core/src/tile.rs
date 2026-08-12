@@ -428,27 +428,65 @@ impl TileGrid {
         out
     }
 
+    pub fn opaque_bounds(&self) -> Option<DocRect> {
+        let mut acc: Option<DocRect> = None;
+        for coord in self.coords() {
+            let Some(tile) = self.tiles.get(&coord) else {
+                continue;
+            };
+            let (ox, oy) = coord.origin();
+            for ly in 0..TILE_SIZE as i32 {
+                for lx in 0..TILE_SIZE as i32 {
+                    let i = pixel_index(lx as usize, ly as usize);
+                    if tile[i + 3] == 0 {
+                        continue;
+                    }
+                    let x = ox + lx;
+                    let y = oy + ly;
+                    if x < 0 || y < 0 || x >= self.width as i32 || y >= self.height as i32 {
+                        continue;
+                    }
+                    acc = Some(match acc {
+                        None => DocRect::new(x, y, x, y),
+                        Some(r) => DocRect::new(
+                            r.min_x.min(x),
+                            r.min_y.min(y),
+                            r.max_x.max(x),
+                            r.max_y.max(y),
+                        ),
+                    });
+                }
+            }
+        }
+        acc
+    }
+
     pub fn thumbnail(&self, max_side: u32) -> (u32, u32, Vec<u8>) {
         let max_side = max_side.max(1);
         let dw = self.width.max(1);
         let dh = self.height.max(1);
-        let scale = (max_side as f32 / dw as f32)
-            .min(max_side as f32 / dh as f32)
+        let crop = self.opaque_bounds().unwrap_or(DocRect::from_size(dw, dh));
+        let crop_w = (crop.max_x - crop.min_x + 1).max(1) as u32;
+        let crop_h = (crop.max_y - crop.min_y + 1).max(1) as u32;
+        let scale = (max_side as f32 / crop_w as f32)
+            .min(max_side as f32 / crop_h as f32)
             .min(1.0);
-        let tw = ((dw as f32) * scale).round().max(1.0) as u32;
-        let th = ((dh as f32) * scale).round().max(1.0) as u32;
+        let tw = ((crop_w as f32) * scale).round().max(1.0) as u32;
+        let th = ((crop_h as f32) * scale).round().max(1.0) as u32;
         let mut rgba = vec![0u8; (tw as usize) * (th as usize) * CHANNELS];
         for ty in 0..th {
             for tx in 0..tw {
                 let sx = if tw <= 1 {
-                    0
+                    crop.min_x
                 } else {
-                    ((tx as f32) * ((dw - 1) as f32) / ((tw - 1) as f32)).round() as i32
+                    crop.min_x
+                        + ((tx as f32) * ((crop_w - 1) as f32) / ((tw - 1) as f32)).round() as i32
                 };
                 let sy = if th <= 1 {
-                    0
+                    crop.min_y
                 } else {
-                    ((ty as f32) * ((dh - 1) as f32) / ((th - 1) as f32)).round() as i32
+                    crop.min_y
+                        + ((ty as f32) * ((crop_h - 1) as f32) / ((th - 1) as f32)).round() as i32
                 };
                 let px = self.get_pixel(sx, sy);
                 let i = ((ty as usize) * (tw as usize) + (tx as usize)) * CHANNELS;

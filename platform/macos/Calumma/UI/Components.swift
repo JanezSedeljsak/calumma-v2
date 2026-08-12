@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 enum CalmText {
@@ -193,30 +194,24 @@ struct CalmPlainButton: View {
     }
 }
 
-struct CalmIconButton<Icon: View>: View {
-    @Environment(\.themeColors) private var colors
-    let action: () -> Void
-    @ViewBuilder let icon: () -> Icon
-
-    var body: some View {
-        Button(action: action) {
-            icon()
-                .padding(Tokens.Space.sm)
-                .background(colors.surface, in: Circle())
-        }
-        .buttonStyle(.plain)
-        .calmPointer()
-    }
-}
-
 struct CalmToolButton<Icon: View>: View {
     let selected: Bool
     let action: () -> Void
+    var tooltip: String? = nil
+    var tooltipEdge: CalmTooltipEdge = .trailing
     let icon: Icon
 
-    init(selected: Bool, action: @escaping () -> Void, @ViewBuilder icon: () -> Icon) {
+    init(
+        selected: Bool,
+        action: @escaping () -> Void,
+        tooltip: String? = nil,
+        tooltipEdge: CalmTooltipEdge = .trailing,
+        @ViewBuilder icon: () -> Icon
+    ) {
         self.selected = selected
         self.action = action
+        self.tooltip = tooltip
+        self.tooltipEdge = tooltipEdge
         self.icon = icon()
     }
 
@@ -229,6 +224,20 @@ struct CalmToolButton<Icon: View>: View {
         }
         .buttonStyle(.plain)
         .calmPointer()
+        .modifier(OptionalCalmTooltip(text: tooltip, edge: tooltipEdge))
+    }
+}
+
+private struct OptionalCalmTooltip: ViewModifier {
+    let text: String?
+    var edge: CalmTooltipEdge = .trailing
+
+    func body(content: Content) -> some View {
+        if let text {
+            content.calmTooltip(text, edge: edge)
+        } else {
+            content
+        }
     }
 }
 
@@ -312,6 +321,7 @@ struct CalmRow<Leading: View>: View {
 struct CalmThumb: View {
     @Environment(\.themeColors) private var colors
     var tint: Color? = nil
+    var image: NSImage? = nil
     var width: CGFloat = 36
     var height: CGFloat = 36
     var label: String? = nil
@@ -321,53 +331,40 @@ struct CalmThumb: View {
             .fill(tint ?? colors.surfaceHover)
             .frame(width: width, height: height)
             .overlay {
-                if let label {
+                if let image {
+                    Image(nsImage: image)
+                        .resizable()
+                        .scaledToFill()
+                        .clipShape(
+                            RoundedRectangle(cornerRadius: Tokens.Radius.sm, style: .continuous)
+                        )
+                } else if let label {
                     Text(label)
                         .font(.system(size: Tokens.TypeSize.label, weight: .bold))
                         .foregroundStyle(colors.textMuted)
                 }
             }
+            .clipped()
     }
 }
 
-struct CalmChip: View {
-    @Environment(\.themeColors) private var colors
-    let title: String
-    let accent: Color
-    let selected: Bool
-    let onAccent: () -> Void
-    let onSelect: () -> Void
-    let onClose: () -> Void
+struct ProjectThumbView: View {
+    @EnvironmentObject private var app: AppModel
+    let projectId: String
+    var tint: Color
+    var width: CGFloat = 72
+    var height: CGFloat = 72
+    @State private var image: NSImage?
 
     var body: some View {
-        HStack(spacing: Tokens.Space.xs) {
-            Button(action: onAccent) {
-                CalmDot(color: accent)
+        CalmThumb(tint: tint, image: image, width: width, height: height)
+            .task(id: "\(projectId)-\(app.engine.thumbnailRevision)") {
+                guard let data = app.engine.projectThumbnailPNG(projectId: projectId) else {
+                    image = nil
+                    return
+                }
+                image = NSImage(data: data)
             }
-            .buttonStyle(.plain)
-            Button(action: onSelect) {
-                Text(title)
-                    .font(.system(size: Tokens.TypeSize.label, weight: selected ? .semibold : .medium))
-                    .foregroundStyle(selected ? colors.text : colors.textMuted)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-            }
-            .buttonStyle(.plain)
-            .help(title)
-            Button(action: onClose) {
-                Text("×")
-                    .font(.system(size: Tokens.TypeSize.label, weight: .medium))
-                    .foregroundStyle(colors.textMuted)
-            }
-            .buttonStyle(.plain)
-        }
-        .padding(.horizontal, Tokens.Space.sm)
-        .padding(.vertical, Tokens.Space.xs)
-        .background(
-            selected ? colors.surface : colors.surface.opacity(0.001),
-            in: RoundedRectangle(cornerRadius: Tokens.Radius.sm, style: .continuous)
-        )
-        .calmPointer()
     }
 }
 

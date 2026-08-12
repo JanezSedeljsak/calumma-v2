@@ -70,6 +70,9 @@ fn every_status_entry_point_rejects_a_null_engine() {
         assert_eq!(calm_engine_set_board_colors(e, 0, 0, 0), CalmStatus::Null);
         assert_eq!(calm_engine_set_tool(e, 0), CalmStatus::Null);
         assert_eq!(calm_engine_set_color(e, 1, 2, 3, 4), CalmStatus::Null);
+        let mut picked = 0u32;
+        assert_eq!(calm_engine_sample_color(e, 0.0, 0.0, &mut picked), CalmStatus::Null);
+        assert_eq!(calm_engine_pick_color(e, 0.0, 0.0, &mut picked), CalmStatus::Null);
         assert_eq!(calm_engine_set_brush(e, 4.0), CalmStatus::Null);
         assert_eq!(calm_engine_set_fill(e, 1), CalmStatus::Null);
         assert_eq!(calm_engine_set_dark(e, 1), CalmStatus::Null);
@@ -85,6 +88,8 @@ fn every_status_entry_point_rejects_a_null_engine() {
         assert_eq!(calm_engine_set_layer_opacity(e, 0, 1.0), CalmStatus::Null);
         assert_eq!(calm_engine_set_layer_blend_mode(e, 0, 0), CalmStatus::Null);
         assert_eq!(calm_engine_reset_layer_transform(e, 0), CalmStatus::Null);
+        assert_eq!(calm_engine_toggle_transform(e), CalmStatus::Null);
+        assert_eq!(calm_engine_exit_transform(e), CalmStatus::Null);
         assert_eq!(calm_engine_set_hover_layer(e, 0 as c_int), CalmStatus::Null);
         assert_eq!(calm_engine_clear_layer(e), CalmStatus::Null);
         assert_eq!(calm_engine_deselect(e), CalmStatus::Null);
@@ -121,6 +126,16 @@ fn every_status_entry_point_rejects_a_null_engine() {
             calm_project_set_accent(e, text.as_ptr(), 0),
             CalmStatus::Null
         );
+        assert_eq!(
+            calm_project_thumbnail(e, text.as_ptr(), &mut buf, &mut len),
+            CalmStatus::Null
+        );
+        assert_eq!(
+            calm_workspace_rename(e, text.as_ptr(), text.as_ptr()),
+            CalmStatus::Null
+        );
+        assert_eq!(calm_workspace_delete(e, text.as_ptr()), CalmStatus::Null);
+        assert_eq!(calm_workspace_touch(e, text.as_ptr()), CalmStatus::Null);
     }
 }
 
@@ -197,6 +212,10 @@ fn data_returning_entry_points_error_with_no_project_open() {
         assert_eq!(calm_engine_set_layer_opacity(e, 0, 0.5), CalmStatus::Error);
         assert_eq!(calm_engine_set_layer_blend_mode(e, 0, 1), CalmStatus::Error);
         assert_eq!(calm_engine_reset_layer_transform(e, 0), CalmStatus::Error);
+        assert_eq!(calm_engine_toggle_transform(e), CalmStatus::Error);
+        let mut picked = 0u32;
+        assert_eq!(calm_engine_pick_color(e, 0.0, 0.0, &mut picked), CalmStatus::Error);
+        assert_eq!(calm_engine_sample_color(e, 0.0, 0.0, &mut picked), CalmStatus::Error);
 
         let mut buf: *mut u8 = ptr::null_mut();
         let mut w = 0u32;
@@ -360,6 +379,14 @@ fn out_parameter_pointers_are_null_checked_independently_of_the_engine() {
             CalmStatus::Null
         );
         assert_eq!(calm_engine_state(e, ptr::null_mut()), CalmStatus::Null);
+        assert_eq!(
+            calm_engine_sample_color(e, 0.0, 0.0, ptr::null_mut()),
+            CalmStatus::Null
+        );
+        assert_eq!(
+            calm_engine_pick_color(e, 0.0, 0.0, ptr::null_mut()),
+            CalmStatus::Null
+        );
         calm_engine_free(e);
     }
 }
@@ -419,6 +446,72 @@ fn a_thumbnail_is_bounded_by_its_requested_max_side() {
         assert!(w <= 40 && h <= 40, "thumbnail {w}x{h} exceeded max_side 40");
         assert!(w > 0 && h > 0);
         calm_buffer_free(buf, (w * h * 4) as usize);
+        calm_engine_free(e);
+    }
+}
+
+#[test]
+fn workspace_list_and_project_thumbnail_round_trip() {
+    let (_dir, e) = engine_with_project("Ws", 48, 32);
+    let name = CString::new("Desk").unwrap();
+    let mut ws_buf: Vec<CalmWorkspaceInfo> = (0..8)
+        .map(|_| CalmWorkspaceInfo {
+            id: ptr::null_mut(),
+            name: ptr::null_mut(),
+            accent: 0,
+            active_project_id: ptr::null_mut(),
+            opened_at: 0,
+        })
+        .collect();
+    unsafe {
+        let ws_id = calm_workspace_create(e, name.as_ptr());
+        assert!(!ws_id.is_null());
+        let project_id = {
+            let mut projects: Vec<CalmProjectInfo> = (0..1)
+                .map(|_| CalmProjectInfo {
+                    id: ptr::null_mut(),
+                    name: ptr::null_mut(),
+                    width: 0,
+                    height: 0,
+                    opened_at: 0,
+                    accent: 0,
+                })
+                .collect();
+            let n = calm_project_list(e, projects.as_mut_ptr(), 1);
+            assert_eq!(n, 1);
+            let id =
+                CString::new(std::ffi::CStr::from_ptr(projects[0].id).to_str().unwrap()).unwrap();
+            calm_string_free(projects[0].id);
+            calm_string_free(projects[0].name);
+            id
+        };
+        assert_eq!(
+            calm_workspace_add_project(e, ws_id, project_id.as_ptr()),
+            CalmStatus::Ok
+        );
+        assert_eq!(calm_project_save(e), CalmStatus::Ok);
+        let mut png: *mut u8 = ptr::null_mut();
+        let mut len = 0usize;
+        assert_eq!(
+            calm_project_thumbnail(e, project_id.as_ptr(), &mut png, &mut len),
+            CalmStatus::Ok
+        );
+        assert!(len > 8);
+        assert_eq!(
+            std::slice::from_raw_parts(png, 4),
+            &[0x89, b'P', b'N', b'G']
+        );
+        calm_buffer_free(png, len);
+        let n = calm_workspace_list(e, ws_buf.as_mut_ptr(), 8);
+        assert!(n >= 1);
+        for item in ws_buf.iter().take(n) {
+            calm_string_free(item.id);
+            calm_string_free(item.name);
+            if !item.active_project_id.is_null() {
+                calm_string_free(item.active_project_id);
+            }
+        }
+        calm_string_free(ws_id);
         calm_engine_free(e);
     }
 }

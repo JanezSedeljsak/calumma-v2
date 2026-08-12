@@ -144,3 +144,111 @@ fn pan_bounds_are_never_inverted() {
         assert!(min_y <= max_y, "y bounds inverted for {vw}x{vh} {dw}x{dh}");
     }
 }
+
+#[test]
+fn scroll_pan_gain_is_one_at_fit_and_grows_as_you_zoom_out() {
+    let mut c = cam(1000.0, 800.0);
+    c.fit(2000.0, 1500.0);
+    assert!((c.scroll_pan_gain(2000.0, 1500.0) - 1.0).abs() < 1e-4);
+
+    c.zoom_to_center(c.min_zoom(2000.0, 1500.0), 2000.0, 1500.0);
+    let zoomed_out = c.scroll_pan_gain(2000.0, 1500.0);
+    assert!(
+        zoomed_out > 1.5,
+        "expected a real speed-up at min zoom, got {zoomed_out}"
+    );
+    assert!(zoomed_out <= SCROLL_PAN_MAX_GAIN);
+}
+
+#[test]
+fn scroll_pan_gain_never_slows_panning_when_zoomed_in() {
+    let mut c = cam(1000.0, 800.0);
+    c.fit(2000.0, 1500.0);
+    for _ in 0..20 {
+        c.step_zoom(true, 2000.0, 1500.0);
+    }
+    assert!((c.scroll_pan_gain(2000.0, 1500.0) - 1.0).abs() < 1e-6);
+}
+
+#[test]
+fn pan_by_scroll_moves_further_than_a_raw_pan_when_zoomed_out() {
+    let doc = (2000.0, 1500.0);
+    let mut scrolled = cam(1000.0, 800.0);
+    scrolled.fit(doc.0, doc.1);
+    scrolled.zoom_to_center(scrolled.min_zoom(doc.0, doc.1), doc.0, doc.1);
+    let mut dragged = scrolled;
+
+    scrolled.pan_by_scroll(30.0, 0.0, true, doc.0, doc.1);
+    dragged.pan_by(30.0, 0.0, doc.0, doc.1);
+    assert!(
+        scrolled.pan_x > dragged.pan_x,
+        "scroll {} should outrun drag {}",
+        scrolled.pan_x,
+        dragged.pan_x
+    );
+}
+
+#[test]
+fn pan_by_scroll_still_respects_the_slack_clamp() {
+    let doc = (2000.0, 1500.0);
+    let mut c = cam(1000.0, 800.0);
+    c.fit(doc.0, doc.1);
+    for _ in 0..200 {
+        c.pan_by_scroll(500.0, 500.0, true, doc.0, doc.1);
+    }
+    let (_, max_x, _, max_y) = c.pan_bounds(doc.0, doc.1);
+    assert!(c.pan_x <= max_x + 1e-3);
+    assert!(c.pan_y <= max_y + 1e-3);
+}
+
+#[test]
+fn a_wheel_line_pans_further_than_a_trackpad_pixel() {
+    let doc = (2000.0, 1500.0);
+    let mut wheel = cam(1000.0, 800.0);
+    wheel.fit(doc.0, doc.1);
+    let mut trackpad = wheel;
+    let start = wheel.pan_y;
+
+    wheel.pan_by_scroll(0.0, 3.0, false, doc.0, doc.1);
+    trackpad.pan_by_scroll(0.0, 3.0, true, doc.0, doc.1);
+    let (by_line, by_pixel) = (wheel.pan_y - start, trackpad.pan_y - start);
+    assert!(
+        (by_line - by_pixel * SCROLL_LINE_PIXELS).abs() < 1e-3,
+        "a line should be worth {SCROLL_LINE_PIXELS} pixels, got {by_line} against {by_pixel}"
+    );
+}
+
+#[test]
+fn scroll_zoom_follows_the_delta_and_holds_the_pointer() {
+    let doc = (2000.0, 1500.0);
+    let mut c = cam(1000.0, 800.0);
+    c.fit(doc.0, doc.1);
+    let before = c.zoom;
+    let (anchor_x, anchor_y) = (300.0, 200.0);
+    let under_pointer = c.to_doc(anchor_x, anchor_y);
+
+    c.zoom_by_scroll(anchor_x, anchor_y, -3.0, false, doc.0, doc.1);
+    assert!(c.zoom > before, "a negative delta should zoom in");
+
+    let (screen_x, screen_y) = c.to_screen(under_pointer.0, under_pointer.1);
+    assert!((screen_x - anchor_x).abs() < 1e-2);
+    assert!((screen_y - anchor_y).abs() < 1e-2);
+
+    c.zoom_by_scroll(anchor_x, anchor_y, 3.0, false, doc.0, doc.1);
+    assert!(
+        (c.zoom - before).abs() < 1e-3,
+        "one notch back should undo it"
+    );
+}
+
+#[test]
+fn a_wheel_notch_zooms_further_than_a_trackpad_pixel() {
+    let doc = (2000.0, 1500.0);
+    let mut wheel = cam(1000.0, 800.0);
+    wheel.fit(doc.0, doc.1);
+    let mut trackpad = wheel;
+
+    wheel.zoom_by_scroll(500.0, 400.0, -1.0, false, doc.0, doc.1);
+    trackpad.zoom_by_scroll(500.0, 400.0, -1.0, true, doc.0, doc.1);
+    assert!(wheel.zoom > trackpad.zoom);
+}

@@ -1,7 +1,8 @@
 # AGENTS.md
 
 Calumma is a personal whiteboard: bounded project canvases you draw on with a pen or
-shapes. Multiple projects, switched from the window titlebar tabs; each switch clean-loads from SQLite.
+shapes. Projects are grouped into **workspaces**; titlebar tabs switch workspaces, and each
+switch clean-loads the workspace’s active project from SQLite.
 
 **Ambition:** product depth and scale in the neighbourhood of GIMP, Photoshop, Krita, and
 Figma — multi-layer documents, large canvases, dense interaction. Performance and
@@ -122,12 +123,14 @@ have to be read together.
   engine takes **premultiplied** RGBA over FFI and unpremultiplies in Rust
   (`calm_project_create_from_image`). Cap is `limits::IMPORT_MAX_SIDE`.
 - Every project carries an **accent colour** (`Document.accent`, `projects.accent` in SQLite).
-  Core picks one from `palette::PROJECT_COLORS` at create time; the shell shows it on the
-  titlebar tab and in recents, and rename / recolour go through `calm_project_rename` and
-  `calm_project_set_accent`. The palette itself is document data served from core
-  (`calm_palette_color`), not a theme token.
-- Editor: **titlebar** project tabs (right of traffic lights). Switch = save/close current → open selected (full
- reload, no preload of inactive docs).
+  Core picks one from `palette::PROJECT_COLORS` at create time; the shell shows it on
+  landing recents and project thumbs. Workspaces also carry an accent for their titlebar
+  chip. Rename / recolour projects via `calm_project_rename` / `calm_project_set_accent`;
+  workspaces via `calm_workspace_rename` / `calm_workspace_set_accent`. The palette itself
+  is document data served from core (`calm_palette_color`), not a theme token.
+- Editor: **titlebar workspace tabs** (right of traffic lights). Switch = save/close current
+  → open the workspace’s active project (full reload). `+` adds a project to the active
+  workspace; **extend** opens the workspace/project overlay with cached thumbnails.
 - One board per project; bounded paper (not infinite canvas). Zoom out floor fills ~50% of
   the viewport; zoom in max is 10× that floor (detail-capped around a 400px visible side).
 
@@ -144,7 +147,7 @@ pub enum LayerContent {
 
 - `layer.transform: Option<LayerTransform>` (`engine/core/src/transform.rs`)
   — offset/scale/rotation around the layer's `content_bounds()` center, raster
-  layers only (`Tool::Transform`, `⌘T`). Same non-destructive contract as
+  layers only (`⌘T` transform *mode*, not a toolbar tool). Same non-destructive contract as
   everything else on `Layer`: never baked into tile bytes. Live view applies
   it as a per-layer GPU uniform in `vs_tile` (`board.wgsl`); flattening
   (`composite_rgba`/`layer_rgba`/PSD export, all via
@@ -153,7 +156,8 @@ pub enum LayerContent {
   filtered) live view and a flattened/exported result at extreme
   scale/rotation. Selecting *which* layer to transform still goes through
   the layers panel only — there is no click-a-layer-on-the-canvas picking
-  yet (see `plans/02-layer-click-to-select.md`).
+  yet (see `plans/02-layer-click-to-select.md`). Click outside the handles
+  (or `Esc`) exits the mode; the Select tools remain for region marquee/lasso.
 - **Paper** (`Layer::paper`) is an ordinary raster layer, name-matched via
   `Layer::is_paper()`, pre-filled fully opaque white at creation — not a
   cheap vector fill. It is paintable/eraseable/editable like any other
@@ -283,7 +287,7 @@ via `@Environment(\.themeColors)`; copy via `@Environment(\.l10n)`.
 4. Light and dark from tokens; push desk / grid / paper-border into the engine via
    `calm_engine_set_board_colors`. Never hardcode a colour in `.rs` or `.wgsl`.
 5. Filled controls; hover = luminance shift.
-6. Native `ColorPicker` on macOS.
+6. Inline colour picker (`QuickColorPicker`) — overlapping swatches, HSB field, hue, hex.
 7. Nothing **drawn on the board** may be a SwiftUI view — paper, strokes, grid, and the
    layer hover outline are WGSL. Small chrome *controls* may float over the canvas island
    (the zoom pill sits bottom-trailing inside it); panels stay side-by-side islands.
@@ -402,6 +406,6 @@ PSD *export* is layered and shipped — see FLOW.md), click-to-pick a layer on t
 target still only goes through the layers panel), text layers — add only as considered
 features, not by restoring old app code.
 
-**Promoted out of this list** and now carrying plans in `plans/`: the eyedropper
-(`05-eyedropper.md`) and workspaces (`07-workspaces.md`, the old
-"Workspaces-as-products beyond SQLite projects" entry).
+**Promoted out of this list** and now carrying plans in `plans/`: workspaces shipped as
+titlebar tabs + extend overlay (`06-workspaces.md`). Eyedropper shipped (`I` / tools
+island; samples the composited pixel under the cursor into the active ink swatch).

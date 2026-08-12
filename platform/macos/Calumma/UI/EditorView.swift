@@ -16,13 +16,16 @@ struct EditorView: View {
         HStack(alignment: .top, spacing: Tokens.Space.sm) {
             ToolsPanel()
                 .frame(maxHeight: .infinity)
+                .zIndex(2)
 
             canvasIsland
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .zIndex(0)
 
             if app.layersOpen {
                 layersIsland
                     .frame(maxHeight: .infinity)
+                    .zIndex(1)
             }
         }
         .padding(Tokens.Space.sm)
@@ -63,9 +66,39 @@ struct EditorView: View {
                 zoomControls
                     .padding(Tokens.Space.md)
             }
+            .overlay(alignment: .topLeading) {
+                eyedropperLoupeOverlay
+            }
             .onDrop(of: ArtworkImport.dropTypes, isTargeted: $artworkDropTargeted) { providers in
                 app.dropArtworkIntoWorkspace(providers: providers)
             }
+    }
+
+    @ViewBuilder
+    private var eyedropperLoupeOverlay: some View {
+        if app.tool == .eyedropper, let loupe = app.eyedropperLoupe {
+            HStack(spacing: Tokens.Space.xs) {
+                Circle()
+                    .fill(loupe.color)
+                    .frame(width: 18, height: 18)
+                    .overlay(
+                        Circle().strokeBorder(colors.islandBorder, lineWidth: 1)
+                    )
+                CalmText.muted("#\(loupe.hex)", mono: true)
+            }
+            .padding(.horizontal, Tokens.Space.sm)
+            .padding(.vertical, Tokens.Space.xs)
+            .background(
+                colors.surfaceHover,
+                in: RoundedRectangle(cornerRadius: Tokens.Radius.sm, style: .continuous)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: Tokens.Radius.sm, style: .continuous)
+                    .strokeBorder(colors.islandBorder, lineWidth: 1)
+            )
+            .offset(x: loupe.x + Tokens.Space.md, y: loupe.y + Tokens.Space.md)
+            .allowsHitTesting(false)
+        }
     }
 
     private var zoomControls: some View {
@@ -81,6 +114,7 @@ struct EditorView: View {
                 )
                 .controlSize(.mini)
                 .frame(width: 96)
+                .help(l10n.zoom)
                 zoomStepButton(zoomIn: true, label: "+")
                 CalmText.muted("\(Int(app.engine.state.zoom * 100))%", mono: true)
                     .frame(width: 40, alignment: .trailing)
@@ -108,41 +142,14 @@ struct EditorView: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .help(zoomIn ? l10n.zoomIn : l10n.zoomOut)
         .calmPointer()
     }
 
     @ToolbarContentBuilder
     private var editorToolbar: some ToolbarContent {
-        ToolbarItemGroup(placement: .navigation) {
-            ForEach(app.openTabs) { tab in
-                CalmChip(
-                    title: tab.name,
-                    accent: tab.accentColor,
-                    selected: app.activeTabId == tab.id,
-                    onAccent: { editingTab = tab.id },
-                    onSelect: { app.switchTo(projectId: tab.id, info: tab) },
-                    onClose: { app.closeTab(tab.id) }
-                )
-                .popover(
-                    isPresented: Binding(
-                        get: { editingTab == tab.id },
-                        set: { if !$0 { editingTab = nil } }
-                    ),
-                    arrowEdge: .bottom
-                ) {
-                    ProjectSettingsCard(project: tab)
-                        .environmentObject(app)
-                        .themeColors(colors)
-                        .l10n(l10n)
-                }
-            }
-            CalmIconButton {
-                app.newProjectOpen = true
-            } icon: {
-                AppIcon.plus(color: colors.textMuted, size: 24)
-            }
-            .help(l10n.newProject)
-            .calmPointer()
+        ToolbarItem(placement: .navigation) {
+            WorkspaceTitlebarTabs(editingTab: $editingTab)
         }
     }
 
@@ -158,6 +165,7 @@ struct EditorView: View {
                         AppIcon.plus(color: colors.textMuted)
                     }
                     .buttonStyle(.plain)
+                    .calmTooltip(l10n.addLayer, edge: .leading)
                     .calmPointer()
                 }
                 ForEach((0..<app.engine.layerNames.count).reversed(), id: \.self) { index in
@@ -209,6 +217,7 @@ struct EditorView: View {
                 AppIcon.eye(color: visible ? colors.textMuted : colors.textMuted.opacity(0.45), open: visible)
             }
             .buttonStyle(.plain)
+            .calmTooltip(l10n.layerVisibility, edge: .leading)
             .calmPointer()
 
             Button {
@@ -232,6 +241,7 @@ struct EditorView: View {
                 AppIcon.more(color: colors.textMuted)
             }
             .buttonStyle(.plain)
+            .calmTooltip(l10n.layerSettings, edge: .leading)
             .calmPointer()
             .popover(
                 isPresented: Binding(
@@ -255,6 +265,7 @@ struct EditorView: View {
                 AppIcon.trash(color: colors.textMuted)
             }
             .buttonStyle(.plain)
+            .calmTooltip(l10n.deleteLayer, edge: .leading)
             .calmPointer()
         }
         .onHover { hovering in

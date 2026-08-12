@@ -25,3 +25,24 @@ fn rect_bounds_include_pad() {
     let (x0, y0, x1, y1) = s.bounds();
     assert!(x0 < 10.0 && y0 < 10.0 && x1 > 40.0 && y1 > 40.0);
 }
+
+#[test]
+fn triangle_fill_covers_center() {
+    let s = Shape {
+        tool: Tool::Triangle,
+        start: (0.0, 0.0),
+        end: (100.0, 100.0),
+        half_width: 1.0,
+        fill: true,
+    };
+    assert!(s.coverage(50.0, 70.0) > 0.9);
+    assert!(s.coverage(10.0, 10.0) < 0.1);
+}
+
+#[test]
+fn pentagon_is_a_shape_that_takes_fill() {
+    assert!(Tool::Pentagon.is_shape());
+    assert!(Tool::Pentagon.takes_fill());
+    assert_eq!(Tool::from_u32(13), Some(Tool::Pentagon));
+    assert_eq!(Tool::from_u32(12), Some(Tool::Triangle));
+}

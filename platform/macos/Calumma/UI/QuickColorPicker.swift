@@ -62,21 +62,14 @@ struct QuickColorPicker: View {
     private static let fieldHeight: CGFloat = 84
     private static let sliderHeight: CGFloat = 14
     private static let knob: CGFloat = 10
+    private static let swatchHeight: CGFloat = 24
 
     var body: some View {
         VStack(spacing: Tokens.Space.xs) {
-            HStack(spacing: Tokens.Space.xs) {
-                swatch(0)
-                swatch(1)
-            }
+            swatches
             gradientField
             hueSlider
             hexField
-            ColorPicker("", selection: $app.color, supportsOpacity: true)
-                .labelsHidden()
-                .frame(height: 24)
-                .clipShape(RoundedRectangle(cornerRadius: Tokens.Radius.sm, style: .continuous))
-                .help(l10n.color)
         }
         .onAppear { hexText = app.color.hexRGB }
         .onChange(of: app.color) { _, next in
@@ -86,23 +79,35 @@ struct QuickColorPicker: View {
         }
     }
 
+    private var swatches: some View {
+        HStack(spacing: Tokens.Space.xs) {
+            swatch(0)
+            swatch(1)
+        }
+    }
+
     private func swatch(_ index: Int) -> some View {
         let shape = RoundedRectangle(cornerRadius: Tokens.Radius.sm, style: .continuous)
+        let active = app.activeQuickColorIndex == index
         return Button {
             app.selectQuickColor(index)
         } label: {
             shape
                 .fill(app.quickColors[index])
                 .frame(maxWidth: .infinity)
-                .frame(height: 22)
+                .frame(height: Self.swatchHeight)
                 .overlay(
                     shape.strokeBorder(
-                        colors.accentTeal,
-                        lineWidth: app.activeQuickColorIndex == index ? 2 : 0
+                        active ? colors.accentTeal : colors.islandBorder,
+                        lineWidth: active ? 2 : 1
                     )
                 )
         }
         .buttonStyle(.plain)
+        .calmTooltip(
+            index == 0 ? l10n.primaryColor : l10n.secondaryColor,
+            edge: .trailing
+        )
         .calmPointer()
     }
 
