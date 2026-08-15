@@ -34,10 +34,10 @@ fn shape_preview_then_commit() {
     let (s0x, s0y) = doc.camera.to_screen(20.0, 20.0);
     let (s1x, s1y) = doc.camera.to_screen(60.0, 60.0);
     doc.pointer_down(s0x, s0y);
-    assert!(doc.preview_shape.is_some());
+    assert!(doc.preview_shape().is_some());
     doc.pointer_move(s1x, s1y);
     doc.pointer_up(s1x, s1y);
-    assert!(doc.preview_shape.is_none());
+    assert!(doc.preview_shape().is_none());
     assert!(!doc.layers[doc.active_layer].tiles().unwrap().is_empty());
 }
 
@@ -750,9 +750,9 @@ fn triangle_and_pentagon_commit_pixels_to_the_active_layer() {
         let (x1, y1) = doc.camera.to_screen(100.0, 100.0);
         doc.pointer_down(x0, y0);
         doc.pointer_move(x1, y1);
-        assert!(doc.preview_shape.is_some(), "{tool:?} previews");
+        assert!(doc.preview_shape().is_some(), "{tool:?} previews");
         doc.pointer_up(x1, y1);
-        assert!(doc.preview_shape.is_none(), "{tool:?} clears its preview");
+        assert!(doc.preview_shape().is_none(), "{tool:?} clears its preview");
         assert_ne!(
             pixel(&doc, doc.active_layer, 60, 80)[3],
             0,

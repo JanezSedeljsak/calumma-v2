@@ -52,9 +52,9 @@ fn ellipse_and_arrow_commit_paint() {
         let (c, d) = doc.camera.to_screen(120.0, 90.0);
         doc.pointer_down(a, b);
         doc.pointer_move(c, d);
-        assert!(doc.preview_shape.is_some());
+        assert!(doc.preview_shape().is_some());
         doc.pointer_up(c, d);
-        assert!(doc.preview_shape.is_none());
+        assert!(doc.preview_shape().is_none());
         assert!(!doc.layers[doc.active_layer].tiles().unwrap().is_empty());
     }
 }

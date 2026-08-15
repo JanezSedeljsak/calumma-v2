@@ -917,7 +917,8 @@ impl Renderer {
             doc.color[2] as f32 / 255.0,
             doc.color[3] as f32 / 255.0,
         ];
-        let (p0, p1, tool, half_width, fill, shape_color) = match doc.preview_shape {
+        let preview_shape = doc.preview_shape();
+        let (p0, p1, tool, half_width, fill, shape_color) = match preview_shape {
             Some(s) => (
                 [s.start.0, s.start.1],
                 [s.end.0, s.end.1],
@@ -1120,7 +1121,7 @@ impl Renderer {
             pass.draw(0..6, overlay_range.clone());
         }
 
-        if doc.preview_shape.is_some() {
+        if preview_shape.is_some() {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("shape-preview"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {

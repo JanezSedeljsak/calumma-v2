@@ -807,11 +807,19 @@ pub unsafe extern "C" fn calm_engine_set_dark(engine: *mut CalmEngine, dark: u8)
 }
 
 #[no_mangle]
+/// Shift is a live modifier, not a knob read at commit time: a shape being dragged squares
+/// off the moment it goes down and relaxes the moment it comes up, so the board has to
+/// redraw on the change itself rather than waiting for the next pointer event.
 pub unsafe extern "C" fn calm_engine_set_shift(engine: *mut CalmEngine, held: u8) -> CalmStatus {
     with_inner(engine, |inner| {
-        if let Some(doc) = &mut inner.doc {
-            doc.set_shift_held(held != 0);
+        let Some(doc) = &mut inner.doc else {
+            return Ok(());
+        };
+        if doc.shift_held == (held != 0) {
+            return Ok(());
         }
+        doc.set_shift_held(held != 0);
+        inner.invalidate_renderer();
         Ok(())
     })
 }

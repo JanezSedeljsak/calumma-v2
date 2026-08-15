@@ -61,6 +61,24 @@ impl Tool {
             Tool::Rect | Tool::Ellipse | Tool::Triangle | Tool::Pentagon
         )
     }
+
+    /// Whether a Shift-drag squares this tool off: a rectangle becomes a square, an ellipse
+    /// a circle. Line and Arrow would want an angle snap and the polygons a regular-polygon
+    /// lock — different clamps, not this one — so they are deliberately not included.
+    pub fn constrains_to_square(self) -> bool {
+        matches!(self, Tool::Rect | Tool::Ellipse)
+    }
+}
+
+/// Where a constrained drag from `start` really ends: the square that *fills* the drag. The
+/// side is the longer of the two deltas, so the shape grows with the pointer instead of
+/// collapsing to the shorter one, and each delta keeps its sign, so dragging up and to the
+/// left still draws up and to the left.
+pub fn square_end(start: (f32, f32), end: (f32, f32)) -> (f32, f32) {
+    let dx = end.0 - start.0;
+    let dy = end.1 - start.1;
+    let side = dx.abs().max(dy.abs());
+    (start.0 + side.copysign(dx), start.1 + side.copysign(dy))
 }
 
 const BARB_ANGLE: f32 = 0.5;

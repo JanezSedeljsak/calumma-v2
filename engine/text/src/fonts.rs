@@ -74,7 +74,7 @@ fn build_registry() -> Vec<FontFamily> {
             })
             .collect()
     });
-    rows.sort_by(|a, b| sort_key(&a.name).cmp(&sort_key(&b.name)));
+    rows.sort_by_key(|face| sort_key(&face.name));
     rows.dedup_by(|face, kept| {
         if sort_key(&face.name) != sort_key(&kept.name) {
             return false;

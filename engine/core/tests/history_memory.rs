@@ -49,8 +49,8 @@ fn tool_switch_shape_line() {
     let (c, d) = doc.camera.to_screen(80.0, 20.0);
     doc.pointer_down(a, b);
     doc.pointer_move(c, d);
-    assert!(doc.preview_shape.is_some());
+    assert!(doc.preview_shape().is_some());
     doc.pointer_up(c, d);
-    assert!(doc.preview_shape.is_none());
+    assert!(doc.preview_shape().is_none());
     assert!(!doc.layers[doc.active_layer].tiles().unwrap().is_empty());
 }

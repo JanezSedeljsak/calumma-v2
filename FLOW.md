@@ -142,6 +142,7 @@ launches.
 | Action | How |
 | --- | --- |
 | Paint / place shape | Click-drag on the board (pointer down → move → up). Engine converts **screen** coords. |
+| Constrain a shape | Hold **Shift** while dragging **Rect** or **Ellipse** (and their marquee twins) for a square or circle. Corner-anchored, and the *longer* side wins, so the shape fills the drag. Press or release Shift mid-drag and the board snaps immediately — the clamp is derived from the raw drag on every frame, not baked in on the last mouse-move. Line, Arrow, Triangle and Pentagon are unconstrained (angle snap and regular-polygon lock are different clamps, not built). |
 | Live preview | GPU stroke/shape while dragging; CPU commit into sparse tiles on pointer-up. |
 | Pan | Scroll wheel / trackpad scroll; **middle-button drag**; Space-drag; or Option/⌘-drag |
 | Zoom | Pinch; ⌘ + scroll; Option + scroll; or ⌘`=` / ⌘`-` |
@@ -249,7 +250,9 @@ live in `engine/core`; the actual PNG/JPEG/WebP/AVIF **encode** happens in the s
 - **Transform (`⌘T`):** a transient *mode* on the active layer — not a tools-island
   button (Select tools stay for region marquee/lasso; transforming a selection region
   is separate). Shows scale/rotate handles around the *active* layer. Drag a corner to
-  scale — proportional by default, hold **Shift** for free (non-uniform) scale; drag the
+  scale — proportional by default, hold **Shift** for free (non-uniform) scale, the same
+  polarity Photoshop's Free Transform uses and deliberately the *opposite* of Shift while
+  drawing a shape, where it constrains; drag the
   handle above top-center to rotate; drag inside the box to move. Click outside the
   handles, press `Esc`, or pick another tool to exit the mode. Fully live and
   non-destructive on the canvas; a "Reset Transform" action in the layer's `…` popover
@@ -392,6 +395,7 @@ panel toggles are shell knobs.
 | `⇧⌥⌘` + the same letter | Decrease the same filter by one step | — |
 | `⌃⌘F` | Enter / exit full screen (re-homed from the removed View menu) | macOS standard |
 | `F` | Toggle shape fill | — |
+| `⇧` (held while dragging) | Constrain Rect / Ellipse to a square / circle | Yes (Ps shape constrain) |
 | `V` | Toggle vector mode (shapes and the pen commit as editable vector items) | — (Ps has no equivalent; closest is Figma's vector tools) |
 | `←` `→` `↑` `↓` | Move the selected vector item one step | Yes (Ps nudge) |
 | `⌫` / `⌦` | Delete the selected vector item (falls back to the old clear behaviour when none is selected) | Yes |

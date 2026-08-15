@@ -227,8 +227,14 @@ final class BoardMTKView: MTKView {
         MainActor.assumeIsolated { app?.clearEyedropperLoupe() }
     }
 
+    /// Shift constrains the shape being dragged, so the engine has to hear about the key
+    /// itself — waiting for the next mouse-move would leave the board showing a rectangle
+    /// while the user is already holding Shift.
     override func flagsChanged(with event: NSEvent) {
         refreshCursor()
+        if painting {
+            boardCoordinator?.engine.setShift(event.modifierFlags.contains(.shift))
+        }
         super.flagsChanged(with: event)
     }
 
@@ -284,6 +290,7 @@ final class BoardMTKView: MTKView {
         guard let coordinator = boardCoordinator else { return }
         let point = coordinator.screenPoint(in: self, event: event)
         if painting {
+            coordinator.engine.setShift(event.modifierFlags.contains(.shift))
             coordinator.engine.pointerUp(x: Float(point.x), y: Float(point.y))
         }
         painting = false

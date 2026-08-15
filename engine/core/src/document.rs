@@ -278,7 +278,11 @@ pub struct Document {
     pub hover_layer: Option<usize>,
     pub stroke_active: bool,
     pub stroke_points: Vec<StrokePoint>,
-    pub preview_shape: Option<Shape>,
+    /// The drag the pointer is describing, with its **unclamped** end. What gets drawn and
+    /// committed is `preview_shape()`, which applies the Shift constraint on read — so
+    /// pressing or releasing Shift mid-drag changes the shape without needing a pointer
+    /// event to arrive first.
+    pub shape_drag: Option<Shape>,
     pub selection: Option<Selection>,
     pub shift_held: bool,
     /// Whether the shape tools and the pen commit as resolution-independent vector items
@@ -375,7 +379,7 @@ impl Document {
             hover_layer: None,
             stroke_active: false,
             stroke_points: Vec::with_capacity(STROKE_POINT_CAPACITY),
-            preview_shape: None,
+            shape_drag: None,
             selection: None,
             shift_held: false,
             vector_mode: false,
@@ -588,6 +592,18 @@ impl Document {
 
     pub fn set_shift_held(&mut self, held: bool) {
         self.shift_held = held;
+    }
+
+    /// The shape as it will be drawn and committed: the live drag with the Shift constraint
+    /// applied. Deriving it here rather than storing it clamped keeps one source of truth —
+    /// the raw drag — so the modifier can be pressed and released as often as the user likes
+    /// and the answer is always current.
+    pub fn preview_shape(&self) -> Option<Shape> {
+        let mut shape = self.shape_drag?;
+        if self.shift_held && shape.tool.constrains_to_square() {
+            shape.end = crate::shape::square_end(shape.start, shape.end);
+        }
+        Some(shape)
     }
 
     pub fn reset_layer_transform(&mut self, index: usize) {
@@ -992,7 +1008,7 @@ impl Document {
                 Tool::SelectEllipse => Tool::Ellipse,
                 t => t,
             };
-            self.preview_shape = Some(Shape {
+            self.shape_drag = Some(Shape {
                 tool: shape_tool,
                 start: (dx, dy),
                 end: (dx, dy),
@@ -1012,7 +1028,7 @@ impl Document {
         }
         if matches!(self.tool, Tool::Pen | Tool::Eraser | Tool::SelectLasso) && self.stroke_active {
             self.push_stroke_point(dx, dy);
-        } else if let Some(shape) = &mut self.preview_shape {
+        } else if let Some(shape) = &mut self.shape_drag {
             shape.end = (dx, dy);
             shape.half_width = self.brush_size * 0.5;
             shape.fill = self.fill;
@@ -1033,10 +1049,14 @@ impl Document {
             } else {
                 self.commit_stroke();
             }
-        } else if let Some(mut shape) = self.preview_shape.take() {
+        } else if let Some(shape) = &mut self.shape_drag {
             shape.end = (dx, dy);
             shape.half_width = self.brush_size * 0.5;
             shape.fill = self.fill;
+            let Some(shape) = self.preview_shape() else {
+                return;
+            };
+            self.shape_drag = None;
             if matches!(self.tool, Tool::SelectRect | Tool::SelectEllipse) {
                 self.commit_selection_shape(shape);
             } else {
@@ -1638,7 +1658,7 @@ impl Document {
 
     pub fn has_live_preview(&self) -> bool {
         self.stroke_active
-            || self.preview_shape.is_some()
+            || self.shape_drag.is_some()
             || self.hover_layer.is_some()
             || self.selection.is_some()
             || self.transform_active
