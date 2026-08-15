@@ -11,6 +11,7 @@ use uuid::Uuid;
 
 use crate::adjustments_blob;
 use crate::text_blob;
+use crate::transform_blob;
 use crate::vector_blob;
 
 #[derive(Debug, Error)]
@@ -148,6 +149,7 @@ impl ProjectStore {
                 blend_mode INTEGER NOT NULL DEFAULT 0,
                 adjustments BLOB,
                 text_data BLOB,
+                transform BLOB,
                 PRIMARY KEY (project_id, layer_id),
                 FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
             );
@@ -201,6 +203,7 @@ impl ProjectStore {
         let mut has_blend_mode = false;
         let mut has_adjustments = false;
         let mut has_text = false;
+        let mut has_transform = false;
         let columns = stmt.query_map([], |row| row.get::<_, String>(1))?;
         for column in columns {
             match column?.as_str() {
@@ -211,6 +214,7 @@ impl ProjectStore {
                 "blend_mode" => has_blend_mode = true,
                 "adjustments" => has_adjustments = true,
                 "text_data" => has_text = true,
+                "transform" => has_transform = true,
                 _ => {}
             }
         }
@@ -247,6 +251,10 @@ impl ProjectStore {
         if !has_text {
             self.conn
                 .execute("ALTER TABLE layers ADD COLUMN text_data BLOB", [])?;
+        }
+        if !has_transform {
+            self.conn
+                .execute("ALTER TABLE layers ADD COLUMN transform BLOB", [])?;
         }
         Ok(())
     }
@@ -326,7 +334,7 @@ impl ProjectStore {
         doc.layers.clear();
 
         let mut layer_stmt = self.conn.prepare(
-            "SELECT layer_id, name, visible, mask, content_kind, vector_data, opacity, blend_mode, adjustments, text_data FROM layers WHERE project_id = ?1 ORDER BY z_index ASC",
+            "SELECT layer_id, name, visible, mask, content_kind, vector_data, opacity, blend_mode, adjustments, text_data, transform FROM layers WHERE project_id = ?1 ORDER BY z_index ASC",
         )?;
         let layer_rows = layer_stmt.query_map(params![id], |row| {
             Ok((
@@ -340,6 +348,7 @@ impl ProjectStore {
                 row.get::<_, i64>(7)? as u32,
                 row.get::<_, Option<Vec<u8>>>(8)?,
                 row.get::<_, Option<Vec<u8>>>(9)?,
+                row.get::<_, Option<Vec<u8>>>(10)?,
             ))
         })?;
 
@@ -361,6 +370,7 @@ impl ProjectStore {
                 blend_mode,
                 adjustments,
                 text_data,
+                transform,
             ) = layer_row?;
             let decoded_run = text_data.as_deref().and_then(text_blob::decode);
             let kind = match (content_kind, &decoded_run) {
@@ -390,6 +400,7 @@ impl ProjectStore {
             layer.opacity = opacity.clamp(0.0, 1.0);
             layer.blend_mode = BlendMode::from_u32(blend_mode).unwrap_or_default();
             layer.adjustments = adjustments.as_deref().and_then(adjustments_blob::decode);
+            layer.transform = transform.as_deref().and_then(transform_blob::decode);
             if kind != LayerKind::Vector {
                 layer.set_mask(mask.filter(|m| m.len() == mask_len));
             }
@@ -480,7 +491,7 @@ impl ProjectStore {
 
         {
             let mut upsert_layer = tx.prepare(
-                "INSERT INTO layers (project_id, layer_id, name, visible, z_index, mask, content_kind, vector_data, opacity, blend_mode, adjustments, text_data) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+                "INSERT INTO layers (project_id, layer_id, name, visible, z_index, mask, content_kind, vector_data, opacity, blend_mode, adjustments, text_data, transform) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
                  ON CONFLICT(project_id, layer_id) DO UPDATE SET
                     name = excluded.name,
                     visible = excluded.visible,
@@ -491,7 +502,8 @@ impl ProjectStore {
                     opacity = excluded.opacity,
                     blend_mode = excluded.blend_mode,
                     adjustments = excluded.adjustments,
-                    text_data = excluded.text_data",
+                    text_data = excluded.text_data,
+                    transform = excluded.transform",
             )?;
             let mut upsert_tile = tx.prepare(
                 "INSERT INTO tiles (project_id, layer_id, tx, ty, pixels) VALUES (?1, ?2, ?3, ?4, ?5)
@@ -509,6 +521,7 @@ impl ProjectStore {
                     mask,
                 } = LayerColumns::of(layer);
                 let adjustments = layer.adjustments.as_ref().map(adjustments_blob::encode);
+                let transform = layer.transform.as_ref().map(transform_blob::encode);
                 upsert_layer.execute(params![
                     doc.id,
                     layer.id,
@@ -521,7 +534,8 @@ impl ProjectStore {
                     layer.opacity as f64,
                     layer.blend_mode.as_u32() as i64,
                     adjustments,
-                    text_data
+                    text_data,
+                    transform
                 ])?;
 
                 // A text layer's tiles are a cache of its run, so the run is all that is

@@ -173,6 +173,8 @@ CalmStatus calm_engine_set_layer_visible(CalmEngine *engine, uint32_t index, uin
 int calm_engine_layer_visible(CalmEngine *engine, uint32_t index);
 CalmStatus calm_engine_set_active_layer(CalmEngine *engine, uint32_t index);
 CalmStatus calm_engine_duplicate_layer(CalmEngine *engine, uint32_t index);
+CalmStatus calm_engine_move_layer_up(CalmEngine *engine, uint32_t index);
+CalmStatus calm_engine_move_layer_down(CalmEngine *engine, uint32_t index);
 CalmStatus calm_engine_merge_layer_down(CalmEngine *engine, uint32_t index);
 CalmStatus calm_engine_set_layer_opacity(CalmEngine *engine, uint32_t index, float opacity);
 float calm_engine_layer_opacity(CalmEngine *engine, uint32_t index);

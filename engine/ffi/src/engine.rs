@@ -1068,6 +1068,42 @@ pub unsafe extern "C" fn calm_engine_duplicate_layer(
 }
 
 #[no_mangle]
+pub unsafe extern "C" fn calm_engine_move_layer_up(
+    engine: *mut CalmEngine,
+    index: u32,
+) -> CalmStatus {
+    with_inner(engine, |inner| {
+        let doc = inner.doc.as_mut().context("no project is open")?;
+        if !doc.move_layer_up(index as usize) {
+            bail!("layer {index} cannot move up");
+        }
+        inner.dirty_save = true;
+        if let Some(r) = &mut inner.renderer {
+            r.invalidate();
+        }
+        Ok(())
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn calm_engine_move_layer_down(
+    engine: *mut CalmEngine,
+    index: u32,
+) -> CalmStatus {
+    with_inner(engine, |inner| {
+        let doc = inner.doc.as_mut().context("no project is open")?;
+        if !doc.move_layer_down(index as usize) {
+            bail!("layer {index} cannot move down");
+        }
+        inner.dirty_save = true;
+        if let Some(r) = &mut inner.renderer {
+            r.invalidate();
+        }
+        Ok(())
+    })
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn calm_engine_merge_layer_down(
     engine: *mut CalmEngine,
     index: u32,

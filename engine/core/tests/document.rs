@@ -662,6 +662,23 @@ fn merge_layer_down_bakes_pixels_and_removes_source() {
 }
 
 #[test]
+fn move_layer_up_and_down_reorders_the_stack() {
+    let mut doc = Document::new("p".into(), "t", 32, 32);
+    doc.add_layer("Mid");
+    let mid = doc.active_layer;
+    doc.add_layer("Top");
+    let top = doc.active_layer;
+    assert!(doc.move_layer_up(mid));
+    assert_eq!(doc.layers[top].name, "Mid");
+    assert_eq!(doc.layers[mid].name, "Top");
+    assert!(doc.move_layer_down(top));
+    assert_eq!(doc.layers[mid].name, "Mid");
+    assert_eq!(doc.layers[top].name, "Top");
+    assert!(!doc.move_layer_down(0));
+    assert!(!doc.move_layer_up(doc.layers.len() - 1));
+}
+
+#[test]
 fn composite_respects_layer_transform_offset() {
     let mut doc = Document::new("p".into(), "t", 64, 64);
     let idx = doc.active_layer;

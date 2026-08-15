@@ -1,7 +1,17 @@
 # Calumma v2
 
-Native rewrite: SwiftUI shell + Rust/wgpu engine. Multi-project whiteboard with
-SQLite persistence and shared design tokens (not CSS).
+**Your personal whiteboard** — bounded canvases you draw on with a pen, shapes, and text.
+Layers, masks, and workspaces keep projects organized; everything persists locally.
+
+Native macOS app: SwiftUI shell, Rust/wgpu engine, SQLite storage.
+
+<p align="center">
+  <img src="design/example/landing.png" alt="Calumma landing — new project screen" width="720">
+</p>
+
+<p align="center">
+  <img src="design/example/editor.png" alt="Calumma editor — layers, tools, and canvas" width="720">
+</p>
 
 Read **`AGENTS.md`**, **`FLOW.md`**, and **`design/STYLE.md`**.
 
@@ -9,6 +19,7 @@ Read **`AGENTS.md`**, **`FLOW.md`**, and **`design/STYLE.md`**.
 
 ```bash
 ./manage.py tokens   # regenerate Swift tokens from design/tokens.json
+./manage.py examples # optimize design/example/*.png (drop sources in design/example/source/)
 ./manage.py dev      # build ffi + open Xcode
 ./manage.py package  # Release build → dist/Calumma-<version>.dmg
 ```
@@ -19,7 +30,7 @@ Run the **Calumma** scheme. Landing → create/preset/recent → editor with top
 
 | Path | Role |
 | --- | --- |
-| `design/` | visual tokens, STYLE, SVG icons |
+| `design/` | visual tokens, STYLE, SVG icons, README screenshots (`design/example/`) |
 | `FLOW.md` | product flow: screens, shortcuts, import/export |
 | `translations/` | UI locale JSON (`en` today) |
 | `engine/` | Cargo workspace (`Cargo.toml`, rustfmt, clippy) + crates |

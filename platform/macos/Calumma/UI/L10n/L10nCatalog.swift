@@ -151,6 +151,8 @@ struct L10nCatalog: Equatable {
     var canvasWidth: String { self["canvasWidth"] }
     var canvasHeight: String { self["canvasHeight"] }
     var duplicateLayer: String { self["duplicateLayer"] }
+    var moveLayerUp: String { self["moveLayerUp"] }
+    var moveLayerDown: String { self["moveLayerDown"] }
     var mergeLayerDown: String { self["mergeLayerDown"] }
     var opacity: String { self["opacity"] }
     var blendMode: String { self["blendMode"] }

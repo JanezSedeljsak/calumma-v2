@@ -281,7 +281,15 @@ struct EditorView: View {
                 ),
                 arrowEdge: .bottom
             ) {
-                LayerSettingsCard(index: index, canMergeDown: index > 0 && app.engine.layerNames[index - 1] != l10n.paper)
+                LayerSettingsCard(
+                    index: index,
+                    canMoveUp: index < app.engine.layerNames.count - 1
+                        && app.engine.layerNames[index] != l10n.paper,
+                    canMoveDown: index > 0
+                        && app.engine.layerNames[index] != l10n.paper
+                        && !(index == 1 && app.engine.layerNames[0] == l10n.paper),
+                    canMergeDown: index > 0 && app.engine.layerNames[index - 1] != l10n.paper
+                )
                     .environmentObject(app)
                     .themeColors(colors)
                     .l10n(l10n)

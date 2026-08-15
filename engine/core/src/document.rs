@@ -920,6 +920,53 @@ impl Document {
         true
     }
 
+    pub fn move_layer_up(&mut self, index: usize) -> bool {
+        self.move_layer_by(index, 1)
+    }
+
+    pub fn move_layer_down(&mut self, index: usize) -> bool {
+        self.move_layer_by(index, -1)
+    }
+
+    fn move_layer_by(&mut self, index: usize, delta: isize) -> bool {
+        if index >= self.layers.len() {
+            return false;
+        }
+        if self.layers[index].is_paper() {
+            return false;
+        }
+        let other = match index.checked_add_signed(delta) {
+            Some(other) if other < self.layers.len() => other,
+            _ => return false,
+        };
+        if delta < 0 && self.layers[other].is_paper() {
+            return false;
+        }
+        self.commit_text();
+        self.layers.swap(index, other);
+        let remap = |i: usize| {
+            if i == index {
+                other
+            } else if i == other {
+                index
+            } else {
+                i
+            }
+        };
+        self.active_layer = remap(self.active_layer);
+        self.hover_layer = self.hover_layer.map(remap);
+        if let Some(drag) = &mut self.transform_drag {
+            drag.layer_index = remap(drag.layer_index);
+        }
+        if let Some(pick) = &mut self.selected_vector {
+            pick.layer = remap(pick.layer);
+        }
+        if let Some(edit) = &mut self.text_edit {
+            edit.layer = remap(edit.layer);
+        }
+        true
+    }
+
     pub fn merge_layer_down(&mut self, index: usize) -> bool {
         if index == 0 || index >= self.layers.len() {
             return false;

@@ -505,6 +505,22 @@ final class Engine: ObservableObject, @unchecked Sendable {
         render()
     }
 
+    func moveLayerUp(_ index: Int) {
+        guard let ptr else { return }
+        _ = calm_engine_move_layer_up(ptr, UInt32(index))
+        syncState()
+        refreshLayers()
+        render()
+    }
+
+    func moveLayerDown(_ index: Int) {
+        guard let ptr else { return }
+        _ = calm_engine_move_layer_down(ptr, UInt32(index))
+        syncState()
+        refreshLayers()
+        render()
+    }
+
     func mergeLayerDown(_ index: Int) {
         guard let ptr else { return }
         _ = calm_engine_merge_layer_down(ptr, UInt32(index))

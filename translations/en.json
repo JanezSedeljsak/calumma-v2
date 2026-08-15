@@ -93,6 +93,8 @@
   "canvasWidth": "W",
   "canvasHeight": "H",
   "duplicateLayer": "Duplicate Layer",
+  "moveLayerUp": "Move Up",
+  "moveLayerDown": "Move Down",
   "mergeLayerDown": "Merge Down",
   "opacity": "Opacity",
   "blendMode": "Blend",

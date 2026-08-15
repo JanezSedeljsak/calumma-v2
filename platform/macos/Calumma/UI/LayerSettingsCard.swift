@@ -2,35 +2,48 @@ import SwiftUI
 
 struct LayerSettingsCard: View {
     let index: Int
+    let canMoveUp: Bool
+    let canMoveDown: Bool
     let canMergeDown: Bool
 
     @EnvironmentObject private var app: AppModel
     @Environment(\.themeColors) private var colors
     @Environment(\.l10n) private var l10n
 
+    private static let actionColumns = [
+        GridItem(.flexible(), spacing: Tokens.Space.sm),
+        GridItem(.flexible(), spacing: Tokens.Space.sm),
+    ]
+
     var body: some View {
         VStack(alignment: .leading, spacing: Tokens.Space.md) {
-            HStack(spacing: Tokens.Space.sm) {
-                CalmPlainButton(title: l10n.copyLayer) {
+            LazyVGrid(columns: Self.actionColumns, alignment: .leading, spacing: Tokens.Space.sm) {
+                actionButton(l10n.moveLayerUp, enabled: canMoveUp) {
+                    app.engine.moveLayerUp(index)
+                }
+                actionButton(l10n.moveLayerDown, enabled: canMoveDown) {
+                    app.engine.moveLayerDown(index)
+                }
+                actionButton(l10n.copyLayer) {
                     app.copyLayer(index: index)
                 }
-                CalmPlainButton(title: l10n.exportLayer) {
+                actionButton(l10n.exportLayer) {
                     app.exportLayer(index: index)
                 }
-                CalmPlainButton(title: l10n.duplicateLayer) {
+                actionButton(l10n.duplicateLayer) {
                     app.engine.duplicateLayer(index)
                 }
                 if canMergeDown {
-                    CalmPlainButton(title: l10n.mergeLayerDown) {
+                    actionButton(l10n.mergeLayerDown) {
                         app.engine.mergeLayerDown(index)
                     }
                 }
                 if app.engine.isLayerText(index: index) {
-                    CalmPlainButton(title: l10n.layerRasterizeText) {
+                    actionButton(l10n.layerRasterizeText) {
                         app.engine.rasterizeTextLayer(index)
                     }
                 }
-                CalmPlainButton(title: l10n.resetTransform) {
+                actionButton(l10n.resetTransform) {
                     app.engine.resetLayerTransform(index)
                 }
             }
@@ -97,6 +110,15 @@ struct LayerSettingsCard: View {
         .padding(Tokens.Space.md)
         .frame(width: 260)
         .background(colors.surface)
+    }
+
+    private func actionButton(
+        _ title: String,
+        enabled: Bool = true,
+        action: @escaping () -> Void
+    ) -> some View {
+        CalmPlainButton(title: title, enabled: enabled, action: action)
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var opacity: Float {

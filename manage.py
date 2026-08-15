@@ -80,7 +80,6 @@ from constants import (
     ROOT,
     SCHEME_CALUMMA,
 )
-from gen_app_icon import generate_app_icon
 from gen_tokens_swift import generate_tokens_swift
 from package_macos import package_macos
 from version_check import check_version_bump
@@ -93,9 +92,20 @@ def cmd_tokens(_: argparse.Namespace) -> int:
 
 
 def cmd_icon(_: argparse.Namespace) -> int:
+    # Deferred: Pillow is only needed for icon generation, and every other subcommand
+    # (including `tokens`, which the Xcode build phase runs on each build) has to be
+    # importable without it.
+    from gen_app_icon import generate_app_icon
+
     for out in generate_app_icon():
         print(f"{MSG_WROTE} {out}")
     return 0
+
+
+def cmd_examples(_: argparse.Namespace) -> int:
+    from prepare_example_assets import main as prepare_examples
+
+    return prepare_examples()
 
 
 def cmd_purity(_: argparse.Namespace) -> int:
@@ -385,6 +395,10 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser(
         "icon", help="regenerate AppIcon.appiconset PNGs from design/icon.png"
     ).set_defaults(func=cmd_icon)
+    sub.add_parser(
+        "examples",
+        help="optimize README screenshots in design/example/",
+    ).set_defaults(func=cmd_examples)
     sub.add_parser("dev", help="build ffi, generate Xcode project, open it").set_defaults(
         func=cmd_dev
     )

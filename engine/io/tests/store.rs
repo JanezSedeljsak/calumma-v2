@@ -1,6 +1,6 @@
 use calumma_core::layer::BlendMode;
 use calumma_core::tile::TILE_SIZE;
-use calumma_core::{DirtyChannel, Document};
+use calumma_core::{DirtyChannel, Document, LayerTransform};
 use calumma_io::*;
 use rusqlite::{params, Connection};
 use tempfile::tempdir;
@@ -122,6 +122,43 @@ fn imported_image_round_trips() {
     assert_eq!(tiles.get_pixel(299, 199), [1, 2, 3, 255]);
 }
 
+/// A layer dragged with the Move tool (or scaled/rotated with `⌘T`) lives entirely in
+/// `Layer.transform` — moving it never touches a pixel. Before this, `transform` had no
+/// column, so the offset was only ever in memory: reopening the project always drew the
+/// layer back at its untransformed, top-left position.
+#[test]
+fn layer_transform_round_trip() {
+    let (_dir, store) = store();
+    let mut doc = store.create("Moved", 64, 64).unwrap();
+    let i = paint_index(&doc);
+    doc.layers[i].transform = Some(LayerTransform {
+        offset_x: 12.0,
+        offset_y: -6.0,
+        scale_x: 1.5,
+        scale_y: 0.8,
+        rotation: 0.25,
+    });
+    store.save(&mut doc).unwrap();
+
+    let loaded = store.open_project(&doc.id).unwrap();
+    let i = paint_index(&loaded);
+    let t = loaded.layers[i]
+        .transform
+        .expect("the moved layer keeps its transform after reopening");
+    assert!((t.offset_x - 12.0).abs() < 1e-4);
+    assert!((t.offset_y + 6.0).abs() < 1e-4);
+    assert!((t.scale_x - 1.5).abs() < 1e-4);
+    assert!((t.scale_y - 0.8).abs() < 1e-4);
+    assert!((t.rotation - 0.25).abs() < 1e-4);
+
+    let mut reset = loaded;
+    let i = paint_index(&reset);
+    reset.layers[i].transform = None;
+    store.save(&mut reset).unwrap();
+    let reopened = store.open_project(&reset.id).unwrap();
+    assert!(reopened.layers[paint_index(&reopened)].transform.is_none());
+}
+
 #[test]
 fn layer_mask_round_trip() {
     let (_dir, store) = store();
@@ -174,6 +211,51 @@ fn adds_mask_column_to_existing_database() {
         loaded.layers[paint_index(&loaded)].mask(),
         Some([9u8; 64].as_slice())
     );
+}
+
+/// Simulates a real project saved before this fix: every other layer column already exists,
+/// `transform` does not. The migration must add just that column, not touch the rest.
+#[test]
+fn adds_transform_column_to_a_database_saved_before_this_fix() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("pre_fix.sqlite");
+    {
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE layers (
+                project_id TEXT NOT NULL,
+                layer_id TEXT NOT NULL,
+                name TEXT NOT NULL,
+                visible INTEGER NOT NULL,
+                z_index INTEGER NOT NULL,
+                mask BLOB,
+                content_kind INTEGER NOT NULL DEFAULT 0,
+                vector_data BLOB,
+                opacity REAL NOT NULL DEFAULT 1.0,
+                blend_mode INTEGER NOT NULL DEFAULT 0,
+                adjustments BLOB,
+                text_data BLOB,
+                PRIMARY KEY (project_id, layer_id)
+            );",
+        )
+        .unwrap();
+    }
+    let store = ProjectStore::open(&path).unwrap();
+    let mut doc = store.create("PreFix", 32, 32).unwrap();
+    let i = paint_index(&doc);
+    doc.layers[i].transform = Some(LayerTransform {
+        offset_x: 5.0,
+        offset_y: 5.0,
+        scale_x: 1.0,
+        scale_y: 1.0,
+        rotation: 0.0,
+    });
+    store.save(&mut doc).unwrap();
+    let loaded = store.open_project(&doc.id).unwrap();
+    let t = loaded.layers[paint_index(&loaded)]
+        .transform
+        .expect("transform persists once the column exists");
+    assert!((t.offset_x - 5.0).abs() < 1e-4);
 }
 
 #[test]

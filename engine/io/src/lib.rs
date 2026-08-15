@@ -4,6 +4,7 @@ mod psd;
 mod store;
 mod svg;
 mod text_blob;
+mod transform_blob;
 mod vector_blob;
 mod workspace;
 
