@@ -154,11 +154,12 @@ fn transformed_bounds_is_none_without_items() {
 
 #[test]
 fn transformed_bounds_matches_the_untransformed_bounds_with_no_transform() {
-    let items = [VectorItem::Shape(rect_shape((0.0, 0.0), (10.0, 10.0), true))];
-    assert_eq!(
-        transformed_bounds(&items, None),
-        items_bounds(&items),
-    );
+    let items = [VectorItem::Shape(rect_shape(
+        (0.0, 0.0),
+        (10.0, 10.0),
+        true,
+    ))];
+    assert_eq!(transformed_bounds(&items, None), items_bounds(&items),);
 }
 
 #[test]
@@ -189,7 +190,11 @@ fn rasterize_into_rgba_does_nothing_without_items() {
 
 #[test]
 fn rasterize_into_rgba_paints_the_shapes_footprint() {
-    let items = [VectorItem::Shape(rect_shape((5.0, 5.0), (15.0, 15.0), true))];
+    let items = [VectorItem::Shape(rect_shape(
+        (5.0, 5.0),
+        (15.0, 15.0),
+        true,
+    ))];
     let mut buf = vec![0u8; 20 * 20 * 4];
     rasterize_into_rgba(&items, None, &mut buf, 20, 20);
     let center = ((10 * 20 + 10) * 4) as usize;
@@ -200,7 +205,11 @@ fn rasterize_into_rgba_paints_the_shapes_footprint() {
 
 #[test]
 fn rasterize_into_rgba_applies_the_layer_transform() {
-    let items = [VectorItem::Shape(rect_shape((5.0, 5.0), (15.0, 15.0), true))];
+    let items = [VectorItem::Shape(rect_shape(
+        (5.0, 5.0),
+        (15.0, 15.0),
+        true,
+    ))];
     let transform = LayerTransform {
         offset_x: 10.0,
         ..LayerTransform::default()
@@ -336,13 +345,21 @@ fn item_svg_is_none_for_a_tool_with_no_svg_primitive() {
 
 #[test]
 fn svg_transform_attr_is_none_without_a_transform() {
-    let items = [VectorItem::Shape(rect_shape((0.0, 0.0), (10.0, 10.0), true))];
+    let items = [VectorItem::Shape(rect_shape(
+        (0.0, 0.0),
+        (10.0, 10.0),
+        true,
+    ))];
     assert_eq!(svg_transform_attr(&items, None), None);
 }
 
 #[test]
 fn svg_transform_attr_is_none_for_an_identity_transform() {
-    let items = [VectorItem::Shape(rect_shape((0.0, 0.0), (10.0, 10.0), true))];
+    let items = [VectorItem::Shape(rect_shape(
+        (0.0, 0.0),
+        (10.0, 10.0),
+        true,
+    ))];
     assert_eq!(
         svg_transform_attr(&items, Some(LayerTransform::default())),
         None
@@ -360,7 +377,11 @@ fn svg_transform_attr_is_none_without_items_to_pivot_around() {
 
 #[test]
 fn svg_transform_attr_emits_a_group_carrying_offset_and_rotation() {
-    let items = [VectorItem::Shape(rect_shape((0.0, 0.0), (10.0, 10.0), true))];
+    let items = [VectorItem::Shape(rect_shape(
+        (0.0, 0.0),
+        (10.0, 10.0),
+        true,
+    ))];
     let transform = LayerTransform {
         offset_x: 5.0,
         offset_y: 0.0,

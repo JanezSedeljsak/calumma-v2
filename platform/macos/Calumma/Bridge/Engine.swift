@@ -168,6 +168,9 @@ final class Engine: ObservableObject, @unchecked Sendable {
     @Published var textBold = false
     @Published var textItalic = false
     @Published private(set) var thumbnailRevision: UInt64 = 0
+    /// The layer an AI op is currently running against, so the layers panel can show it's
+    /// busy — `nil` the rest of the time, including right after the op finishes.
+    @Published private(set) var aiOpBusyLayer: Int?
 
     /// A fit asked for while the window is still growing to its final size lands against
     /// the viewport the board *had*, which is how a freshly opened project ends up
@@ -344,6 +347,14 @@ final class Engine: ObservableObject, @unchecked Sendable {
         _ = id.withCString { calm_project_delete(ptr, $0) }
         syncState()
         refreshRecents()
+    }
+
+    func deleteAllProjects() {
+        guard let ptr else { return }
+        _ = calm_project_delete_all(ptr)
+        syncState()
+        refreshRecents()
+        refreshWorkspaces()
     }
 
     func setTool(_ tool: CalmTool) {
@@ -1192,18 +1203,44 @@ final class Engine: ObservableObject, @unchecked Sendable {
     var canRemoveBackground: Bool {
         guard let ptr else { return false }
         return calm_engine_op_available(ptr, UInt32(CalmOpKindRemoveBackground.rawValue))
+            && aiOpBusyLayer == nil
     }
 
-    func removeBackground() {
-        guard let ptr else { return }
+    /// Runs Vision's foreground-mask op on the active layer and reports what actually
+    /// happened via `onFinished` — this used to discard the `CalmStatus` from
+    /// `calm_engine_run_op` entirely, so a failure (Vision finding no foreground subject,
+    /// most likely, which is plausible on hand-drawn art rather than a photo) looked
+    /// identical to success: nothing happened, silently. `Engine` has no strings to show for
+    /// any of this itself — `AppModel`, which owns `l10n`, turns the result into a toast —
+    /// so this only reports which of the three outcomes occurred. The layer is marked busy
+    /// for as long as Vision is actually running, so a slow request reads as "working," not
+    /// "broken."
+    func removeBackground(onFinished: @escaping (AiOpResult) -> Void) {
+        guard let ptr, aiOpBusyLayer == nil else { return }
+        let layerIndex = Int(state.activeLayer)
+        guard !isLayerVector(index: layerIndex) else {
+            onFinished(.ineligibleLayer)
+            return
+        }
         let layer = state.activeLayer
+        aiOpBusyLayer = layerIndex
         DispatchQueue.global(qos: .userInitiated).async {
-            _ = calm_engine_run_op(ptr, UInt32(CalmOpKindRemoveBackground.rawValue), layer)
+            let status = calm_engine_run_op(ptr, UInt32(CalmOpKindRemoveBackground.rawValue), layer)
             DispatchQueue.main.async {
+                self.aiOpBusyLayer = nil
                 self.syncState()
                 self.refreshLayers()
                 self.render()
+                onFinished(status == CalmStatusOk ? .success : .failed)
             }
         }
     }
+}
+
+/// What a Platform AI op (Remove Background, today) actually did — `Engine` reports this
+/// instead of a pre-localized message, since it has no access to `l10n`.
+enum AiOpResult {
+    case success
+    case failed
+    case ineligibleLayer
 }

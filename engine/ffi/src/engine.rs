@@ -1858,6 +1858,18 @@ pub unsafe extern "C" fn calm_project_delete(
 }
 
 #[no_mangle]
+pub unsafe extern "C" fn calm_project_delete_all(engine: *mut CalmEngine) -> CalmStatus {
+    with_inner(engine, |inner| {
+        inner.close_document();
+        inner
+            .store
+            .delete_all_projects()
+            .context("deleting all projects")?;
+        Ok(())
+    })
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn calm_project_save(engine: *mut CalmEngine) -> CalmStatus {
     with_inner(engine, |inner| {
         let Inner {

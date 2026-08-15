@@ -101,8 +101,8 @@ while Landing is showing — that screen already *is* the create form.
   Create / delete workspaces live here.
 - **Tools / layers / canvas:** three rounded, bordered islands, full-height, separated by a
   minimal gap and window margin (`space.sm`) — each has its own `islandBorder` stroke.
-- **Tools island** (top to bottom): a 2-column tool grid (Pen, Eraser, Shape, Select, Fill,
-  Eyedropper, Text, Move); a contextual options section below it that changes with the selected
+- **Tools island** (top to bottom): a 2-column tool grid (Move, Pen, Eraser, Shape, Select, Fill,
+  Eyedropper, Text); a contextual options section below it that changes with the selected
   tool (shape/selection sub-picker + fill toggle for shape tools, font / size / alignment
   for Text, brush size for the tools that use one — not Fill, Eyedropper, Text, Move, or the
   selection tools — and ink opacity for Pen, shapes, and Fill; Eraser stays a full erase);

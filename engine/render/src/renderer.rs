@@ -1037,8 +1037,12 @@ impl Renderer {
         let mut tile_instances: Vec<TileInstance> = Vec::new();
         let mut instances: Vec<StrokeInstance> = Vec::new();
         let mut shape_instances: Vec<VectorShapeInstance> = Vec::new();
-        let draws =
-            self.build_layer_draws(doc, &mut tile_instances, &mut instances, &mut shape_instances);
+        let draws = self.build_layer_draws(
+            doc,
+            &mut tile_instances,
+            &mut instances,
+            &mut shape_instances,
+        );
 
         let overlay_start = instances.len() as u32;
         if doc.text_editing() {

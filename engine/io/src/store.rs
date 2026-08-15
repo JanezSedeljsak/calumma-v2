@@ -608,6 +608,15 @@ impl ProjectStore {
         Ok(())
     }
 
+    pub fn delete_all_projects(&self) -> Result<(), StoreError> {
+        let tx = self.conn.unchecked_transaction()?;
+        tx.execute("DELETE FROM open_workspace_tabs", [])?;
+        tx.execute("DELETE FROM workspaces", [])?;
+        tx.execute("DELETE FROM projects", [])?;
+        tx.commit()?;
+        Ok(())
+    }
+
     pub fn default_path() -> PathBuf {
         dirs::data_dir()
             .unwrap_or_else(std::env::temp_dir)

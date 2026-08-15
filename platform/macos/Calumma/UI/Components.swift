@@ -198,9 +198,11 @@ struct CalmPlainButton: View {
     }
 }
 
-struct CalmToolButton<Icon: View>: View {
+enum CalmToolButtonLayout {
     static let size: CGFloat = 32
+}
 
+struct CalmToolButton<Icon: View>: View {
     let selected: Bool
     let action: () -> Void
     var tooltip: String? = nil
@@ -225,7 +227,7 @@ struct CalmToolButton<Icon: View>: View {
         Button(action: action) {
             icon
                 .padding(Tokens.Space.xs)
-                .frame(width: Self.size, height: Self.size)
+                .frame(width: CalmToolButtonLayout.size, height: CalmToolButtonLayout.size)
                 .calmSurface(hover: selected, radius: Tokens.Radius.sm)
         }
         .buttonStyle(.plain)
@@ -258,18 +260,46 @@ struct CalmDivider: View {
     }
 }
 
-struct CalmSection<Content: View>: View {
+struct CalmSection<Content: View, Trailing: View>: View {
     let title: String
     var accent: Color? = nil
+    @ViewBuilder let trailing: () -> Trailing
     @ViewBuilder let content: () -> Content
+
+    init(
+        title: String,
+        accent: Color? = nil,
+        @ViewBuilder content: @escaping () -> Content
+    ) where Trailing == EmptyView {
+        self.title = title
+        self.accent = accent
+        self.trailing = { EmptyView() }
+        self.content = content
+    }
+
+    init(
+        title: String,
+        accent: Color? = nil,
+        @ViewBuilder trailing: @escaping () -> Trailing,
+        @ViewBuilder content: @escaping () -> Content
+    ) {
+        self.title = title
+        self.accent = accent
+        self.trailing = trailing
+        self.content = content
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: Tokens.Space.md) {
             HStack(spacing: Tokens.Space.sm) {
-                if let accent {
-                    Circle().fill(accent).frame(width: 8, height: 8)
+                HStack(spacing: Tokens.Space.sm) {
+                    if let accent {
+                        Circle().fill(accent).frame(width: 8, height: 8)
+                    }
+                    CalmText.label(title)
                 }
-                CalmText.label(title)
+                Spacer(minLength: Tokens.Space.sm)
+                trailing()
             }
             content()
         }

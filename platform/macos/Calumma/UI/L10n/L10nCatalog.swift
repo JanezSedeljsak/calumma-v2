@@ -118,6 +118,10 @@ struct L10nCatalog: Equatable {
     var aiTools: String { self["aiTools"] }
     var removeBackground: String { self["removeBackground"] }
     var cutBackground: String { self["cutBackground"] }
+    var removeBackgroundSuccess: String { self["removeBackgroundSuccess"] }
+    var removeBackgroundFailed: String { self["removeBackgroundFailed"] }
+    var removeBackgroundNeedsRaster: String { self["removeBackgroundNeedsRaster"] }
+    var removeBackgroundWorking: String { self["removeBackgroundWorking"] }
     var undo: String { self["undo"] }
     var redo: String { self["redo"] }
     var themeLight: String { self["themeLight"] }
@@ -138,6 +142,9 @@ struct L10nCatalog: Equatable {
     var delete: String { self["delete"] }
     var cancel: String { self["cancel"] }
     var deleteProjectTitle: String { self["deleteProjectTitle"] }
+    var clearAllRecents: String { self["clearAllRecents"] }
+    var clearAllRecentsTitle: String { self["clearAllRecentsTitle"] }
+    var clearAllRecentsMessage: String { self["clearAllRecentsMessage"] }
     var selectionTools: String { self["selectionTools"] }
     var exportMenu: String { self["exportMenu"] }
     var copyLayer: String { self["copyLayer"] }

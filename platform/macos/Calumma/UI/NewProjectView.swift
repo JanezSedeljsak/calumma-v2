@@ -12,6 +12,7 @@ struct NewProjectView: View {
     @State private var accent: Color = Engine.palette.randomElement() ?? .gray
     @State private var colorPickerOpen = false
     @State private var pendingDelete: ProjectInfo?
+    @State private var pendingClearAll = false
 
     var body: some View {
         GeometryReader { geo in
@@ -124,11 +125,21 @@ struct NewProjectView: View {
 
     private var recentsColumn: some View {
         CalmSection(title: l10n.recents, accent: colors.accentOrange) {
+            if !app.engine.recents.isEmpty {
+                Button(l10n.clearAllRecents) {
+                    pendingClearAll = true
+                }
+                .buttonStyle(.plain)
+                .font(.system(size: Tokens.TypeSize.label))
+                .foregroundStyle(colors.danger)
+                .calmPointer()
+            }
+        } content: {
             if app.engine.recents.isEmpty {
                 CalmText.muted(l10n.noRecents)
                     .padding(Tokens.Space.sm)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .calmSurface()
+                    .calmSurface(bordered: true)
             } else {
                 ForEach(app.engine.recents.prefix(5)) { project in
                     HStack(spacing: Tokens.Space.sm) {
@@ -163,7 +174,7 @@ struct NewProjectView: View {
                     }
                     .padding(Tokens.Space.md)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .calmSurface()
+                    .calmSurface(bordered: true)
                 }
             }
         }
@@ -181,6 +192,17 @@ struct NewProjectView: View {
             Button(l10n.cancel, role: .cancel) {}
         } message: { project in
             Text(l10n.formatKey("deleteProjectNamed", project.name))
+        }
+        .confirmationDialog(
+            l10n.clearAllRecentsTitle,
+            isPresented: $pendingClearAll
+        ) {
+            Button(l10n.clearAllRecents, role: .destructive) {
+                app.deleteAllRecents()
+            }
+            Button(l10n.cancel, role: .cancel) {}
+        } message: {
+            Text(l10n.clearAllRecentsMessage)
         }
     }
 

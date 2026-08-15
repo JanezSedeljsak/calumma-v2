@@ -1575,21 +1575,23 @@ impl Document {
         let h = (bounds.max_y - bounds.min_y + 1) as u32;
         let mut buf = vec![0u8; (w as usize) * (h as usize) * 4];
         let row_bytes = (w as usize) * 4;
-        buf.par_chunks_mut(row_bytes).enumerate().for_each(|(y, row)| {
-            let doc_y = bounds.min_y + y as i32;
-            for x in 0..w as i32 {
-                let doc_x = bounds.min_x + x;
-                if !selection.contains(doc_x as f32 + 0.5, doc_y as f32 + 0.5) {
-                    continue;
+        buf.par_chunks_mut(row_bytes)
+            .enumerate()
+            .for_each(|(y, row)| {
+                let doc_y = bounds.min_y + y as i32;
+                for x in 0..w as i32 {
+                    let doc_x = bounds.min_x + x;
+                    if !selection.contains(doc_x as f32 + 0.5, doc_y as f32 + 0.5) {
+                        continue;
+                    }
+                    let px = tiles.get_pixel(doc_x, doc_y);
+                    if px[3] == 0 {
+                        continue;
+                    }
+                    let i = (x as usize) * 4;
+                    row[i..i + 4].copy_from_slice(&px);
                 }
-                let px = tiles.get_pixel(doc_x, doc_y);
-                if px[3] == 0 {
-                    continue;
-                }
-                let i = (x as usize) * 4;
-                row[i..i + 4].copy_from_slice(&px);
-            }
-        });
+            });
         Some((w, h, buf))
     }
 

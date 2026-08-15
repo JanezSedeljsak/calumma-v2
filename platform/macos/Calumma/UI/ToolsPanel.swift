@@ -5,13 +5,14 @@ struct ToolsPanel: View {
     @Environment(\.themeColors) private var colors
     @Environment(\.l10n) private var l10n
 
+    
     static let columns = 2
     static let spacing = Tokens.Space.sm
     static var gridColumns: [GridItem] {
         Array(repeating: GridItem(.flexible(), spacing: spacing), count: columns)
     }
     static var width: CGFloat {
-        let cell = CalmToolButton.size + spacing
+        let cell = CalmToolButtonLayout.size + spacing
         return Tokens.Space.xs * 2
             + CGFloat(columns) * cell
             + CGFloat(max(0, columns - 1)) * spacing
@@ -53,6 +54,7 @@ struct ToolsPanel: View {
 
     private var toolGrid: some View {
         Self.iconGrid {
+            toolButton(.move) { AppIcon.moveIcon(color: iconColor(.move)) }
             toolButton(.pen) { AppIcon.pen(color: iconColor(.pen)) }
             toolButton(.eraser) { AppIcon.eraser(color: iconColor(.eraser)) }
             shapeToolButton
@@ -60,7 +62,6 @@ struct ToolsPanel: View {
             toolButton(.bucket) { AppIcon.bucket(color: iconColor(.bucket)) }
             toolButton(.eyedropper) { AppIcon.eyedropper(color: iconColor(.eyedropper)) }
             toolButton(.text) { AppIcon.text(color: iconColor(.text)) }
-            toolButton(.move) { AppIcon.move(color: iconColor(.move)) }
         }
     }
 
@@ -172,15 +173,23 @@ struct ToolsPanel: View {
         app.tool.takesInkOpacity
     }
 
+    private var aiIsBusy: Bool { app.engine.aiOpBusyLayer != nil }
+
     private var aiSection: some View {
         Menu {
-            Button(l10n.removeBackground) {
-                app.engine.removeBackground()
+            Button(aiIsBusy ? l10n.removeBackgroundWorking : l10n.removeBackground) {
+                app.removeBackground()
             }
             .disabled(!app.engine.canRemoveBackground)
         } label: {
             HStack(spacing: Tokens.Space.xs) {
-                AppIcon.ai(color: colors.textMuted)
+                if aiIsBusy {
+                    ProgressView()
+                        .controlSize(.small)
+                        .frame(width: 16, height: 16)
+                } else {
+                    AppIcon.ai(color: colors.textMuted)
+                }
                 CalmText.label(l10n.ai)
             }
             .frame(maxWidth: .infinity)
@@ -231,7 +240,7 @@ struct ToolsPanel: View {
         case .bucket: AppIcon.bucket(color: color)
         case .eyedropper: AppIcon.eyedropper(color: color)
         case .text: AppIcon.text(color: color)
-        case .move: AppIcon.move(color: color)
+        case .move: AppIcon.moveIcon(color: color)
         case .selectRect, .selectEllipse, .selectLasso: AppIcon.selectRect(color: color)
         }
     }

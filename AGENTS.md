@@ -528,4 +528,5 @@ individually inside `⌘T` and with the Move tool), text layers (`T` / tools isl
 Move tool (tools island; pick-and-drag without `⌘T`). See `FLOW.md`.
 
 **Now carrying plans** in `todo.md`: undo for the rest of the document (`01`),
-layer reorder/rename/lock (`03`), per-item vector scale (`04`), brush hardness (`05`).
+layer reorder/rename/lock (`03`), per-item vector scale (`04`), brush hardness (`05`),
+canvas rulers (`06`).

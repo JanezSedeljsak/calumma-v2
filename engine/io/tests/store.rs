@@ -351,6 +351,26 @@ fn workspace_crud_membership_and_open_tabs() {
     assert!(store.open_workspace_tabs().unwrap().is_empty());
 }
 
+#[test]
+fn delete_all_projects_clears_store() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = ProjectStore::open(dir.path().join("t.sqlite")).unwrap();
+    let doc_a = store.create("A", 32, 32).unwrap();
+    let doc_b = store.create("B", 64, 64).unwrap();
+    let ws = store.create_workspace_for_project(&doc_a.id, "Desk", [1, 2, 3]).unwrap();
+    store
+        .set_open_workspace_tabs(std::slice::from_ref(&ws.id))
+        .unwrap();
+    assert_eq!(store.list_recent(8).unwrap().len(), 2);
+
+    store.delete_all_projects().unwrap();
+
+    assert!(store.list_recent(8).unwrap().is_empty());
+    assert!(store.list_workspaces(8).unwrap().is_empty());
+    assert!(store.open_workspace_tabs().unwrap().is_empty());
+    assert!(store.open_project(&doc_b.id).is_err());
+}
+
 /// Paper is written to disk as one identical white blob per tile. Reading them back into
 /// separate allocations would undo the sharing a freshly created project has, so the loader
 /// hands every solid tile of a colour the same buffer.

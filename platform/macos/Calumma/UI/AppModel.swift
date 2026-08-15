@@ -17,6 +17,8 @@ final class AppModel: ObservableObject {
     @Published var settingsOpen = false
     @Published var workspaceExtendOpen = false
     @Published var artworkError: String?
+    @Published private(set) var toast: ToastMessage?
+    private var toastDismissWork: DispatchWorkItem?
 
     @Published var tool: CalmTool = .pen
     var lastShapeTool: CalmTool { engine.state.lastShapeTool }
@@ -186,6 +188,35 @@ final class AppModel: ObservableObject {
 
     func clearArtworkError() {
         artworkError = nil
+    }
+
+    func removeBackground() {
+        engine.removeBackground { [weak self] result in
+            guard let self else { return }
+            switch result {
+            case .success:
+                showToast(l10n.removeBackgroundSuccess, kind: .success)
+            case .failed:
+                showToast(l10n.removeBackgroundFailed, kind: .error)
+            case .ineligibleLayer:
+                showToast(l10n.removeBackgroundNeedsRaster, kind: .error)
+            }
+        }
+    }
+
+    /// Shows `text` for a few seconds, then clears itself — unless a newer toast already
+    /// replaced it, which comparing `toast?.id` against the one this call scheduled guards
+    /// against.
+    private func showToast(_ text: String, kind: ToastKind) {
+        let message = ToastMessage(text: text, kind: kind)
+        toast = message
+        toastDismissWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, toast?.id == message.id else { return }
+            toast = nil
+        }
+        toastDismissWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.2, execute: work)
     }
 
     private var activeProjectName: String {
@@ -411,6 +442,17 @@ final class AppModel: ObservableObject {
         engine.deleteWorkspace(id: id)
         closeWorkspaceTab(id)
         engine.refreshWorkspaces()
+    }
+
+    func deleteAllRecents() {
+        engine.deleteAllProjects()
+        openWorkspaces = []
+        activeWorkspaceId = nil
+        activeProjectId = nil
+        persistTabs()
+        showLanding = true
+        newProjectOpen = false
+        workspaceExtendOpen = false
     }
 
     /// Filters act on the active layer, matching `LayerSettingsCard`. Paper is excluded the

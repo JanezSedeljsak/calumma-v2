@@ -265,7 +265,11 @@ fn tile_mip_chain_has_nine_levels_shrinking_to_one_pixel() {
     let base = opaque_tile();
     let chain = tile_mip_chain(&base);
     assert_eq!(chain.len(), 9, "256 -> 128 -> ... -> 1 is nine levels");
-    assert_eq!(chain[0].len(), TILE_BYTES, "level 0 is the base image, untouched");
+    assert_eq!(
+        chain[0].len(),
+        TILE_BYTES,
+        "level 0 is the base image, untouched"
+    );
     assert_eq!(chain[1].len(), 128 * 128 * 4);
     assert_eq!(chain[4].len(), 16 * 16 * 4);
     assert_eq!(chain[8].len(), 4, "the last level is a single pixel");
@@ -364,7 +368,10 @@ fn text_overlay_draws_a_four_edge_box_and_a_caret_that_blinks() {
     doc.tool = Tool::Text;
     let (sx, sy) = doc.camera.to_screen(20.0, 20.0);
     doc.pointer_down(sx, sy);
-    assert!(doc.text_editing(), "clicking with the text tool opens a session");
+    assert!(
+        doc.text_editing(),
+        "clicking with the text tool opens a session"
+    );
 
     let visible = text_overlay_instances(&doc, 0.0);
     assert_eq!(visible.len(), 5, "four box edges plus a visible caret");

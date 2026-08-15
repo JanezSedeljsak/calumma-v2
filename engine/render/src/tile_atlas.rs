@@ -107,7 +107,11 @@ impl TileAtlas {
                 wgpu::TexelCopyTextureInfo {
                     texture: &self.texture,
                     mip_level: level as u32,
-                    origin: wgpu::Origin3d { x: 0, y: 0, z: slot },
+                    origin: wgpu::Origin3d {
+                        x: 0,
+                        y: 0,
+                        z: slot,
+                    },
                     aspect: wgpu::TextureAspect::All,
                 },
                 data,
@@ -209,7 +213,10 @@ fn bytes_per_slot() -> usize {
         total += side * side * 4;
         side = (side / 2).max(1);
     }
-    debug_assert!(total > TILE_BYTES, "mip chain should add strictly more than the base level");
+    debug_assert!(
+        total > TILE_BYTES,
+        "mip chain should add strictly more than the base level"
+    );
     total
 }
 

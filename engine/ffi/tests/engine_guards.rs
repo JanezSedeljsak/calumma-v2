@@ -131,6 +131,7 @@ fn every_status_entry_point_rejects_a_null_engine() {
         assert_eq!(calm_project_close(e), CalmStatus::Null);
         assert_eq!(calm_project_open(e, text.as_ptr()), CalmStatus::Null);
         assert_eq!(calm_project_delete(e, text.as_ptr()), CalmStatus::Null);
+        assert_eq!(calm_project_delete_all(ptr::null_mut()), CalmStatus::Null);
         assert_eq!(
             calm_project_rename(e, text.as_ptr(), text.as_ptr()),
             CalmStatus::Null

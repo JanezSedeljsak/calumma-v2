@@ -239,8 +239,7 @@ fn vector_selection_instances_draws_four_edges_and_four_corner_dots() {
     doc.resize_viewport(200.0, 200.0, 1.0);
     doc.fit_to_view();
     let index = doc.add_vector_layer("V");
-    *doc.layers[index].content.items_mut().unwrap() =
-        vec![shape_item((10.0, 10.0), (40.0, 40.0))];
+    *doc.layers[index].content.items_mut().unwrap() = vec![shape_item((10.0, 10.0), (40.0, 40.0))];
     doc.set_active_layer(index);
     assert!(doc.select_vector_item_at(20.0, 20.0));
 

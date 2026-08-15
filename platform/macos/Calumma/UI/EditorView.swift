@@ -11,6 +11,7 @@ struct EditorView: View {
     @State private var canvasWidth = 0
     @State private var canvasHeight = 0
     @State private var layerSettingsIndex: Int?
+    @State private var aiBlinkOn = false
 
     var body: some View {
         HStack(alignment: .top, spacing: Tokens.Space.sm) {
@@ -49,6 +50,16 @@ struct EditorView: View {
                 .environmentObject(app)
                 .themeColors(colors)
                 .l10n(l10n)
+        }
+        .calmToast(app.toast)
+        .onChange(of: app.engine.aiOpBusyLayer, initial: true) { _, busyLayer in
+            if busyLayer != nil {
+                withAnimation(.easeInOut(duration: 0.55).repeatForever(autoreverses: true)) {
+                    aiBlinkOn = true
+                }
+            } else {
+                aiBlinkOn = false
+            }
         }
     }
 
@@ -296,6 +307,7 @@ struct EditorView: View {
 
     private func layerThumb(_ index: Int) -> some View {
         let shape = RoundedRectangle(cornerRadius: Tokens.Radius.sm, style: .continuous)
+        let busy = app.engine.aiOpBusyLayer == index
         return ZStack {
             shape.fill(colors.surfaceHover)
             if let image = app.engine.layerThumbnail(index: index, maxSide: 96) {
@@ -311,6 +323,13 @@ struct EditorView: View {
             }
         }
         .frame(width: 40, height: 28)
+        // An AI op running against this layer blinks its thumbnail — the only feedback a
+        // longer-running op like Remove Background had before was silence either way, so
+        // this is the difference between "still working" and "looks broken."
+        .overlay(
+            shape.strokeBorder(colors.accentTeal, lineWidth: busy ? 1.5 : 0)
+        )
+        .opacity(busy && aiBlinkOn ? 0.35 : 1)
     }
 
     private func toolButton<Icon: View>(_ tool: CalmTool, @ViewBuilder icon: () -> Icon) -> some View {

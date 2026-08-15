@@ -273,6 +273,7 @@ CalmStatus calm_project_open(CalmEngine *engine, const char *id);
 CalmStatus calm_project_close(CalmEngine *engine);
 size_t calm_project_list(CalmEngine *engine, CalmProjectInfo *out, size_t cap);
 CalmStatus calm_project_delete(CalmEngine *engine, const char *id);
+CalmStatus calm_project_delete_all(CalmEngine *engine);
 CalmStatus calm_project_save(CalmEngine *engine);
 CalmStatus calm_project_thumbnail(CalmEngine *engine, const char *project_id, uint8_t **out_png, size_t *out_len);
 
