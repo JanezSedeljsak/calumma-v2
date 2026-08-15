@@ -17,7 +17,7 @@ thiserror = "2.0"
 anyhow = "1.0"
 pollster = "0.4.0"
 uuid = { version = "1.24.0", default-features = false }
-rusqlite = "0.32.1"
+rusqlite = "0.40.2"
 dirs = "5.0"
 proptest = "1.11"
 tempfile = "3.27.0"
@@ -30,6 +30,14 @@ vtracer = "0.6.5"
 ravif = "0.13"
 cbindgen = "0.29"
 cosmic-text = "0.19.0"
+
+[profile.dev]
+# Line tables (for backtraces/panics) without full variable/type DWARF info: dev builds spend
+# a lot of their codegen+link time emitting debug info that never gets used interactively.
+# On macOS this also matters because `split-debuginfo = "unpacked"` skips the `dsymutil` pass
+# that otherwise runs after every link.
+debug = "line-tables-only"
+split-debuginfo = "unpacked"
 
 [profile.release]
 lto = true

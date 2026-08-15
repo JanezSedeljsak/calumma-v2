@@ -48,6 +48,8 @@ impl TestEngine {
             dark_theme: 0,
             accent: 0,
             zoom_unit: 0.0,
+            last_shape_tool: 0,
+            last_select_tool: 0,
         };
         let status = unsafe { calm_engine_state(self.ptr, &mut out) };
         assert_eq!(status, CalmStatus::Ok);
@@ -197,6 +199,10 @@ fn painting_pointer_lifecycle_and_undo_redo() {
     );
     assert_eq!(
         unsafe { calm_engine_set_brush(engine.ptr, 6.0) },
+        CalmStatus::Ok
+    );
+    assert_eq!(
+        unsafe { calm_engine_set_ink_opacity(engine.ptr, 0.5) },
         CalmStatus::Ok
     );
     assert_eq!(
@@ -569,6 +575,8 @@ fn null_engine_pointer_is_handled_everywhere() {
         dark_theme: 0,
         accent: 0,
         zoom_unit: 0.0,
+        last_shape_tool: 0,
+        last_select_tool: 0,
     };
     // A null engine is rejected before the out-param is touched, same as everywhere else.
     assert_eq!(
@@ -872,5 +880,73 @@ fn nudge_layer_adjustment_rejects_an_unknown_kind_and_ignores_a_bad_index() {
             calm_engine_nudge_layer_adjustment(ptr::null_mut(), 0, 0, 1.0),
             CalmStatus::Null
         );
+    }
+}
+
+#[test]
+fn last_shape_tool_survives_switching_to_pen() {
+    let engine = TestEngine::new();
+    engine.create_project("Tools", 32, 32);
+    unsafe {
+        assert_eq!(
+            calm_engine_set_tool(engine.ptr, Tool::Triangle as u32),
+            CalmStatus::Ok
+        );
+        assert_eq!(engine.state().last_shape_tool, Tool::Triangle as u32);
+        assert_eq!(
+            calm_engine_set_tool(engine.ptr, Tool::Pen as u32),
+            CalmStatus::Ok
+        );
+        assert_eq!(engine.state().last_shape_tool, Tool::Triangle as u32);
+        assert_eq!(engine.state().last_select_tool, Tool::SelectRect as u32);
+    }
+}
+
+#[test]
+fn copy_returns_a_png_of_the_board() {
+    let engine = TestEngine::new();
+    engine.create_project("Clip", 16, 16);
+    let mut bytes: *mut u8 = ptr::null_mut();
+    let mut len = 0usize;
+    let mut kind = 99u32;
+    unsafe {
+        assert_eq!(
+            calm_engine_copy(engine.ptr, &mut bytes, &mut len, &mut kind),
+            CalmStatus::Ok
+        );
+        assert_eq!(kind, 0);
+        assert!(len > 8);
+        assert_eq!(
+            std::slice::from_raw_parts(bytes, 4),
+            &[0x89, b'P', b'N', b'G']
+        );
+        calm_buffer_free(bytes, len);
+    }
+}
+
+#[test]
+fn hex_and_tool_queries_do_not_need_an_engine() {
+    unsafe {
+        assert_eq!(calm_tool_is_shape(Tool::Rect as u32), 1);
+        assert_eq!(calm_tool_is_shape(Tool::Move as u32), 0);
+        assert_eq!(calm_tool_is_selection(Tool::SelectLasso as u32), 1);
+        assert_eq!(calm_tool_takes_brush_size(Tool::Pen as u32), 1);
+        assert_eq!(calm_tool_takes_brush_size(Tool::Move as u32), 0);
+        assert_eq!(calm_tool_takes_ink_opacity(Tool::Pen as u32), 1);
+        assert_eq!(calm_tool_takes_ink_opacity(Tool::Fill as u32), 1);
+        assert_eq!(calm_tool_takes_ink_opacity(Tool::Eraser as u32), 0);
+        assert_eq!(calm_tool_shows_vector_mode(Tool::Pen as u32), 1);
+        assert_eq!(calm_ink_opacity_min(), 0.0);
+        assert_eq!(calm_ink_opacity_max(), 1.0);
+        assert_eq!(calm_ink_opacity_default(), 1.0);
+        let mut rgb = 0u32;
+        let hex = CString::new("#1a2b3c").unwrap();
+        assert_eq!(calm_parse_hex_rgb(hex.as_ptr(), &mut rgb), CalmStatus::Ok);
+        assert_eq!(rgb, 0x1A2B3C);
+        let formatted = calm_format_hex_rgb(rgb);
+        assert!(!formatted.is_null());
+        assert_eq!(CStr::from_ptr(formatted).to_str().unwrap(), "1A2B3C");
+        calm_string_free(formatted);
+        assert!((calm_lossy_export_quality() - 0.92).abs() < f32::EPSILON);
     }
 }

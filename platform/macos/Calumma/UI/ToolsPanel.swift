@@ -5,7 +5,21 @@ struct ToolsPanel: View {
     @Environment(\.themeColors) private var colors
     @Environment(\.l10n) private var l10n
 
-    static let width: CGFloat = 112
+    static let columns = 2
+    static let spacing = Tokens.Space.sm
+    static var gridColumns: [GridItem] {
+        Array(repeating: GridItem(.flexible(), spacing: spacing), count: columns)
+    }
+    static var width: CGFloat {
+        let cell = CalmToolButton.size + spacing
+        return Tokens.Space.xs * 2
+            + CGFloat(columns) * cell
+            + CGFloat(max(0, columns - 1)) * spacing
+    }
+
+    static func iconGrid<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        LazyVGrid(columns: gridColumns, spacing: spacing, content: content)
+    }
 
     var body: some View {
         CalmIsland(padding: Tokens.Space.xs) {
@@ -38,10 +52,7 @@ struct ToolsPanel: View {
     }
 
     private var toolGrid: some View {
-        LazyVGrid(
-            columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())],
-            spacing: Tokens.Space.xs
-        ) {
+        Self.iconGrid {
             toolButton(.pen) { AppIcon.pen(color: iconColor(.pen)) }
             toolButton(.eraser) { AppIcon.eraser(color: iconColor(.eraser)) }
             shapeToolButton
@@ -49,6 +60,7 @@ struct ToolsPanel: View {
             toolButton(.bucket) { AppIcon.bucket(color: iconColor(.bucket)) }
             toolButton(.eyedropper) { AppIcon.eyedropper(color: iconColor(.eyedropper)) }
             toolButton(.text) { AppIcon.text(color: iconColor(.text)) }
+            toolButton(.move) { AppIcon.move(color: iconColor(.move)) }
         }
     }
 
@@ -61,6 +73,7 @@ struct ToolsPanel: View {
         case .bucket: return l10n.toolBucket
         case .eyedropper: return l10n.toolEyedropper
         case .text: return l10n.toolText
+        case .move: return l10n.toolMove
         default: return l10n.toolPen
         }
     }
@@ -69,14 +82,7 @@ struct ToolsPanel: View {
     private var toolOptions: some View {
         VStack(spacing: Tokens.Space.sm) {
             if app.tool.isShape {
-                LazyVGrid(
-                    columns: [
-                        GridItem(.flexible()),
-                        GridItem(.flexible()),
-                        GridItem(.flexible()),
-                    ],
-                    spacing: Tokens.Space.xs
-                ) {
+                Self.iconGrid {
                     shapePick(.line)
                     shapePick(.rect)
                     shapePick(.ellipse)
@@ -87,7 +93,7 @@ struct ToolsPanel: View {
             }
 
             if app.tool.isSelection {
-                HStack(spacing: Tokens.Space.xs) {
+                Self.iconGrid {
                     selectPick(.selectRect)
                     selectPick(.selectEllipse)
                     selectPick(.selectLasso)
@@ -109,6 +115,21 @@ struct ToolsPanel: View {
                         get: { Double(app.brushSize) },
                         set: { app.brushSize = Float($0) }
                     ), in: 1...96)
+                    .controlSize(.mini)
+                }
+            }
+
+            if showsInkOpacity {
+                VStack(spacing: 2) {
+                    HStack {
+                        CalmText.muted(l10n.inkOpacity)
+                        Spacer()
+                        CalmText.muted("\(Int((app.inkOpacity * 100).rounded()))", mono: true)
+                    }
+                    Slider(value: Binding(
+                        get: { Double(app.inkOpacity) },
+                        set: { app.inkOpacity = Float($0) }
+                    ), in: Double(Engine.inkOpacityMin)...Double(Engine.inkOpacityMax))
                     .controlSize(.mini)
                 }
             }
@@ -140,12 +161,15 @@ struct ToolsPanel: View {
     }
 
     private var showsVectorMode: Bool {
-        app.tool.isShape || app.tool == .pen
+        app.tool.showsVectorMode
     }
 
     private var showsBrushSize: Bool {
-        !app.tool.isSelection && app.tool != .bucket && app.tool != .eyedropper
-            && app.tool != .text
+        app.tool.takesBrushSize
+    }
+
+    private var showsInkOpacity: Bool {
+        app.tool.takesInkOpacity
     }
 
     private var aiSection: some View {
@@ -207,6 +231,7 @@ struct ToolsPanel: View {
         case .bucket: AppIcon.bucket(color: color)
         case .eyedropper: AppIcon.eyedropper(color: color)
         case .text: AppIcon.text(color: color)
+        case .move: AppIcon.move(color: color)
         case .selectRect, .selectEllipse, .selectLasso: AppIcon.selectRect(color: color)
         }
     }
@@ -269,6 +294,7 @@ struct ToolsPanel: View {
         case .selectLasso: return l10n.toolSelectLasso
         case .eyedropper: return l10n.toolEyedropper
         case .text: return l10n.toolText
+        case .move: return l10n.toolMove
         }
     }
 

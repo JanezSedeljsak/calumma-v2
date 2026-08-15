@@ -9,10 +9,9 @@ import os
 import platform
 import shutil
 import sys
-import tomllib
 from pathlib import Path
 
-from _helpers import ENGINE_MANIFEST, MACOS, XCODE_PROJECT, run
+from _helpers import MACOS, XCODE_PROJECT, run, workspace_version
 from constants import (
     APP_BUNDLE,
     APP_NAME,
@@ -41,11 +40,6 @@ from constants import (
     SIGN_IDENTITY_ADHOC,
     SIGN_OPTIONS_RUNTIME,
 )
-
-
-def workspace_version() -> str:
-    manifest = tomllib.loads(ENGINE_MANIFEST.read_text(encoding=ENCODING_UTF8))
-    return str(manifest["workspace"]["package"]["version"])
 
 
 def resolve_version(raw: str | None) -> str:

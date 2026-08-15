@@ -50,7 +50,7 @@ enum ExportFormat: String, CaseIterable, Identifiable {
 }
 
 enum ImageEncode {
-    static func data(_ image: CGImage, format: ExportFormat, quality: CGFloat = 0.92) -> Data? {
+    static func data(_ image: CGImage, format: ExportFormat, quality: CGFloat = CGFloat(calm_lossy_export_quality())) -> Data? {
         let out = NSMutableData()
         guard let destination = CGImageDestinationCreateWithData(
             out, format.utType.identifier as CFString, 1, nil

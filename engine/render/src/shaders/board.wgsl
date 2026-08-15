@@ -75,7 +75,7 @@ fn fs_paper(in: VsOut) -> @location(0) vec4<f32> {
         rgb = mix(rgb, u.paper_border.rgb, u.paper_border.a);
     }
 
-    if u.hover_enabled > 0.5 {
+    if u.hover_enabled > 0.5 && inside {
         let r = u.hover_rect;
         let hover_inside = xy.x >= r.x && xy.y >= r.y && xy.x <= r.z && xy.y <= r.w;
         if hover_inside {
@@ -99,12 +99,6 @@ struct TileCamera {
     _pad: vec2<f32>,
 }
 
-struct TilePlacement {
-    origin: vec2<f32>,
-    tile_size: f32,
-    _pad: f32,
-}
-
 struct LayerXform {
     pivot: vec2<f32>,
     offset: vec2<f32>,
@@ -113,19 +107,33 @@ struct LayerXform {
     _pad: f32,
 }
 
+// Every tile GPU-resident across the whole document lives in one shared array texture,
+// addressed per-instance by array-layer index — see `TileAtlas` in `render/src/tile_atlas.rs`.
+// That is what turns a document layer's tiles into a single instanced draw instead of one
+// draw call per tile. Group 0 is the atlas plus the per-frame camera, bound once; group 1 is
+// the one thing that still varies per *document layer*, its transform.
 @group(0) @binding(0) var<uniform> tu: TileCamera;
-@group(0) @binding(1) var tile_tex: texture_2d<f32>;
+@group(0) @binding(1) var tile_tex: texture_2d_array<f32>;
 @group(0) @binding(2) var tile_sampler: sampler;
-@group(0) @binding(3) var<uniform> tp: TilePlacement;
-@group(0) @binding(4) var<uniform> lx: LayerXform;
+@group(1) @binding(0) var<uniform> lx: LayerXform;
+
+// Must match `calumma_core::tile::TILE_SIZE` — tiles are square and fixed-size at runtime, so
+// this is a shader constant rather than a per-instance value.
+const TILE_SIZE_PX: f32 = 256.0;
+
+struct TileInstanceIn {
+    @location(0) origin: vec2<f32>,
+    @location(1) slot: u32,
+}
 
 struct TileVsOut {
     @builtin(position) position: vec4<f32>,
     @location(0) uv: vec2<f32>,
+    @location(1) @interpolate(flat) slot: u32,
 }
 
 @vertex
-fn vs_tile(@builtin(vertex_index) idx: u32) -> TileVsOut {
+fn vs_tile(input: TileInstanceIn, @builtin(vertex_index) idx: u32) -> TileVsOut {
     var corners = array<vec2<f32>, 6>(
         vec2<f32>(0.0, 0.0),
         vec2<f32>(1.0, 0.0),
@@ -135,12 +143,19 @@ fn vs_tile(@builtin(vertex_index) idx: u32) -> TileVsOut {
         vec2<f32>(1.0, 1.0),
     );
     let uv = corners[idx];
-    let raw_doc = tp.origin + uv * tp.tile_size;
-    let rel = (raw_doc - lx.pivot) * lx.scale;
-    let s = sin(lx.rotation);
-    let c = cos(lx.rotation);
-    let rotated = vec2<f32>(rel.x * c - rel.y * s, rel.x * s + rel.y * c);
-    let doc = lx.pivot + rotated + lx.offset;
+    let raw_doc = input.origin + uv * TILE_SIZE_PX;
+    var doc: vec2<f32>;
+    if abs(lx.rotation) < 1e-6 && all(lx.scale == vec2<f32>(1.0, 1.0)) && all(lx.offset == vec2<f32>(0.0, 0.0)) {
+        doc = raw_doc;
+    } else if abs(lx.rotation) < 1e-6 {
+        doc = lx.pivot + (raw_doc - lx.pivot) * lx.scale + lx.offset;
+    } else {
+        let rel = (raw_doc - lx.pivot) * lx.scale;
+        let s = sin(lx.rotation);
+        let c = cos(lx.rotation);
+        let rotated = vec2<f32>(rel.x * c - rel.y * s, rel.x * s + rel.y * c);
+        doc = lx.pivot + rotated + lx.offset;
+    }
     let screen = doc * tu.zoom + tu.pan;
     let device = screen * tu.dpr;
     let ndc = vec2<f32>(
@@ -150,12 +165,17 @@ fn vs_tile(@builtin(vertex_index) idx: u32) -> TileVsOut {
     var out: TileVsOut;
     out.position = vec4<f32>(ndc, 0.0, 1.0);
     out.uv = uv;
+    out.slot = input.slot;
     return out;
 }
 
 @fragment
 fn fs_tile(input: TileVsOut) -> @location(0) vec4<f32> {
-    let c = textureSampleLevel(tile_tex, tile_sampler, input.uv, 0.0);
+    // Plain `textureSample` (not `...Level`) picks its mip from the screen-space derivatives of
+    // `input.uv` automatically — coarser levels as the board zooms out, blended between levels
+    // by `tile_sampler`'s mipmap_filter. That is what keeps a zoomed-out pan from shimmering:
+    // without mips this would minify raw 256x256 texels with nothing pre-filtered underneath.
+    let c = textureSample(tile_tex, tile_sampler, input.uv, i32(input.slot));
     return vec4<f32>(c.rgb * c.a, c.a);
 }
 
@@ -236,20 +256,27 @@ fn sd_polygon5(p: vec2<f32>, v: array<vec2<f32>, 5>) -> f32 {
     return s * sqrt(d);
 }
 
+// The segment distance (`pa`/`ba`/`h`/`seg`) only feeds TOOL_LINE and TOOL_ARROW, so each
+// computes it locally instead of it running unconditionally before the switch — the SDF
+// polygon cases (RECT/ELLIPSE/TRIANGLE/PENTAGON) used to pay for a dot product, a clamp and
+// a sqrt every pixel for a value they never touch.
 fn shape_distance(tool: u32, p0: vec2<f32>, p1: vec2<f32>, half_width: f32, fill: f32, p: vec2<f32>) -> f32 {
-    let pa = p - p0;
-    let ba = p1 - p0;
-    let baba = dot(ba, ba);
-    let h = select(0.0, clamp(dot(pa, ba) / baba, 0.0, 1.0), baba > 0.0);
-    let seg = length(pa - ba * h);
-
     switch tool {
         case TOOL_LINE: {
+            let pa = p - p0;
+            let ba = p1 - p0;
+            let baba = dot(ba, ba);
+            let h = select(0.0, clamp(dot(pa, ba) / baba, 0.0, 1.0), baba > 0.0);
+            let seg = length(pa - ba * h);
             return seg - half_width;
         }
         case TOOL_ARROW: {
+            let pa = p - p0;
+            let ba = p1 - p0;
+            let baba = dot(ba, ba);
+            let h = select(0.0, clamp(dot(pa, ba) / baba, 0.0, 1.0), baba > 0.0);
             let span = length(ba);
-            var d = seg;
+            var d = length(pa - ba * h);
             if span > 1e-5 {
                 let head = clamp(half_width * 6.0, 10.0, 80.0);
                 let hl = min(head, span);

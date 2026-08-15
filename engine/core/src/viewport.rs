@@ -26,6 +26,38 @@ impl Camera {
         self.zoom * self.dpr
     }
 
+    pub fn paper_scissor(
+        &self,
+        doc_width: f32,
+        doc_height: f32,
+        fb_w: u32,
+        fb_h: u32,
+    ) -> Option<(u32, u32, u32, u32)> {
+        if fb_w == 0 || fb_h == 0 || doc_width <= 0.0 || doc_height <= 0.0 {
+            return None;
+        }
+        let dpr = self.dpr.max(1e-6);
+        let x0 = self.pan_x * dpr;
+        let y0 = self.pan_y * dpr;
+        let x1 = (doc_width * self.zoom + self.pan_x) * dpr;
+        let y1 = (doc_height * self.zoom + self.pan_y) * dpr;
+        let left = x0.max(0.0).floor();
+        let top = y0.max(0.0).floor();
+        let right = x1.min(fb_w as f32).ceil();
+        let bottom = y1.min(fb_h as f32).ceil();
+        if right <= left || bottom <= top {
+            return None;
+        }
+        let x = left as u32;
+        let y = top as u32;
+        let x2 = (right as u32).min(fb_w);
+        let y2 = (bottom as u32).min(fb_h);
+        if x2 <= x || y2 <= y {
+            return None;
+        }
+        Some((x, y, x2 - x, y2 - y))
+    }
+
     pub fn view_proj(&self) -> [[f32; 4]; 4] {
         let (device_width, device_height) = self.device_size();
         let width = device_width as f32;

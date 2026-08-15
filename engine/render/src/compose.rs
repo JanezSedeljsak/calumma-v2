@@ -1,3 +1,4 @@
+use crate::tile_atlas::tile_mip_levels;
 use bytemuck::{Pod, Zeroable};
 use calumma_core::filters::AdjustmentLut;
 use calumma_core::tile::{TileCoord, TILE_BYTES, TILE_SIZE};
@@ -188,4 +189,63 @@ pub fn composited_tile_payload(
         }
     }
     Some(out)
+}
+
+/// A tile's full mip chain — `base` as level 0, then each level halved down to 1×1 — for
+/// `TileAtlas::write`. Panning or zooming a document out samples these coarser levels instead
+/// of raw 256×256 texels through a plain bilinear filter, which is what shimmering/moiré during
+/// a pan actually is: minification aliasing from sampling a texture well below its own
+/// resolution with nothing pre-filtered to fall back to.
+pub fn tile_mip_chain(base: &[u8]) -> Vec<Vec<u8>> {
+    let levels = tile_mip_levels();
+    let mut out = Vec::with_capacity(levels as usize);
+    out.push(base.to_vec());
+    let mut side = TILE_SIZE;
+    for _ in 1..levels {
+        let prev = out.last().expect("just pushed the base level");
+        out.push(downsample_box(prev, side));
+        side = (side / 2).max(1);
+    }
+    out
+}
+
+/// One 2×2 box-filter pass, straight (non-premultiplied) alpha in and out. Averaging straight
+/// RGB directly would let a fully transparent neighbour's colour bleed into a translucent or
+/// opaque one — invisible pixels are not "no colour", they are colour nobody sees yet — so each
+/// tap is weighted by its own alpha (premultiplied) before averaging, and the result is
+/// unpremultiplied back out. This is the same reason blending happens in premultiplied space
+/// everywhere else in this renderer.
+fn downsample_box(src: &[u8], side: u32) -> Vec<u8> {
+    let out_side = (side / 2).max(1);
+    let mut out = vec![0u8; (out_side * out_side * 4) as usize];
+    for dy in 0..out_side {
+        for dx in 0..out_side {
+            let sx0 = (dx * 2).min(side - 1);
+            let sy0 = (dy * 2).min(side - 1);
+            let sx1 = (dx * 2 + 1).min(side - 1);
+            let sy1 = (dy * 2 + 1).min(side - 1);
+
+            let mut sum_rgb = [0.0f32; 3];
+            let mut sum_a = 0.0f32;
+            for (sx, sy) in [(sx0, sy0), (sx1, sy0), (sx0, sy1), (sx1, sy1)] {
+                let i = ((sy * side + sx) * 4) as usize;
+                let a = src[i + 3] as f32 / 255.0;
+                sum_rgb[0] += src[i] as f32 * a;
+                sum_rgb[1] += src[i + 1] as f32 * a;
+                sum_rgb[2] += src[i + 2] as f32 * a;
+                sum_a += a;
+            }
+
+            let out_a = sum_a / 4.0;
+            let rgb = if out_a > 0.0 {
+                sum_rgb.map(|c| (c / (out_a * 4.0)).round().clamp(0.0, 255.0) as u8)
+            } else {
+                [0u8; 3]
+            };
+            let di = ((dy * out_side + dx) * 4) as usize;
+            out[di..di + 3].copy_from_slice(&rgb);
+            out[di + 3] = (out_a * 255.0).round().clamp(0.0, 255.0) as u8;
+        }
+    }
+    out
 }

@@ -155,3 +155,22 @@ fn vector_entry_points_survive_a_null_engine() {
         CalmStatus::Null
     );
 }
+
+#[test]
+fn deleting_or_nudging_without_an_open_project_is_an_error() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = CString::new(dir.path().join("empty.sqlite").to_str().unwrap()).unwrap();
+    let engine = unsafe { calm_engine_new(path.as_ptr()) };
+    assert!(!engine.is_null());
+
+    assert_eq!(
+        calm_engine_delete_selected_vector_item(engine),
+        CalmStatus::Error
+    );
+    assert_eq!(
+        calm_engine_nudge_selected_vector_item(engine, 1.0, 0.0),
+        CalmStatus::Error
+    );
+
+    unsafe { calm_engine_free(engine) };
+}

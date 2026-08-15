@@ -1,5 +1,7 @@
 pub const HISTORY_MEMORY_BUDGET_BYTES: usize = 256 * 1024 * 1024;
 
+pub const EFFECT_CHUNK_BYTES: usize = 64 * 1024;
+
 pub const STROKE_POINT_CAPACITY: usize = 256;
 pub const MIN_STROKE_POINT_DISTANCE: f32 = 0.5;
 pub const STAMP_SPACING_RATIO: f32 = 0.5;
@@ -9,6 +11,10 @@ pub const STAMP_COVERAGE_PADDING: f32 = 1.0;
 pub const BRUSH_SIZE_MIN: f32 = 1.0;
 pub const BRUSH_SIZE_MAX: f32 = 96.0;
 pub const BRUSH_SIZE_DEFAULT: f32 = 3.0;
+
+pub const INK_OPACITY_MIN: f32 = 0.0;
+pub const INK_OPACITY_MAX: f32 = 1.0;
+pub const INK_OPACITY_DEFAULT: f32 = 1.0;
 
 pub const FIT_PADDING: f32 = 0.99;
 pub const ZOOM_STEP: f32 = 1.25;
@@ -45,8 +51,26 @@ pub const IMPORT_MAX_SIDE: u32 = 4096;
 
 pub const STROKE_INSTANCE_CAPACITY: usize = 1024;
 pub const VECTOR_SHAPE_INSTANCE_CAPACITY: usize = 256;
+/// Initial size of the per-frame tile instance buffer (origin + atlas slot per visible tile).
+/// Unrelated to the atlas's own capacity: this just needs to hold one record per tile drawn
+/// this frame, and grows the same way the stroke/vector-shape instance buffers do.
+pub const TILE_INSTANCE_CAPACITY: usize = 1024;
 pub const SURFACE_FRAME_LATENCY: u32 = 2;
 pub const GPU_TILE_RETENTION_MARGIN_TILES: i32 = 1;
+
+/// Starting depth of the GPU tile atlas (one shared `texture_2d_array` every layer's tiles are
+/// packed into, so a whole document layer draws in one instanced call instead of one draw per
+/// tile). A `wgpu::Texture` reserves VRAM for its full declared layer count up front, so this
+/// stays small — enough for a single-monitor viewport across a few layers without ever growing
+/// — and the atlas doubles on demand from here up to `TILE_ATLAS_MAX_CAPACITY`. This is what
+/// keeps the feature cheap on a low-end GPU: a small document never pays for a big array.
+pub const TILE_ATLAS_INITIAL_CAPACITY: u32 = 128;
+/// Hard ceiling on the tile atlas, independent of how large a `max_texture_array_layers` the
+/// adapter reports. Bounds worst-case VRAM (`TILE_ATLAS_MAX_CAPACITY * TILE_BYTES`, here 1GiB)
+/// for a pathological case — many fully-painted layers, zoomed out on a very large document —
+/// so panning/zooming stays responsive by evicting the least-important tiles instead of
+/// growing the allocation without limit.
+pub const TILE_ATLAS_MAX_CAPACITY: u32 = 4096;
 
 pub const ALPHA_OPAQUE: u8 = u8::MAX;
 pub const ALPHA_MAX: u32 = u8::MAX as u32;
@@ -76,6 +100,10 @@ pub const MAX_SCALE: f32 = 50.0;
 pub const VECTOR_PICK_SLACK_PX: f32 = 6.0;
 /// One arrow-key nudge of the selected vector item, in document pixels.
 pub const VECTOR_NUDGE_STEP: f32 = 1.0;
+/// Same step for a Move-tool / transform-mode layer offset nudge.
+pub const LAYER_NUDGE_STEP: f32 = VECTOR_NUDGE_STEP;
+
+pub const LOSSY_EXPORT_QUALITY: f32 = 0.92;
 
 pub const MIN_CANVAS_SIDE: u32 = 16;
 pub const MAX_CANVAS_SIDE: u32 = 8192;

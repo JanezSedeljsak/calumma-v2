@@ -17,6 +17,7 @@ pub enum Tool {
     Triangle = 12,
     Pentagon = 13,
     Text = 14,
+    Move = 15,
 }
 
 impl Tool {
@@ -37,6 +38,7 @@ impl Tool {
             12 => Some(Self::Triangle),
             13 => Some(Self::Pentagon),
             14 => Some(Self::Text),
+            15 => Some(Self::Move),
             _ => None,
         }
     }
@@ -60,6 +62,38 @@ impl Tool {
             self,
             Tool::Rect | Tool::Ellipse | Tool::Triangle | Tool::Pentagon
         )
+    }
+
+    pub fn takes_brush_size(self) -> bool {
+        matches!(
+            self,
+            Tool::Pen
+                | Tool::Line
+                | Tool::Rect
+                | Tool::Ellipse
+                | Tool::Arrow
+                | Tool::Eraser
+                | Tool::Triangle
+                | Tool::Pentagon
+        )
+    }
+
+    pub fn takes_ink_opacity(self) -> bool {
+        matches!(
+            self,
+            Tool::Pen
+                | Tool::Line
+                | Tool::Rect
+                | Tool::Ellipse
+                | Tool::Arrow
+                | Tool::Triangle
+                | Tool::Pentagon
+                | Tool::Fill
+        )
+    }
+
+    pub fn shows_vector_mode(self) -> bool {
+        self.is_shape() || self == Tool::Pen
     }
 
     /// Whether a Shift-drag squares this tool off: a rectangle becomes a square, an ellipse
@@ -267,7 +301,8 @@ impl Shape {
             | Tool::Fill
             | Tool::Transform
             | Tool::Eyedropper
-            | Tool::Text => f32::MAX,
+            | Tool::Text
+            | Tool::Move => f32::MAX,
             Tool::Line => sd_segment(p, self.start, self.end) - self.half_width,
             Tool::Arrow => self.arrow_distance(p) - self.half_width,
             Tool::Rect => {

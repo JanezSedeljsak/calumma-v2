@@ -170,3 +170,87 @@ fn the_selection_box_is_drawn_only_when_something_is_selected() {
     let doc = Document::new("p".into(), "t", 64, 64);
     assert!(vector_selection_instances(&doc).is_empty());
 }
+
+#[test]
+fn vector_placement_is_none_for_a_non_vector_layer_even_with_a_transform() {
+    let mut doc = Document::new("p".into(), "t", 64, 64);
+    doc.add_layer("Paint");
+    let layer = doc.layers.last_mut().unwrap();
+    layer.transform = Some(LayerTransform {
+        offset_x: 5.0,
+        ..LayerTransform::default()
+    });
+    assert!(vector_placement(layer).is_none());
+}
+
+#[test]
+fn vector_placement_is_none_for_an_empty_transformed_layer() {
+    let layer = layer_with(
+        vec![],
+        Some(LayerTransform {
+            offset_x: 5.0,
+            ..LayerTransform::default()
+        }),
+    );
+    assert!(vector_placement(&layer).is_none());
+}
+
+#[test]
+fn a_boundless_item_is_never_visible() {
+    let boundless = VectorItem::Path(VectorPath {
+        points: vec![],
+        closed: false,
+        fill: false,
+        color: [0, 0, 0, 255],
+        stroke_width: 1.0,
+    });
+    let visible = DocRect::new(0, 0, 200, 200);
+    assert!(!item_visible(&boundless, None, visible));
+}
+
+#[test]
+fn an_empty_path_pushes_no_instances() {
+    let mut out = Vec::new();
+    let VectorItem::Path(path) = path_item(vec![], false, false) else {
+        unreachable!()
+    };
+    push_path_instances(&path, None, &mut out);
+    assert!(out.is_empty());
+}
+
+#[test]
+fn shape_instance_marks_outline_shapes_as_unfilled() {
+    let shape = VectorShape {
+        shape: Shape {
+            tool: Tool::Rect,
+            start: (0.0, 0.0),
+            end: (10.0, 10.0),
+            half_width: 1.0,
+            fill: false,
+        },
+        color: [1, 2, 3, 255],
+    };
+    assert_eq!(shape_instance(&shape, None).fill, 0.0);
+}
+
+#[test]
+fn vector_selection_instances_draws_four_edges_and_four_corner_dots() {
+    let mut doc = Document::new("p".into(), "t", 200, 200);
+    doc.resize_viewport(200.0, 200.0, 1.0);
+    doc.fit_to_view();
+    let index = doc.add_vector_layer("V");
+    *doc.layers[index].content.items_mut().unwrap() =
+        vec![shape_item((10.0, 10.0), (40.0, 40.0))];
+    doc.set_active_layer(index);
+    assert!(doc.select_vector_item_at(20.0, 20.0));
+
+    let out = vector_selection_instances(&doc);
+    assert_eq!(out.len(), 8, "four edges plus four corner dots");
+    for dot in &out[4..] {
+        assert_eq!(
+            (dot.segment[0], dot.segment[1]),
+            (dot.segment[2], dot.segment[3]),
+            "a corner dot is a degenerate segment"
+        );
+    }
+}

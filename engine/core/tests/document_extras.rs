@@ -151,5 +151,17 @@ fn tool_helpers() {
     assert_eq!(Tool::from_u32(2), Some(Tool::Rect));
     assert_eq!(Tool::from_u32(12), Some(Tool::Triangle));
     assert_eq!(Tool::from_u32(13), Some(Tool::Pentagon));
+    assert_eq!(Tool::from_u32(15), Some(Tool::Move));
     assert_eq!(Tool::from_u32(99), None);
+    assert!(Tool::Pen.takes_brush_size());
+    assert!(!Tool::Move.takes_brush_size());
+    assert!(Tool::Pen.shows_vector_mode());
+    assert!(!Tool::Move.shows_vector_mode());
+    assert!(!Tool::Text.takes_brush_size());
+    assert!(Tool::Pen.takes_ink_opacity());
+    assert!(Tool::Fill.takes_ink_opacity());
+    assert!(Tool::Rect.takes_ink_opacity());
+    assert!(!Tool::Eraser.takes_ink_opacity());
+    assert!(!Tool::Text.takes_ink_opacity());
+    assert!(!Tool::Move.takes_ink_opacity());
 }

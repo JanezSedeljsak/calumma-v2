@@ -108,8 +108,48 @@ impl LayerTransform {
             self.forward(pivot, (x0, y1)),
         ]
     }
+
+    pub fn transformed_aabb(&self, bounds: (f32, f32, f32, f32)) -> (f32, f32, f32, f32) {
+        let pivot = bounds_center(bounds);
+        let corners = self.transformed_corners(pivot, bounds);
+        let mut min = corners[0];
+        let mut max = corners[0];
+        for &(x, y) in &corners[1..] {
+            min.0 = min.0.min(x);
+            min.1 = min.1.min(y);
+            max.0 = max.0.max(x);
+            max.1 = max.1.max(y);
+        }
+        (min.0, min.1, max.0, max.1)
+    }
 }
 
 pub fn bounds_center(bounds: (f32, f32, f32, f32)) -> (f32, f32) {
     ((bounds.0 + bounds.2) * 0.5, (bounds.1 + bounds.3) * 0.5)
+}
+
+pub fn transformed_aabb(
+    bounds: (f32, f32, f32, f32),
+    transform: Option<LayerTransform>,
+) -> (f32, f32, f32, f32) {
+    match transform.filter(|t| !t.is_identity()) {
+        Some(t) => t.transformed_aabb(bounds),
+        None => bounds,
+    }
+}
+
+pub fn clipped_pixel_span(
+    aabb: (f32, f32, f32, f32),
+    width: u32,
+    height: u32,
+) -> Option<(u32, u32, u32, u32)> {
+    let x0 = (aabb.0.floor().max(0.0) as u32).min(width);
+    let y0 = (aabb.1.floor().max(0.0) as u32).min(height);
+    let x1 = ((aabb.2.ceil() + 1.0).max(0.0) as u32).min(width);
+    let y1 = ((aabb.3.ceil() + 1.0).max(0.0) as u32).min(height);
+    if x0 >= x1 || y0 >= y1 {
+        None
+    } else {
+        Some((x0, y0, x1, y1))
+    }
 }

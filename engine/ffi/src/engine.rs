@@ -3,8 +3,8 @@ use crate::platform::{parse_op_kind, CalmPlatformOps, PlatformOp};
 use anyhow::{anyhow, bail, Context};
 use calumma_core::limits::{AUTOSAVE_INTERVAL_MS, BRUSH_SIZE_MAX, BRUSH_SIZE_MIN, IMPORT_MAX_SIDE};
 use calumma_core::{
-    project_color, unpremultiply_rgba, AdjustmentKind, Adjustments, BlendMode, BoardColors,
-    Document, Tool, PROJECT_COLORS,
+    pack_rgba, project_color, unpack_rgba, unpremultiply_rgba, AdjustmentKind, Adjustments,
+    BlendMode, BoardColors, Document, Tool, PROJECT_COLORS,
 };
 use calumma_io::{encode_psd, encode_svg, ProjectListItem, ProjectStore};
 use calumma_ops::{
@@ -47,6 +47,8 @@ pub struct CalmState {
     pub dark_theme: u8,
     pub accent: u32,
     pub zoom_unit: f32,
+    pub last_shape_tool: u32,
+    pub last_select_tool: u32,
 }
 
 #[repr(C)]
@@ -66,29 +68,17 @@ pub struct CalmProjectInfo {
     pub accent: u32,
 }
 
-pub(crate) fn pack_rgb(rgb: [u8; 3]) -> u32 {
-    ((rgb[0] as u32) << 16) | ((rgb[1] as u32) << 8) | rgb[2] as u32
-}
+pub(crate) use calumma_core::{pack_rgb, unpack_rgb};
 
-fn unpack_rgb(packed: u32) -> [u8; 3] {
-    [
-        ((packed >> 16) & 0xFF) as u8,
-        ((packed >> 8) & 0xFF) as u8,
-        (packed & 0xFF) as u8,
-    ]
-}
-
-fn unpack_rgba(packed: u32) -> [u8; 4] {
-    [
-        ((packed >> 24) & 0xFF) as u8,
-        ((packed >> 16) & 0xFF) as u8,
-        ((packed >> 8) & 0xFF) as u8,
-        (packed & 0xFF) as u8,
-    ]
-}
-
-fn pack_rgba(rgba: [u8; 4]) -> u32 {
-    ((rgba[0] as u32) << 24) | ((rgba[1] as u32) << 16) | ((rgba[2] as u32) << 8) | rgba[3] as u32
+pub(crate) fn write_boxed(bytes: Vec<u8>, out: *mut *mut u8, out_len: *mut usize) {
+    let mut boxed = bytes.into_boxed_slice();
+    let len = boxed.len();
+    let ptr = boxed.as_mut_ptr();
+    std::mem::forget(boxed);
+    unsafe {
+        *out = ptr;
+        *out_len = len;
+    }
 }
 
 pub(crate) struct Inner {
@@ -100,6 +90,8 @@ pub(crate) struct Inner {
     dirty_save: bool,
     registry: OpRegistry,
     platform_ops: Option<CalmPlatformOps>,
+    last_shape_tool: Tool,
+    last_select_tool: Tool,
 }
 
 fn _assert_inner_send() {
@@ -127,6 +119,8 @@ impl Inner {
             dirty_save: false,
             registry: OpRegistry::new(),
             platform_ops: None,
+            last_shape_tool: Tool::Rect,
+            last_select_tool: Tool::SelectRect,
         })
     }
 
@@ -153,9 +147,44 @@ impl Inner {
     /// memory.
     pub(crate) fn close_document(&mut self) {
         if let Some(mut doc) = self.doc.take() {
+            self.last_shape_tool = doc.last_shape_tool;
+            self.last_select_tool = doc.last_select_tool;
             let _ = self.store.save(&mut doc);
         }
         self.release_gpu_resources();
+    }
+
+    pub(crate) fn install_document(&mut self, mut doc: Document) {
+        doc.last_shape_tool = self.last_shape_tool;
+        doc.last_select_tool = self.last_select_tool;
+        if self.renderer.is_some() {
+            doc.fit_to_view();
+        }
+        self.doc = Some(doc);
+        self.dirty_save = false;
+        self.invalidate_renderer();
+    }
+
+    pub(crate) fn switch_workspace(
+        &mut self,
+        workspace_id: &str,
+        project_id: Option<&str>,
+    ) -> anyhow::Result<()> {
+        self.close_document();
+        if let Some(id) = project_id {
+            let doc = self
+                .store
+                .open_project(id)
+                .with_context(|| format!("opening project {id}"))?;
+            self.install_document(doc);
+        }
+        self.store
+            .set_workspace_active_project(workspace_id, project_id)
+            .context("setting active project")?;
+        self.store
+            .touch_workspace(workspace_id)
+            .context("touching workspace")?;
+        Ok(())
     }
 
     pub(crate) fn release_gpu_resources(&mut self) {
@@ -693,17 +722,15 @@ pub unsafe extern "C" fn calm_project_set_accent(
 #[no_mangle]
 pub unsafe extern "C" fn calm_engine_set_tool(engine: *mut CalmEngine, tool: u32) -> CalmStatus {
     with_inner(engine, |inner| {
+        let next = Tool::from_u32(tool).with_context(|| format!("unknown tool id {tool}"))?;
         if let Some(doc) = &mut inner.doc {
-            let next = Tool::from_u32(tool).with_context(|| format!("unknown tool id {tool}"))?;
-            if next != Tool::Text {
-                doc.commit_text();
-            }
-            if next == Tool::Transform {
-                doc.toggle_transform();
-            } else {
-                doc.exit_transform();
-                doc.tool = next;
-            }
+            doc.set_tool(next);
+            inner.last_shape_tool = doc.last_shape_tool;
+            inner.last_select_tool = doc.last_select_tool;
+        } else if next.is_shape() {
+            inner.last_shape_tool = next;
+        } else if next.is_selection() {
+            inner.last_select_tool = next;
         }
         inner.invalidate_renderer();
         Ok(())
@@ -779,6 +806,20 @@ pub unsafe extern "C" fn calm_engine_set_brush(engine: *mut CalmEngine, size: f3
         if let Some(doc) = &mut inner.doc {
             doc.brush_size = size.clamp(BRUSH_SIZE_MIN, BRUSH_SIZE_MAX);
         }
+        Ok(())
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn calm_engine_set_ink_opacity(
+    engine: *mut CalmEngine,
+    opacity: f32,
+) -> CalmStatus {
+    with_inner(engine, |inner| {
+        if let Some(doc) = &mut inner.doc {
+            doc.set_ink_opacity(opacity);
+        }
+        inner.invalidate_renderer();
         Ok(())
     })
 }
@@ -1250,6 +1291,8 @@ pub unsafe extern "C" fn calm_engine_state(
                     dark_theme: 1,
                     accent: 0,
                     zoom_unit: 0.0,
+                    last_shape_tool: inner.last_shape_tool as u32,
+                    last_select_tool: inner.last_select_tool as u32,
                 };
             }
             return Ok(());
@@ -1272,6 +1315,8 @@ pub unsafe extern "C" fn calm_engine_state(
                 dark_theme: doc.dark_theme as u8,
                 accent: pack_rgb(doc.accent),
                 zoom_unit: doc.camera.zoom_unit(dw, dh),
+                last_shape_tool: doc.last_shape_tool as u32,
+                last_select_tool: doc.last_select_tool as u32,
             };
         }
         Ok(())
@@ -1654,19 +1699,13 @@ pub unsafe extern "C" fn calm_project_create(
         let name = unsafe { CStr::from_ptr(name) }
             .to_str()
             .unwrap_or(calumma_core::UNTITLED);
+        inner.close_document();
         let doc = inner
             .store
             .create(name, width, height)
             .with_context(|| format!("creating project {name} at {width}x{height}"))?;
         let id = doc.id.clone();
-        if let Some(mut old) = inner.doc.take() {
-            let _ = inner.store.save(&mut old);
-        }
-        inner.doc = Some(doc);
-        inner.dirty_save = false;
-        if let Some(r) = &mut inner.renderer {
-            r.invalidate();
-        }
+        inner.install_document(doc);
         Ok::<_, anyhow::Error>(cstring(&id))
     })) {
         Ok(Ok(p)) => p,
@@ -1712,6 +1751,7 @@ pub unsafe extern "C" fn calm_project_create_from_image(
             .unwrap_or(calumma_core::UNTITLED);
         let mut rgba = unsafe { std::slice::from_raw_parts(premultiplied_rgba, len) }.to_vec();
         unpremultiply_rgba(&mut rgba);
+        inner.close_document();
         let mut doc = inner
             .store
             .create(name, width, height)
@@ -1721,14 +1761,7 @@ pub unsafe extern "C" fn calm_project_create_from_image(
         }
         inner.store.save(&mut doc).context("saving project")?;
         let id = doc.id.clone();
-        if let Some(mut old) = inner.doc.take() {
-            let _ = inner.store.save(&mut old);
-        }
-        inner.doc = Some(doc);
-        inner.dirty_save = false;
-        if let Some(r) = &mut inner.renderer {
-            r.invalidate();
-        }
+        inner.install_document(doc);
         Ok::<_, anyhow::Error>(cstring(&id))
     })) {
         Ok(Ok(p)) => p,
@@ -1749,18 +1782,11 @@ pub unsafe extern "C" fn calm_project_open(
             .to_str()
             .context("project id is not valid UTF-8")?;
         inner.close_document();
-        let mut doc = inner
+        let doc = inner
             .store
             .open_project(id)
             .with_context(|| format!("opening project {id}"))?;
-        if inner.renderer.is_some() {
-            doc.fit_to_view();
-        }
-        inner.doc = Some(doc);
-        inner.dirty_save = false;
-        if let Some(r) = &mut inner.renderer {
-            r.invalidate();
-        }
+        inner.install_document(doc);
         Ok(())
     })
 }

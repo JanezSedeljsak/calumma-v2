@@ -95,7 +95,7 @@ struct TextOptions: View {
     /// reports which faces it loaded, and a synthesised slant is not the font anyone picked.
     private var styleRow: some View {
         let family = app.engine.activeFontFamily
-        return HStack(spacing: Tokens.Space.xs) {
+        return ToolsPanel.iconGrid {
             styleButton(
                 glyph: "bold",
                 help: l10n.textBold,
@@ -110,7 +110,6 @@ struct TextOptions: View {
                 available: family?.hasItalic ?? false,
                 action: { app.engine.setTextItalic(!app.engine.textItalic) }
             )
-            Spacer(minLength: 0)
         }
     }
 
@@ -139,7 +138,7 @@ struct TextOptions: View {
     }
 
     private var alignRow: some View {
-        HStack(spacing: Tokens.Space.xs) {
+        ToolsPanel.iconGrid {
             alignButton(.left, glyph: "align-left", help: l10n.textAlignLeft)
             alignButton(.center, glyph: "align-center", help: l10n.textAlignCenter)
             alignButton(.right, glyph: "align-right", help: l10n.textAlignRight)

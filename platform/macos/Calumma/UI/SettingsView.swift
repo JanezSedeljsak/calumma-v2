@@ -53,10 +53,16 @@ struct SettingsView: View {
                 CalmText.muted(memoryLabel, mono: true)
             }
 
+            HStack {
+                CalmText.label(l10n.version)
+                Spacer()
+                CalmText.muted(versionLabel, mono: true)
+            }
+
             Spacer()
         }
         .padding(Tokens.Space.xl)
-        .frame(width: 360, height: 360)
+        .frame(width: 360, height: 380)
         .calmScreen()
     }
 
@@ -66,6 +72,11 @@ struct SettingsView: View {
             fromByteCount: Int64(app.engine.memoryBytes),
             countStyle: .memory
         )
+    }
+
+    /// Stamped from engine/Cargo.toml's workspace version at build time (see project.yml / manage.py).
+    private var versionLabel: String {
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—"
     }
 
     private func themeChip(_ theme: AppTheme, title: String) -> some View {

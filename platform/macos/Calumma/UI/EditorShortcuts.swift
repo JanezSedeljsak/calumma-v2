@@ -37,8 +37,7 @@ extension AppModel {
             engine.addLayer()
             return true
         }
-        if let step = vectorNudgeStep(event.keyCode), engine.selectedVectorItem != nil {
-            engine.nudgeSelectedVectorItem(x: step.0, y: step.1)
+        if let step = vectorNudgeStep(event.keyCode), engine.nudgeMoveTarget(x: step.0, y: step.1) {
             return true
         }
         // A selected vector item is what Delete removes; without one the key keeps its old

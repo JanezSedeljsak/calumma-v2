@@ -3,7 +3,8 @@ use crate::filters::AdjustmentLut;
 use crate::history::{History, TileSnapshot};
 use crate::layer::Layer;
 use crate::limits::{
-    BRUSH_SIZE_DEFAULT, DEFAULT_INK, FILL_TOLERANCE_DEFAULT, MAX_CANVAS_SIDE, MIN_CANVAS_SIDE,
+    BRUSH_SIZE_DEFAULT, DEFAULT_INK, EFFECT_CHUNK_BYTES, FILL_TOLERANCE_DEFAULT,
+    INK_OPACITY_DEFAULT, INK_OPACITY_MAX, INK_OPACITY_MIN, MAX_CANVAS_SIDE, MIN_CANVAS_SIDE,
     MIN_STAMP_SPACING, MIN_STROKE_POINT_DISTANCE, PAPER_WHITE, STAMP_COVERAGE_PADDING,
     STAMP_SPACING_RATIO, STROKE_POINT_CAPACITY,
 };
@@ -12,16 +13,12 @@ use crate::selection::{Selection, SelectionShape};
 use crate::shape::{Shape, Tool};
 use crate::text_edit::TextEdit;
 use crate::tile::{blend_over, blend_with_mode, DirtyChannel, DocRect, TileCoord, TILE_SIZE};
-use crate::transform::{bounds_center, LayerTransform};
+use crate::transform::{bounds_center, clipped_pixel_span, LayerTransform};
 use crate::vector;
 use crate::vector_edit::{VectorItemDrag, VectorPick};
 use calumma_text::TextRun;
 use rayon::prelude::*;
 use std::collections::HashSet;
-
-/// Rayon chunk size for whole-buffer pixel passes. Big enough that scheduling overhead
-/// stays noise on small canvases, small enough to keep every core fed on large ones.
-const EFFECT_CHUNK_BYTES: usize = 64 * 1024;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct StrokePoint {
@@ -65,11 +62,14 @@ fn apply_mask(rgba: &mut [u8], mask: Option<&[u8]>) {
     let Some(mask) = mask else {
         return;
     };
-    for (i, chunk) in rgba.chunks_exact_mut(4).enumerate() {
-        if let Some(&m) = mask.get(i) {
-            chunk[3] = ((chunk[3] as u32 * m as u32) / 255) as u8;
-        }
-    }
+    let chunk_pixels = EFFECT_CHUNK_BYTES / 4;
+    rgba.par_chunks_mut(EFFECT_CHUNK_BYTES)
+        .zip(mask.par_chunks(chunk_pixels))
+        .for_each(|(block, mask_block)| {
+            for (px, &m) in block.chunks_exact_mut(4).zip(mask_block.iter()) {
+                px[3] = ((px[3] as u32 * m as u32) / 255) as u8;
+            }
+        });
 }
 
 fn layer_source_pixel(layer: &Layer, doc_x: f32, doc_y: f32) -> [u8; 4] {
@@ -183,7 +183,7 @@ fn copy_layer_into_rgba(layer: &Layer, buf: &mut [u8], w: u32, h: u32) {
     let Some(tiles) = layer.tiles() else {
         return;
     };
-    let Some(t) = layer.transform else {
+    let Some(t) = layer.transform.filter(|t| !t.is_identity()) else {
         tiles.copy_into_rgba(buf, w, h);
         return;
     };
@@ -191,14 +191,19 @@ fn copy_layer_into_rgba(layer: &Layer, buf: &mut [u8], w: u32, h: u32) {
         return;
     };
     let pivot = bounds_center(raw_bounds);
+    let Some((x0, y0, x1, y1)) = clipped_pixel_span(t.transformed_aabb(raw_bounds), w, h) else {
+        return;
+    };
     let row_bytes = (w as usize) * 4;
-    buf.par_chunks_mut(row_bytes)
+    let y0 = y0 as usize;
+    let x0 = x0 as usize;
+    let x1 = x1 as usize;
+    buf[y0 * row_bytes..y1 as usize * row_bytes]
+        .par_chunks_mut(row_bytes)
         .enumerate()
-        .for_each(|(y, row)| {
-            if y >= h as usize {
-                return;
-            }
-            for x in 0..w as usize {
+        .for_each(|(i, row)| {
+            let y = y0 + i;
+            for x in x0..x1 {
                 let (rx, ry) = t.inverse(pivot, (x as f32 + 0.5, y as f32 + 0.5));
                 let px = tiles.get_pixel(rx.floor() as i32, ry.floor() as i32);
                 if px[3] == 0 {
@@ -271,6 +276,7 @@ pub struct Document {
     pub tool: Tool,
     pub color: [u8; 4],
     pub brush_size: f32,
+    pub ink_opacity: f32,
     pub fill: bool,
     pub dark_theme: bool,
     pub accent: [u8; 3],
@@ -291,17 +297,19 @@ pub struct Document {
     vector_revision: u64,
     pub(crate) selected_vector: Option<VectorPick>,
     pub(crate) vector_drag: Option<VectorItemDrag>,
+    pub last_shape_tool: Tool,
+    pub last_select_tool: Tool,
     pub transform_active: bool,
     /// Font, size and alignment the next text layer starts with — a document-level default
     /// carried between text layers, not a shell knob.
     pub text_style: TextRun,
     pub text_edit: Option<TextEdit>,
-    transform_drag: Option<TransformDrag>,
+    pub(crate) transform_drag: Option<TransformDrag>,
     stroke_before: TileSnapshot,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub enum TransformHandle {
+pub(crate) enum TransformHandle {
     TopLeft,
     TopRight,
     BottomRight,
@@ -311,13 +319,32 @@ pub enum TransformHandle {
 }
 
 #[derive(Clone, Copy, Debug)]
-struct TransformDrag {
-    layer_index: usize,
-    handle: TransformHandle,
-    pivot: (f32, f32),
-    raw_bounds: (f32, f32, f32, f32),
-    start_transform: LayerTransform,
-    start_pointer: (f32, f32),
+pub(crate) struct TransformDrag {
+    pub(crate) layer_index: usize,
+    pub(crate) handle: TransformHandle,
+    pub(crate) pivot: (f32, f32),
+    pub(crate) raw_bounds: (f32, f32, f32, f32),
+    pub(crate) start_transform: LayerTransform,
+    pub(crate) start_pointer: (f32, f32),
+}
+
+impl TransformDrag {
+    pub(crate) fn layer_move(
+        layer_index: usize,
+        pivot: (f32, f32),
+        raw_bounds: (f32, f32, f32, f32),
+        start_transform: LayerTransform,
+        start_pointer: (f32, f32),
+    ) -> Self {
+        Self {
+            layer_index,
+            handle: TransformHandle::Move,
+            pivot,
+            raw_bounds,
+            start_transform,
+            start_pointer,
+        }
+    }
 }
 
 pub type TransformHandles = (usize, [(f32, f32); 4], (f32, f32));
@@ -372,6 +399,7 @@ impl Document {
             tool: Tool::Pen,
             color: DEFAULT_INK,
             brush_size: BRUSH_SIZE_DEFAULT,
+            ink_opacity: INK_OPACITY_DEFAULT,
             fill: false,
             dark_theme: true,
             accent: crate::palette::random_project_color(),
@@ -386,6 +414,8 @@ impl Document {
             vector_revision: 0,
             selected_vector: None,
             vector_drag: None,
+            last_shape_tool: Tool::Rect,
+            last_select_tool: Tool::SelectRect,
             transform_active: false,
             text_style: TextRun::default(),
             text_edit: None,
@@ -496,7 +526,7 @@ impl Document {
     pub fn set_layer_opacity(&mut self, index: usize, opacity: f32) {
         if let Some(layer) = self.layers.get_mut(index) {
             layer.opacity = opacity.clamp(0.0, 1.0);
-            layer.mark_all_dirty();
+            layer.mark_channel_dirty(DirtyChannel::Render);
         }
     }
 
@@ -518,7 +548,7 @@ impl Document {
             } else {
                 Some(adjustments)
             };
-            layer.mark_all_dirty();
+            layer.mark_channel_dirty(DirtyChannel::Render);
         }
     }
 
@@ -811,7 +841,7 @@ impl Document {
         self.exit_transform();
     }
 
-    fn update_transform_drag(&mut self, doc_x: f32, doc_y: f32) {
+    pub(crate) fn update_transform_drag(&mut self, doc_x: f32, doc_y: f32) {
         let Some(drag) = self.transform_drag else {
             return;
         };
@@ -984,12 +1014,15 @@ impl Document {
             self.transform_pointer_down(dx, dy);
             return;
         }
+        if self.tool == Tool::Move {
+            self.commit_text();
+            self.begin_move_at(dx, dy);
+            return;
+        }
         if self.tool == Tool::Text {
             self.begin_text_at(dx, dy);
             return;
         }
-        // Any other tool touching the board ends the session — the same "click away to
-        // finish" that leaving the text tool does.
         self.commit_text();
         if self.tool == Tool::Fill {
             self.commit_fill(dx, dy);
@@ -1026,6 +1059,10 @@ impl Document {
             }
             return;
         }
+        if self.tool == Tool::Move {
+            self.update_move_drag(dx, dy);
+            return;
+        }
         if matches!(self.tool, Tool::Pen | Tool::Eraser | Tool::SelectLasso) && self.stroke_active {
             self.push_stroke_point(dx, dy);
         } else if let Some(shape) = &mut self.shape_drag {
@@ -1040,6 +1077,10 @@ impl Document {
         if self.transform_active {
             self.end_vector_item_drag();
             self.transform_drag = None;
+            return;
+        }
+        if self.tool == Tool::Move {
+            self.end_move_drag();
             return;
         }
         if matches!(self.tool, Tool::Pen | Tool::Eraser | Tool::SelectLasso) {
@@ -1098,13 +1139,13 @@ impl Document {
         }
         if self.vector_mode && self.tool == Tool::Pen {
             let pts: Vec<(f32, f32)> = points.iter().map(|p| (p.x, p.y)).collect();
-            if let Some(item) = vector::item_from_points(&pts, self.color, self.brush_size) {
+            if let Some(item) = vector::item_from_points(&pts, self.ink_rgba(), self.brush_size) {
                 self.push_vector_item(item);
             }
             return;
         }
         let radius = self.brush_size * 0.5;
-        let color = self.color;
+        let color = self.ink_rgba();
         let erasing = self.tool == Tool::Eraser;
         let active = self.active_layer;
         let stamps = stroke_stamps(&points, radius);
@@ -1163,7 +1204,7 @@ impl Document {
             return;
         }
         if self.vector_mode {
-            if let Some(item) = vector::item_from_shape(shape, self.color) {
+            if let Some(item) = vector::item_from_shape(shape, self.ink_rgba()) {
                 self.push_vector_item(item);
                 return;
             }
@@ -1186,7 +1227,7 @@ impl Document {
             return;
         };
         let before = grid.snapshot_tiles(&coords);
-        let color = self.color;
+        let color = self.ink_rgba();
 
         let mut painted = false;
         if let Some(tiles) = self.layers.get_mut(active).and_then(|l| l.tiles_mut()) {
@@ -1255,6 +1296,17 @@ impl Document {
         self.apply_ink_to_text();
     }
 
+    pub fn set_ink_opacity(&mut self, opacity: f32) {
+        self.ink_opacity = opacity.clamp(INK_OPACITY_MIN, INK_OPACITY_MAX);
+    }
+
+    pub fn ink_rgba(&self) -> [u8; 4] {
+        let mut rgba = self.color;
+        let alpha = (self.color[3] as f32) * self.ink_opacity;
+        rgba[3] = alpha.round().clamp(0.0, 255.0) as u8;
+        rgba
+    }
+
     fn commit_fill(&mut self, doc_x: f32, doc_y: f32) {
         if !self.active_layer_accepts_paint() {
             return;
@@ -1294,7 +1346,7 @@ impl Document {
             return;
         }
         let before = grid.snapshot_tiles(&coords);
-        let color = self.color;
+        let color = self.ink_rgba();
         let selection = self.selection.clone();
         let mut touched = 0;
         if let Some(tiles) = self.layers.get_mut(active).and_then(|l| l.tiles_mut()) {
@@ -1522,10 +1574,11 @@ impl Document {
         let w = (bounds.max_x - bounds.min_x + 1) as u32;
         let h = (bounds.max_y - bounds.min_y + 1) as u32;
         let mut buf = vec![0u8; (w as usize) * (h as usize) * 4];
-        for y in 0..h as i32 {
+        let row_bytes = (w as usize) * 4;
+        buf.par_chunks_mut(row_bytes).enumerate().for_each(|(y, row)| {
+            let doc_y = bounds.min_y + y as i32;
             for x in 0..w as i32 {
                 let doc_x = bounds.min_x + x;
-                let doc_y = bounds.min_y + y;
                 if !selection.contains(doc_x as f32 + 0.5, doc_y as f32 + 0.5) {
                     continue;
                 }
@@ -1533,10 +1586,10 @@ impl Document {
                 if px[3] == 0 {
                     continue;
                 }
-                let i = ((y as usize) * (w as usize) + (x as usize)) * 4;
-                buf[i..i + 4].copy_from_slice(&px);
+                let i = (x as usize) * 4;
+                row[i..i + 4].copy_from_slice(&px);
             }
-        }
+        });
         Some((w, h, buf))
     }
 
@@ -1662,6 +1715,8 @@ impl Document {
             || self.hover_layer.is_some()
             || self.selection.is_some()
             || self.transform_active
+            || self.transform_drag.is_some()
+            || self.vector_drag.is_some()
             || self.text_edit.is_some()
     }
 

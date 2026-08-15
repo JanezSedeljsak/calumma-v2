@@ -23,6 +23,9 @@ pub fn flood_fill(
     if !bounds.contains(start_x, start_y) {
         return 0;
     }
+    if color[3] == 0 {
+        return 0;
+    }
     let target = tiles.get_pixel(start_x, start_y);
     if target == color {
         return 0;
@@ -38,7 +41,7 @@ pub fn flood_fill(
         if color_distance(current, target) > tol2 {
             continue;
         }
-        tiles.set_pixel(x, y, color);
+        tiles.blend_pixel(x, y, color);
         touched += 1;
         for (nx, ny) in [(x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)] {
             if !bounds.contains(nx, ny) || visited.contains(&(nx, ny)) {

@@ -6,15 +6,50 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import sys
 from pathlib import Path
 
-CLI = Path(__file__).resolve().parent / "cli"
+ROOT_DIR = Path(__file__).resolve().parent
+CLI = ROOT_DIR / "cli"
 sys.path.insert(0, str(CLI))
 
-from check_core_purity import check_core_purity  # noqa: E402
-from constants import (  # noqa: E402
+
+def relaunch_in_venv() -> None:
+    venv = ROOT_DIR / ".venv"
+    python = venv / "bin" / "python"
+    if not python.is_file():
+        python = venv / "Scripts" / "python.exe"
+    if not python.is_file():
+        return
+    if Path(sys.prefix).resolve() == venv.resolve():
+        return
+    os.execv(str(python), [str(python), *sys.argv])
+
+
+relaunch_in_venv()
+
+from _helpers import (
+    ENGINE,
+    ENGINE_LOCK,
+    SWIFT_FORMAT_CONFIG,
+    XCODE_PROJECT,
+    cargo_cmd,
+    crate_for_path,
+    ensure_engine_env,
+    format_coverage_markdown,
+    format_pct,
+    print_coverage_table,
+    python_module,
+    run,
+    which,
+    workspace_version,
+    write_github_summary,
+)
+from check_core_purity import check_core_purity
+from ci_release import ci_publish, resolve_ci_version
+from constants import (
     BIN_CARGO_AUDIT,
     BIN_CARGO_DENY,
     BIN_CARGO_LLVM_COV,
@@ -29,6 +64,7 @@ from constants import (  # noqa: E402
     DEST_MACOS,
     DIST,
     ENCODING_UTF8,
+    ENV_CALUMMA_VERSION,
     FILE_CARGO_TOML,
     MACOS,
     MACOS_BUILD,
@@ -40,30 +76,25 @@ from constants import (  # noqa: E402
     MSG_NO_COVERAGE,
     MSG_WROTE,
     PKG_FFI,
+    PYTHON_PATHS,
+    ROOT,
     SCHEME_CALUMMA,
 )
-from gen_tokens_swift import generate_tokens_swift  # noqa: E402
-from package_macos import package_macos  # noqa: E402
-from _helpers import (  # noqa: E402
-    ENGINE,
-    ENGINE_LOCK,
-    SWIFT_FORMAT_CONFIG,
-    XCODE_PROJECT,
-    cargo_cmd,
-    crate_for_path,
-    ensure_engine_env,
-    format_coverage_markdown,
-    format_pct,
-    print_coverage_table,
-    run,
-    which,
-    write_github_summary,
-)
+from gen_app_icon import generate_app_icon
+from gen_tokens_swift import generate_tokens_swift
+from package_macos import package_macos
+from version_check import check_version_bump
 
 
 def cmd_tokens(_: argparse.Namespace) -> int:
     out = generate_tokens_swift()
     print(f"{MSG_WROTE} {out}")
+    return 0
+
+
+def cmd_icon(_: argparse.Namespace) -> int:
+    for out in generate_app_icon():
+        print(f"{MSG_WROTE} {out}")
     return 0
 
 
@@ -73,7 +104,7 @@ def cmd_purity(_: argparse.Namespace) -> int:
 
 def xcodegen_generate() -> None:
     if which(BIN_XCODEGEN):
-        run([BIN_XCODEGEN, "generate"], cwd=MACOS)
+        run([BIN_XCODEGEN, "generate"], cwd=MACOS, env={ENV_CALUMMA_VERSION: workspace_version()})
 
 
 def cmd_dev(_: argparse.Namespace) -> int:
@@ -103,11 +134,15 @@ def cmd_build(_: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_package(args: argparse.Namespace) -> int:
+def package_pipeline(version: str | None) -> None:
     generate_tokens_swift()
     run(cargo_cmd("build", "--release", "-p", PKG_FFI))
     xcodegen_generate()
-    package_macos(args.version)
+    package_macos(version)
+
+
+def cmd_package(args: argparse.Namespace) -> int:
+    package_pipeline(args.version)
     return 0
 
 
@@ -137,6 +172,7 @@ def cmd_test_swift(_: argparse.Namespace) -> int:
 
 def cmd_fmt(_: argparse.Namespace) -> int:
     run(cargo_cmd("fmt", "--all"))
+    run([*python_module("ruff", "format"), *PYTHON_PATHS])
     if which(BIN_SWIFT_FORMAT):
         run(
             [
@@ -150,13 +186,17 @@ def cmd_fmt(_: argparse.Namespace) -> int:
             ]
         )
     if which(BIN_TAPLO):
-        tomls = [str(ENGINE / FILE_CARGO_TOML), *[str(p) for p in ENGINE.glob(f"*/{FILE_CARGO_TOML}")]]
+        tomls = [
+            str(ENGINE / FILE_CARGO_TOML),
+            *[str(p) for p in ENGINE.glob(f"*/{FILE_CARGO_TOML}")],
+        ]
         run([BIN_TAPLO, "fmt", *tomls])
     return 0
 
 
 def cmd_lint(_: argparse.Namespace) -> int:
     run(cargo_cmd("clippy", "--workspace", "--all-targets", "--", "-D", "warnings"))
+    run([*python_module("ruff", "check"), *PYTHON_PATHS])
     if which(BIN_SWIFT_FORMAT):
         run(
             [
@@ -306,9 +346,27 @@ def cmd_outdated(_: argparse.Namespace) -> int:
 
 def cmd_clean(_: argparse.Namespace) -> int:
     run(cargo_cmd("clean"), check=False)
-    for path in (MACOS_BUILD, MACOS_DERIVED, DIST):
+    for path in (MACOS_BUILD, MACOS_DERIVED, DIST, ROOT / ".ruff_cache"):
         if path.exists():
             shutil.rmtree(path)
+    skip = {".venv", "venv", "target", "DerivedData"}
+    for cache in ROOT.rglob("__pycache__"):
+        if skip.intersection(cache.parts):
+            continue
+        shutil.rmtree(cache, ignore_errors=True)
+    return 0
+
+
+def cmd_version_check(_: argparse.Namespace) -> int:
+    check_version_bump()
+    return 0
+
+
+def cmd_ci_release(args: argparse.Namespace) -> int:
+    if args.action == "package":
+        package_pipeline(resolve_ci_version())
+    else:
+        ci_publish()
     return 0
 
 
@@ -324,6 +382,9 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("purity", help="assert calumma-core has no platform/GPU deps").set_defaults(
         func=cmd_purity
     )
+    sub.add_parser(
+        "icon", help="regenerate AppIcon.appiconset PNGs from design/icon.png"
+    ).set_defaults(func=cmd_icon)
     sub.add_parser("dev", help="build ffi, generate Xcode project, open it").set_defaults(
         func=cmd_dev
     )
@@ -335,10 +396,12 @@ def build_parser() -> argparse.ArgumentParser:
     package_parser.set_defaults(func=cmd_package)
     sub.add_parser("test", help="cargo test --workspace").set_defaults(func=cmd_test)
     sub.add_parser("test-swift", help="xcodebuild test").set_defaults(func=cmd_test_swift)
-    sub.add_parser("fmt", help="rustfmt (+ swift-format / taplo when present)").set_defaults(
+    sub.add_parser("fmt", help="rustfmt + ruff (+ swift-format / taplo when present)").set_defaults(
         func=cmd_fmt
     )
-    sub.add_parser("lint", help="clippy + purity (+ swift-format lint)").set_defaults(func=cmd_lint)
+    sub.add_parser("lint", help="clippy + ruff + purity (+ swift-format lint)").set_defaults(
+        func=cmd_lint
+    )
     sub.add_parser("check", help="fmt + lint + test").set_defaults(func=cmd_check)
     coverage_parser = sub.add_parser(
         "coverage", help="llvm-cov workspace (or one -p crate) + tiny %% table"
@@ -349,6 +412,12 @@ def build_parser() -> argparse.ArgumentParser:
     coverage_parser.set_defaults(func=cmd_coverage)
     sub.add_parser("outdated", help="cargo outdated + audit").set_defaults(func=cmd_outdated)
     sub.add_parser("clean", help="cargo clean + macOS build dirs").set_defaults(func=cmd_clean)
+    sub.add_parser(
+        "version-check", help="CI: diff engine/Cargo.toml's version against the previous commit"
+    ).set_defaults(func=cmd_version_check)
+    ci_release_parser = sub.add_parser("ci-release", help="CI: package or publish a macOS release")
+    ci_release_parser.add_argument("action", choices=["package", "publish"])
+    ci_release_parser.set_defaults(func=cmd_ci_release)
     return parser
 
 

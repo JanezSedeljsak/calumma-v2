@@ -101,18 +101,20 @@ while Landing is showing — that screen already *is* the create form.
   Create / delete workspaces live here.
 - **Tools / layers / canvas:** three rounded, bordered islands, full-height, separated by a
   minimal gap and window margin (`space.sm`) — each has its own `islandBorder` stroke.
-- **Tools island** (top to bottom): a 3-column tool grid (Pen, Eraser, Shape, Select, Fill,
-  Eyedropper, Text); a contextual options section below it that changes with the selected
+- **Tools island** (top to bottom): a 2-column tool grid (Pen, Eraser, Shape, Select, Fill,
+  Eyedropper, Text, Move); a contextual options section below it that changes with the selected
   tool (shape/selection sub-picker + fill toggle for shape tools, font / size / alignment
-  for Text, brush size for the tools that use one — not Fill, Eyedropper, Text, or the
-  selection tools); a colour section (two equal
-  quick swatches, a saturation/brightness field, a hue strip, and a hex field); the AI menu
-  pinned at the bottom.
+  for Text, brush size for the tools that use one — not Fill, Eyedropper, Text, Move, or the
+  selection tools — and ink opacity for Pen, shapes, and Fill; Eraser stays a full erase);
+  a colour section (two equal quick swatches, a saturation/brightness field, a hue strip, and
+  a hex field); the AI menu pinned at the bottom.
 - **Board:** Metal surface clipped as its own island. Desk fill, grid, and the paper border
   come from tokens via `calm_engine_set_board_colors` — in light mode the desk matches the
   island surface; in dark mode the desk is a step darker than the window background so the
   board field sits recessed against the raised side islands. The paper border inverts with the theme
-  (dark ring on the light board, light ring on the dark board).
+  (dark ring on the light board, light ring on the dark board). Layer pixels, vectors,
+  previews, and handles are scissored to the paper — content may sit off the board, but
+  only the overlap with the whiteboard is drawn.
 - **Layers:** add / select / visibility / delete; first layer is **Paper**, a normal
   white-filled raster layer — paintable/eraseable like any other layer, not a background
   decoration. The list shows the topmost (frontmost) layer first, matching stack order.
@@ -142,6 +144,7 @@ launches.
 | Action | How |
 | --- | --- |
 | Paint / place shape | Click-drag on the board (pointer down → move → up). Engine converts **screen** coords. |
+| Move a layer or vector item | Select **Move** on the tools island, then drag painted pixels or a vector item. Arrow keys nudge the same target. `⌘T` is still scale/rotate. |
 | Constrain a shape | Hold **Shift** while dragging **Rect** or **Ellipse** (and their marquee twins) for a square or circle. Corner-anchored, and the *longer* side wins, so the shape fills the drag. Press or release Shift mid-drag and the board snaps immediately — the clamp is derived from the raw drag on every frame, not baked in on the last mouse-move. Line, Arrow, Triangle and Pentagon are unconstrained (angle snap and regular-polygon lock are different clamps, not built). |
 | Live preview | GPU stroke/shape while dragging; CPU commit into sparse tiles on pointer-up. |
 | Pan | Scroll wheel / trackpad scroll; **middle-button drag**; Space-drag; or Option/⌘-drag |
@@ -390,6 +393,7 @@ panel toggles are shell knobs.
 | `M` | Selection (rect / ellipse / lasso — last one used) | Yes (Ps Marquee) |
 | `G` | Fill (bucket) | Yes (Ps Paint Bucket, shared with Gradient) |
 | `I` | Eyedropper (live sample under the cursor into the active primary/secondary swatch; loupe shows colour + hex) | Yes |
+| Move tool | Tools island — click a layer's pixels or a vector item to drag it; empty space is a no-op. `⌘T` stays for scale/rotate. `V` stays vector mode. | Ps `V` is Move; that key is already vector mode here |
 | `⌘T` | Transform mode on the active layer (scale/rotate/move); click another layer's pixels to retarget, click empty space or `Esc` to exit | Yes (Ps Free Transform) |
 | `⌥⌘B` `⌥⌘C` `⌥⌘V` `⌥⌘S` `⌥⌘G` | Increase brightness / contrast / vibrance / saturation / gamma on the active layer by one `limits::ADJUSTMENT_NUDGE_STEP` | — (Ps has no per-filter chord) |
 | `⇧⌥⌘` + the same letter | Decrease the same filter by one step | — |
@@ -397,7 +401,7 @@ panel toggles are shell knobs.
 | `F` | Toggle shape fill | — |
 | `⇧` (held while dragging) | Constrain Rect / Ellipse to a square / circle | Yes (Ps shape constrain) |
 | `V` | Toggle vector mode (shapes and the pen commit as editable vector items) | — (Ps has no equivalent; closest is Figma's vector tools) |
-| `←` `→` `↑` `↓` | Move the selected vector item one step | Yes (Ps nudge) |
+| `←` `→` `↑` `↓` | Nudge the selected vector item, or the active layer when Move / `⌘T` is the current tool | Yes (Ps nudge) |
 | `⌫` / `⌦` | Delete the selected vector item (falls back to the old clear behaviour when none is selected) | Yes |
 | `[` / `]` | Brush smaller / larger | Yes |
 
@@ -445,9 +449,7 @@ or the middle button is armed, **closed hand** while actually panning, zoom-in w
 
 PDF export (PNG/JPEG/WebP/AVIF/HEIC/PSD/SVG export shipped instead — see Export above), layered PSD
 **import** (we import the flattened composite only; PSD *export* is layered and shipped),
-picking a layer by clicking it *outside* transform mode (inside it is shipped — see Layers
-and ops above — but Option-click and ⌘-click are both already Pan, so a universal
-pick-under-cursor gesture has no free modifier),
+picking a layer by clicking it *outside* transform mode as a *modifier* (the Move tool on the tools island is the path — click painted pixels or a vector item to drag; Option-click and ⌘-click stay Pan),
 text *selection* (the Text tool ships with a caret only — no shift-arrow, no styled ranges),
 vectorize, generate-texture, BiRefNet core remove-bg — see
 `AGENTS.md` deferred list. Add a FLOW section when a feature ships, not before.

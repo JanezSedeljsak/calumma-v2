@@ -279,6 +279,32 @@ pub unsafe extern "C" fn calm_workspace_set_active_project(
 }
 
 #[no_mangle]
+pub unsafe extern "C" fn calm_workspace_switch(
+    engine: *mut CalmEngine,
+    workspace_id: *const c_char,
+    project_id: *const c_char,
+) -> CalmStatus {
+    if workspace_id.is_null() {
+        return CalmStatus::Null;
+    }
+    with_inner(engine, |inner| {
+        let workspace_id = unsafe { CStr::from_ptr(workspace_id) }
+            .to_str()
+            .context("workspace id is not valid UTF-8")?;
+        let project_id = if project_id.is_null() {
+            None
+        } else {
+            Some(
+                unsafe { CStr::from_ptr(project_id) }
+                    .to_str()
+                    .context("project id is not valid UTF-8")?,
+            )
+        };
+        inner.switch_workspace(workspace_id, project_id)
+    })
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn calm_workspace_touch(
     engine: *mut CalmEngine,
     id: *const c_char,

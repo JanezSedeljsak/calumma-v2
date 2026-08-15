@@ -252,3 +252,47 @@ fn a_wheel_notch_zooms_further_than_a_trackpad_pixel() {
     trackpad.zoom_by_scroll(500.0, 400.0, -1.0, true, doc.0, doc.1);
     assert!(wheel.zoom > trackpad.zoom);
 }
+
+#[test]
+fn paper_scissor_covers_the_paper_in_framebuffer_pixels() {
+    let c = Camera {
+        zoom: 1.0,
+        pan_x: 10.0,
+        pan_y: 20.0,
+        viewport_width: 200.0,
+        viewport_height: 200.0,
+        dpr: 2.0,
+    };
+    let (x, y, w, h) = c.paper_scissor(40.0, 30.0, 400, 400).expect("on screen");
+    assert_eq!((x, y, w, h), (20, 40, 80, 60));
+}
+
+#[test]
+fn paper_scissor_clips_to_the_framebuffer() {
+    let c = Camera {
+        zoom: 1.0,
+        pan_x: -20.0,
+        pan_y: -10.0,
+        viewport_width: 100.0,
+        viewport_height: 80.0,
+        dpr: 1.0,
+    };
+    let (x, y, w, h) = c.paper_scissor(80.0, 50.0, 100, 80).expect("partial");
+    assert_eq!(x, 0);
+    assert_eq!(y, 0);
+    assert_eq!(w, 60);
+    assert_eq!(h, 40);
+}
+
+#[test]
+fn paper_scissor_is_none_when_the_paper_is_off_screen() {
+    let c = Camera {
+        zoom: 1.0,
+        pan_x: 400.0,
+        pan_y: 400.0,
+        viewport_width: 100.0,
+        viewport_height: 100.0,
+        dpr: 1.0,
+    };
+    assert!(c.paper_scissor(50.0, 50.0, 100, 100).is_none());
+}

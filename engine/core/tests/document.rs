@@ -601,6 +601,52 @@ fn set_layer_opacity_fades_composite() {
 }
 
 #[test]
+fn opacity_and_adjustments_dirty_render_not_store() {
+    let mut doc = Document::new("p".into(), "t", 1024, 1024);
+    let idx = doc.active_layer;
+    doc.layers[idx]
+        .tiles_mut()
+        .unwrap()
+        .set_pixel(10, 10, [255, 0, 0, 255]);
+    doc.layers[idx]
+        .tiles_mut()
+        .unwrap()
+        .set_pixel(600, 600, [0, 255, 0, 255]);
+    doc.layers[idx].clear_dirty(DirtyChannel::Render);
+    doc.layers[idx].clear_dirty(DirtyChannel::Store);
+    doc.set_layer_opacity(idx, 0.5);
+    let render = doc.layers[idx]
+        .dirty_tiles(DirtyChannel::Render)
+        .unwrap()
+        .len();
+    let store = doc.layers[idx]
+        .dirty_tiles(DirtyChannel::Store)
+        .unwrap()
+        .len();
+    assert_eq!(render, 2);
+    assert_eq!(store, 0);
+    doc.layers[idx].clear_dirty(DirtyChannel::Render);
+    doc.set_layer_adjustments(
+        idx,
+        Adjustments {
+            brightness: 0.2,
+            ..Default::default()
+        },
+    );
+    assert_eq!(
+        doc.layers[idx]
+            .dirty_tiles(DirtyChannel::Render)
+            .unwrap()
+            .len(),
+        2
+    );
+    assert!(doc.layers[idx]
+        .dirty_tiles(DirtyChannel::Store)
+        .unwrap()
+        .is_empty());
+}
+
+#[test]
 fn merge_layer_down_bakes_pixels_and_removes_source() {
     let mut doc = Document::new("p".into(), "t", 32, 32);
     doc.add_layer("Top");
@@ -635,6 +681,43 @@ fn composite_respects_layer_transform_offset() {
     };
     assert_eq!(at(30, 10), [200, 30, 30, 255]);
     assert_eq!(at(10, 10), [255, 255, 255, 255]);
+}
+
+#[test]
+fn transformed_flatten_leaves_pixels_outside_the_aabb_untouched() {
+    let mut doc = Document::new("p".into(), "t", 1024, 1024);
+    let idx = doc.active_layer;
+    doc.layers[idx]
+        .tiles_mut()
+        .unwrap()
+        .set_pixel(10, 10, [200, 30, 30, 255]);
+    doc.layers[idx].transform = Some(LayerTransform {
+        offset_x: 400.0,
+        offset_y: 0.0,
+        ..LayerTransform::default()
+    });
+    let (_, _, rgba) = doc.layer_rgba(idx).expect("paint layer");
+    let at = |x: i32, y: i32| -> [u8; 4] {
+        let i = ((y as usize) * 1024 + (x as usize)) * 4;
+        [rgba[i], rgba[i + 1], rgba[i + 2], rgba[i + 3]]
+    };
+    assert_eq!(at(410, 10), [200, 30, 30, 255]);
+    assert_eq!(at(10, 10), [0, 0, 0, 0]);
+    assert_eq!(at(1000, 1000), [0, 0, 0, 0]);
+}
+
+#[test]
+fn identity_transform_flattens_like_an_untransformed_layer() {
+    let mut doc = Document::new("p".into(), "t", 64, 64);
+    let idx = doc.active_layer;
+    doc.layers[idx]
+        .tiles_mut()
+        .unwrap()
+        .set_pixel(12, 8, [9, 8, 7, 255]);
+    doc.layers[idx].transform = Some(LayerTransform::default());
+    let (_, _, rgba) = doc.layer_rgba(idx).expect("paint layer");
+    let i = (8 * 64 + 12) * 4;
+    assert_eq!(&rgba[i..i + 4], &[9, 8, 7, 255]);
 }
 
 #[test]
@@ -870,4 +953,78 @@ fn escape_style_deselect_clears_both_selection_and_transform() {
     doc.deselect();
     assert!(doc.selection.is_none());
     assert!(!doc.transform_active);
+}
+
+#[test]
+fn set_ink_opacity_clamps_and_scales_ink_alpha() {
+    let mut doc = Document::new("p".into(), "t", 32, 32);
+    assert_eq!(doc.ink_rgba()[3], 255);
+    doc.set_ink_opacity(-1.0);
+    assert_eq!(doc.ink_opacity, 0.0);
+    assert_eq!(doc.ink_rgba()[3], 0);
+    doc.set_ink_opacity(2.0);
+    assert_eq!(doc.ink_opacity, 1.0);
+    doc.color = [200, 0, 0, 255];
+    doc.set_ink_opacity(0.5);
+    assert_eq!(doc.ink_rgba(), [200, 0, 0, 128]);
+}
+
+#[test]
+fn ink_opacity_glazes_a_pen_stamp() {
+    let mut doc = Document::new("p".into(), "t", 256, 256);
+    doc.color = [200, 0, 0, 255];
+    doc.set_ink_opacity(0.5);
+    doc.resize_viewport(256.0, 256.0, 1.0);
+    doc.fit_to_view();
+    let (sx, sy) = doc.camera.to_screen(40.0, 40.0);
+    doc.pointer_down(sx, sy);
+    doc.pointer_up(sx, sy);
+    assert_eq!(pixel(&doc, doc.active_layer, 40, 40), [200, 0, 0, 128]);
+}
+
+#[test]
+fn ink_opacity_glazes_a_filled_shape() {
+    let mut doc = Document::new("p".into(), "t", 256, 256);
+    doc.tool = Tool::Rect;
+    doc.fill = true;
+    doc.color = [200, 0, 0, 255];
+    doc.set_ink_opacity(0.5);
+    doc.resize_viewport(256.0, 256.0, 1.0);
+    doc.fit_to_view();
+    let (s0x, s0y) = doc.camera.to_screen(20.0, 20.0);
+    let (s1x, s1y) = doc.camera.to_screen(60.0, 60.0);
+    doc.pointer_down(s0x, s0y);
+    doc.pointer_move(s1x, s1y);
+    doc.pointer_up(s1x, s1y);
+    assert_eq!(pixel(&doc, doc.active_layer, 40, 40), [200, 0, 0, 128]);
+}
+
+#[test]
+fn ink_opacity_glazes_fill() {
+    let mut doc = Document::new("p".into(), "t", 64, 64);
+    doc.tool = Tool::Fill;
+    doc.color = [200, 0, 0, 255];
+    doc.set_ink_opacity(0.5);
+    doc.resize_viewport(64.0, 64.0, 1.0);
+    doc.fit_to_view();
+    let (sx, sy) = doc.camera.to_screen(32.0, 32.0);
+    doc.pointer_down(sx, sy);
+    assert_eq!(pixel(&doc, doc.active_layer, 32, 32), [200, 0, 0, 128]);
+}
+
+#[test]
+fn eraser_ignores_ink_opacity() {
+    let mut doc = Document::new("p".into(), "t", 256, 256);
+    doc.color = [200, 0, 0, 255];
+    doc.resize_viewport(256.0, 256.0, 1.0);
+    doc.fit_to_view();
+    let (sx, sy) = doc.camera.to_screen(40.0, 40.0);
+    doc.pointer_down(sx, sy);
+    doc.pointer_up(sx, sy);
+    assert_ne!(pixel(&doc, doc.active_layer, 40, 40), [0, 0, 0, 0]);
+    doc.set_ink_opacity(0.5);
+    doc.tool = Tool::Eraser;
+    doc.pointer_down(sx, sy);
+    doc.pointer_up(sx, sy);
+    assert_eq!(pixel(&doc, doc.active_layer, 40, 40), [0, 0, 0, 0]);
 }

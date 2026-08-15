@@ -1,4 +1,5 @@
-use crate::limits::{ALPHA_MAX, ALPHA_ROUND_BIAS};
+use crate::limits::{ALPHA_MAX, ALPHA_ROUND_BIAS, EFFECT_CHUNK_BYTES};
+use rayon::prelude::*;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -163,22 +164,24 @@ pub fn blend_with_mode(dst: [u8; 4], src: [u8; 4], mode: crate::layer::BlendMode
 }
 
 pub fn unpremultiply_rgba(rgba: &mut [u8]) {
-    for px in rgba.chunks_exact_mut(CHANNELS) {
-        let alpha = px[3] as u32;
-        if alpha == ALPHA_MAX {
-            continue;
+    rgba.par_chunks_mut(EFFECT_CHUNK_BYTES).for_each(|block| {
+        for px in block.chunks_exact_mut(CHANNELS) {
+            let alpha = px[3] as u32;
+            if alpha == ALPHA_MAX {
+                continue;
+            }
+            if alpha == 0 {
+                px[0] = 0;
+                px[1] = 0;
+                px[2] = 0;
+                continue;
+            }
+            for channel in px[..3].iter_mut() {
+                let scaled = (*channel as u32 * ALPHA_MAX + alpha / 2) / alpha;
+                *channel = scaled.min(ALPHA_MAX) as u8;
+            }
         }
-        if alpha == 0 {
-            px[0] = 0;
-            px[1] = 0;
-            px[2] = 0;
-            continue;
-        }
-        for channel in px[..3].iter_mut() {
-            let scaled = (*channel as u32 * ALPHA_MAX + alpha / 2) / alpha;
-            *channel = scaled.min(ALPHA_MAX) as u8;
-        }
-    }
+    });
 }
 
 fn uniform_tile(rgba: [u8; 4]) -> Vec<u8> {
@@ -200,6 +203,34 @@ pub fn uniform_color(pixels: &[u8]) -> Option<[u8; 4]> {
 #[inline]
 fn pixel_index(local_x: usize, local_y: usize) -> usize {
     (local_y * TILE_SIZE as usize + local_x) * CHANNELS
+}
+
+fn tile_opaque_rect(coord: TileCoord, tile: &[u8], width: i32, height: i32) -> Option<DocRect> {
+    let (ox, oy) = coord.origin();
+    let mut acc: Option<DocRect> = None;
+    for ly in 0..TILE_SIZE as i32 {
+        for lx in 0..TILE_SIZE as i32 {
+            let i = pixel_index(lx as usize, ly as usize);
+            if tile[i + 3] == 0 {
+                continue;
+            }
+            let x = ox + lx;
+            let y = oy + ly;
+            if x < 0 || y < 0 || x >= width || y >= height {
+                continue;
+            }
+            acc = Some(match acc {
+                None => DocRect::new(x, y, x, y),
+                Some(r) => DocRect::new(
+                    r.min_x.min(x),
+                    r.min_y.min(y),
+                    r.max_x.max(x),
+                    r.max_y.max(y),
+                ),
+            });
+        }
+    }
+    acc
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -280,6 +311,11 @@ impl TileGrid {
         for set in &mut self.dirty {
             set.extend(coords.iter().copied());
         }
+    }
+
+    pub fn mark_channel_dirty(&mut self, channel: DirtyChannel) {
+        let coords: Vec<TileCoord> = self.tiles.keys().copied().collect();
+        self.dirty[channel.slot()].extend(coords);
     }
 
     pub fn clear_dirty(&mut self, channel: DirtyChannel) {
@@ -502,36 +538,20 @@ impl TileGrid {
     }
 
     pub fn opaque_bounds(&self) -> Option<DocRect> {
-        let mut acc: Option<DocRect> = None;
-        for coord in self.coords() {
-            let Some(tile) = self.tiles.get(&coord) else {
-                continue;
-            };
-            let (ox, oy) = coord.origin();
-            for ly in 0..TILE_SIZE as i32 {
-                for lx in 0..TILE_SIZE as i32 {
-                    let i = pixel_index(lx as usize, ly as usize);
-                    if tile[i + 3] == 0 {
-                        continue;
-                    }
-                    let x = ox + lx;
-                    let y = oy + ly;
-                    if x < 0 || y < 0 || x >= self.width as i32 || y >= self.height as i32 {
-                        continue;
-                    }
-                    acc = Some(match acc {
-                        None => DocRect::new(x, y, x, y),
-                        Some(r) => DocRect::new(
-                            r.min_x.min(x),
-                            r.min_y.min(y),
-                            r.max_x.max(x),
-                            r.max_y.max(y),
-                        ),
-                    });
-                }
-            }
-        }
-        acc
+        let width = self.width as i32;
+        let height = self.height as i32;
+        let tiles: Vec<_> = self.iter().collect();
+        tiles
+            .into_par_iter()
+            .filter_map(|(coord, pixels)| tile_opaque_rect(coord, pixels.as_slice(), width, height))
+            .reduce_with(|a, b| {
+                DocRect::new(
+                    a.min_x.min(b.min_x),
+                    a.min_y.min(b.min_y),
+                    a.max_x.max(b.max_x),
+                    a.max_y.max(b.max_y),
+                )
+            })
     }
 
     pub fn thumbnail(&self, max_side: u32) -> (u32, u32, Vec<u8>) {
@@ -576,11 +596,11 @@ impl TileGrid {
         let pad = radius + crate::limits::STAMP_COVERAGE_PADDING;
         let rect = DocRect::from_floats(cx - pad, cy - pad, cx + pad, cy + pad);
         let r2 = radius * radius;
-        self.paint_rect(rect, |px, py, _| {
+        self.paint_rect(rect, |px, py, dst| {
             let dx = px as f32 + 0.5 - cx;
             let dy = py as f32 + 0.5 - cy;
             if dx * dx + dy * dy <= r2 {
-                Some(rgba)
+                Some(blend_over(dst, rgba))
             } else {
                 None
             }

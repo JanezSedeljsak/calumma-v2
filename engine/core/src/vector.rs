@@ -1,5 +1,6 @@
 use crate::shape::{sd_polygon, sd_segment, Shape, Tool};
 use crate::transform::LayerTransform;
+use rayon::prelude::*;
 
 /// A freehand path: the points the pointer actually travelled, kept as points rather than
 /// stamped into pixels. Stroked by default; `fill` closes and fills it, which only the
@@ -183,20 +184,7 @@ pub fn transformed_bounds(
     transform: Option<LayerTransform>,
 ) -> Option<(f32, f32, f32, f32)> {
     let raw = items_bounds(items)?;
-    let Some(t) = transform.filter(|t| !t.is_identity()) else {
-        return Some(raw);
-    };
-    let pivot = crate::transform::bounds_center(raw);
-    let corners = t.transformed_corners(pivot, raw);
-    let mut min = corners[0];
-    let mut max = corners[0];
-    for &(x, y) in &corners[1..] {
-        min.0 = min.0.min(x);
-        min.1 = min.1.min(y);
-        max.0 = max.0.max(x);
-        max.1 = max.1.max(y);
-    }
-    Some((min.0, min.1, max.0, max.1))
+    Some(crate::transform::transformed_aabb(raw, transform))
 }
 
 /// Whether an item's own signed-distance function can be evaluated by `board.wgsl`.
@@ -232,37 +220,44 @@ pub fn rasterize_into_rgba(
     };
     let transform = transform.filter(|t| !t.is_identity());
     let pivot = crate::transform::bounds_center(raw);
-    let Some((bx0, by0, bx1, by1)) = transformed_bounds(items, transform) else {
+    let Some(aabb) = transformed_bounds(items, transform) else {
         return;
     };
-    let x0 = (bx0.floor().max(0.0) as u32).min(width);
-    let y0 = (by0.floor().max(0.0) as u32).min(height);
-    let x1 = ((bx1.ceil() + 1.0).max(0.0) as u32).min(width);
-    let y1 = ((by1.ceil() + 1.0).max(0.0) as u32).min(height);
+    let Some((x0, y0, x1, y1)) = crate::transform::clipped_pixel_span(aabb, width, height) else {
+        return;
+    };
 
-    for y in y0..y1 {
-        for x in x0..x1 {
-            let (lx, ly) = match transform {
-                Some(t) => t.inverse(pivot, (x as f32 + 0.5, y as f32 + 0.5)),
-                None => (x as f32 + 0.5, y as f32 + 0.5),
-            };
-            let i = ((y as usize) * (width as usize) + (x as usize)) * 4;
-            for item in items {
-                let coverage = item.coverage(lx, ly);
-                if coverage <= 0.0 {
-                    continue;
+    let row_bytes = (width as usize) * 4;
+    let y0 = y0 as usize;
+    let x0 = x0 as usize;
+    let x1 = x1 as usize;
+    buf[y0 * row_bytes..(y1 as usize) * row_bytes]
+        .par_chunks_mut(row_bytes)
+        .enumerate()
+        .for_each(|(i, row)| {
+            let y = y0 + i;
+            for x in x0..x1 {
+                let (lx, ly) = match transform {
+                    Some(t) => t.inverse(pivot, (x as f32 + 0.5, y as f32 + 0.5)),
+                    None => (x as f32 + 0.5, y as f32 + 0.5),
+                };
+                let i = x * 4;
+                for item in items {
+                    let coverage = item.coverage(lx, ly);
+                    if coverage <= 0.0 {
+                        continue;
+                    }
+                    let mut src = item.color();
+                    src[3] = ((src[3] as f32) * coverage).round().clamp(0.0, 255.0) as u8;
+                    if src[3] == 0 {
+                        continue;
+                    }
+                    let dst = [row[i], row[i + 1], row[i + 2], row[i + 3]];
+                    let out = crate::tile::blend_over(dst, src);
+                    row[i..i + 4].copy_from_slice(&out);
                 }
-                let mut src = item.color();
-                src[3] = ((src[3] as f32) * coverage).round().clamp(0.0, 255.0) as u8;
-                if src[3] == 0 {
-                    continue;
-                }
-                let dst = [buf[i], buf[i + 1], buf[i + 2], buf[i + 3]];
-                let out = crate::tile::blend_over(dst, src);
-                buf[i..i + 4].copy_from_slice(&out);
             }
-        }
-    }
+        });
 }
 
 /// Build a vector item from a shape the user just finished dragging. Selection tools and

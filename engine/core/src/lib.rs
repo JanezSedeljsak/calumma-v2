@@ -1,4 +1,5 @@
 pub mod camera;
+pub mod color;
 pub mod document;
 pub mod fill;
 pub mod filters;
@@ -6,6 +7,7 @@ pub mod history;
 pub mod layer;
 pub mod limits;
 pub mod memory;
+pub mod move_edit;
 pub mod names;
 pub mod palette;
 pub mod selection;
@@ -27,12 +29,14 @@ pub use calumma_text::{
     TEXT_SIZE_MAX, TEXT_SIZE_MIN,
 };
 pub use camera::Camera;
+pub use color::{format_hex_rgb, pack_rgb, pack_rgba, parse_hex_rgb, unpack_rgb, unpack_rgba};
 pub use document::{stamp_spacing, stroke_stamps, Document, StrokePoint, TransformHandles};
 pub use filters::{AdjustmentKind, Adjustments};
 pub use history::History;
 pub use layer::{BlendMode, Layer, LayerContent};
 pub use limits::{
-    IMPORT_MAX_SIDE, MAX_ZOOM_HARD, MAX_ZOOM_IN_FACTOR, MIN_VISIBLE_DOC_SIDE, MIN_ZOOM_FILL,
+    IMPORT_MAX_SIDE, LOSSY_EXPORT_QUALITY, MAX_ZOOM_HARD, MAX_ZOOM_IN_FACTOR, MIN_VISIBLE_DOC_SIDE,
+    MIN_ZOOM_FILL,
 };
 pub use names::{LAYER_ONE, PAPER, UNTITLED};
 pub use palette::{project_color, random_project_color, BoardColors, PROJECT_COLORS};

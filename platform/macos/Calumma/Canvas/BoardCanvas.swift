@@ -412,6 +412,8 @@ final class BoardMTKView: MTKView {
             cursor = .zoomIn
         } else if MainActor.assumeIsolated({ app?.tool == .text }) {
             cursor = .iBeam
+        } else if MainActor.assumeIsolated({ app?.tool == .move }) {
+            cursor = .arrow
         } else {
             cursor = .crosshair
         }

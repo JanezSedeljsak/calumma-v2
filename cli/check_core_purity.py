@@ -4,14 +4,14 @@ from __future__ import annotations
 
 import sys
 
-from _helpers import FORBIDDEN_CORE_DEPS, ENGINE_MANIFEST, PKG_CORE, run
-from constants import MSG_CORE_CLEAN, MSG_CORE_DIRTY, MSG_CORE_SKIP
+from _helpers import ENGINE_MANIFEST, FORBIDDEN_CORE_DEPS, PKG_CORE, run
+from constants import BIN_CARGO, MSG_CORE_CLEAN, MSG_CORE_DIRTY, MSG_CORE_SKIP
 
 
 def check_core_purity() -> int:
     meta = run(
         [
-            "cargo",
+            BIN_CARGO,
             "metadata",
             "--no-deps",
             "--format-version",
@@ -29,7 +29,7 @@ def check_core_purity() -> int:
 
     tree = run(
         [
-            "cargo",
+            BIN_CARGO,
             "tree",
             "-p",
             PKG_CORE,

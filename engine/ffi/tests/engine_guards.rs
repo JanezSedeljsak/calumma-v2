@@ -47,6 +47,8 @@ fn every_status_entry_point_rejects_a_null_engine() {
         dark_theme: 0,
         accent: 0,
         zoom_unit: 0.0,
+        last_shape_tool: 0,
+        last_select_tool: 0,
     };
     let mut buf: *mut u8 = ptr::null_mut();
     let mut w = 0u32;
@@ -80,6 +82,7 @@ fn every_status_entry_point_rejects_a_null_engine() {
             CalmStatus::Null
         );
         assert_eq!(calm_engine_set_brush(e, 4.0), CalmStatus::Null);
+        assert_eq!(calm_engine_set_ink_opacity(e, 0.5), CalmStatus::Null);
         assert_eq!(calm_engine_set_fill(e, 1), CalmStatus::Null);
         assert_eq!(calm_engine_set_dark(e, 1), CalmStatus::Null);
         assert_eq!(calm_engine_set_shift(e, 1), CalmStatus::Null);
@@ -146,6 +149,23 @@ fn every_status_entry_point_rejects_a_null_engine() {
         );
         assert_eq!(calm_workspace_delete(e, text.as_ptr()), CalmStatus::Null);
         assert_eq!(calm_workspace_touch(e, text.as_ptr()), CalmStatus::Null);
+        let mut kind = 0u32;
+        assert_eq!(
+            calm_engine_copy(e, &mut buf, &mut len, &mut kind),
+            CalmStatus::Null
+        );
+        assert_eq!(
+            calm_engine_cut(e, &mut buf, &mut len, &mut kind),
+            CalmStatus::Null
+        );
+        assert_eq!(
+            calm_engine_copy_layer(e, 0, &mut buf, &mut len, &mut kind),
+            CalmStatus::Null
+        );
+        assert_eq!(
+            calm_workspace_switch(e, text.as_ptr(), text.as_ptr()),
+            CalmStatus::Null
+        );
     }
 }
 
@@ -339,6 +359,8 @@ fn brush_size_and_zoom_clamp_instead_of_failing() {
     unsafe {
         assert_eq!(calm_engine_set_brush(e, -50.0), CalmStatus::Ok);
         assert_eq!(calm_engine_set_brush(e, 100_000.0), CalmStatus::Ok);
+        assert_eq!(calm_engine_set_ink_opacity(e, -1.0), CalmStatus::Ok);
+        assert_eq!(calm_engine_set_ink_opacity(e, 4.0), CalmStatus::Ok);
         assert_eq!(calm_engine_set_zoom_unit(e, -5.0), CalmStatus::Ok);
         assert_eq!(calm_engine_set_zoom_unit(e, 5.0), CalmStatus::Ok);
         assert_eq!(calm_engine_set_zoom(e, 0.0), CalmStatus::Ok);

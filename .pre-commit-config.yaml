@@ -13,6 +13,13 @@ repos:
     hooks:
       - id: typos
 
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.3
+    hooks:
+      - id: ruff-check
+        args: [--fix]
+      - id: ruff-format
+
   - repo: local
     hooks:
       - id: cargo-fmt
@@ -40,4 +47,11 @@ repos:
         name: core has no platform deps
         entry: python3 ./manage.py purity
         language: system
+        pass_filenames: false
+
+      - id: app-icon
+        name: regenerate AppIcon.appiconset from design/icon.png
+        entry: python3 ./manage.py icon
+        language: system
+        files: ^design/icon\.png$
         pass_filenames: false

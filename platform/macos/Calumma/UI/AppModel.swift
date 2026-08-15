@@ -19,8 +19,8 @@ final class AppModel: ObservableObject {
     @Published var artworkError: String?
 
     @Published var tool: CalmTool = .pen
-    @Published var lastShapeTool: CalmTool = .rect
-    @Published var lastSelectTool: CalmTool = .selectRect
+    var lastShapeTool: CalmTool { engine.state.lastShapeTool }
+    var lastSelectTool: CalmTool { engine.state.lastSelectTool }
     @Published var color: Color = Color(red: 0.1, green: 0.1, blue: 0.1) {
         didSet {
             quickColors[activeQuickColorIndex] = color
@@ -38,6 +38,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var eyedropperLoupe: EyedropperLoupe?
     private var editingHSB = false
     @Published var brushSize: Float = 3
+    @Published var inkOpacity: Float = Engine.inkOpacityDefault
     @Published var fill = false
     @Published var vectorMode = false
     @Published var layersOpen = true
@@ -104,40 +105,29 @@ final class AppModel: ObservableObject {
     }
 
     func copySelectionOrCanvas() {
-        let image = engine.hasSelection ? engine.selectionCGImage() : engine.compositeCGImage()
-        guard let image, let data = ImageEncode.pngData(image) else { return }
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        pasteboard.setData(data, forType: .png)
+        writePasteboard(engine.copy())
     }
 
     func copyLayer(index: Int) {
-        if engine.isLayerVector(index: index), let svg = engine.layerSVG(index: index) {
-            let pasteboard = NSPasteboard.general
-            pasteboard.clearContents()
-            pasteboard.setString(svg, forType: NSPasteboard.PasteboardType("public.svg-image"))
-            return
-        }
-        guard let image = engine.layerCGImage(index: index), let data = ImageEncode.pngData(image)
-        else {
-            return
-        }
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        pasteboard.setData(data, forType: .png)
+        writePasteboard(engine.copyLayer(index: index))
     }
 
     func cutSelection() {
-        guard engine.hasSelection,
-              let image = engine.selectionCGImage(),
-              let data = ImageEncode.pngData(image)
-        else {
-            return
-        }
+        writePasteboard(engine.cut())
+    }
+
+    private func writePasteboard(_ payload: (Data, CalmClipboardKind)?) {
+        guard let (data, kind) = payload else { return }
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
-        pasteboard.setData(data, forType: .png)
-        engine.clearSelectionPixels()
+        switch kind {
+        case .svg:
+            if let svg = String(data: data, encoding: .utf8) {
+                pasteboard.setString(svg, forType: NSPasteboard.PasteboardType("public.svg-image"))
+            }
+        case .png:
+            pasteboard.setData(data, forType: .png)
+        }
     }
 
     func pasteFromClipboard() {
@@ -345,10 +335,7 @@ final class AppModel: ObservableObject {
         if let projectId {
             switchToProject(workspaceId: id, projectId: projectId)
         } else {
-            if activeWorkspaceId != nil {
-                engine.save()
-                engine.closeProject()
-            }
+            engine.switchWorkspace(workspaceId: id, projectId: nil)
             activeWorkspaceId = id
             activeProjectId = nil
             showLanding = false
@@ -364,13 +351,7 @@ final class AppModel: ObservableObject {
             workspaceExtendOpen = false
             return
         }
-        if activeProjectId != nil {
-            engine.save()
-        }
-        engine.closeProject()
-        engine.openProject(id: projectId)
-        engine.setWorkspaceActiveProject(workspaceId: workspaceId, projectId: projectId)
-        engine.touchWorkspace(id: workspaceId)
+        engine.switchWorkspace(workspaceId: workspaceId, projectId: projectId)
         if let ws = engine.workspace(id: workspaceId) {
             openWorkspaceTab(ws)
             refreshOpenWorkspace(workspaceId)
@@ -492,6 +473,7 @@ final class AppModel: ObservableObject {
         engine.setTool(tool)
         engine.setColor(color)
         engine.setBrush(brushSize)
+        engine.setInkOpacity(inkOpacity)
         engine.setFill(fill)
         engine.setVectorMode(vectorMode)
         engine.setDark(theme.isDark)
@@ -517,12 +499,6 @@ final class AppModel: ObservableObject {
         // layer — the panel has to hear about that.
         let wasTyping = engine.textEditing
         tool = next
-        if next.isShape {
-            lastShapeTool = next
-        }
-        if next.isSelection {
-            lastSelectTool = next
-        }
         if next != .eyedropper {
             clearEyedropperLoupe()
         }

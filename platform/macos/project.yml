@@ -30,6 +30,8 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: app.calumma
         PRODUCT_NAME: Calumma
+        MARKETING_VERSION: ${CALUMMA_VERSION}
+        CURRENT_PROJECT_VERSION: ${CALUMMA_VERSION}
         INFOPLIST_KEY_CFBundleDisplayName: Calumma
         INFOPLIST_KEY_NSHumanReadableCopyright: ""
         INFOPLIST_KEY_NSPrincipalClass: NSApplication

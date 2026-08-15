@@ -90,6 +90,17 @@ fn stamp_disc_fills_center() {
 }
 
 #[test]
+fn stamp_disc_glazes_translucent_ink() {
+    let mut g = TileGrid::new(64, 64);
+    g.stamp_disc(32.0, 32.0, 3.0, [10, 20, 30, 128]);
+    assert_eq!(g.get_pixel(32, 32), [10, 20, 30, 128]);
+    g.stamp_disc(32.0, 32.0, 3.0, [10, 20, 30, 128]);
+    let p = g.get_pixel(32, 32);
+    assert_eq!(p[0], 10);
+    assert!(p[3] > 128);
+}
+
+#[test]
 fn blend_respects_alpha() {
     let mut g = TileGrid::new(16, 16);
     g.set_pixel(1, 1, [255, 0, 0, 255]);
@@ -258,6 +269,18 @@ fn clear_dirty_tile_only_clears_that_tile_on_that_channel() {
     assert!(!grid.dirty_tiles(DirtyChannel::Render).contains(&a));
     assert!(grid.dirty_tiles(DirtyChannel::Render).contains(&b));
     assert!(grid.dirty_tiles(DirtyChannel::Store).contains(&a));
+}
+
+#[test]
+fn mark_channel_dirty_leaves_the_other_channel_alone() {
+    let mut grid = TileGrid::new(1024, 1024);
+    grid.set_pixel(10, 10, [1, 2, 3, 255]);
+    grid.set_pixel(600, 600, [4, 5, 6, 255]);
+    grid.clear_dirty(DirtyChannel::Render);
+    grid.clear_dirty(DirtyChannel::Store);
+    grid.mark_channel_dirty(DirtyChannel::Render);
+    assert_eq!(grid.dirty_tiles(DirtyChannel::Render).len(), 2);
+    assert!(grid.dirty_tiles(DirtyChannel::Store).is_empty());
 }
 
 #[test]

@@ -20,17 +20,20 @@ systems.
 
 **The engine owns all state and all compute. The shell owns nothing but UI knobs.**
 
-Shell knobs only: active tool, colour, brush size, shape fill, panel visibility, open tab
-ids, theme, **language**. Coordinate math, clamping, pixels, camera, history, ops dispatch,
+Shell knobs only: active tool, colour, brush size, ink opacity, shape fill, panel visibility, open tab
+ids, theme, **language**. Last-used shape and selection tools, tool taxonomy (`is_shape`,
+brush-size, vector-mode visibility), hex RGB, copy/cut bytes, and workspace switch live in
+the engine. Coordinate math, clamping, pixels, camera, history, ops dispatch,
 and board visuals live in Rust/WGSL.
 
 If you are about to do pan/zoom arithmetic, tile math, or layer-stack mutation in Swift —
 stop. Call an FFI method instead and keep the logic in `engine/`.
 
 This extends to product rules, not just math. Zoom steps, the log zoom curve, fit padding,
-the project-colour palette and which colour a new project gets, import limits — all core
-constants and core functions, reached over FFI. Swift renders what the engine reports
-(`CalmState.zoom_unit`, `CalmState.accent`, `calm_palette_color`) and never recomputes it.
+the project-colour palette and which colour a new project gets, import limits, lossy export
+quality — all core constants and core functions, reached over FFI. Swift renders what the
+engine reports (`CalmState.zoom_unit`, `CalmState.accent`, `CalmState.last_shape_tool`,
+`calm_palette_color`) and never recomputes it.
 Theme **values** are the exception that proves the rule: they come from `design/tokens.json`
 and are pushed *into* the engine (`calm_engine_set_board_colors`) so no colour is ever
 hardcoded in Rust or WGSL.
@@ -49,9 +52,9 @@ hardcoded in Rust or WGSL.
 | `engine/ffi` | C ABI; **only** crate Swift links; platform op vtable |
 | `platform/macos` | SwiftUI landing, tabs, editor chrome, Metal canvas, Vision ops, i18n loader |
 | `translations/` | Locale JSON (`en.json` today). Not code — edit strings here |
-| `design/` | Visual tokens only (`tokens.json`), `STYLE.md`, SVG icons |
+| `design/` | Visual tokens only (`tokens.json`), `STYLE.md`, SVG icons, `icon.png` (app icon master, `./manage.py icon`) |
 | `FLOW.md` | Product flow: screens, canvas, shortcuts, I/O |
-| `cli/` | Python helpers + leaf tools (`_helpers.py`, tokens, purity, …) |
+| `cli/` | Python helpers + leaf tools (`_helpers.py`, tokens, purity, …). Deps in `requirements.txt` |
 | `manage.py` | Task runner (Python 3.14). Prefer this over Make. |
 
 Dependency direction:
@@ -189,12 +192,20 @@ pub enum LayerContent {
   `Document::copy_layer_into_rgba`) resamples it with nearest-neighbor,
   not bilinear — a known, disclosed gap between the (smooth, GPU-linear-
   filtered) live view and a flattened/exported result at extreme
-  scale/rotation. Inside transform mode, clicking a layer's painted pixels
+  scale/rotation. The flatten walk is clipped to the transformed content
+  AABB (`LayerTransform::transformed_aabb`), the same span vector flatten
+  already used. Inside transform mode, clicking a layer's painted pixels
   retargets the transform to it (`Document::layer_at` — pixel-accurate,
   mask/transform/opacity-aware, skips Paper) and starts a move drag in the
   same gesture; clicking the active layer's own pixels always keeps it, so an
   overlapping layer above cannot steal the target. Clicking empty space (or
   `Esc`) exits; the Select tools remain for region marquee/lasso.
+- **Move** (`Tool::Move = 15`, tools island) is translation without `⌘T`: click
+  a vector item or a layer's painted pixels (`Document::begin_move_at`) and
+  drag. Empty space and Paper are no-ops. Arrow keys call
+  `nudge_move_target` — selected vector item first, otherwise the active
+  layer's `transform.offset` when Move or transform mode is on. `V` stays
+  vector mode; `⌘T` stays scale/rotate.
 - **Paper** (`Layer::paper`) is an ordinary raster layer, name-matched via
   `Layer::is_paper()`, pre-filled fully opaque white at creation — not a
   cheap vector fill. It is paintable/eraseable/editable like any other
@@ -238,8 +249,8 @@ pub enum LayerContent {
     single per-frame draw list built across the *whole* layer stack
     (`Renderer::build_layer_draws`) so a vector layer composites in stack
     order against tile layers instead of always under them.
-  - Individual items are selected and moved inside `⌘T` transform mode
-    (`Document::vector_item_at` / `begin_vector_item_drag`), which outranks
+  - Individual items are selected and moved inside `⌘T` transform mode *and* with
+    the Move tool (`Document::vector_item_at` / `begin_vector_item_drag`), which outranks
     the whole-layer Move handle but not the corner/rotate handles. Picking
     treats a closed shape as solid (`VectorItem::pick_distance`) even when it
     is drawn as an outline. Selection is `(layer, item)` and re-validated on
@@ -441,6 +452,8 @@ Rules for agents:
 ## Canvas / render
 
 - Viewport-sized Metal surface; paper positioned by camera matrix in WGSL.
+- Layer pixels, vectors, live previews, and handles are GPU-scissored to the paper
+  (`Camera::paper_scissor`); the desk and paper border stay unclipped.
 - Swift owns the `MTKView` / CAMetalLayer; Rust borrows the layer pointer (no retain).
 - Layer hover = dashed outline in the shader, not a Swift overlay.
 
@@ -454,15 +467,19 @@ Never branch on bare literals (`tool == 1u`). Use named consts matching Rust
 ## Testing and tooling
 
 ```
-./manage.py tokens       # design/tokens.json → Swift Tokens
-./manage.py test         # cargo test --workspace
-./manage.py coverage     # llvm-cov + per-crate %% table in the log
-./manage.py lint         # clippy + purity
-./manage.py check        # fmt + lint + test
-./manage.py purity       # core has no platform/GPU deps
-./manage.py dev          # build ffi, xcodegen, open Xcode
-./manage.py package      # Release .app, ad-hoc signed, wrapped in dist/Calumma-<version>.dmg
+python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+./manage.py tokens # design/tokens.json → Swift Tokens
+./manage.py icon # design/icon.png → AppIcon.appiconset (Pillow)
+./manage.py test # cargo test --workspace
+./manage.py coverage # llvm-cov + per-crate %% table in the log
+./manage.py lint # clippy + ruff + purity
+./manage.py check # fmt + lint + test
+./manage.py purity # core has no platform/GPU deps
+./manage.py dev # build ffi, xcodegen, open Xcode
+./manage.py package # Release .app, ad-hoc signed, wrapped in dist/Calumma-<version>.dmg
 ```
+
+`./manage.py` re-execs into `.venv` when that folder exists, so you do not need to activate it.
 
 Distribution: pushing a `v*` tag runs `.github/workflows/release.yml`, which runs
 `./manage.py package` on a macOS runner and publishes the `.dmg` + `.sha256` as
@@ -481,7 +498,9 @@ Expectations:
 - Pre-commit: fmt, clippy, swift-format, no-comments, purity.
 
 `cli/_helpers.py` holds shared paths, cargo helpers, and design-token accessors. Leaf tools
-under `cli/` import from it. `manage.py` is the CLI entrypoint.
+under `cli/` import from it. `manage.py` is the CLI entrypoint. Python deps are pinned in
+`requirements.txt` (Pillow for the app icon, ruff for format/lint) — no extra CLI binaries
+like oxipng.
 
 Cargo workspace root is `engine/Cargo.toml` (rustfmt/clippy live there). Swift format
 config is `platform/macos/.swift-format` only.
@@ -492,16 +511,21 @@ Pin versions in `[workspace.dependencies]`. Never `*` or bare `^`.
 
 ## Deliberately deferred
 
-Vector *rotation* on the GPU and per-item undo (see Layers), BiRefNet / `ort`,
+Vector *rotation* on the GPU (see Layers; per-item undo is planned with document
+history, `plans/01-document-undo.md`), BiRefNet / `ort`,
 GenerateTexture model manager, SuggestShape,
 Vectorize (`vtracer`), PDF export, layered PSD import (import is flattened composite only;
 PSD *and SVG export* are layered and shipped — see FLOW.md), picking a layer by clicking it outside
-transform mode (inside it has shipped — see Layers above — but Option-click and ⌘-click are
-both already Pan, so there is no free modifier for a universal gesture), text *selection*
+transform mode as a *modifier* (the Move tool on the tools island is the path; Option-click and ⌘-click are
+both already Pan), text *selection*
 (the Text tool ships with a caret only — no shift-arrow, no styled ranges) — add
 only as considered features, not by restoring old app code.
 
 **Shipped from this list:** workspaces (titlebar tabs + extend overlay), Eyedropper
 (`I` / tools island; samples the composited pixel under the cursor into the active ink
 swatch), vector layers (`V` / tool options; items composite in stack order and move
-individually inside `⌘T`), text layers (`T` / tools island). See `FLOW.md`.
+individually inside `⌘T` and with the Move tool), text layers (`T` / tools island),
+Move tool (tools island; pick-and-drag without `⌘T`). See `FLOW.md`.
+
+**Now carrying plans** in `todo.md`: undo for the rest of the document (`01`),
+layer reorder/rename/lock (`03`), per-item vector scale (`04`), brush hardness (`05`).

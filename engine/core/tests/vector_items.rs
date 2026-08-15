@@ -67,6 +67,22 @@ fn drawing_twice_in_vector_mode_fills_one_layer_with_two_items() {
 }
 
 #[test]
+fn vector_item_stores_ink_opacity() {
+    let mut doc = doc_with_viewport();
+    doc.set_vector_mode(true);
+    doc.tool = Tool::Rect;
+    doc.fill = true;
+    doc.color = [10, 20, 30, 255];
+    doc.set_ink_opacity(0.5);
+    drag(&mut doc, (10.0, 10.0), (40.0, 40.0));
+    let item = &doc.layers[doc.active_layer].content.items().unwrap()[0];
+    match item {
+        VectorItem::Shape(shape) => assert_eq!(shape.color, [10, 20, 30, 128]),
+        VectorItem::Path(_) => panic!("expected a shape item"),
+    }
+}
+
+#[test]
 fn picking_finds_the_item_under_the_point() {
     let mut doc = doc_with_viewport();
     let layer = vector_layer(

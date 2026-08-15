@@ -6,6 +6,7 @@ license.workspace = true
 
 [dependencies]
 calumma-core = { path = "../core" }
+rayon = { workspace = true }
 rusqlite = { workspace = true, features = ["bundled"] }
 dirs = { workspace = true }
 thiserror = { workspace = true }

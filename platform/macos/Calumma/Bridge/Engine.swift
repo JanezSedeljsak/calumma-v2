@@ -68,20 +68,13 @@ enum CalmTool: UInt32 {
     case triangle = 12
     case pentagon = 13
     case text = 14
+    case move = 15
 
-    var isShape: Bool {
-        switch self {
-        case .line, .rect, .ellipse, .arrow, .triangle, .pentagon: return true
-        default: return false
-        }
-    }
-
-    var isSelection: Bool {
-        switch self {
-        case .selectRect, .selectEllipse, .selectLasso: return true
-        default: return false
-        }
-    }
+    var isShape: Bool { calm_tool_is_shape(rawValue) != 0 }
+    var isSelection: Bool { calm_tool_is_selection(rawValue) != 0 }
+    var takesBrushSize: Bool { calm_tool_takes_brush_size(rawValue) != 0 }
+    var takesInkOpacity: Bool { calm_tool_takes_ink_opacity(rawValue) != 0 }
+    var showsVectorMode: Bool { calm_tool_shows_vector_mode(rawValue) != 0 }
 }
 
 struct ProjectInfo: Identifiable, Hashable {
@@ -146,6 +139,8 @@ struct EngineState {
     var darkTheme = true
     var accent: UInt32 = 0
     var zoomUnit: Float = 0
+    var lastShapeTool: CalmTool = .rect
+    var lastSelectTool: CalmTool = .selectRect
 
     var accentColor: Color { Color(rgb: accent) }
 }
@@ -181,6 +176,10 @@ final class Engine: ObservableObject, @unchecked Sendable {
     private static let fitGraceSeconds: CFTimeInterval = 0.8
     private var fitDeadline: CFTimeInterval = 0
     private var stateDirty = false
+
+    static var inkOpacityMin: Float { calm_ink_opacity_min() }
+    static var inkOpacityMax: Float { calm_ink_opacity_max() }
+    static var inkOpacityDefault: Float { calm_ink_opacity_default() }
 
     init() {
         ptr = calm_engine_new(nil)
@@ -350,6 +349,7 @@ final class Engine: ObservableObject, @unchecked Sendable {
     func setTool(_ tool: CalmTool) {
         guard let ptr else { return }
         _ = calm_engine_set_tool(ptr, tool.rawValue)
+        syncState()
     }
 
     func setColor(_ color: Color) {
@@ -398,6 +398,11 @@ final class Engine: ObservableObject, @unchecked Sendable {
     func setBrush(_ size: Float) {
         guard let ptr else { return }
         _ = calm_engine_set_brush(ptr, size)
+    }
+
+    func setInkOpacity(_ opacity: Float) {
+        guard let ptr else { return }
+        _ = calm_engine_set_ink_opacity(ptr, opacity)
     }
 
     func setFill(_ fill: Bool) {
@@ -950,7 +955,9 @@ final class Engine: ObservableObject, @unchecked Sendable {
             strokeActive: raw.stroke_active != 0,
             darkTheme: raw.dark_theme != 0,
             accent: raw.accent,
-            zoomUnit: raw.zoom_unit
+            zoomUnit: raw.zoom_unit,
+            lastShapeTool: CalmTool(rawValue: raw.last_shape_tool) ?? .rect,
+            lastSelectTool: CalmTool(rawValue: raw.last_select_tool) ?? .selectRect
         )
     }
 

@@ -1,8 +1,6 @@
 use calumma_core::limits::{PROJECT_THUMB_MAX_SIDE, RECENT_PROJECTS_LIMIT};
 use calumma_core::tile::{self, DirtyChannel, TileCoord, TILE_BYTES};
 use calumma_core::{BlendMode, Document, Layer, LayerContent};
-use image::codecs::png::PngEncoder;
-use image::{ColorType, ImageEncoder};
 use rusqlite::{params, params_from_iter, Connection, OptionalExtension};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -557,11 +555,7 @@ impl ProjectStore {
 
     fn write_project_thumbnail(&self, doc: &Document) -> Result<(), StoreError> {
         let (w, h, rgba) = doc.composite_thumbnail(PROJECT_THUMB_MAX_SIDE);
-        let mut png = Vec::new();
-        let encoder = PngEncoder::new(&mut png);
-        encoder
-            .write_image(&rgba, w, h, ColorType::Rgba8.into())
-            .map_err(|e| StoreError::Io(std::io::Error::other(e)))?;
+        let png = crate::encode_png_rgba(&rgba, w, h).map_err(StoreError::Io)?;
         self.conn.execute(
             "UPDATE projects SET thumb = ?1 WHERE id = ?2",
             params![png, doc.id],

@@ -33,12 +33,12 @@ struct EditorView: View {
         .calmScreen()
         .toolbar { editorToolbar }
         .onAppear { app.applyKnobs() }
-        .onChange(of: app.tool) { _, next in
-            if next.isShape { app.lastShapeTool = next }
+        .onChange(of: app.tool) { _, _ in
             app.applyKnobs()
         }
         .onChange(of: app.color) { _, _ in app.applyKnobs() }
         .onChange(of: app.brushSize) { _, _ in app.applyKnobs() }
+        .onChange(of: app.inkOpacity) { _, _ in app.applyKnobs() }
         .onChange(of: app.fill) { _, _ in app.applyKnobs() }
         .onChange(of: app.vectorMode) { _, _ in app.applyKnobs() }
         .onChange(of: app.theme) { _, _ in app.applyKnobs() }

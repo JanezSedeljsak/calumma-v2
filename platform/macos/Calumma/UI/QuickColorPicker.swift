@@ -36,19 +36,19 @@ struct HSBColor: Equatable {
 
 extension Color {
     var hexRGB: String {
-        String(format: "%06X", packedRGB)
+        guard let ptr = calm_format_hex_rgb(packedRGB) else {
+            return String(format: "%06X", packedRGB)
+        }
+        let hex = String(cString: ptr)
+        calm_string_free(ptr)
+        return hex
     }
 
     init?(hexRGB: String) {
-        var cleaned = hexRGB.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
-        if cleaned.hasPrefix("#") {
-            cleaned.removeFirst()
-        }
-        if cleaned.count == 3 {
-            cleaned = cleaned.map { "\($0)\($0)" }.joined()
-        }
-        guard cleaned.count == 6, let value = UInt32(cleaned, radix: 16) else { return nil }
-        self.init(rgb: value)
+        var rgb: UInt32 = 0
+        let status = hexRGB.withCString { calm_parse_hex_rgb($0, &rgb) }
+        guard status == CalmStatusOk else { return nil }
+        self.init(rgb: rgb)
     }
 }
 

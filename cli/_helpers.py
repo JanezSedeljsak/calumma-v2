@@ -9,6 +9,8 @@ import os
 import re
 import shutil
 import subprocess
+import sys
+import tomllib
 from pathlib import Path
 
 from constants import (
@@ -18,11 +20,11 @@ from constants import (
     CRATE_PREFIX,
     DIR_ENGINE,
     ENCODING_UTF8,
-    ENV_CARGO_TARGET_DIR,
     ENGINE,
     ENGINE_LOCK,
     ENGINE_MANIFEST,
     ENGINE_TARGET,
+    ENV_CARGO_TARGET_DIR,
     ENV_GITHUB_STEP_SUMMARY,
     MACOS,
     MSG_N_A,
@@ -68,6 +70,7 @@ __all__ = [
     "hex_to_srgb",
     "load_tokens",
     "print_coverage_table",
+    "python_module",
     "run",
     "write_github_summary",
     "swift_color_lit",
@@ -78,12 +81,23 @@ __all__ = [
     "token_type",
     "token_window",
     "which",
+    "workspace_version",
     "FORBIDDEN_CORE_DEPS",
 ]
 
 
 def ensure_engine_env() -> None:
     os.environ.setdefault(ENV_CARGO_TARGET_DIR, str(ENGINE_TARGET))
+
+
+def workspace_version() -> str:
+    """Single source of truth for the app version: engine/Cargo.toml's [workspace.package]."""
+    manifest = tomllib.loads(ENGINE_MANIFEST.read_text(encoding=ENCODING_UTF8))
+    return str(manifest["workspace"]["package"]["version"])
+
+
+def python_module(*args: str) -> list[str]:
+    return [sys.executable, "-m", *args]
 
 
 def cargo_cmd(subcommand: str, *args: str) -> list[str]:

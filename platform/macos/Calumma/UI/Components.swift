@@ -199,6 +199,8 @@ struct CalmPlainButton: View {
 }
 
 struct CalmToolButton<Icon: View>: View {
+    static let size: CGFloat = 32
+
     let selected: Bool
     let action: () -> Void
     var tooltip: String? = nil
@@ -223,7 +225,7 @@ struct CalmToolButton<Icon: View>: View {
         Button(action: action) {
             icon
                 .padding(Tokens.Space.xs)
-                .frame(width: 32, height: 32)
+                .frame(width: Self.size, height: Self.size)
                 .calmSurface(hover: selected, radius: Tokens.Radius.sm)
         }
         .buttonStyle(.plain)

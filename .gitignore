@@ -1,4 +1,10 @@
 .DS_Store
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+.ruff_cache/
 DerivedData/
 platform/macos/build/
 platform/macos/*.xcworkspace/xcuserdata/

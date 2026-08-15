@@ -259,6 +259,12 @@ impl Layer {
         }
     }
 
+    pub fn mark_channel_dirty(&mut self, channel: DirtyChannel) {
+        if let Some(tiles) = self.tiles_mut() {
+            tiles.mark_channel_dirty(channel);
+        }
+    }
+
     pub fn clear_dirty(&mut self, channel: DirtyChannel) {
         if let Some(tiles) = self.tiles_mut() {
             tiles.clear_dirty(channel);

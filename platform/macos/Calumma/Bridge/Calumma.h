@@ -70,6 +70,8 @@ typedef struct CalmState {
     uint8_t dark_theme;
     uint32_t accent;
     float zoom_unit;
+    uint32_t last_shape_tool;
+    uint32_t last_select_tool;
 } CalmState;
 
 typedef struct CalmMemory {
@@ -140,10 +142,22 @@ CalmStatus calm_project_rename(CalmEngine *engine, const char *id, const char *n
 CalmStatus calm_project_set_accent(CalmEngine *engine, const char *id, uint32_t accent);
 
 CalmStatus calm_engine_set_tool(CalmEngine *engine, uint32_t tool);
+uint8_t calm_tool_is_shape(uint32_t tool);
+uint8_t calm_tool_is_selection(uint32_t tool);
+uint8_t calm_tool_takes_brush_size(uint32_t tool);
+uint8_t calm_tool_takes_ink_opacity(uint32_t tool);
+uint8_t calm_tool_shows_vector_mode(uint32_t tool);
+CalmStatus calm_parse_hex_rgb(const char *s, uint32_t *out_rgb);
+char *calm_format_hex_rgb(uint32_t rgb);
+float calm_lossy_export_quality(void);
+float calm_ink_opacity_min(void);
+float calm_ink_opacity_max(void);
+float calm_ink_opacity_default(void);
 CalmStatus calm_engine_set_color(CalmEngine *engine, uint8_t r, uint8_t g, uint8_t b, uint8_t a);
 CalmStatus calm_engine_sample_color(CalmEngine *engine, float x, float y, uint32_t *out_rgba);
 CalmStatus calm_engine_pick_color(CalmEngine *engine, float x, float y, uint32_t *out_rgba);
 CalmStatus calm_engine_set_brush(CalmEngine *engine, float size);
+CalmStatus calm_engine_set_ink_opacity(CalmEngine *engine, float opacity);
 CalmStatus calm_engine_set_fill(CalmEngine *engine, uint8_t fill);
 CalmStatus calm_engine_set_dark(CalmEngine *engine, uint8_t dark);
 CalmStatus calm_engine_set_shift(CalmEngine *engine, uint8_t held);
@@ -180,6 +194,9 @@ char *calm_engine_layer_svg(CalmEngine *engine, uint32_t layer_index);
 char *calm_engine_export_svg(CalmEngine *engine);
 CalmStatus calm_engine_selection_rgba(CalmEngine *engine, uint8_t **out_rgba, uint32_t *out_w, uint32_t *out_h);
 int calm_engine_has_selection(CalmEngine *engine);
+CalmStatus calm_engine_copy(CalmEngine *engine, uint8_t **out, size_t *out_len, uint32_t *out_kind);
+CalmStatus calm_engine_cut(CalmEngine *engine, uint8_t **out, size_t *out_len, uint32_t *out_kind);
+CalmStatus calm_engine_copy_layer(CalmEngine *engine, uint32_t layer_index, uint8_t **out, size_t *out_len, uint32_t *out_kind);
 CalmStatus calm_engine_deselect(CalmEngine *engine);
 CalmStatus calm_engine_selection_clear_pixels(CalmEngine *engine);
 CalmStatus calm_engine_paste_image(CalmEngine *engine, const uint8_t *premultiplied_rgba, size_t len, uint32_t width, uint32_t height);
@@ -247,6 +264,7 @@ int calm_engine_selected_vector_item(CalmEngine *engine);
 CalmStatus calm_engine_clear_vector_selection(CalmEngine *engine);
 CalmStatus calm_engine_delete_selected_vector_item(CalmEngine *engine);
 CalmStatus calm_engine_nudge_selected_vector_item(CalmEngine *engine, float steps_x, float steps_y);
+int calm_engine_nudge_move_target(CalmEngine *engine, float steps_x, float steps_y);
 
 char *calm_project_create(CalmEngine *engine, const char *name, uint32_t width, uint32_t height);
 uint32_t calm_import_max_side(void);
@@ -267,6 +285,7 @@ CalmStatus calm_workspace_add_project(CalmEngine *engine, const char *workspace_
 CalmStatus calm_workspace_remove_project(CalmEngine *engine, const char *workspace_id, const char *project_id);
 size_t calm_workspace_projects(CalmEngine *engine, const char *workspace_id, CalmProjectInfo *out, size_t cap);
 CalmStatus calm_workspace_set_active_project(CalmEngine *engine, const char *workspace_id, const char *project_id);
+CalmStatus calm_workspace_switch(CalmEngine *engine, const char *workspace_id, const char *project_id);
 CalmStatus calm_workspace_touch(CalmEngine *engine, const char *id);
 CalmStatus calm_workspace_get(CalmEngine *engine, const char *id, CalmWorkspaceInfo *out);
 char *calm_workspace_create_for_project(CalmEngine *engine, const char *project_id, const char *name);

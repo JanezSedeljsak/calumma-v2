@@ -1,4 +1,5 @@
 use calumma_core::{BlendMode, Document};
+use rayon::prelude::*;
 
 const SIGNATURE: &[u8; 4] = b"8BPS";
 const BLEND_SIGNATURE: &[u8; 4] = b"8BIM";
@@ -102,28 +103,27 @@ pub fn encode(doc: &Document) -> Vec<u8> {
     let height = doc.height.max(1);
     let pixel_count = (width as usize) * (height as usize);
 
-    let mut prepared: Vec<PreparedLayer> = Vec::new();
-    for (index, layer) in doc.layers.iter().enumerate() {
-        // A vector layer reaches the PSD as pixels, not as a shape layer: this writer emits
-        // raster channels only, and dropping the layer entirely would lose artwork that is on
-        // the board. `Document::layer_rgba` rasterizes it the same way the composite does.
-        if layer.tiles().is_none() && layer.content.items().is_none() {
-            continue;
-        }
-        let Some((w, h, rgba)) = doc.layer_rgba(index) else {
-            continue;
-        };
-        if w != width || h != height {
-            continue;
-        }
-        prepared.push(PreparedLayer {
-            name: layer.name.as_str(),
-            visible: layer.visible,
-            opacity: layer.opacity,
-            blend_mode: layer.blend_mode,
-            planes: split_planes(&rgba, pixel_count),
-        });
-    }
+    let prepared: Vec<PreparedLayer> = doc
+        .layers
+        .par_iter()
+        .enumerate()
+        .filter_map(|(index, layer)| {
+            if layer.tiles().is_none() && layer.content.items().is_none() {
+                return None;
+            }
+            let (w, h, rgba) = doc.layer_rgba(index)?;
+            if w != width || h != height {
+                return None;
+            }
+            Some(PreparedLayer {
+                name: layer.name.as_str(),
+                visible: layer.visible,
+                opacity: layer.opacity,
+                blend_mode: layer.blend_mode,
+                planes: split_planes(&rgba, pixel_count),
+            })
+        })
+        .collect();
 
     let mut layer_info = Vec::new();
     layer_info.extend_from_slice(&u16be(prepared.len() as u16));
