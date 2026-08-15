@@ -11,6 +11,36 @@ enum CalmBlendMode: UInt32, CaseIterable, Identifiable {
     var id: UInt32 { rawValue }
 }
 
+enum CalmAdjustment: UInt32, CaseIterable, Identifiable {
+    case brightness = 0
+    case contrast = 1
+    case vibrance = 2
+    case saturation = 3
+    case levelsGamma = 4
+
+    var id: UInt32 { rawValue }
+
+    var labelKey: String {
+        switch self {
+        case .brightness: return "brightness"
+        case .contrast: return "contrast"
+        case .vibrance: return "vibrance"
+        case .saturation: return "saturation"
+        case .levelsGamma: return "levelsGamma"
+        }
+    }
+
+    var shortcutKey: KeyEquivalent {
+        switch self {
+        case .brightness: return "b"
+        case .contrast: return "c"
+        case .vibrance: return "v"
+        case .saturation: return "s"
+        case .levelsGamma: return "g"
+        }
+    }
+}
+
 struct LayerAdjustments: Equatable {
     var brightness: Float = 0
     var contrast: Float = 0
@@ -37,6 +67,7 @@ enum CalmTool: UInt32 {
     case eyedropper = 11
     case triangle = 12
     case pentagon = 13
+    case text = 14
 
     var isShape: Bool {
         switch self {
@@ -120,7 +151,8 @@ struct EngineState {
 }
 
 final class Engine: ObservableObject, @unchecked Sendable {
-    private var ptr: OpaquePointer?
+    /// Readable across the bridge's own files (`EngineText`), settable only here.
+    private(set) var ptr: OpaquePointer?
     @Published var state = EngineState()
     @Published var recents: [ProjectInfo] = []
     @Published var workspaces: [WorkspaceInfo] = []
@@ -129,6 +161,17 @@ final class Engine: ObservableObject, @unchecked Sendable {
     @Published var layerOpacities: [Float] = []
     @Published var layerBlendModes: [CalmBlendMode] = []
     @Published var layerAdjustments: [LayerAdjustments] = []
+    @Published var layerIsText: [Bool] = []
+    /// Mirrors of engine-owned text state. The shell never computes any of this — it shows
+    /// what `syncTextState` last read back, so a font substituted or a size clamped by the
+    /// engine is what the panel displays.
+    @Published var textEditing = false
+    @Published var textFamily = ""
+    @Published var textSize: Float = 48
+    @Published var textAlign: CalmTextAlign = .left
+    @Published var textLineHeight: Float = 1.25
+    @Published var textBold = false
+    @Published var textItalic = false
     @Published private(set) var thumbnailRevision: UInt64 = 0
 
     /// A fit asked for while the window is still growing to its final size lands against
@@ -362,6 +405,16 @@ final class Engine: ObservableObject, @unchecked Sendable {
         _ = calm_engine_set_fill(ptr, fill ? 1 : 0)
     }
 
+    func setVectorMode(_ on: Bool) {
+        guard let ptr else { return }
+        _ = calm_engine_set_vector_mode(ptr, on ? 1 : 0)
+    }
+
+    var vectorMode: Bool {
+        guard let ptr else { return false }
+        return calm_engine_vector_mode(ptr) != 0
+    }
+
     func setDark(_ dark: Bool) {
         guard let ptr else { return }
         _ = calm_engine_set_dark(ptr, dark ? 1 : 0)
@@ -473,6 +526,13 @@ final class Engine: ObservableObject, @unchecked Sendable {
         render()
     }
 
+    func nudgeLayerAdjustment(_ index: Int, _ kind: CalmAdjustment, steps: Float) {
+        guard let ptr else { return }
+        _ = calm_engine_nudge_layer_adjustment(ptr, UInt32(index), kind.rawValue, steps)
+        refreshLayers()
+        render()
+    }
+
     func setActiveLayer(_ index: Int) {
         guard let ptr else { return }
         _ = calm_engine_set_active_layer(ptr, UInt32(index))
@@ -550,6 +610,8 @@ final class Engine: ObservableObject, @unchecked Sendable {
         layerOpacities = []
         layerBlendModes = []
         layerAdjustments = []
+        layerIsText = []
+        textEditing = false
     }
 
     func save() {
@@ -557,6 +619,16 @@ final class Engine: ObservableObject, @unchecked Sendable {
         _ = calm_project_save(ptr)
         bumpThumbnailRevision()
         refreshRecents()
+    }
+
+    /// Bytes the engine is holding for the project that is open — everything else was handed
+    /// back when its document was closed, so this is the whole picture.
+    var memoryBytes: UInt64 {
+        guard let ptr else { return 0 }
+        var out = CalmMemory()
+        guard calm_engine_memory(ptr, &out) == CalmStatusOk else { return 0 }
+        return out.tile_bytes + out.history_bytes + out.mask_bytes + out.vector_bytes
+            + out.text_bytes + out.gpu_bytes
     }
 
     func bumpThumbnailRevision() {
@@ -889,6 +961,7 @@ final class Engine: ObservableObject, @unchecked Sendable {
         var opacities: [Float] = []
         var blendModes: [CalmBlendMode] = []
         var adjustments: [LayerAdjustments] = []
+        var isText: [Bool] = []
         for i in 0..<state.layerCount {
             if let namePtr = calm_engine_layer_name(ptr, i) {
                 let raw = String(cString: namePtr)
@@ -898,6 +971,7 @@ final class Engine: ObservableObject, @unchecked Sendable {
                 names.append(L10nStore.catalog.formatKey("layerNamed", "\(i + 1)"))
             }
             visibles.append(calm_engine_layer_visible(ptr, i) == 1)
+            isText.append(calm_engine_layer_is_text(ptr, i) == 1)
             opacities.append(calm_engine_layer_opacity(ptr, i))
             blendModes.append(CalmBlendMode(rawValue: calm_engine_layer_blend_mode(ptr, i)) ?? .normal)
             var raw = CalmAdjustments()
@@ -917,6 +991,8 @@ final class Engine: ObservableObject, @unchecked Sendable {
         layerOpacities = opacities
         layerBlendModes = blendModes
         layerAdjustments = adjustments
+        layerIsText = isText
+        syncTextState()
     }
 
     func layerThumbnail(index: Int, maxSide: UInt32 = 160) -> NSImage? {
@@ -1022,6 +1098,15 @@ final class Engine: ObservableObject, @unchecked Sendable {
         return Self.cgImage(rgbaPtr: rgbaPtr, width: width, height: height, status: status)
     }
 
+    /// The whole document as one SVG. Layered on purpose: vector layers stay geometry, and
+    /// only the layers that really are pixels are embedded as images.
+    func exportSVG() -> String? {
+        guard let ptr, let cStr = calm_engine_export_svg(ptr) else { return nil }
+        let svg = String(cString: cStr)
+        calm_string_free(cStr)
+        return svg
+    }
+
     func layerSVG(index: Int) -> String? {
         guard let ptr, let cStr = calm_engine_layer_svg(ptr, UInt32(index)) else { return nil }
         let svg = String(cString: cStr)
@@ -1030,7 +1115,40 @@ final class Engine: ObservableObject, @unchecked Sendable {
     }
 
     func isLayerVector(index: Int) -> Bool {
-        layerSVG(index: index) != nil
+        guard let ptr else { return false }
+        return calm_engine_layer_is_vector(ptr, UInt32(index)) == 1
+    }
+
+    func layerItemCount(index: Int) -> Int {
+        guard let ptr else { return 0 }
+        return Int(calm_engine_layer_item_count(ptr, UInt32(index)))
+    }
+
+    /// The vector item being moved — `nil` when nothing is selected. Its layer is always
+    /// `state.activeLayer`, so there is nothing else to ask for.
+    var selectedVectorItem: Int? {
+        guard let ptr else { return nil }
+        let item = calm_engine_selected_vector_item(ptr)
+        return item >= 0 ? Int(item) : nil
+    }
+
+    func clearVectorSelection() {
+        guard let ptr else { return }
+        _ = calm_engine_clear_vector_selection(ptr)
+        render()
+    }
+
+    func deleteSelectedVectorItem() {
+        guard let ptr else { return }
+        _ = calm_engine_delete_selected_vector_item(ptr)
+        render()
+        refreshLayers()
+    }
+
+    func nudgeSelectedVectorItem(x: Float, y: Float) {
+        guard let ptr else { return }
+        _ = calm_engine_nudge_selected_vector_item(ptr, x, y)
+        render()
     }
 
     var hasSelection: Bool {

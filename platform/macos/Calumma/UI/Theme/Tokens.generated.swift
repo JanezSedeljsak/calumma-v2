@@ -53,6 +53,8 @@ enum Tokens {
     static let paper = Color(red: 1.000000, green: 1.000000, blue: 1.000000, opacity: 1.000000)
     static let paperBorder = Color(red: 0.058824, green: 0.105882, blue: 0.141176, opacity: 0.349020)
     static let islandBorder = Color(red: 0.058824, green: 0.105882, blue: 0.141176, opacity: 0.121569)
+    static let controlBorder = Color(red: 0.058824, green: 0.105882, blue: 0.141176, opacity: 0.250980)
+    static let controlFocusBorder = Color(red: 0.168627, green: 0.721569, blue: 0.784314, opacity: 0.800000)
     static let accentTeal = Color(red: 0.168627, green: 0.721569, blue: 0.784314, opacity: 1.000000)
     static let accentOrange = Color(red: 0.909804, green: 0.529412, blue: 0.227451, opacity: 1.000000)
     }
@@ -69,6 +71,8 @@ enum Tokens {
     static let paper = Color(red: 0.109804, green: 0.141176, blue: 0.168627, opacity: 1.000000)
     static let paperBorder = Color(red: 1.000000, green: 1.000000, blue: 1.000000, opacity: 0.349020)
     static let islandBorder = Color(red: 1.000000, green: 1.000000, blue: 1.000000, opacity: 0.121569)
+    static let controlBorder = Color(red: 1.000000, green: 1.000000, blue: 1.000000, opacity: 0.200000)
+    static let controlFocusBorder = Color(red: 0.235294, green: 0.788235, blue: 0.839216, opacity: 0.800000)
     static let accentTeal = Color(red: 0.235294, green: 0.788235, blue: 0.839216, opacity: 1.000000)
     static let accentOrange = Color(red: 0.941176, green: 0.580392, blue: 0.290196, opacity: 1.000000)
     }

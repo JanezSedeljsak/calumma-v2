@@ -296,7 +296,7 @@ fn sample_color_matches_composite_at_a_point() {
         .unwrap()
         .set_pixel(1, 1, [10, 20, 30, 255]);
     let (_, _, rgba) = doc.composite_rgba();
-    let i = (1 * 4 + 1) * 4;
+    let i = (4 + 1) * 4;
     let expected = [rgba[i], rgba[i + 1], rgba[i + 2], rgba[i + 3]];
     assert_eq!(doc.sample_color(1.5, 1.5), Some(expected));
 }
@@ -680,4 +680,194 @@ fn fill_tool_stays_within_active_selection() {
     doc.pointer_down(sx, sy);
     assert_eq!(pixel(&doc, doc.active_layer, 8, 8), [1, 2, 3, 255]);
     assert_eq!(pixel(&doc, doc.active_layer, 40, 8), [0, 0, 0, 0]);
+}
+
+#[test]
+fn nudge_layer_adjustment_steps_the_layer_and_collapses_back_to_none() {
+    let mut doc = Document::new("p".into(), "t", 32, 32);
+    let active = doc.active_layer;
+    assert!(doc.layers[active].adjustments.is_none());
+
+    assert!(doc.nudge_layer_adjustment(active, AdjustmentKind::Brightness, 1.0));
+    let adj = doc.layers[active].adjustments.expect("adjustments");
+    assert!((adj.brightness - AdjustmentKind::Brightness.step()).abs() < 1e-6);
+
+    assert!(doc.nudge_layer_adjustment(active, AdjustmentKind::Brightness, -1.0));
+    assert!(
+        doc.layers[active].adjustments.is_none(),
+        "returning to neutral drops back to None, same as the slider reset"
+    );
+}
+
+#[test]
+fn nudge_layer_adjustment_reports_no_change_at_the_clamp() {
+    let mut doc = Document::new("p".into(), "t", 32, 32);
+    let active = doc.active_layer;
+    doc.set_layer_adjustments(
+        active,
+        Adjustments {
+            brightness: 1.0,
+            ..Adjustments::default()
+        },
+    );
+    assert!(!doc.nudge_layer_adjustment(active, AdjustmentKind::Brightness, 1.0));
+    assert!(doc.nudge_layer_adjustment(active, AdjustmentKind::Brightness, -1.0));
+}
+
+#[test]
+fn nudge_layer_adjustment_ignores_an_out_of_range_layer() {
+    let mut doc = Document::new("p".into(), "t", 32, 32);
+    assert!(!doc.nudge_layer_adjustment(99, AdjustmentKind::Contrast, 1.0));
+}
+
+#[test]
+fn nudge_layer_adjustment_shows_up_in_the_composite() {
+    let mut doc = Document::new("p".into(), "t", 8, 8);
+    let active = doc.active_layer;
+    doc.layers[active]
+        .tiles_mut()
+        .unwrap()
+        .set_pixel(2, 2, [100, 100, 100, 255]);
+    let before = doc.composite_rgba().2;
+    for _ in 0..4 {
+        assert!(doc.nudge_layer_adjustment(active, AdjustmentKind::Brightness, 1.0));
+    }
+    let after = doc.composite_rgba().2;
+    let i = (2 * 8 + 2) * 4;
+    assert!(after[i] > before[i], "{} !> {}", after[i], before[i]);
+}
+
+#[test]
+fn triangle_and_pentagon_commit_pixels_to_the_active_layer() {
+    for tool in [Tool::Triangle, Tool::Pentagon] {
+        let mut doc = Document::new("p".into(), "t", 128, 128);
+        doc.resize_viewport(128.0, 128.0, 1.0);
+        doc.fit_to_view();
+        doc.tool = tool;
+        doc.fill = true;
+        doc.color = [10, 200, 40, 255];
+        let (x0, y0) = doc.camera.to_screen(20.0, 20.0);
+        let (x1, y1) = doc.camera.to_screen(100.0, 100.0);
+        doc.pointer_down(x0, y0);
+        doc.pointer_move(x1, y1);
+        assert!(doc.preview_shape.is_some(), "{tool:?} previews");
+        doc.pointer_up(x1, y1);
+        assert!(doc.preview_shape.is_none(), "{tool:?} clears its preview");
+        assert_ne!(
+            pixel(&doc, doc.active_layer, 60, 80)[3],
+            0,
+            "{tool:?} painted nothing"
+        );
+        assert!(doc.history.can_undo(), "{tool:?} is undoable");
+    }
+}
+
+#[test]
+fn eyedropper_reads_through_layer_opacity_and_blend_mode() {
+    let mut doc = Document::new("p".into(), "t", 8, 8);
+    let active = doc.active_layer;
+    doc.layers[active]
+        .tiles_mut()
+        .unwrap()
+        .set_pixel(2, 2, [0, 0, 0, 255]);
+    doc.set_layer_opacity(active, 0.5);
+    let sampled = doc.sample_color(2.5, 2.5).expect("a sample");
+    let composited = doc.composite_rgba().2;
+    let i = (2 * 8 + 2) * 4;
+    assert_eq!(
+        sampled,
+        [
+            composited[i],
+            composited[i + 1],
+            composited[i + 2],
+            composited[i + 3]
+        ]
+    );
+    assert!(
+        sampled[0] > 0,
+        "half-opacity black over white paper is grey"
+    );
+}
+
+#[test]
+fn sample_color_ignores_hidden_layers() {
+    let mut doc = Document::new("p".into(), "t", 8, 8);
+    let active = doc.active_layer;
+    doc.layers[active]
+        .tiles_mut()
+        .unwrap()
+        .set_pixel(2, 2, [200, 10, 10, 255]);
+    assert_eq!(doc.sample_color(2.5, 2.5), Some([200, 10, 10, 255]));
+    doc.set_layer_visible(active, false);
+    assert_eq!(
+        doc.sample_color(2.5, 2.5),
+        Some([255, 255, 255, 255]),
+        "the sample falls through to Paper"
+    );
+}
+
+#[test]
+fn multiply_and_screen_blend_modes_reach_the_composite() {
+    let build = |mode: BlendMode| {
+        let mut doc = Document::new("p".into(), "t", 8, 8);
+        let active = doc.active_layer;
+        doc.layers[active]
+            .tiles_mut()
+            .unwrap()
+            .set_pixel(2, 2, [128, 128, 128, 255]);
+        doc.layers[0]
+            .tiles_mut()
+            .unwrap()
+            .set_pixel(2, 2, [128, 128, 128, 255]);
+        doc.set_layer_blend_mode(active, mode);
+        let rgba = doc.composite_rgba().2;
+        rgba[(2 * 8 + 2) * 4]
+    };
+    let normal = build(BlendMode::Normal);
+    let multiply = build(BlendMode::Multiply);
+    let screen = build(BlendMode::Screen);
+    assert_eq!(normal, 128);
+    assert!(multiply < normal, "{multiply} !< {normal}");
+    assert!(screen > normal, "{screen} !> {normal}");
+}
+
+#[test]
+fn eraser_removes_pixels_and_undo_puts_them_back() {
+    let mut doc = Document::new("p".into(), "t", 64, 64);
+    doc.resize_viewport(64.0, 64.0, 1.0);
+    doc.fit_to_view();
+    let active = doc.active_layer;
+    doc.layers[active]
+        .tiles_mut()
+        .unwrap()
+        .paint_rect(DocRect::new(10, 10, 40, 40), |_, _, _| Some([9, 9, 9, 255]));
+    doc.tool = Tool::Eraser;
+    doc.brush_size = 12.0;
+    let (sx, sy) = doc.camera.to_screen(25.0, 25.0);
+    doc.pointer_down(sx, sy);
+    doc.pointer_up(sx, sy);
+    assert_eq!(pixel(&doc, active, 25, 25)[3], 0);
+    assert!(doc.undo());
+    assert_eq!(pixel(&doc, active, 25, 25), [9, 9, 9, 255]);
+}
+
+#[test]
+fn escape_style_deselect_clears_both_selection_and_transform() {
+    let mut doc = Document::new("p".into(), "t", 64, 64);
+    doc.resize_viewport(64.0, 64.0, 1.0);
+    doc.fit_to_view();
+    doc.layers[doc.active_layer]
+        .tiles_mut()
+        .unwrap()
+        .set_pixel(5, 5, [1, 2, 3, 255]);
+    doc.tool = Tool::SelectRect;
+    let (x0, y0) = doc.camera.to_screen(4.0, 4.0);
+    let (x1, y1) = doc.camera.to_screen(20.0, 20.0);
+    doc.pointer_down(x0, y0);
+    doc.pointer_up(x1, y1);
+    assert!(doc.selection.is_some());
+    assert!(doc.enter_transform());
+    doc.deselect();
+    assert!(doc.selection.is_none());
+    assert!(!doc.transform_active);
 }

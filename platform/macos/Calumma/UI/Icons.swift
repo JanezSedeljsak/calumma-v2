@@ -100,4 +100,8 @@ enum AppIcon {
     static func eyedropper(color: Color) -> some View {
         SvgIcon(name: "eyedropper", color: color)
     }
+
+    static func text(color: Color) -> some View {
+        SvgIcon(name: "text", color: color)
+    }
 }

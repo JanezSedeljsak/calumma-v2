@@ -13,19 +13,34 @@ bits use `{0}`, `{1}`, … filled by `l10n.formatKey(...)`. Visual tokens stay i
 
 ## Rules
 
-1. **Islands carry a thin border.** Every `CalmIsland` (tools, canvas, layers, Paste
-   Artwork, the zoom pill) is stroked with `color.islandBorder` — a subtle, low-alpha
-   tint of the theme's edge colour, not a hard line. Everywhere else, surfaces still
-   separate by background contrast only; do not add borders to non-island controls.
-   The one exception is a **section separator inside an island** (`CalmDivider`, used
-   by the tools panel to split tools / tool options / colour / AI): a 1px
-   `color.islandBorder` rule. It separates *stacked sections of one island*, which
-   contrast alone cannot do — it is not an outline around a control, which is what
-   the rule above and the "Do not" list forbid.
+1. **Islands and two kinds of control carry a thin border.** Every `CalmIsland` (tools,
+   canvas, layers, Paste Artwork, the zoom pill) is stroked with `color.islandBorder` —
+   a subtle, low-alpha tint of the theme's edge colour, not a hard line.
+
+   **Text/number inputs and list rows** also carry a border, at `color.controlBorder`:
+   a separate, stronger token, because `islandBorder` is tuned for a large rounded
+   island edge and at control scale reads as dirt rather than as an edge. An input
+   needs a visible hit target — where do I click to type — and a list row needs an
+   edge to make a stack of rows legible as a stack. Contrast alone does neither.
+   Applied via `calmSurface(bordered: true)`; a focused input swaps in
+   `color.controlFocusBorder` (accent-tinted), because once every input has a resting
+   border, a focus ring that is *also* just a border is invisible.
+
+   Everywhere else, surfaces still separate by background contrast only: **no borders
+   on buttons, chips, swatches, the tool grid, or sliders.** That is what this rule
+   still forbids, and it is why the input/row carve-out is written down rather than
+   generalised — "borders on everything" is the outcome this rule exists to prevent.
+
+   Also allowed: a **section separator inside an island** (`CalmDivider`, used by the
+   tools panel to split tools / tool options / colour / AI): a 1px `color.islandBorder`
+   rule. It separates *stacked sections of one island*, which contrast alone cannot do —
+   it is not an outline around a control.
 2. **Corner radius.** Controls use `radius.sm` / `radius.md`. Islands use `radius.island`
    (rounded, not square). Tools, canvas, and layers sit apart with a minimal gap
-   (`space.sm`) and a minimal margin from the window edge (`space.sm`) — they no longer
-   butt flush against each other. Prefer one radius family; do not mix pill and sharp.
+   (`space.sm`) and a minimal margin from the window edge (`space.sm`), tightened to
+   `space.xs` along the top edge — the titlebar already separates the islands from the
+   chrome above, so a full margin there reads as a dead band. They no longer butt flush
+   against each other. Prefer one radius family; do not mix pill and sharp.
 3. **Custom SVG icons only.** Ship icons from `design/icons/`. No icon packs.
    SF Symbols are not the product icon set (system chrome may still use them).
 4. **Light and dark.** Every colour has a light and dark value in tokens. The
@@ -58,6 +73,9 @@ bits use `{0}`, `{1}`, … filled by `l10n.formatKey(...)`. Visual tokens stay i
 | Desk | `color.desk` | Board background behind the paper. Light: matches island `surface`. Dark: a step darker than window `bg` so the board field reads recessed against raised islands. |
 | Desk grid | `color.deskGrid` | Board grid lines — must stay legible in light mode; stay quiet in dark mode so the desk reads with the chrome |
 | Paper border | `color.paperBorder` | Ring hugging the paper: dark on light, light on dark |
+| Island border | `color.islandBorder` | `CalmIsland` edge, `CalmDivider` section rules |
+| Control border | `color.controlBorder` | Resting edge on text/number inputs and list rows — stronger than `islandBorder`, which is tuned for a large island edge |
+| Control focus | `color.controlFocusBorder` | The same edge on a focused input; accent-tinted so focus stays visible against the resting border |
 
 Desk, desk grid, and paper border are the only tokens the engine consumes. They travel
 shell → `calm_engine_set_board_colors` → `PaperUniforms` → `board.wgsl`. Changing the board
@@ -94,8 +112,8 @@ clicking the dot opens the rename / recolour card. Top padding is tight (`space.
 board starts close under the titlebar.
 
 Tools, canvas, and layers are three **rounded, bordered islands**, full-height, separated
-by a minimal gap (`space.sm`) with a matching margin from the window edge — no longer flush
-or square-cornered. The **zoom pill** floats bottom-trailing *inside* the canvas island: `−`, log
+by a minimal gap (`space.sm`) with a matching margin from the window edge (half that under
+the titlebar) — no longer flush or square-cornered. The **zoom pill** floats bottom-trailing *inside* the canvas island: `−`, log
 slider, `+`, percentage, a fit-to-view icon (tooltip, no label). Layer list rows stay
 compact; hovering a row shows a thumbnail popover. Board hover outline remains a dashed
 WGSL stroke, not a Swift overlay.
@@ -105,7 +123,8 @@ margin around the screen.
 
 ## Do not
 
-- Add hairline borders “for clarity” outside `CalmIsland`'s own `islandBorder` stroke
+- Add hairline borders “for clarity” to buttons, chips, swatches, the tool grid, or
+  sliders — the `controlBorder` carve-out in rule 1 is inputs and list rows only
 - Import Lucide / Heroicons / Font Awesome / similar
 - Style the canvas with SwiftUI shapes on top of the Metal view
 - Duplicate token values in Swift or Rust source

@@ -10,6 +10,13 @@ const TRANSFORM_OUTLINE_WIDTH: f32 = 1.0;
 const TRANSFORM_HANDLE_COLOR: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
 const TRANSFORM_HANDLE_RADIUS: f32 = 4.0;
 
+const TEXT_BOX_COLOR: [f32; 4] = [0.24, 0.78, 0.84, 0.45];
+const TEXT_BOX_WIDTH: f32 = 0.5;
+const TEXT_CARET_WIDTH: f32 = 1.0;
+/// Seconds for one on-off caret cycle. The blink runs off the renderer clock rather than a
+/// shell timer, so nothing outside the engine has to know a caret exists.
+const TEXT_CARET_BLINK_SECONDS: f32 = 1.06;
+
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, Pod, Zeroable)]
 pub struct StrokeInstance {
@@ -50,6 +57,37 @@ pub fn transform_overlay_instances(handles: TransformHandles) -> Vec<StrokeInsta
             segment: [p.0, p.1, p.0, p.1],
             color: TRANSFORM_HANDLE_COLOR,
             radius: TRANSFORM_HANDLE_RADIUS,
+            _pad: [0.0; 3],
+        });
+    }
+    out
+}
+
+/// The board furniture for a live text session: a hairline box around the run's layout and
+/// a caret that blinks. Both are stroke segments, the same primitive the transform overlay
+/// and the lasso already draw with — no new pipeline, and nothing drawn in Swift.
+pub fn text_overlay_instances(doc: &Document, elapsed: f32) -> Vec<StrokeInstance> {
+    let Some((x0, y0, x1, y1)) = doc.text_box() else {
+        return Vec::new();
+    };
+    let mut out = Vec::with_capacity(5);
+    let corners = [(x0, y0), (x1, y0), (x1, y1), (x0, y1)];
+    for i in 0..4 {
+        let a = corners[i];
+        let b = corners[(i + 1) % 4];
+        out.push(StrokeInstance {
+            segment: [a.0, a.1, b.0, b.1],
+            color: TEXT_BOX_COLOR,
+            radius: TEXT_BOX_WIDTH,
+            _pad: [0.0; 3],
+        });
+    }
+    let visible = (elapsed / TEXT_CARET_BLINK_SECONDS).fract() < 0.5;
+    if let (true, Some((a, b))) = (visible, doc.text_caret_segment()) {
+        out.push(StrokeInstance {
+            segment: [a.0, a.1, b.0, b.1],
+            color: rgba_unit(doc.text_caret_color()),
+            radius: TEXT_CARET_WIDTH,
             _pad: [0.0; 3],
         });
     }

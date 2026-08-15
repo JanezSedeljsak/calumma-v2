@@ -350,3 +350,47 @@ fn workspace_crud_membership_and_open_tabs() {
     assert!(store.list_workspaces(8).unwrap().is_empty());
     assert!(store.open_workspace_tabs().unwrap().is_empty());
 }
+
+/// Paper is written to disk as one identical white blob per tile. Reading them back into
+/// separate allocations would undo the sharing a freshly created project has, so the loader
+/// hands every solid tile of a colour the same buffer.
+#[test]
+fn solid_tiles_come_back_sharing_one_allocation() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = ProjectStore::open(dir.path().join("t.sqlite")).unwrap();
+    let mut doc = store.create("Paper", 1024, 1024).unwrap();
+    store.save(&mut doc).unwrap();
+
+    let reopened = store.open_project(&doc.id).unwrap();
+    let paper = reopened.layers.iter().find(|l| l.is_paper()).unwrap();
+    let grid = paper.tiles().unwrap();
+    let mut coords: Vec<_> = grid.coords().collect();
+    coords.sort_by_key(|c| (c.y, c.x));
+    assert!(coords.len() >= 16, "a 1024px paper covers 4x4 tiles");
+
+    let first = grid.get(coords[0]).unwrap();
+    for coord in &coords[1..] {
+        assert!(
+            std::sync::Arc::ptr_eq(first, grid.get(*coord).unwrap()),
+            "every white tile shares one buffer after a reload"
+        );
+    }
+    assert_eq!(grid.get_pixel(900, 900), [255, 255, 255, 255]);
+}
+
+#[test]
+fn a_painted_tile_is_not_shared_with_the_solid_ones() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = ProjectStore::open(dir.path().join("t.sqlite")).unwrap();
+    let mut doc = store.create("Mixed", 512, 512).unwrap();
+    doc.layers[0]
+        .tiles_mut()
+        .unwrap()
+        .set_pixel(5, 5, [1, 2, 3, 255]);
+    store.save(&mut doc).unwrap();
+
+    let reopened = store.open_project(&doc.id).unwrap();
+    let grid = reopened.layers[0].tiles().unwrap();
+    assert_eq!(grid.get_pixel(5, 5), [1, 2, 3, 255]);
+    assert_eq!(grid.get_pixel(300, 300), [255, 255, 255, 255]);
+}

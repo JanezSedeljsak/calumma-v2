@@ -28,6 +28,22 @@ impl ActiveRenderer {
         }
     }
 
+    pub(crate) fn release_document(&mut self) {
+        match self {
+            Self::Gpu(renderer) => renderer.release_document(),
+            #[cfg(test)]
+            Self::Stub => {}
+        }
+    }
+
+    pub(crate) fn gpu_tile_bytes(&self) -> usize {
+        match self {
+            Self::Gpu(renderer) => renderer.gpu_tile_bytes(),
+            #[cfg(test)]
+            Self::Stub => 0,
+        }
+    }
+
     pub(crate) fn render(&mut self, doc: &mut Document) {
         match self {
             Self::Gpu(renderer) => renderer.render(doc),

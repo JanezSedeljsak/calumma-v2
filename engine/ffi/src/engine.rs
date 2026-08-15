@@ -3,10 +3,10 @@ use crate::platform::{parse_op_kind, CalmPlatformOps, PlatformOp};
 use anyhow::{anyhow, bail, Context};
 use calumma_core::limits::{AUTOSAVE_INTERVAL_MS, BRUSH_SIZE_MAX, BRUSH_SIZE_MIN, IMPORT_MAX_SIDE};
 use calumma_core::{
-    project_color, unpremultiply_rgba, Adjustments, BlendMode, BoardColors, Document, Tool,
-    PROJECT_COLORS,
+    project_color, unpremultiply_rgba, AdjustmentKind, Adjustments, BlendMode, BoardColors,
+    Document, Tool, PROJECT_COLORS,
 };
-use calumma_io::{encode_psd, ProjectListItem, ProjectStore};
+use calumma_io::{encode_psd, encode_svg, ProjectListItem, ProjectStore};
 use calumma_ops::{
     apply_output, layer_input, run_op_on_document, Backend, Op, OpParams, OpRegistry,
 };
@@ -88,10 +88,7 @@ fn unpack_rgba(packed: u32) -> [u8; 4] {
 }
 
 fn pack_rgba(rgba: [u8; 4]) -> u32 {
-    ((rgba[0] as u32) << 24)
-        | ((rgba[1] as u32) << 16)
-        | ((rgba[2] as u32) << 8)
-        | rgba[3] as u32
+    ((rgba[0] as u32) << 24) | ((rgba[1] as u32) << 16) | ((rgba[2] as u32) << 8) | rgba[3] as u32
 }
 
 pub(crate) struct Inner {
@@ -131,6 +128,40 @@ impl Inner {
             registry: OpRegistry::new(),
             platform_ops: None,
         })
+    }
+
+    pub(crate) fn mark_dirty_save(&mut self) {
+        self.dirty_save = true;
+    }
+
+    pub(crate) fn invalidate_renderer(&mut self) {
+        if let Some(r) = &mut self.renderer {
+            r.invalidate();
+        }
+    }
+
+    /// What every document mutation owes the rest of the app: the next frame is stale and so
+    /// is the file on disk.
+    pub(crate) fn edited(&mut self) {
+        self.mark_dirty_save();
+        self.invalidate_renderer();
+    }
+
+    /// Save and let go. One document is resident at a time, and the moment it stops being
+    /// the open one, everything it cost — tiles, history, and the GPU textures the renderer
+    /// cached for it — goes back: nothing of a project you are not working on stays in
+    /// memory.
+    pub(crate) fn close_document(&mut self) {
+        if let Some(mut doc) = self.doc.take() {
+            let _ = self.store.save(&mut doc);
+        }
+        self.release_gpu_resources();
+    }
+
+    pub(crate) fn release_gpu_resources(&mut self) {
+        if let Some(r) = &mut self.renderer {
+            r.release_document();
+        }
     }
 
     fn autosave(&mut self) {
@@ -197,6 +228,44 @@ where
             CalmStatus::Error
         }
     }
+}
+
+/// Read-only counterpart to `with_inner`, for the getters whose C signature carries a value
+/// rather than a `CalmStatus`: locks, reads the document, and answers `fallback` for every
+/// failure the ABI cannot describe (null engine, no project, poisoned lock, panic).
+pub(crate) fn read_doc<T>(
+    engine: *mut CalmEngine,
+    fallback: T,
+    f: impl FnOnce(&Document) -> T,
+) -> T {
+    if engine.is_null() {
+        return fallback;
+    }
+    match catch_unwind(AssertUnwindSafe(|| {
+        let mutex = unsafe { &*(engine as *const Mutex<Inner>) };
+        let inner = mutex.lock().ok()?;
+        let doc = inner.doc.as_ref()?;
+        Some(f(doc))
+    })) {
+        Ok(Some(value)) => value,
+        _ => fallback,
+    }
+}
+
+/// GPU-side bytes, read under the same lock as everything else. Separate from `read_doc`
+/// because the renderer outlives any one document — it answers even when nothing is open.
+pub(crate) fn renderer_gpu_bytes(engine: *mut CalmEngine) -> usize {
+    if engine.is_null() {
+        return 0;
+    }
+    catch_unwind(AssertUnwindSafe(|| {
+        let mutex = unsafe { &*(engine as *const Mutex<Inner>) };
+        let inner = mutex.lock().ok()?;
+        Some(inner.renderer.as_ref().map_or(0, |r| r.gpu_tile_bytes()))
+    }))
+    .ok()
+    .flatten()
+    .unwrap_or(0)
 }
 
 pub(crate) fn cstring(s: &str) -> *mut c_char {
@@ -626,6 +695,9 @@ pub unsafe extern "C" fn calm_engine_set_tool(engine: *mut CalmEngine, tool: u32
     with_inner(engine, |inner| {
         if let Some(doc) = &mut inner.doc {
             let next = Tool::from_u32(tool).with_context(|| format!("unknown tool id {tool}"))?;
+            if next != Tool::Text {
+                doc.commit_text();
+            }
             if next == Tool::Transform {
                 doc.toggle_transform();
             } else {
@@ -633,6 +705,7 @@ pub unsafe extern "C" fn calm_engine_set_tool(engine: *mut CalmEngine, tool: u32
                 doc.tool = next;
             }
         }
+        inner.invalidate_renderer();
         Ok(())
     })
 }
@@ -647,8 +720,9 @@ pub unsafe extern "C" fn calm_engine_set_color(
 ) -> CalmStatus {
     with_inner(engine, |inner| {
         if let Some(doc) = &mut inner.doc {
-            doc.color = [r, g, b, a];
+            doc.set_color([r, g, b, a]);
         }
+        inner.invalidate_renderer();
         Ok(())
     })
 }
@@ -1057,6 +1131,28 @@ pub unsafe extern "C" fn calm_engine_set_layer_adjustments(
 }
 
 #[no_mangle]
+pub unsafe extern "C" fn calm_engine_nudge_layer_adjustment(
+    engine: *mut CalmEngine,
+    index: u32,
+    kind: u32,
+    steps: f32,
+) -> CalmStatus {
+    with_inner(engine, |inner| {
+        let doc = inner.doc.as_mut().context("no project is open")?;
+        let kind = AdjustmentKind::from_u32(kind)
+            .with_context(|| format!("unknown adjustment kind {kind}"))?;
+        if !doc.nudge_layer_adjustment(index as usize, kind, steps) {
+            return Ok(());
+        }
+        inner.dirty_save = true;
+        if let Some(r) = &mut inner.renderer {
+            r.invalidate();
+        }
+        Ok(())
+    })
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn calm_engine_layer_adjustments(
     engine: *mut CalmEngine,
     index: u32,
@@ -1235,11 +1331,11 @@ pub unsafe extern "C" fn calm_engine_layer_thumbnail(
             .with_context(|| format!("layer index {layer_index} out of range"))?;
         let (w, h, rgba) = if let Some(tiles) = layer.tiles() {
             tiles.thumbnail(max_side.max(1))
-        } else if let Some(paths) = layer.content.paths() {
+        } else if let Some(items) = layer.content.items() {
             let side = max_side.clamp(1, 64);
-            let color = paths
+            let color = items
                 .first()
-                .map(|p| p.color)
+                .map(|item| item.color())
                 .unwrap_or([255, 255, 255, 255]);
             let mut rgba = vec![0u8; (side * side * 4) as usize];
             for px in rgba.chunks_exact_mut(4) {
@@ -1394,6 +1490,26 @@ pub unsafe extern "C" fn calm_engine_layer_svg(
             .layer_svg(layer_index as usize)
             .context("layer has no vector content")?;
         CString::new(svg).context("svg contained an interior NUL")
+    })) {
+        Ok(Ok(svg)) => svg.into_raw(),
+        _ => ptr::null_mut(),
+    }
+}
+
+/// The whole visible stack as one SVG: vector layers as real primitives, everything with
+/// pixels as an embedded PNG. Layered, unlike the flattened raster exports.
+#[no_mangle]
+pub unsafe extern "C" fn calm_engine_export_svg(engine: *mut CalmEngine) -> *mut c_char {
+    if engine.is_null() {
+        return ptr::null_mut();
+    }
+    match catch_unwind(AssertUnwindSafe(|| {
+        let mutex = unsafe { &*(engine as *const Mutex<Inner>) };
+        let inner = mutex
+            .lock()
+            .map_err(|_| anyhow!("engine mutex poisoned by an earlier panic"))?;
+        let doc = inner.doc.as_ref().context("no project is open")?;
+        CString::new(encode_svg(doc)).context("svg contained an interior NUL")
     })) {
         Ok(Ok(svg)) => svg.into_raw(),
         _ => ptr::null_mut(),
@@ -1624,9 +1740,7 @@ pub unsafe extern "C" fn calm_project_open(
         let id = unsafe { CStr::from_ptr(id) }
             .to_str()
             .context("project id is not valid UTF-8")?;
-        if let Some(mut old) = inner.doc.take() {
-            let _ = inner.store.save(&mut old);
-        }
+        inner.close_document();
         let mut doc = inner
             .store
             .open_project(id)
@@ -1646,9 +1760,7 @@ pub unsafe extern "C" fn calm_project_open(
 #[no_mangle]
 pub unsafe extern "C" fn calm_project_close(engine: *mut CalmEngine) -> CalmStatus {
     with_inner(engine, |inner| {
-        if let Some(mut doc) = inner.doc.take() {
-            let _ = inner.store.save(&mut doc);
-        }
+        inner.close_document();
         Ok(())
     })
 }
@@ -1705,6 +1817,7 @@ pub unsafe extern "C" fn calm_project_delete(
         inner.store.delete(id).context("deleting project")?;
         if inner.doc.as_ref().map(|d| d.id.as_str()) == Some(id) {
             inner.doc = None;
+            inner.release_gpu_resources();
         }
         Ok(())
     })
@@ -1881,10 +1994,7 @@ mod stub_renderer_tests {
             );
             assert_eq!(calm_engine_resize(ptr, 160, 120, 1.0), CalmStatus::Ok);
             assert_eq!(calm_engine_render(ptr), CalmStatus::Ok);
-            assert_eq!(
-                calm_engine_set_tool(ptr, Tool::Pen as u32),
-                CalmStatus::Ok
-            );
+            assert_eq!(calm_engine_set_tool(ptr, Tool::Pen as u32), CalmStatus::Ok);
             assert_eq!(calm_engine_pointer_down(ptr, 10.0, 10.0), CalmStatus::Ok);
             assert_eq!(calm_engine_pointer_move(ptr, 20.0, 20.0), CalmStatus::Ok);
             assert_eq!(calm_engine_pointer_up(ptr, 20.0, 20.0), CalmStatus::Ok);

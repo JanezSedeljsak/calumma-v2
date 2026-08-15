@@ -104,7 +104,10 @@ pub fn encode(doc: &Document) -> Vec<u8> {
 
     let mut prepared: Vec<PreparedLayer> = Vec::new();
     for (index, layer) in doc.layers.iter().enumerate() {
-        if !layer.content.is_raster() {
+        // A vector layer reaches the PSD as pixels, not as a shape layer: this writer emits
+        // raster channels only, and dropping the layer entirely would lose artwork that is on
+        // the board. `Document::layer_rgba` rasterizes it the same way the composite does.
+        if layer.tiles().is_none() && layer.content.items().is_none() {
             continue;
         }
         let Some((w, h, rgba)) = doc.layer_rgba(index) else {
@@ -212,6 +215,34 @@ mod tests {
         assert!(layer_info_len > 0);
         let layer_count = read_u16(&bytes, 42);
         assert_eq!(layer_count, 3);
+    }
+
+    /// A vector layer has no tiles of its own, so it used to fall out of the export entirely.
+    /// PSD has no shape layer in this writer, but dropping the artwork is worse than
+    /// rasterizing it.
+    #[test]
+    fn a_vector_layer_reaches_the_psd_as_pixels() {
+        use calumma_core::vector::{VectorItem, VectorShape};
+        use calumma_core::{Shape, Tool};
+
+        let mut doc = Document::new("p".into(), "t", 32, 32);
+        let flat = encode(&doc);
+        let flat_layers = read_u16(&flat, 42);
+
+        let index = doc.add_vector_layer("Shapes");
+        *doc.layers[index].content.items_mut().unwrap() = vec![VectorItem::Shape(VectorShape {
+            shape: Shape {
+                tool: Tool::Rect,
+                start: (4.0, 4.0),
+                end: (20.0, 20.0),
+                half_width: 1.0,
+                fill: true,
+            },
+            color: [255, 0, 0, 255],
+        })];
+        let bytes = encode(&doc);
+        assert_eq!(read_u16(&bytes, 42), flat_layers + 1);
+        assert!(bytes.len() > flat.len());
     }
 
     #[test]

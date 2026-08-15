@@ -71,8 +71,14 @@ fn every_status_entry_point_rejects_a_null_engine() {
         assert_eq!(calm_engine_set_tool(e, 0), CalmStatus::Null);
         assert_eq!(calm_engine_set_color(e, 1, 2, 3, 4), CalmStatus::Null);
         let mut picked = 0u32;
-        assert_eq!(calm_engine_sample_color(e, 0.0, 0.0, &mut picked), CalmStatus::Null);
-        assert_eq!(calm_engine_pick_color(e, 0.0, 0.0, &mut picked), CalmStatus::Null);
+        assert_eq!(
+            calm_engine_sample_color(e, 0.0, 0.0, &mut picked),
+            CalmStatus::Null
+        );
+        assert_eq!(
+            calm_engine_pick_color(e, 0.0, 0.0, &mut picked),
+            CalmStatus::Null
+        );
         assert_eq!(calm_engine_set_brush(e, 4.0), CalmStatus::Null);
         assert_eq!(calm_engine_set_fill(e, 1), CalmStatus::Null);
         assert_eq!(calm_engine_set_dark(e, 1), CalmStatus::Null);
@@ -88,6 +94,10 @@ fn every_status_entry_point_rejects_a_null_engine() {
         assert_eq!(calm_engine_set_layer_opacity(e, 0, 1.0), CalmStatus::Null);
         assert_eq!(calm_engine_set_layer_blend_mode(e, 0, 0), CalmStatus::Null);
         assert_eq!(calm_engine_reset_layer_transform(e, 0), CalmStatus::Null);
+        assert_eq!(
+            calm_engine_nudge_layer_adjustment(e, 0, 0, 1.0),
+            CalmStatus::Null
+        );
         assert_eq!(calm_engine_toggle_transform(e), CalmStatus::Null);
         assert_eq!(calm_engine_exit_transform(e), CalmStatus::Null);
         assert_eq!(calm_engine_set_hover_layer(e, 0 as c_int), CalmStatus::Null);
@@ -212,10 +222,20 @@ fn data_returning_entry_points_error_with_no_project_open() {
         assert_eq!(calm_engine_set_layer_opacity(e, 0, 0.5), CalmStatus::Error);
         assert_eq!(calm_engine_set_layer_blend_mode(e, 0, 1), CalmStatus::Error);
         assert_eq!(calm_engine_reset_layer_transform(e, 0), CalmStatus::Error);
+        assert_eq!(
+            calm_engine_nudge_layer_adjustment(e, 0, 0, 1.0),
+            CalmStatus::Error
+        );
         assert_eq!(calm_engine_toggle_transform(e), CalmStatus::Error);
         let mut picked = 0u32;
-        assert_eq!(calm_engine_pick_color(e, 0.0, 0.0, &mut picked), CalmStatus::Error);
-        assert_eq!(calm_engine_sample_color(e, 0.0, 0.0, &mut picked), CalmStatus::Error);
+        assert_eq!(
+            calm_engine_pick_color(e, 0.0, 0.0, &mut picked),
+            CalmStatus::Error
+        );
+        assert_eq!(
+            calm_engine_sample_color(e, 0.0, 0.0, &mut picked),
+            CalmStatus::Error
+        );
 
         let mut buf: *mut u8 = ptr::null_mut();
         let mut w = 0u32;
@@ -283,6 +303,10 @@ fn out_of_range_layer_index_is_silently_ignored_by_the_setter_family() {
         assert_eq!(calm_engine_set_layer_opacity(e, huge, 0.5), CalmStatus::Ok);
         assert_eq!(calm_engine_set_layer_blend_mode(e, huge, 0), CalmStatus::Ok);
         assert_eq!(calm_engine_reset_layer_transform(e, huge), CalmStatus::Ok);
+        assert_eq!(
+            calm_engine_nudge_layer_adjustment(e, huge, 0, 1.0),
+            CalmStatus::Ok
+        );
 
         let real = 0u32;
         assert_eq!(calm_engine_layer_opacity(e, real), 1.0);
@@ -299,6 +323,10 @@ fn setters_reject_unknown_enum_discriminants() {
         let active = 0u32;
         assert_ne!(
             calm_engine_set_layer_blend_mode(e, active, 9999),
+            CalmStatus::Ok
+        );
+        assert_ne!(
+            calm_engine_nudge_layer_adjustment(e, active, 9999, 1.0),
             CalmStatus::Ok
         );
         calm_engine_free(e);

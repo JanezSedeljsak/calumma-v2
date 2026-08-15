@@ -109,6 +109,9 @@ struct L10nCatalog: Equatable {
     var artworkImportFailed: String { self["artworkImportFailed"] }
     var layers: String { self["layers"] }
     var fill: String { self["fill"] }
+    var memoryUsed: String { self["memoryUsed"] }
+    var vectorMode: String { self["vectorMode"] }
+    var vectorModeHint: String { self["vectorModeHint"] }
     var shapes: String { self["shapes"] }
     var zoom: String { self["zoom"] }
     var ai: String { self["ai"] }
@@ -120,6 +123,8 @@ struct L10nCatalog: Equatable {
     var themeLight: String { self["themeLight"] }
     var themeDark: String { self["themeDark"] }
     var boardMenu: String { self["boardMenu"] }
+    var filtersMenu: String { self["filtersMenu"] }
+    var enterFullScreen: String { self["enterFullScreen"] }
     var newProjectMenu: String { self["newProjectMenu"] }
     var fitToView: String { self["fitToView"] }
     var toggleLayers: String { self["toggleLayers"] }
@@ -157,6 +162,19 @@ struct L10nCatalog: Equatable {
     var toolBucket: String { self["toolBucket"] }
     var toolEyedropper: String { self["toolEyedropper"] }
     var toolTransform: String { self["toolTransform"] }
+    var toolText: String { self["toolText"] }
+    var textFont: String { self["textFont"] }
+    var textSize: String { self["textSize"] }
+    var textAlignLeft: String { self["textAlignLeft"] }
+    var textAlignCenter: String { self["textAlignCenter"] }
+    var textAlignRight: String { self["textAlignRight"] }
+    var textNoFonts: String { self["textNoFonts"] }
+    var textLineHeight: String { self["textLineHeight"] }
+    var textBold: String { self["textBold"] }
+    var textItalic: String { self["textItalic"] }
+    var layerRasterizeText: String { self["layerRasterizeText"] }
+    var exportLayer: String { self["exportLayer"] }
+    var editText: String { self["editText"] }
     var toolLine: String { self["toolLine"] }
     var toolRect: String { self["toolRect"] }
     var toolEllipse: String { self["toolEllipse"] }

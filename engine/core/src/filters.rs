@@ -1,3 +1,52 @@
+use crate::limits::{ADJUSTMENT_NUDGE_STEP, GAMMA_NUDGE_STEP};
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AdjustmentKind {
+    Brightness,
+    Contrast,
+    Vibrance,
+    Saturation,
+    LevelsGamma,
+}
+
+impl AdjustmentKind {
+    pub const ALL: [AdjustmentKind; 5] = [
+        Self::Brightness,
+        Self::Contrast,
+        Self::Vibrance,
+        Self::Saturation,
+        Self::LevelsGamma,
+    ];
+
+    pub fn from_u32(value: u32) -> Option<Self> {
+        match value {
+            0 => Some(Self::Brightness),
+            1 => Some(Self::Contrast),
+            2 => Some(Self::Vibrance),
+            3 => Some(Self::Saturation),
+            4 => Some(Self::LevelsGamma),
+            _ => None,
+        }
+    }
+
+    pub fn as_u32(self) -> u32 {
+        match self {
+            Self::Brightness => 0,
+            Self::Contrast => 1,
+            Self::Vibrance => 2,
+            Self::Saturation => 3,
+            Self::LevelsGamma => 4,
+        }
+    }
+
+    pub fn step(self) -> f32 {
+        match self {
+            Self::LevelsGamma => GAMMA_NUDGE_STEP,
+            _ => ADJUSTMENT_NUDGE_STEP,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Adjustments {
     pub brightness: f32,
@@ -36,6 +85,29 @@ impl Adjustments {
             && self.vibrance == 0.0
             && self.saturation == 0.0
             && self.levels_gamma == 1.0
+    }
+
+    pub fn value(&self, kind: AdjustmentKind) -> f32 {
+        match kind {
+            AdjustmentKind::Brightness => self.brightness,
+            AdjustmentKind::Contrast => self.contrast,
+            AdjustmentKind::Vibrance => self.vibrance,
+            AdjustmentKind::Saturation => self.saturation,
+            AdjustmentKind::LevelsGamma => self.levels_gamma,
+        }
+    }
+
+    pub fn nudged(self, kind: AdjustmentKind, steps: f32) -> Self {
+        let delta = kind.step() * steps;
+        let mut next = self;
+        match kind {
+            AdjustmentKind::Brightness => next.brightness += delta,
+            AdjustmentKind::Contrast => next.contrast += delta,
+            AdjustmentKind::Vibrance => next.vibrance += delta,
+            AdjustmentKind::Saturation => next.saturation += delta,
+            AdjustmentKind::LevelsGamma => next.levels_gamma += delta,
+        }
+        next.clamped()
     }
 }
 

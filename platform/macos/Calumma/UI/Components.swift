@@ -128,13 +128,15 @@ struct CalmIsland<Content: View>: View {
 struct CalmField: View {
     @Environment(\.themeColors) private var colors
     @Binding var text: String
+    @FocusState private var focused: Bool
 
     var body: some View {
         TextField("", text: $text)
             .textFieldStyle(.plain)
+            .focused($focused)
             .padding(.horizontal, Tokens.Space.md)
             .padding(.vertical, Tokens.Space.md)
-            .calmSurface()
+            .calmSurface(bordered: true, focused: focused)
             .foregroundStyle(colors.text)
     }
 }
@@ -143,14 +145,16 @@ struct CalmNumberField: View {
     @Environment(\.themeColors) private var colors
     @Binding var value: Int
     var width: CGFloat = 88
+    @FocusState private var focused: Bool
 
     var body: some View {
         TextField("", value: $value, format: .number)
             .textFieldStyle(.plain)
+            .focused($focused)
             .frame(width: width)
             .padding(.horizontal, Tokens.Space.md)
             .padding(.vertical, Tokens.Space.md)
-            .calmSurface()
+            .calmSurface(bordered: true, focused: focused)
             .foregroundStyle(colors.text)
     }
 }
@@ -280,7 +284,7 @@ struct CalmRowButton<Content: View>: View {
             content()
                 .padding(Tokens.Space.md)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .calmSurface()
+                .calmSurface(bordered: true)
         }
         .buttonStyle(.plain)
         .calmPointer()

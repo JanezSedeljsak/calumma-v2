@@ -127,6 +127,7 @@ final class BoardMTKView: MTKView {
     /// shortcuts the catcher does — otherwise the keyboard goes dead after the first stroke
     /// and a held Space never gets its key-up, wedging the board in pan mode.
     nonisolated(unsafe) weak var app: AppModel?
+    var markedTextValue = ""
     private var lastDrag: CGPoint?
     private var painting = false
     private var panning = false
@@ -134,7 +135,23 @@ final class BoardMTKView: MTKView {
 
     override var acceptsFirstResponder: Bool { true }
 
+    /// While a text layer is open, the keyboard belongs to it — `interpretKeyEvents` turns
+    /// the event into `insertText` or a `doCommand` selector (see `BoardTextInput`). Only
+    /// command chords still reach the editor shortcuts, so ⌘Z and ⌘S keep working mid-word
+    /// while a bare `p` types a p instead of selecting the pen.
     override func keyDown(with event: NSEvent) {
+        if isTypingOnBoard {
+            let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            if flags.contains(.command) {
+                let handled = MainActor.assumeIsolated { app?.handleEditorKeyDown(event) ?? false }
+                if !handled {
+                    super.keyDown(with: event)
+                }
+                return
+            }
+            interpretKeyEvents([event])
+            return
+        }
         let handled = MainActor.assumeIsolated { app?.handleEditorKeyDown(event) ?? false }
         if !handled {
             super.keyDown(with: event)
@@ -142,6 +159,9 @@ final class BoardMTKView: MTKView {
     }
 
     override func keyUp(with event: NSEvent) {
+        if isTypingOnBoard {
+            return
+        }
         let handled = MainActor.assumeIsolated { app?.handleEditorKeyUp(event) ?? false }
         if !handled {
             super.keyUp(with: event)
@@ -227,6 +247,15 @@ final class BoardMTKView: MTKView {
                     app?.applyEyedropperSample(color, at: uiPoint)
                 }
             }
+            refreshCursor()
+        } else if MainActor.assumeIsolated({ app?.tool == .text }) {
+            // A click with the Text tool opens or re-enters a layer, so the board has to own
+            // the keyboard before the next keystroke and the layers panel has to hear about
+            // the new layer straight away.
+            window?.makeFirstResponder(self)
+            markedTextValue = ""
+            coordinator.engine.pointerDown(x: Float(point.x), y: Float(point.y))
+            coordinator.engine.refreshLayers()
             refreshCursor()
         } else {
             painting = true
@@ -374,6 +403,8 @@ final class BoardMTKView: MTKView {
             cursor = .openHand
         } else if zoomChord {
             cursor = .zoomIn
+        } else if MainActor.assumeIsolated({ app?.tool == .text }) {
+            cursor = .iBeam
         } else {
             cursor = .crosshair
         }

@@ -1,0 +1,8 @@
+[package]
+name = "calumma-text"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+cosmic-text = { workspace = true }

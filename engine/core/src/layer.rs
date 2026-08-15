@@ -1,6 +1,9 @@
 use crate::filters::Adjustments;
+use crate::limits::PAPER_WHITE;
 use crate::tile::{DirtyChannel, DocRect, TileCoord, TileGrid, TILE_SIZE};
 use crate::transform::LayerTransform;
+use crate::vector::{items_bounds, VectorItem};
+use calumma_text::TextRun;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use uuid::Uuid;
@@ -32,24 +35,28 @@ impl BlendMode {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
-pub struct VectorPath {
-    pub points: Vec<(f32, f32)>,
-    pub closed: bool,
-    pub fill: bool,
-    pub color: [u8; 4],
-    pub stroke_width: f32,
-}
-
+/// `Text` keeps its pixels in a `TileGrid` like any painted layer, but that grid is a
+/// *cache* of `run` rather than the content itself — `text_layer::resync` rebuilds it
+/// whenever the run changes. That is what lets a text layer stay editable forever while
+/// compositing, masks, blend modes, export and the GPU upload path keep reading plain tiles
+/// and needing to know nothing about glyphs.
 #[derive(Clone, Debug, PartialEq)]
 pub enum LayerContent {
     Raster(TileGrid),
-    Vector(Vec<VectorPath>),
+    Vector(Vec<VectorItem>),
+    Text { run: Box<TextRun>, tiles: TileGrid },
 }
 
 impl LayerContent {
     pub fn raster(width: u32, height: u32) -> Self {
         Self::Raster(TileGrid::new(width, height))
+    }
+
+    pub fn text(run: TextRun, width: u32, height: u32) -> Self {
+        Self::Text {
+            run: Box::new(run),
+            tiles: TileGrid::new(width, height),
+        }
     }
 
     pub fn is_raster(&self) -> bool {
@@ -60,24 +67,49 @@ impl LayerContent {
         matches!(self, Self::Vector(_))
     }
 
+    pub fn is_text(&self) -> bool {
+        matches!(self, Self::Text { .. })
+    }
+
     pub fn tiles(&self) -> Option<&TileGrid> {
         match self {
-            Self::Raster(tiles) => Some(tiles),
+            Self::Raster(tiles) | Self::Text { tiles, .. } => Some(tiles),
             Self::Vector(_) => None,
         }
     }
 
     pub fn tiles_mut(&mut self) -> Option<&mut TileGrid> {
         match self {
-            Self::Raster(tiles) => Some(tiles),
+            Self::Raster(tiles) | Self::Text { tiles, .. } => Some(tiles),
             Self::Vector(_) => None,
         }
     }
 
-    pub fn paths(&self) -> Option<&[VectorPath]> {
+    pub fn items(&self) -> Option<&[VectorItem]> {
         match self {
-            Self::Vector(paths) => Some(paths.as_slice()),
-            Self::Raster(_) => None,
+            Self::Vector(items) => Some(items.as_slice()),
+            Self::Raster(_) | Self::Text { .. } => None,
+        }
+    }
+
+    pub fn items_mut(&mut self) -> Option<&mut Vec<VectorItem>> {
+        match self {
+            Self::Vector(items) => Some(items),
+            Self::Raster(_) | Self::Text { .. } => None,
+        }
+    }
+
+    pub fn run(&self) -> Option<&TextRun> {
+        match self {
+            Self::Text { run, .. } => Some(run),
+            Self::Raster(_) | Self::Vector(_) => None,
+        }
+    }
+
+    pub fn run_mut(&mut self) -> Option<&mut TextRun> {
+        match self {
+            Self::Text { run, .. } => Some(run),
+            Self::Raster(_) | Self::Vector(_) => None,
         }
     }
 }
@@ -114,12 +146,12 @@ impl Layer {
         }
     }
 
-    pub fn vector(name: impl Into<String>, paths: Vec<VectorPath>) -> Self {
+    pub fn vector(name: impl Into<String>, items: Vec<VectorItem>) -> Self {
         Self {
             id: Uuid::new_v4().to_string(),
             name: name.into(),
             visible: true,
-            content: LayerContent::Vector(paths),
+            content: LayerContent::Vector(items),
             opacity: 1.0,
             blend_mode: BlendMode::Normal,
             adjustments: None,
@@ -132,13 +164,47 @@ impl Layer {
         let mut layer = Self::new(crate::names::PAPER, width, height);
         let bounds = DocRect::from_size(width.max(1), height.max(1));
         if let Some(tiles) = layer.tiles_mut() {
-            tiles.paint_rect(bounds, |_, _, _| Some([255, 255, 255, 255]));
+            tiles.fill_uniform(bounds, PAPER_WHITE);
         }
+        layer
+    }
+
+    pub fn text(name: impl Into<String>, run: TextRun, width: u32, height: u32) -> Self {
+        let mut layer = Self {
+            id: Uuid::new_v4().to_string(),
+            name: name.into(),
+            visible: true,
+            content: LayerContent::text(run, width, height),
+            opacity: 1.0,
+            blend_mode: BlendMode::Normal,
+            adjustments: None,
+            transform: None,
+            mask: None,
+        };
+        crate::text_layer::resync(&mut layer);
         layer
     }
 
     pub fn is_paper(&self) -> bool {
         self.name == crate::names::PAPER
+    }
+
+    pub fn is_text(&self) -> bool {
+        self.content.is_text()
+    }
+
+    pub fn run(&self) -> Option<&TextRun> {
+        self.content.run()
+    }
+
+    /// Replaces a text layer's run and repaints its tile cache from it, so the pixels never
+    /// disagree with the string they came from.
+    pub fn set_run(&mut self, run: TextRun) -> bool {
+        let Some(slot) = self.content.run_mut() else {
+            return false;
+        };
+        *slot = run;
+        crate::text_layer::resync(self)
     }
 
     pub fn tiles(&self) -> Option<&TileGrid> {
@@ -211,7 +277,7 @@ impl Layer {
 
     pub fn content_bounds(&self) -> Option<(f32, f32, f32, f32)> {
         match &self.content {
-            LayerContent::Raster(tiles) => {
+            LayerContent::Raster(tiles) | LayerContent::Text { tiles, .. } => {
                 if tiles.is_empty() {
                     return None;
                 }
@@ -238,36 +304,20 @@ impl Layer {
                     r.max_y.min(tiles.height as i32) as f32,
                 ))
             }
-            LayerContent::Vector(paths) => {
-                if paths.is_empty() {
-                    return None;
-                }
-                let mut min_x = f32::INFINITY;
-                let mut min_y = f32::INFINITY;
-                let mut max_x = f32::NEG_INFINITY;
-                let mut max_y = f32::NEG_INFINITY;
-                for path in paths {
-                    for &(x, y) in &path.points {
-                        min_x = min_x.min(x);
-                        min_y = min_y.min(y);
-                        max_x = max_x.max(x);
-                        max_y = max_y.max(y);
-                    }
-                }
-                if !min_x.is_finite() {
-                    None
-                } else {
-                    Some((min_x, min_y, max_x, max_y))
-                }
-            }
+            LayerContent::Vector(items) => items_bounds(items),
         }
     }
 
     pub fn opaque_pixel_bounds(&self) -> Option<(f32, f32, f32, f32)> {
         match &self.content {
-            LayerContent::Raster(tiles) => {
+            LayerContent::Raster(tiles) | LayerContent::Text { tiles, .. } => {
                 let r = tiles.opaque_bounds()?;
-                Some((r.min_x as f32, r.min_y as f32, r.max_x as f32 + 1.0, r.max_y as f32 + 1.0))
+                Some((
+                    r.min_x as f32,
+                    r.min_y as f32,
+                    r.max_x as f32 + 1.0,
+                    r.max_y as f32 + 1.0,
+                ))
             }
             LayerContent::Vector(_) => self.content_bounds(),
         }

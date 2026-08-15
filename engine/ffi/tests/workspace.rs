@@ -339,7 +339,10 @@ fn workspace_ffi_null_and_error_guards() {
             calm_workspace_set_accent(engine.ptr, ptr::null(), 0),
             CalmStatus::Null
         );
-        assert_eq!(calm_workspace_touch(engine.ptr, ptr::null()), CalmStatus::Null);
+        assert_eq!(
+            calm_workspace_touch(engine.ptr, ptr::null()),
+            CalmStatus::Null
+        );
         assert_eq!(
             calm_workspace_delete(engine.ptr, ptr::null()),
             CalmStatus::Null
@@ -356,10 +359,7 @@ fn workspace_ffi_null_and_error_guards() {
             calm_workspace_projects(engine.ptr, ptr::null(), projects.as_mut_ptr(), 1),
             0
         );
-        assert_eq!(
-            calm_open_workspace_tabs(engine.ptr, ptr::null_mut(), 1),
-            0
-        );
+        assert_eq!(calm_open_workspace_tabs(engine.ptr, ptr::null_mut(), 1), 0);
         assert!(calm_workspace_create(engine.ptr, ptr::null()).is_null());
         assert!(
             calm_workspace_create_for_project(engine.ptr, ptr::null(), text.as_ptr()).is_null()
@@ -379,11 +379,7 @@ fn create_workspace_for_project_uses_seed_accent_when_doc_closed() {
     let project_c = CString::new(project.as_str()).unwrap();
     let name = CString::new("Wrapped").unwrap();
     unsafe {
-        let ws = calm_workspace_create_for_project(
-            engine.ptr,
-            project_c.as_ptr(),
-            name.as_ptr(),
-        );
+        let ws = calm_workspace_create_for_project(engine.ptr, project_c.as_ptr(), name.as_ptr());
         assert!(!ws.is_null());
         calm_string_free(ws);
     }

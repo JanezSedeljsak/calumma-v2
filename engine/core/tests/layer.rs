@@ -1,5 +1,6 @@
 use calumma_core::layer::*;
 use calumma_core::tile::*;
+use calumma_core::vector::{VectorItem, VectorPath};
 
 #[test]
 fn new_layer_is_raster() {
@@ -12,16 +13,17 @@ fn new_layer_is_raster() {
 fn vector_layer_reports_path_bounds() {
     let layer = Layer::vector(
         "V",
-        vec![VectorPath {
+        vec![VectorItem::Path(VectorPath {
             points: vec![(10.0, 20.0), (30.0, 40.0)],
             closed: false,
             fill: false,
             color: [0, 0, 0, 255],
             stroke_width: 2.0,
-        }],
+        })],
     );
     assert!(layer.content.is_vector());
-    assert_eq!(layer.content_bounds(), Some((10.0, 20.0, 30.0, 40.0)));
+    // A stroked path covers half its width on every side, plus a pixel of antialiasing.
+    assert_eq!(layer.content_bounds(), Some((8.0, 18.0, 32.0, 42.0)));
 }
 
 #[test]

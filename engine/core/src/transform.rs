@@ -68,6 +68,26 @@ impl LayerTransform {
         (pivot.0 + rx / sx, pivot.1 + ry / sy)
     }
 
+    /// A document-space *displacement* expressed in the layer's own space — the rotation and
+    /// scale of `inverse` without its translation, which a delta must not pick up. Dragging
+    /// an item inside a rotated layer moves it with the pointer because of this.
+    pub fn inverse_delta(&self, d: (f32, f32)) -> (f32, f32) {
+        let (sin, cos) = (-self.rotation).sin_cos();
+        let rx = d.0 * cos - d.1 * sin;
+        let ry = d.0 * sin + d.1 * cos;
+        let sx = if self.scale_x.abs() > 1e-6 {
+            self.scale_x
+        } else {
+            1e-6
+        };
+        let sy = if self.scale_y.abs() > 1e-6 {
+            self.scale_y
+        } else {
+            1e-6
+        };
+        (rx / sx, ry / sy)
+    }
+
     pub fn to_local(&self, pivot: (f32, f32), p: (f32, f32)) -> (f32, f32) {
         let dx = p.0 - pivot.0;
         let dy = p.1 - pivot.1;

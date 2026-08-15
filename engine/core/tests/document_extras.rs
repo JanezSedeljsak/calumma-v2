@@ -1,5 +1,5 @@
 use calumma_core::{
-    names, Document, Layer, LayerContent, Shape, Tool, VectorPath, LAYER_ONE, PAPER,
+    names, Document, Layer, LayerContent, Shape, Tool, VectorItem, VectorPath, LAYER_ONE, PAPER,
 };
 
 #[test]
@@ -79,13 +79,13 @@ fn shape_distance_rect_inside_negative_when_filled_path() {
 fn vector_layer_content_and_bounds() {
     let layer = Layer::vector(
         names::numbered_vector_layer(1),
-        vec![VectorPath {
+        vec![VectorItem::Path(VectorPath {
             points: vec![(0.0, 0.0), (8.0, 0.0), (8.0, 6.0)],
             closed: true,
             fill: true,
             color: [0, 0, 0, 255],
             stroke_width: 1.0,
-        }],
+        })],
     );
     assert!(matches!(layer.content, LayerContent::Vector(_)));
     assert_eq!(layer.content_bounds(), Some((0.0, 0.0, 8.0, 6.0)));

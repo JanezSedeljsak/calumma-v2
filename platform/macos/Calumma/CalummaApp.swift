@@ -16,6 +16,7 @@ struct CalummaApp: App {
                 }
             }
             .background(TitleBarZoomOnDoubleClick())
+            .background(MenuBarPruner())
             .background(WindowAccessor { window in app.mainWindow = window })
             .environmentObject(app)
             .themeColors(app.colors)
@@ -46,6 +47,7 @@ struct CalummaApp: App {
                         }
                     }
                     Button(app.l10n.formatKey("exportAs", "PSD")) { app.exportPSD() }
+                    Button(app.l10n.formatKey("exportAs", "SVG")) { app.exportSVG() }
                 }
                 .disabled(app.showLanding)
             }
@@ -66,6 +68,28 @@ struct CalummaApp: App {
                     .keyboardShortcut("0", modifiers: [])
                 Button(app.l10n.toggleLayers) { app.layersOpen.toggle() }
                     .keyboardShortcut("l", modifiers: [.command, .option])
+                Divider()
+                Button(app.l10n.enterFullScreen) { app.toggleFullScreen() }
+                    .keyboardShortcut("f", modifiers: [.control, .command])
+                    .disabled(app.showLanding)
+            }
+            CommandMenu(app.l10n.filtersMenu) {
+                ForEach(CalmAdjustment.allCases) { kind in
+                    let label = app.l10n[kind.labelKey]
+                    Button(app.l10n.formatKey("filterIncrease", label)) {
+                        app.nudgeActiveLayerFilter(kind, steps: 1)
+                    }
+                    .keyboardShortcut(kind.shortcutKey, modifiers: [.command, .option])
+                    .disabled(!app.canFilterActiveLayer)
+                    Button(app.l10n.formatKey("filterDecrease", label)) {
+                        app.nudgeActiveLayerFilter(kind, steps: -1)
+                    }
+                    .keyboardShortcut(kind.shortcutKey, modifiers: [.command, .option, .shift])
+                    .disabled(!app.canFilterActiveLayer)
+                    Divider()
+                }
+                Button(app.l10n.resetFilters) { app.resetActiveLayerFilters() }
+                    .disabled(!app.canFilterActiveLayer)
             }
         }
     }

@@ -1,6 +1,6 @@
 use crate::registry::OpRegistry;
 use crate::types::{OpError, OpInput, OpKind, OpOutput, OpParams};
-use calumma_core::{Document, Layer, LayerContent};
+use calumma_core::{Document, Layer, LayerContent, VectorItem};
 
 pub fn run_op(
     registry: &OpRegistry,
@@ -67,7 +67,7 @@ pub fn apply_output(
         OpOutput::Paths(paths) => {
             let layer = Layer::vector(
                 calumma_core::names::numbered_vector_layer(doc.layers.len() + 1),
-                paths,
+                paths.into_iter().map(VectorItem::Path).collect(),
             );
             doc.layers.push(layer);
             doc.active_layer = doc.layers.len() - 1;
@@ -79,7 +79,7 @@ pub fn apply_output(
 pub fn layer_input(doc: &Document, layer_index: usize) -> Result<OpInput, OpError> {
     let layer = doc.layers.get(layer_index).ok_or(OpError::BadLayer)?;
     match &layer.content {
-        LayerContent::Raster(tiles) => {
+        LayerContent::Raster(tiles) | LayerContent::Text { tiles, .. } => {
             let w = tiles.width;
             let h = tiles.height;
             let mut rgba = vec![0u8; (w as usize) * (h as usize) * 4];

@@ -72,6 +72,17 @@ typedef struct CalmState {
     float zoom_unit;
 } CalmState;
 
+typedef struct CalmMemory {
+    uint64_t tile_bytes;
+    uint64_t history_bytes;
+    uint64_t mask_bytes;
+    uint64_t vector_bytes;
+    uint64_t text_bytes;
+    uint64_t gpu_bytes;
+    uint32_t tile_count;
+    uint32_t shared_tile_count;
+} CalmMemory;
+
 typedef struct CalmAdjustments {
     float brightness;
     float contrast;
@@ -154,21 +165,88 @@ float calm_engine_layer_opacity(CalmEngine *engine, uint32_t index);
 CalmStatus calm_engine_set_layer_blend_mode(CalmEngine *engine, uint32_t index, uint32_t mode);
 uint32_t calm_engine_layer_blend_mode(CalmEngine *engine, uint32_t index);
 CalmStatus calm_engine_set_layer_adjustments(CalmEngine *engine, uint32_t index, float brightness, float contrast, float vibrance, float saturation, float levels_gamma);
+CalmStatus calm_engine_nudge_layer_adjustment(CalmEngine *engine, uint32_t index, uint32_t kind, float steps);
 CalmStatus calm_engine_layer_adjustments(CalmEngine *engine, uint32_t index, CalmAdjustments *out);
 CalmStatus calm_engine_set_hover_layer(CalmEngine *engine, int32_t index);
 CalmStatus calm_engine_clear_layer(CalmEngine *engine);
 CalmStatus calm_engine_state(CalmEngine *engine, CalmState *out);
+CalmStatus calm_engine_memory(CalmEngine *engine, CalmMemory *out);
 char *calm_engine_layer_name(CalmEngine *engine, uint32_t index);
 CalmStatus calm_engine_layer_thumbnail(CalmEngine *engine, uint32_t layer_index, uint32_t max_side, uint8_t **out_rgba, uint32_t *out_w, uint32_t *out_h);
 CalmStatus calm_engine_composite_rgba(CalmEngine *engine, uint8_t **out_rgba, uint32_t *out_w, uint32_t *out_h);
 CalmStatus calm_engine_export_psd(CalmEngine *engine, uint8_t **out_bytes, size_t *out_len);
 CalmStatus calm_engine_layer_rgba(CalmEngine *engine, uint32_t layer_index, uint8_t **out_rgba, uint32_t *out_w, uint32_t *out_h);
 char *calm_engine_layer_svg(CalmEngine *engine, uint32_t layer_index);
+char *calm_engine_export_svg(CalmEngine *engine);
 CalmStatus calm_engine_selection_rgba(CalmEngine *engine, uint8_t **out_rgba, uint32_t *out_w, uint32_t *out_h);
 int calm_engine_has_selection(CalmEngine *engine);
 CalmStatus calm_engine_deselect(CalmEngine *engine);
 CalmStatus calm_engine_selection_clear_pixels(CalmEngine *engine);
 CalmStatus calm_engine_paste_image(CalmEngine *engine, const uint8_t *premultiplied_rgba, size_t len, uint32_t width, uint32_t height);
+
+typedef enum CalmCaretStep {
+    CalmCaretStepLeft = 0,
+    CalmCaretStepRight = 1,
+    CalmCaretStepUp = 2,
+    CalmCaretStepDown = 3,
+    CalmCaretStepLineStart = 4,
+    CalmCaretStepLineEnd = 5,
+    CalmCaretStepDocStart = 6,
+    CalmCaretStepDocEnd = 7,
+} CalmCaretStep;
+
+typedef enum CalmTextAlign {
+    CalmTextAlignLeft = 0,
+    CalmTextAlignCenter = 1,
+    CalmTextAlignRight = 2,
+} CalmTextAlign;
+
+typedef enum CalmFontStyle {
+    CalmFontStyleBold = 1,
+    CalmFontStyleItalic = 2,
+} CalmFontStyle;
+
+uint32_t calm_font_family_count(void);
+char *calm_font_family_name(uint32_t index);
+uint32_t calm_font_family_styles(uint32_t index);
+float calm_text_size_min(void);
+float calm_text_size_max(void);
+float calm_text_size_default(void);
+float calm_text_line_height_min(void);
+float calm_text_line_height_max(void);
+float calm_text_line_height_default(void);
+CalmStatus calm_engine_text_insert(CalmEngine *engine, const char *text);
+CalmStatus calm_engine_text_set_marked(CalmEngine *engine, const char *text);
+CalmStatus calm_engine_text_backspace(CalmEngine *engine);
+CalmStatus calm_engine_text_delete_forward(CalmEngine *engine);
+CalmStatus calm_engine_text_move_caret(CalmEngine *engine, uint32_t step);
+CalmStatus calm_engine_text_commit(CalmEngine *engine);
+CalmStatus calm_engine_text_edit_layer(CalmEngine *engine, uint32_t index);
+int calm_engine_text_editing(CalmEngine *engine);
+int calm_engine_layer_is_text(CalmEngine *engine, uint32_t index);
+CalmStatus calm_engine_set_text_family(CalmEngine *engine, const char *family);
+CalmStatus calm_engine_set_text_size(CalmEngine *engine, float size);
+CalmStatus calm_engine_set_text_align(CalmEngine *engine, uint32_t align);
+CalmStatus calm_engine_set_text_bold(CalmEngine *engine, int bold);
+CalmStatus calm_engine_set_text_italic(CalmEngine *engine, int italic);
+CalmStatus calm_engine_set_text_line_height(CalmEngine *engine, float line_height);
+CalmStatus calm_engine_rasterize_text_layer(CalmEngine *engine, uint32_t index);
+char *calm_engine_text_family(CalmEngine *engine);
+float calm_engine_text_size(CalmEngine *engine);
+uint32_t calm_engine_text_align(CalmEngine *engine);
+float calm_engine_text_line_height(CalmEngine *engine);
+uint32_t calm_engine_text_styles(CalmEngine *engine);
+CalmStatus calm_engine_text_caret_rect(CalmEngine *engine, float *out_x, float *out_y, float *out_height);
+char *calm_engine_layer_text(CalmEngine *engine, uint32_t index);
+
+CalmStatus calm_engine_set_vector_mode(CalmEngine *engine, uint8_t on);
+int calm_engine_vector_mode(CalmEngine *engine);
+int calm_engine_layer_is_vector(CalmEngine *engine, uint32_t index);
+uint32_t calm_engine_layer_item_count(CalmEngine *engine, uint32_t index);
+int calm_engine_selected_vector_item(CalmEngine *engine);
+CalmStatus calm_engine_clear_vector_selection(CalmEngine *engine);
+CalmStatus calm_engine_delete_selected_vector_item(CalmEngine *engine);
+CalmStatus calm_engine_nudge_selected_vector_item(CalmEngine *engine, float steps_x, float steps_y);
 
 char *calm_project_create(CalmEngine *engine, const char *name, uint32_t width, uint32_t height);
 uint32_t calm_import_max_side(void);

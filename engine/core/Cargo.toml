@@ -5,6 +5,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+calumma-text = { path = "../text" }
 uuid = { workspace = true, features = ["v4", "serde"] }
 rayon = { workspace = true }
 

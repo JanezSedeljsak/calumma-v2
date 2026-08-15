@@ -48,6 +48,7 @@ struct ToolsPanel: View {
             selectToolButton
             toolButton(.bucket) { AppIcon.bucket(color: iconColor(.bucket)) }
             toolButton(.eyedropper) { AppIcon.eyedropper(color: iconColor(.eyedropper)) }
+            toolButton(.text) { AppIcon.text(color: iconColor(.text)) }
         }
     }
 
@@ -59,6 +60,7 @@ struct ToolsPanel: View {
         case .eraser: return l10n.toolEraser
         case .bucket: return l10n.toolBucket
         case .eyedropper: return l10n.toolEyedropper
+        case .text: return l10n.toolText
         default: return l10n.toolPen
         }
     }
@@ -92,6 +94,10 @@ struct ToolsPanel: View {
                 }
             }
 
+            if app.tool == .text {
+                TextOptions()
+            }
+
             if showsBrushSize {
                 VStack(spacing: 2) {
                     HStack {
@@ -118,11 +124,28 @@ struct ToolsPanel: View {
                 }
                 .help(l10n.fill)
             }
+
+            if showsVectorMode {
+                HStack {
+                    CalmText.muted(l10n.vectorMode)
+                    Spacer()
+                    Toggle("", isOn: $app.vectorMode)
+                        .toggleStyle(.switch)
+                        .controlSize(.mini)
+                        .labelsHidden()
+                }
+                .help(l10n.vectorModeHint)
+            }
         }
+    }
+
+    private var showsVectorMode: Bool {
+        app.tool.isShape || app.tool == .pen
     }
 
     private var showsBrushSize: Bool {
         !app.tool.isSelection && app.tool != .bucket && app.tool != .eyedropper
+            && app.tool != .text
     }
 
     private var aiSection: some View {
@@ -183,6 +206,7 @@ struct ToolsPanel: View {
         case .eraser: AppIcon.eraser(color: color)
         case .bucket: AppIcon.bucket(color: color)
         case .eyedropper: AppIcon.eyedropper(color: color)
+        case .text: AppIcon.text(color: color)
         case .selectRect, .selectEllipse, .selectLasso: AppIcon.selectRect(color: color)
         }
     }
@@ -244,6 +268,7 @@ struct ToolsPanel: View {
         case .selectEllipse: return l10n.toolSelectEllipse
         case .selectLasso: return l10n.toolSelectLasso
         case .eyedropper: return l10n.toolEyedropper
+        case .text: return l10n.toolText
         }
     }
 

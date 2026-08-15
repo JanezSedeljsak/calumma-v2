@@ -28,7 +28,8 @@ struct EditorView: View {
                     .zIndex(1)
             }
         }
-        .padding(Tokens.Space.sm)
+        .padding([.horizontal, .bottom], Tokens.Space.sm)
+        .padding(.top, Tokens.Space.xs)
         .calmScreen()
         .toolbar { editorToolbar }
         .onAppear { app.applyKnobs() }
@@ -39,6 +40,7 @@ struct EditorView: View {
         .onChange(of: app.color) { _, _ in app.applyKnobs() }
         .onChange(of: app.brushSize) { _, _ in app.applyKnobs() }
         .onChange(of: app.fill) { _, _ in app.applyKnobs() }
+        .onChange(of: app.vectorMode) { _, _ in app.applyKnobs() }
         .onChange(of: app.theme) { _, _ in app.applyKnobs() }
         .background(ShortcutCatcher(app: app))
         .sheet(isPresented: $app.newProjectOpen) {
@@ -228,12 +230,30 @@ struct EditorView: View {
                     CalmText.body(name, strong: selected)
                         .opacity(visible ? 1 : 0.45)
                     Spacer()
+                    if app.engine.isLayerVector(index: index) {
+                        CalmText.muted("\(app.engine.layerItemCount(index: index))", mono: true)
+                    }
                 }
                 .padding(Tokens.Space.sm)
-                .calmSurface(hover: selected, radius: Tokens.Radius.sm)
+                .calmSurface(hover: selected, radius: Tokens.Radius.sm, bordered: true)
             }
             .buttonStyle(.plain)
             .calmPointer()
+            .simultaneousGesture(
+                TapGesture(count: 2).onEnded {
+                    guard app.engine.isLayerText(index: index) else { return }
+                    app.selectTool(.text)
+                    app.engine.editTextLayer(index)
+                }
+            )
+            .contextMenu {
+                if app.engine.isLayerText(index: index) {
+                    Button(l10n.editText) {
+                        app.selectTool(.text)
+                        app.engine.editTextLayer(index)
+                    }
+                }
+            }
 
             Button {
                 layerSettingsIndex = index

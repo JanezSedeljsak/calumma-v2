@@ -14,3 +14,4 @@ image = { workspace = true, default-features = false, features = ["png"] }
 
 [dev-dependencies]
 tempfile = { workspace = true }
+image = { workspace = true, default-features = false, features = ["png"] }

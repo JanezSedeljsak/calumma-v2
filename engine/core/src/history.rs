@@ -1,6 +1,7 @@
 use crate::layer::Layer;
 use crate::limits::HISTORY_MEMORY_BUDGET_BYTES;
 use crate::tile::{TileCoord, TILE_BYTES};
+use calumma_text::TextRun;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -18,10 +19,20 @@ pub struct MaskDiff {
     pub mask: Option<Vec<u8>>,
 }
 
+/// The run a text layer had before a typing session. Its tiles are already covered by a
+/// `TileDiff`, but the run is what the project actually stores — without this, undoing a
+/// session would repaint the old glyphs and still save the new string.
+#[derive(Clone, Debug)]
+pub struct RunDiff {
+    pub layer_id: String,
+    pub run: Box<TextRun>,
+}
+
 #[derive(Clone, Debug)]
 pub struct HistoryCommand {
     pub diffs: Vec<TileDiff>,
     pub masks: Vec<MaskDiff>,
+    pub runs: Vec<RunDiff>,
     pub active_layer_index: Option<usize>,
     pub bytes: usize,
 }
@@ -70,8 +81,34 @@ impl History {
         self.undo.len()
     }
 
+    /// What the undo/redo stacks are really holding. `memory_used` is the *budget* estimate —
+    /// it charges a full tile for every snapshot entry, including the ones still shared with
+    /// the live document — so accounting asks here instead and passes a counter that has
+    /// already seen the layers' tiles.
+    pub fn held_bytes(&self, mut tile_bytes: impl FnMut(&Arc<Vec<u8>>) -> usize) -> usize {
+        let mut total = 0;
+        for command in self.undo.iter().chain(&self.redo) {
+            for diff in &command.diffs {
+                total += diff
+                    .tiles
+                    .values()
+                    .flatten()
+                    .map(&mut tile_bytes)
+                    .sum::<usize>();
+            }
+            total += command
+                .masks
+                .iter()
+                .filter_map(|m| m.mask.as_ref())
+                .map(Vec::len)
+                .sum::<usize>();
+            total += command.runs.iter().map(|r| r.run.text.len()).sum::<usize>();
+        }
+        total
+    }
+
     pub fn push(&mut self, command: HistoryCommand) {
-        if command.diffs.is_empty() && command.masks.is_empty() {
+        if command.diffs.is_empty() && command.masks.is_empty() && command.runs.is_empty() {
             return;
         }
         self.clear_redo();
@@ -96,6 +133,29 @@ impl History {
         self.push(HistoryCommand {
             diffs: vec![TileDiff { layer_id, tiles }],
             masks: Vec::new(),
+            runs: Vec::new(),
+            active_layer_index,
+            bytes,
+        });
+    }
+
+    /// One typing session: the tiles it repainted and the run it started from, restored
+    /// together so undo takes back what was typed and not only what was drawn.
+    pub fn push_layer_text(
+        &mut self,
+        layer_id: String,
+        tiles: TileSnapshot,
+        run: Box<TextRun>,
+        active_layer_index: Option<usize>,
+    ) {
+        let bytes = snapshot_bytes(&tiles) + run.text.len();
+        self.push(HistoryCommand {
+            diffs: vec![TileDiff {
+                layer_id: layer_id.clone(),
+                tiles,
+            }],
+            masks: Vec::new(),
+            runs: vec![RunDiff { layer_id, run }],
             active_layer_index,
             bytes,
         });
@@ -114,6 +174,7 @@ impl History {
                 layer_id,
                 mask: before,
             }],
+            runs: Vec::new(),
             active_layer_index,
             bytes,
         });
@@ -164,6 +225,11 @@ impl History {
 }
 
 fn apply_command(command: &HistoryCommand, layers: &mut [Layer]) {
+    for diff in &command.runs {
+        if let Some(layer) = layers.iter_mut().find(|l| l.id == diff.layer_id) {
+            layer.set_run(*diff.run.clone());
+        }
+    }
     for diff in &command.diffs {
         if let Some(layer) = layers.iter_mut().find(|l| l.id == diff.layer_id) {
             if let Some(tiles) = layer.tiles_mut() {
@@ -185,6 +251,7 @@ fn invert_command(
 ) -> HistoryCommand {
     let mut diffs = Vec::new();
     let mut masks = Vec::new();
+    let mut runs = Vec::new();
     let mut bytes = 0;
     for diff in &command.diffs {
         if let Some(layer) = layers.iter().find(|l| l.id == diff.layer_id) {
@@ -197,6 +264,19 @@ fn invert_command(
             diffs.push(TileDiff {
                 layer_id: diff.layer_id.clone(),
                 tiles,
+            });
+        }
+    }
+    for diff in &command.runs {
+        if let Some(run) = layers
+            .iter()
+            .find(|l| l.id == diff.layer_id)
+            .and_then(Layer::run)
+        {
+            bytes += run.text.len();
+            runs.push(RunDiff {
+                layer_id: diff.layer_id.clone(),
+                run: Box::new(run.clone()),
             });
         }
     }
@@ -213,6 +293,7 @@ fn invert_command(
     HistoryCommand {
         diffs,
         masks,
+        runs,
         active_layer_index,
         bytes,
     }

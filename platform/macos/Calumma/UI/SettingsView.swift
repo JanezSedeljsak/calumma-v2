@@ -1,3 +1,4 @@
+import Foundation
 import SwiftUI
 
 struct SettingsView: View {
@@ -46,11 +47,25 @@ struct SettingsView: View {
                 }
             }
 
+            HStack {
+                CalmText.label(l10n.memoryUsed)
+                Spacer()
+                CalmText.muted(memoryLabel, mono: true)
+            }
+
             Spacer()
         }
         .padding(Tokens.Space.xl)
-        .frame(width: 360, height: 320)
+        .frame(width: 360, height: 360)
         .calmScreen()
+    }
+
+    /// The engine reports bytes; the shell only formats them.
+    private var memoryLabel: String {
+        ByteCountFormatter.string(
+            fromByteCount: Int64(app.engine.memoryBytes),
+            countStyle: .memory
+        )
     }
 
     private func themeChip(_ theme: AppTheme, title: String) -> some View {

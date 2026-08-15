@@ -16,6 +16,7 @@ pub enum Tool {
     Eyedropper = 11,
     Triangle = 12,
     Pentagon = 13,
+    Text = 14,
 }
 
 impl Tool {
@@ -35,6 +36,7 @@ impl Tool {
             11 => Some(Self::Eyedropper),
             12 => Some(Self::Triangle),
             13 => Some(Self::Pentagon),
+            14 => Some(Self::Text),
             _ => None,
         }
     }
@@ -42,12 +44,7 @@ impl Tool {
     pub fn is_shape(self) -> bool {
         matches!(
             self,
-            Tool::Line
-                | Tool::Rect
-                | Tool::Ellipse
-                | Tool::Arrow
-                | Tool::Triangle
-                | Tool::Pentagon
+            Tool::Line | Tool::Rect | Tool::Ellipse | Tool::Arrow | Tool::Triangle | Tool::Pentagon
         )
     }
 
@@ -84,7 +81,7 @@ fn length(x: f32, y: f32) -> f32 {
     (x * x + y * y).sqrt()
 }
 
-fn sd_segment(p: (f32, f32), a: (f32, f32), b: (f32, f32)) -> f32 {
+pub fn sd_segment(p: (f32, f32), a: (f32, f32), b: (f32, f32)) -> f32 {
     let (pa_x, pa_y) = (p.0 - a.0, p.1 - a.1);
     let (ba_x, ba_y) = (b.0 - a.0, b.1 - a.1);
     let squared = ba_x * ba_x + ba_y * ba_y;
@@ -114,7 +111,7 @@ fn sd_ellipse(p: (f32, f32), center: (f32, f32), radii: (f32, f32)) -> f32 {
     (outer - 1.0) * outer / gradient
 }
 
-fn sd_polygon(p: (f32, f32), verts: &[(f32, f32)]) -> f32 {
+pub fn sd_polygon(p: (f32, f32), verts: &[(f32, f32)]) -> f32 {
     let Some(&first) = verts.first() else {
         return f32::MAX;
     };
@@ -173,6 +170,37 @@ impl Shape {
         (self.half_width * HEAD_RATIO).clamp(MIN_HEAD, MAX_HEAD)
     }
 
+    pub fn triangle_vertices(&self) -> [(f32, f32); 3] {
+        triangle_verts(self.start, self.end)
+    }
+
+    pub fn pentagon_vertices(&self) -> [(f32, f32); 5] {
+        pentagon_verts(self.start, self.end)
+    }
+
+    /// Shaft plus the two barbs, as one open polyline — the outline an SVG `<polygon>`
+    /// needs, derived from the same head geometry `arrow_distance` hit-tests against so the
+    /// exported arrow matches the drawn one.
+    pub fn arrow_outline(&self) -> Vec<(f32, f32)> {
+        let (dx, dy) = (self.end.0 - self.start.0, self.end.1 - self.start.1);
+        let span = length(dx, dy);
+        if span <= f32::MIN_POSITIVE {
+            return vec![self.start, self.end];
+        }
+        let head = self.head_len().min(span);
+        let (ux, uy) = (-dx / span * head, -dy / span * head);
+        let (sin, cos) = (BARB_ANGLE.sin(), BARB_ANGLE.cos());
+        let left = (
+            self.end.0 + ux * cos - uy * sin,
+            self.end.1 + ux * sin + uy * cos,
+        );
+        let right = (
+            self.end.0 + ux * cos + uy * sin,
+            self.end.1 - ux * sin + uy * cos,
+        );
+        vec![self.start, self.end, left, self.end, right]
+    }
+
     fn center(&self) -> (f32, f32) {
         (
             (self.start.0 + self.end.0) * 0.5,
@@ -220,7 +248,8 @@ impl Shape {
             | Tool::SelectLasso
             | Tool::Fill
             | Tool::Transform
-            | Tool::Eyedropper => f32::MAX,
+            | Tool::Eyedropper
+            | Tool::Text => f32::MAX,
             Tool::Line => sd_segment(p, self.start, self.end) - self.half_width,
             Tool::Arrow => self.arrow_distance(p) - self.half_width,
             Tool::Rect => {

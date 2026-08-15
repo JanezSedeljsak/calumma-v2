@@ -1,4 +1,4 @@
-use calumma_core::{unpremultiply_rgba, BlendMode, Tool, IMPORT_MAX_SIDE};
+use calumma_core::{unpremultiply_rgba, AdjustmentKind, BlendMode, Tool, IMPORT_MAX_SIDE};
 use calumma_ffi::*;
 use std::ffi::{CStr, CString};
 use std::os::raw::c_int;
@@ -813,4 +813,64 @@ fn create_from_image_rejects_bad_lengths_and_null_pixels() {
         calm_project_create_from_image(engine.ptr, name.as_ptr(), 0, 2, rgba.as_ptr(), 0)
     }
     .is_null());
+}
+
+#[test]
+fn nudge_layer_adjustment_steps_through_the_ffi() {
+    let engine = TestEngine::new();
+    engine.create_project("Nudge", 32, 32);
+    let active = engine.state().active_layer;
+    let mut adj = CalmAdjustments {
+        brightness: 0.0,
+        contrast: 0.0,
+        vibrance: 0.0,
+        saturation: 0.0,
+        levels_gamma: 0.0,
+    };
+
+    assert_eq!(
+        unsafe { calm_engine_nudge_layer_adjustment(engine.ptr, active, 0, 3.0) },
+        CalmStatus::Ok
+    );
+    assert_eq!(
+        unsafe { calm_engine_layer_adjustments(engine.ptr, active, &mut adj) },
+        CalmStatus::Ok
+    );
+    let expected = AdjustmentKind::Brightness.step() * 3.0;
+    assert!(
+        (adj.brightness - expected).abs() < 1e-4,
+        "{} != {expected}",
+        adj.brightness
+    );
+
+    assert_eq!(
+        unsafe { calm_engine_nudge_layer_adjustment(engine.ptr, active, 4, -2.0) },
+        CalmStatus::Ok
+    );
+    assert_eq!(
+        unsafe { calm_engine_layer_adjustments(engine.ptr, active, &mut adj) },
+        CalmStatus::Ok
+    );
+    let expected = 1.0 - AdjustmentKind::LevelsGamma.step() * 2.0;
+    assert!((adj.levels_gamma - expected).abs() < 1e-4);
+}
+
+#[test]
+fn nudge_layer_adjustment_rejects_an_unknown_kind_and_ignores_a_bad_index() {
+    let engine = TestEngine::new();
+    engine.create_project("NudgeGuards", 32, 32);
+    unsafe {
+        assert_ne!(
+            calm_engine_nudge_layer_adjustment(engine.ptr, 0, 99, 1.0),
+            CalmStatus::Ok
+        );
+        assert_eq!(
+            calm_engine_nudge_layer_adjustment(engine.ptr, 9999, 0, 1.0),
+            CalmStatus::Ok
+        );
+        assert_eq!(
+            calm_engine_nudge_layer_adjustment(ptr::null_mut(), 0, 0, 1.0),
+            CalmStatus::Null
+        );
+    }
 }

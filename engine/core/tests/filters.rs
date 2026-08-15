@@ -134,3 +134,67 @@ fn clamped_keeps_values_in_sane_ranges() {
     assert_eq!(adj.contrast, -1.0);
     assert_eq!(adj.levels_gamma, 0.1);
 }
+
+#[test]
+fn adjustment_kind_round_trips_through_its_discriminant() {
+    for kind in AdjustmentKind::ALL {
+        assert_eq!(AdjustmentKind::from_u32(kind.as_u32()), Some(kind));
+    }
+    assert_eq!(AdjustmentKind::from_u32(5), None);
+    assert_eq!(AdjustmentKind::ALL.len(), 5);
+}
+
+#[test]
+fn nudging_moves_exactly_one_step_per_call() {
+    let adj = Adjustments::default();
+    let up = adj.nudged(AdjustmentKind::Brightness, 1.0);
+    assert!((up.brightness - AdjustmentKind::Brightness.step()).abs() < 1e-6);
+    let back = up.nudged(AdjustmentKind::Brightness, -1.0);
+    assert!(back.is_neutral());
+}
+
+#[test]
+fn gamma_nudges_from_one_not_from_zero() {
+    let up = Adjustments::default().nudged(AdjustmentKind::LevelsGamma, 1.0);
+    assert!((up.levels_gamma - (1.0 + AdjustmentKind::LevelsGamma.step())).abs() < 1e-6);
+    assert!(!up.is_neutral());
+}
+
+#[test]
+fn gamma_uses_a_coarser_step_than_the_other_four() {
+    let gamma = AdjustmentKind::LevelsGamma.step();
+    for kind in AdjustmentKind::ALL {
+        if kind == AdjustmentKind::LevelsGamma {
+            continue;
+        }
+        assert!(kind.step() < gamma, "{kind:?} should step less than gamma");
+    }
+}
+
+#[test]
+fn nudging_touches_only_its_own_channel() {
+    let base = Adjustments::default();
+    for kind in AdjustmentKind::ALL {
+        let next = base.nudged(kind, 1.0);
+        for other in AdjustmentKind::ALL {
+            if other == kind {
+                assert_ne!(next.value(other), base.value(other), "{kind:?}");
+            } else {
+                assert_eq!(next.value(other), base.value(other), "{kind:?}/{other:?}");
+            }
+        }
+    }
+}
+
+#[test]
+fn nudging_saturates_at_the_clamp_instead_of_running_away() {
+    let mut adj = Adjustments::default();
+    for _ in 0..200 {
+        adj = adj.nudged(AdjustmentKind::Contrast, 1.0);
+    }
+    assert_eq!(adj.contrast, 1.0);
+    for _ in 0..200 {
+        adj = adj.nudged(AdjustmentKind::LevelsGamma, -1.0);
+    }
+    assert_eq!(adj.levels_gamma, 0.1);
+}

@@ -1,15 +1,18 @@
 use calumma_core::limits::{PROJECT_THUMB_MAX_SIDE, RECENT_PROJECTS_LIMIT};
-use calumma_core::tile::{DirtyChannel, TileCoord, TILE_BYTES};
+use calumma_core::tile::{self, DirtyChannel, TileCoord, TILE_BYTES};
 use calumma_core::{BlendMode, Document, Layer, LayerContent};
 use image::codecs::png::PngEncoder;
 use image::{ColorType, ImageEncoder};
 use rusqlite::{params, params_from_iter, Connection, OptionalExtension};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use thiserror::Error;
 use uuid::Uuid;
 
 use crate::adjustments_blob;
+use crate::text_blob;
 use crate::vector_blob;
 
 #[derive(Debug, Error)]
@@ -54,6 +57,50 @@ pub(crate) fn accent_or_seed(packed: Option<i64>, id: &str) -> [u8; 3] {
 pub struct ProjectStore {
     pub(crate) conn: Connection,
     path: PathBuf,
+}
+
+/// What `layers.content_kind` means on disk. Text is 2; a row claiming to be text whose blob
+/// will not decode falls back to raster so a damaged or newer file loses the run, not the
+/// whole project.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum LayerKind {
+    Raster,
+    Vector,
+    Text,
+}
+
+/// The content-shaped columns of one `layers` row. Which blob a layer writes and whether it
+/// carries a mask both follow from its content, so the three answers are decided together.
+struct LayerColumns<'a> {
+    content_kind: i64,
+    vector_data: Option<Vec<u8>>,
+    text_data: Option<Vec<u8>>,
+    mask: Option<&'a [u8]>,
+}
+
+impl<'a> LayerColumns<'a> {
+    fn of(layer: &'a Layer) -> Self {
+        match &layer.content {
+            LayerContent::Raster(_) => Self {
+                content_kind: 0,
+                vector_data: None,
+                text_data: None,
+                mask: layer.mask(),
+            },
+            LayerContent::Vector(paths) => Self {
+                content_kind: 1,
+                vector_data: Some(vector_blob::encode(paths)),
+                text_data: None,
+                mask: None,
+            },
+            LayerContent::Text { run, .. } => Self {
+                content_kind: 2,
+                vector_data: None,
+                text_data: Some(text_blob::encode(run)),
+                mask: layer.mask(),
+            },
+        }
+    }
 }
 
 pub(crate) fn now_secs() -> i64 {
@@ -102,6 +149,7 @@ impl ProjectStore {
                 opacity REAL NOT NULL DEFAULT 1.0,
                 blend_mode INTEGER NOT NULL DEFAULT 0,
                 adjustments BLOB,
+                text_data BLOB,
                 PRIMARY KEY (project_id, layer_id),
                 FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
             );
@@ -154,6 +202,7 @@ impl ProjectStore {
         let mut has_opacity = false;
         let mut has_blend_mode = false;
         let mut has_adjustments = false;
+        let mut has_text = false;
         let columns = stmt.query_map([], |row| row.get::<_, String>(1))?;
         for column in columns {
             match column?.as_str() {
@@ -163,6 +212,7 @@ impl ProjectStore {
                 "opacity" => has_opacity = true,
                 "blend_mode" => has_blend_mode = true,
                 "adjustments" => has_adjustments = true,
+                "text_data" => has_text = true,
                 _ => {}
             }
         }
@@ -195,6 +245,10 @@ impl ProjectStore {
         if !has_adjustments {
             self.conn
                 .execute("ALTER TABLE layers ADD COLUMN adjustments BLOB", [])?;
+        }
+        if !has_text {
+            self.conn
+                .execute("ALTER TABLE layers ADD COLUMN text_data BLOB", [])?;
         }
         Ok(())
     }
@@ -274,7 +328,7 @@ impl ProjectStore {
         doc.layers.clear();
 
         let mut layer_stmt = self.conn.prepare(
-            "SELECT layer_id, name, visible, mask, content_kind, vector_data, opacity, blend_mode, adjustments FROM layers WHERE project_id = ?1 ORDER BY z_index ASC",
+            "SELECT layer_id, name, visible, mask, content_kind, vector_data, opacity, blend_mode, adjustments, text_data FROM layers WHERE project_id = ?1 ORDER BY z_index ASC",
         )?;
         let layer_rows = layer_stmt.query_map(params![id], |row| {
             Ok((
@@ -287,10 +341,12 @@ impl ProjectStore {
                 row.get::<_, f64>(6)? as f32,
                 row.get::<_, i64>(7)? as u32,
                 row.get::<_, Option<Vec<u8>>>(8)?,
+                row.get::<_, Option<Vec<u8>>>(9)?,
             ))
         })?;
 
         let mask_len = (width as usize) * (height as usize);
+        let mut solid_tiles: HashMap<[u8; 4], Arc<Vec<u8>>> = HashMap::new();
         let mut tile_stmt = self
             .conn
             .prepare("SELECT tx, ty, pixels FROM tiles WHERE project_id = ?1 AND layer_id = ?2")?;
@@ -306,25 +362,43 @@ impl ProjectStore {
                 opacity,
                 blend_mode,
                 adjustments,
+                text_data,
             ) = layer_row?;
-            let mut layer = if content_kind == 1 {
-                let paths = vector_data
-                    .as_deref()
-                    .and_then(vector_blob::decode)
-                    .unwrap_or_default();
-                let mut layer = Layer::vector(name, paths);
-                layer.id = layer_id.clone();
-                layer
-            } else {
-                Layer::with_id(layer_id.clone(), name, width, height)
+            let decoded_run = text_data.as_deref().and_then(text_blob::decode);
+            let kind = match (content_kind, &decoded_run) {
+                (1, _) => LayerKind::Vector,
+                (2, Some(_)) => LayerKind::Text,
+                _ => LayerKind::Raster,
+            };
+            let mut layer = match kind {
+                LayerKind::Vector => {
+                    let paths = vector_data
+                        .as_deref()
+                        .and_then(vector_blob::decode)
+                        .unwrap_or_default();
+                    let mut layer = Layer::vector(name, paths);
+                    layer.id = layer_id.clone();
+                    layer
+                }
+                LayerKind::Text => {
+                    let run = decoded_run.unwrap_or_default();
+                    let mut layer = Layer::text(name, run, width, height);
+                    layer.id = layer_id.clone();
+                    layer
+                }
+                LayerKind::Raster => Layer::with_id(layer_id.clone(), name, width, height),
             };
             layer.visible = visible;
             layer.opacity = opacity.clamp(0.0, 1.0);
             layer.blend_mode = BlendMode::from_u32(blend_mode).unwrap_or_default();
             layer.adjustments = adjustments.as_deref().and_then(adjustments_blob::decode);
-            if content_kind != 1 {
+            if kind != LayerKind::Vector {
                 layer.set_mask(mask.filter(|m| m.len() == mask_len));
-
+            }
+            if kind == LayerKind::Text {
+                layer.clear_dirty(DirtyChannel::Store);
+            }
+            if kind == LayerKind::Raster {
                 let tile_rows = tile_stmt.query_map(params![id, layer_id], |row| {
                     Ok((
                         row.get::<_, i64>(0)? as i32,
@@ -338,9 +412,23 @@ impl ProjectStore {
                         continue;
                     }
                     let coord = TileCoord { x: tx, y: ty };
-                    if let Some(grid) = layer.tiles_mut() {
-                        if let Some(dst) = grid.ensure_mut(coord) {
-                            dst.copy_from_slice(&pixels);
+                    let Some(grid) = layer.tiles_mut() else {
+                        continue;
+                    };
+                    // Paper comes back as hundreds of identical white blobs; giving them one
+                    // shared allocation costs a scan that mixed tiles abandon immediately.
+                    match tile::uniform_color(&pixels) {
+                        Some(color) => {
+                            let shared = solid_tiles
+                                .entry(color)
+                                .or_insert_with(|| Arc::new(pixels))
+                                .clone();
+                            grid.insert_shared(coord, shared);
+                        }
+                        None => {
+                            if let Some(dst) = grid.ensure_mut(coord) {
+                                dst.copy_from_slice(&pixels);
+                            }
                         }
                     }
                 }
@@ -394,7 +482,7 @@ impl ProjectStore {
 
         {
             let mut upsert_layer = tx.prepare(
-                "INSERT INTO layers (project_id, layer_id, name, visible, z_index, mask, content_kind, vector_data, opacity, blend_mode, adjustments) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+                "INSERT INTO layers (project_id, layer_id, name, visible, z_index, mask, content_kind, vector_data, opacity, blend_mode, adjustments, text_data) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
                  ON CONFLICT(project_id, layer_id) DO UPDATE SET
                     name = excluded.name,
                     visible = excluded.visible,
@@ -404,7 +492,8 @@ impl ProjectStore {
                     vector_data = excluded.vector_data,
                     opacity = excluded.opacity,
                     blend_mode = excluded.blend_mode,
-                    adjustments = excluded.adjustments",
+                    adjustments = excluded.adjustments,
+                    text_data = excluded.text_data",
             )?;
             let mut upsert_tile = tx.prepare(
                 "INSERT INTO tiles (project_id, layer_id, tx, ty, pixels) VALUES (?1, ?2, ?3, ?4, ?5)
@@ -415,11 +504,12 @@ impl ProjectStore {
             )?;
 
             for (z, layer) in doc.layers.iter().enumerate() {
-                let (content_kind, vector_data, mask): (i64, Option<Vec<u8>>, Option<&[u8]>) =
-                    match &layer.content {
-                        LayerContent::Raster(_) => (0, None, layer.mask()),
-                        LayerContent::Vector(paths) => (1, Some(vector_blob::encode(paths)), None),
-                    };
+                let LayerColumns {
+                    content_kind,
+                    vector_data,
+                    text_data,
+                    mask,
+                } = LayerColumns::of(layer);
                 let adjustments = layer.adjustments.as_ref().map(adjustments_blob::encode);
                 upsert_layer.execute(params![
                     doc.id,
@@ -432,9 +522,16 @@ impl ProjectStore {
                     vector_data,
                     layer.opacity as f64,
                     layer.blend_mode.as_u32() as i64,
-                    adjustments
+                    adjustments,
+                    text_data
                 ])?;
 
+                // A text layer's tiles are a cache of its run, so the run is all that is
+                // written — re-rasterizing on open costs a millisecond and saves storing a
+                // bitmap of every headline in the project.
+                if layer.is_text() {
+                    continue;
+                }
                 let Some(grid) = layer.tiles() else {
                     continue;
                 };

@@ -102,9 +102,10 @@ while Landing is showing — that screen already *is* the create form.
 - **Tools / layers / canvas:** three rounded, bordered islands, full-height, separated by a
   minimal gap and window margin (`space.sm`) — each has its own `islandBorder` stroke.
 - **Tools island** (top to bottom): a 3-column tool grid (Pen, Eraser, Shape, Select, Fill,
-  Eyedropper); a contextual options section below it that changes with the selected tool
-  (shape/selection sub-picker + fill toggle for shape tools, brush size for the tools that
-  use one — not Fill, Eyedropper, or the selection tools); a colour section (two equal
+  Eyedropper, Text); a contextual options section below it that changes with the selected
+  tool (shape/selection sub-picker + fill toggle for shape tools, font / size / alignment
+  for Text, brush size for the tools that use one — not Fill, Eyedropper, Text, or the
+  selection tools); a colour section (two equal
   quick swatches, a saturation/brightness field, a hue strip, and a hex field); the AI menu
   pinned at the bottom.
 - **Board:** Metal surface clipped as its own island. Desk fill, grid, and the paper border
@@ -173,7 +174,7 @@ gain — it tracks the cursor one-for-one by definition.
 | Store | OS-native app-data dir + `Calumma/calumma.sqlite` (macOS: `~/Library/Application Support/…`) |
 | Autosave / explicit save | Engine dirty flag + `⌘S`; tab switch and close save first |
 | One board per project | Bounded document size chosen at create time |
-| Export image | **Shipped** — PNG / JPEG / WebP / AVIF / PSD via File → Export. PDF is still deferred; PSD is layered (real per-layer opacity/blend mode/pixels, hand-written encoder since ImageIO can only read PSD). |
+| Export image | **Shipped** — PNG / JPEG / WebP / AVIF / HEIC / PSD / SVG via File → Export, plus per-layer **Export…** in the layer card. PDF is still deferred; PSD and SVG are layered (PSD: real per-layer opacity/blend mode/pixels, hand-written encoder since ImageIO can only read PSD. SVG: vector layers stay geometry, painted layers embed a cropped PNG). |
 | Import image / PSD | **Shipped** — new project from PNG / JPG / AVIF / WEBP / PSD / HEIC / SVG (SVG rasterized on import) |
 | Clipboard paste artwork | **Shipped** — `⌘V`, drag-and-drop, or click on the island (creates a new project) |
 | Import into an existing board | **Shipped** — drag-and-drop onto the canvas island, or `⌘V`, both add the image as a new layer (see Selection below) |
@@ -184,9 +185,49 @@ live in `engine/core`; the actual PNG/JPEG/WebP/AVIF **encode** happens in the s
 
 ---
 
+## Text
+
+- **Text tool** (`T`, tools island). Click the board: a new **text layer** opens with the
+  caret where you clicked, and glyphs land on the board as you type — no dialog, no commit
+  step. Click an existing text layer with the tool, or double-click it in the layers panel
+  (also on its context menu), to re-enter and retype it.
+- The session ends when you click elsewhere, press `Esc`, pick another tool, switch layers,
+  undo, or change the layer stack. A text layer created and left empty removes itself;
+  emptying one that already existed is an ordinary edit. Anything typed becomes **one** undo
+  step, and undoing it takes back the *text*, not only the pixels.
+- Options while the tool is active: **font** (a searchable list of every installed system
+  family, each row previewed in its own face), **size**, **line height**, **bold**,
+  **italic**, **alignment**. Bold and italic are offered only for families that really ship
+  that cut — the engine reports which faces it loaded. Changing the ink colour recolours the
+  run you are typing. The style you last used carries to the next text layer.
+- All keyboard input goes through `NSTextInputClient`, so dead keys, the accent popover, the
+  emoji picker and IME compositions all work; a composition in progress is drawn at the
+  caret. While typing, only ⌘-chords still act as editor shortcuts.
+- A text layer is a normal layer everywhere else: opacity, blend mode, masks, filters, Remove
+  Background, thumbnails, PNG/PSD/SVG export. `⌘T` transform mode is the exception and refuses
+  it — change the size instead. Projects store the *text*, not its pixels, and re-render it
+  on open.
+- **Paint tools are refused on a text layer**, because its pixels are a cache the next
+  keystroke rebuilds — a stroke would vanish silently. **Rasterize Text** (layer `…` card)
+  turns it into ordinary pixels, one way, and merging a layer down onto a text layer does the
+  same to the destination first so the merged pixels survive.
+
 ## Layers and ops
 
 - Raster layers (sparse 256×256 tiles); optional non-destructive mask.
+- **Text layers** carry an editable run plus a tile cache rebuilt from it (see Text above).
+- **Vector layers** carry a *list* of items — one per shape drawn or stroke pen-drawn with
+  **vector mode** on (`V`, or the toggle under the tool options). Items land in the active
+  layer when it is already a vector layer, otherwise a new one is created and becomes active,
+  so a drawing accumulates in one layer instead of one layer per shape. The layer row shows
+  how many items it holds. Nothing is rasterized: the board evaluates the same
+  distance functions the exporter does, so a vector stays sharp at any zoom, exports as real
+  SVG primitives (`<rect>`, `<ellipse>`, `<path>`, …) and is stored as parameters.
+- **Moving one item:** inside `⌘T` transform mode, click an item to select it and drag it on
+  its own; the arrow keys nudge it and `⌫` deletes it. The corner and rotate handles still
+  scale and turn the *whole* layer, so both levels stay reachable in one mode. A click on an
+  outlined shape counts anywhere inside it, not only on the outline. Item edits are not
+  undo-tracked, matching the rest of the vector path (adding an item isn't either).
 - Add layer: `⌘⇧N` (shell).
 - Clear active layer: `⌘⌫` — clears just the active **selection** instead if one exists.
 - Each layer row keeps only the visibility toggle and a delete button directly visible; every
@@ -207,13 +248,25 @@ live in `engine/core`; the actual PNG/JPEG/WebP/AVIF **encode** happens in the s
   data, so growing back restores it exactly.
 - **Transform (`⌘T`):** a transient *mode* on the active layer — not a tools-island
   button (Select tools stay for region marquee/lasso; transforming a selection region
-  is separate). Shows scale/rotate handles around the *active* layer (selected via
-  the layers panel — clicking a layer's content directly on the canvas doesn't pick it yet,
-  see `plans/02-layer-click-to-select.md`). Drag a corner to scale — proportional by
-  default, hold **Shift** for free (non-uniform) scale; drag the handle above top-center to
-  rotate; drag inside the box to move. Click outside the handles, press `Esc`, or pick
-  another tool to exit the mode. Fully live and non-destructive on the canvas; a
-  "Reset Transform" action in the layer's `…` popover clears it back to identity.
+  is separate). Shows scale/rotate handles around the *active* layer. Drag a corner to
+  scale — proportional by default, hold **Shift** for free (non-uniform) scale; drag the
+  handle above top-center to rotate; drag inside the box to move. Click outside the
+  handles, press `Esc`, or pick another tool to exit the mode. Fully live and
+  non-destructive on the canvas; a "Reset Transform" action in the layer's `…` popover
+  clears it back to identity.
+- **Click-to-pick a layer**, inside transform mode: clicking a layer's *painted pixels*
+  on the board makes it the transform target, so you can walk a stack without going back
+  to the layers panel, and the same press starts a move drag. Picking is pixel-accurate
+  (`Document::layer_at` — respects the layer's transform, mask, opacity and visibility)
+  and skips Paper, the same way merge-down does. Resolution order on a press is:
+  corner/rotate handle → **another layer's pixels** → move-inside-the-box → exit. The
+  layer-stack step sits above "move" on purpose: the transform box is `content_bounds()`,
+  which is tile-granular (256×256) and for a small scribble can be the whole document, so
+  taking Move on every click inside it would make picking unreachable. Clicking the
+  active layer's *own* pixels always keeps it, so an overlapping layer above can never
+  steal the target mid-transform. Picking only happens in transform mode — Option-click
+  and ⌘-click are both already Pan (see Pointer modifiers), so there is no free modifier
+  for a universal "pick under cursor" gesture.
 - **Remove Background:** AI menu on the tools island → macOS Vision via `calm_engine_run_op` when available.
   Shell never mutates the stack after the op. Details: `AGENTS.md` → AI ops.
 
@@ -250,15 +303,53 @@ simplification, not a real "insert above" primitive.
 
 ## Export
 
-File → Export → PNG / JPEG / WebP / AVIF / PSD (moved out of the toolbar into the native
-menu bar, alongside Settings under the app menu — `CalummaApp.swift`'s `.commands`, not a
-toolbar button anymore). The raster formats flatten the full layer stack
+File → Export → PNG / JPEG / WebP / AVIF / HEIC / PSD / SVG (moved out of the toolbar into the
+native menu bar, alongside Settings under the app menu — `CalummaApp.swift`'s `.commands`, not
+a toolbar button anymore). The raster formats flatten the full layer stack
 (`Document::composite_rgba`, respecting
-visibility, masks, opacity, blend mode, and adjustments) and opens a native save panel. PSD
-is layered rather than flattened — each raster layer becomes a real PSD layer with its own
-opacity and blend-mode signature (`engine/io/src/psd.rs`, hand-written since ImageIO can only
-*read* PSD, not write it; RAW/uncompressed channel data, not PackBits RLE). PDF export is not
-implemented.
+visibility, masks, opacity, blend mode, and adjustments) and opens a native save panel.
+
+**PSD and SVG are layered** rather than flattened. Each raster layer becomes a real PSD layer
+with its own opacity and blend-mode signature (`engine/io/src/psd.rs`, hand-written since
+ImageIO can only *read* PSD, not write it; RAW/uncompressed channel data, not PackBits RLE); a
+vector layer reaches the PSD rasterized, because this writer emits raster channels only and
+losing the artwork would be worse. SVG (`engine/io/src/svg.rs`) keeps a vector layer as real
+`<rect>` / `<ellipse>` / `<path>` geometry and gives every other layer an embedded PNG
+`<image>`, cropped to its ink; a layer painted in a single colour (Paper, a flood fill) becomes
+a `<rect>` instead, so a flat page costs bytes rather than megabytes of base64. Layer opacity
+and blend mode ride along as `opacity` / `mix-blend-mode`; masks and adjustments are baked into
+the pixels, as everywhere else. Text exports as pixels, not `<text>` — the font it needs is not
+in the file. PDF export is not implemented.
+
+**One layer at a time**: the layer `…` card has **Export…** next to Copy, writing just that
+layer through the same encoders — SVG first for a vector layer (its geometry, via
+`Document::layer_svg`), otherwise the raster format the save panel picks. Copy (`⌘C`-style, to
+the clipboard) does the same split: SVG for vector layers, PNG for everything else.
+
+## Menu bar
+
+`CalummaApp.swift`'s `.commands` owns the whole menu bar. Beyond File → Export and the app
+menu's Settings above:
+
+- **Board** — Fit to View (`0`), Toggle Layers (`⌥⌘L`), Enter Full Screen (`⌃⌘F`).
+- **Filters** — Increase / Decrease per filter (brightness, contrast, vibrance,
+  saturation, gamma) plus Reset. A menu is discrete and an adjustment is continuous, so
+  the menu is a **nudge** surface, not a second slider panel: each item steps the active
+  layer by one `limits::ADJUSTMENT_NUDGE_STEP` (gamma: `GAMMA_NUDGE_STEP`) through
+  `calm_engine_nudge_layer_adjustment`. The step and the clamp live in the engine — the
+  shell does no arithmetic, it only names the item. `LayerSettingsCard` stays the one
+  place filter *UI* lives, so nothing is duplicated. Acts on the active layer only,
+  matching that card, and is disabled on Landing and when the active layer is Paper.
+  Like the sliders, nudges are **not** undo-tracked (same precedent as add/remove layer,
+  duplicate, merge and resize) — worth revisiting for all of them together rather than
+  making the menu path alone undoable.
+- **View is removed.** AppKit synthesises it for every app and SwiftUI cannot declare it
+  away, so `MenuBarPruner` (`UI/MenuBarChrome.swift`) deletes it from `NSApp.mainMenu`
+  after launch — matching on the selectors its items send, not their titles, which the
+  system localises. Removing View also removes Enter Full Screen, hence its re-homing
+  into Board above. Removing View does **not** affect project tabs: those are custom
+  SwiftUI chips in the titlebar, unrelated to AppKit's native window tabbing (which is
+  off anyway via `NSWindow.tabbingMode = .disallowed`).
 
 ---
 
@@ -289,14 +380,21 @@ panel toggles are shell knobs.
 | `R` | Rectangle | Ps rectangle is often `U` (shape); `R` is fine for now |
 | `O` | Ellipse | Ps ellipse under shape (`U`) |
 | `A` | Arrow | Calumma-specific |
-| `T` | Triangle | — |
-| `Y` | Pentagon | — |
+| `3` | Triangle (side count; `T` moved to Text) | — |
+| `5` | Pentagon (side count; was `Y`) | — |
+| `T` | Text — click the board to type inline | Yes |
 | `E` | Eraser | Yes |
 | `M` | Selection (rect / ellipse / lasso — last one used) | Yes (Ps Marquee) |
 | `G` | Fill (bucket) | Yes (Ps Paint Bucket, shared with Gradient) |
 | `I` | Eyedropper (live sample under the cursor into the active primary/secondary swatch; loupe shows colour + hex) | Yes |
-| `⌘T` | Transform mode on the active layer (scale/rotate/move); click outside or `Esc` to exit | Yes (Ps Free Transform) |
+| `⌘T` | Transform mode on the active layer (scale/rotate/move); click another layer's pixels to retarget, click empty space or `Esc` to exit | Yes (Ps Free Transform) |
+| `⌥⌘B` `⌥⌘C` `⌥⌘V` `⌥⌘S` `⌥⌘G` | Increase brightness / contrast / vibrance / saturation / gamma on the active layer by one `limits::ADJUSTMENT_NUDGE_STEP` | — (Ps has no per-filter chord) |
+| `⇧⌥⌘` + the same letter | Decrease the same filter by one step | — |
+| `⌃⌘F` | Enter / exit full screen (re-homed from the removed View menu) | macOS standard |
 | `F` | Toggle shape fill | — |
+| `V` | Toggle vector mode (shapes and the pen commit as editable vector items) | — (Ps has no equivalent; closest is Figma's vector tools) |
+| `←` `→` `↑` `↓` | Move the selected vector item one step | Yes (Ps nudge) |
+| `⌫` / `⌦` | Delete the selected vector item (falls back to the old clear behaviour when none is selected) | Yes |
 | `[` / `]` | Brush smaller / larger | Yes |
 
 ### Layers / view
@@ -341,9 +439,11 @@ or the middle button is armed, **closed hand** while actually panning, zoom-in w
 
 ## What is intentionally out of FLOW (for now)
 
-PDF export (PNG/JPEG/WebP/AVIF/PSD export shipped instead — see Export above), layered PSD
+PDF export (PNG/JPEG/WebP/AVIF/HEIC/PSD/SVG export shipped instead — see Export above), layered PSD
 **import** (we import the flattened composite only; PSD *export* is layered and shipped),
-click-to-pick a layer on the canvas (per-layer transform itself is shipped — see
-Layers and ops above — picking the transform target is still layers-panel-only),
-text layers, vectorize, generate-texture, BiRefNet core remove-bg — see
+picking a layer by clicking it *outside* transform mode (inside it is shipped — see Layers
+and ops above — but Option-click and ⌘-click are both already Pan, so a universal
+pick-under-cursor gesture has no free modifier),
+text *selection* (the Text tool ships with a caret only — no shift-arrow, no styled ranges),
+vectorize, generate-texture, BiRefNet core remove-bg — see
 `AGENTS.md` deferred list. Add a FLOW section when a feature ships, not before.

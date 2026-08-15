@@ -21,6 +21,8 @@ struct ThemeColors {
     let deskGrid: Color
     let paperBorder: Color
     let islandBorder: Color
+    let controlBorder: Color
+    let controlFocusBorder: Color
 
     static func colors(for theme: AppTheme) -> ThemeColors {
         switch theme {
@@ -37,7 +39,9 @@ struct ThemeColors {
                 desk: Tokens.Light.desk,
                 deskGrid: Tokens.Light.deskGrid,
                 paperBorder: Tokens.Light.paperBorder,
-                islandBorder: Tokens.Light.islandBorder
+                islandBorder: Tokens.Light.islandBorder,
+                controlBorder: Tokens.Light.controlBorder,
+                controlFocusBorder: Tokens.Light.controlFocusBorder
             )
         case .dark:
             return ThemeColors(
@@ -52,7 +56,9 @@ struct ThemeColors {
                 desk: Tokens.Dark.desk,
                 deskGrid: Tokens.Dark.deskGrid,
                 paperBorder: Tokens.Dark.paperBorder,
-                islandBorder: Tokens.Dark.islandBorder
+                islandBorder: Tokens.Dark.islandBorder,
+                controlBorder: Tokens.Dark.controlBorder,
+                controlFocusBorder: Tokens.Dark.controlFocusBorder
             )
         }
     }
@@ -82,8 +88,20 @@ extension View {
         modifier(CalmPanelBackground())
     }
 
-    func calmSurface(hover: Bool = false, radius: CGFloat = Tokens.Radius.md) -> some View {
-        modifier(CalmSurfaceBackground(hover: hover, radius: radius))
+    func calmSurface(
+        hover: Bool = false,
+        radius: CGFloat = Tokens.Radius.md,
+        bordered: Bool = false,
+        focused: Bool = false
+    ) -> some View {
+        modifier(
+            CalmSurfaceBackground(
+                hover: hover,
+                radius: radius,
+                bordered: bordered,
+                focused: focused
+            )
+        )
     }
 
     func calmPointer() -> some View {
@@ -123,11 +141,20 @@ private struct CalmSurfaceBackground: ViewModifier {
     @Environment(\.themeColors) private var colors
     var hover = false
     var radius: CGFloat = Tokens.Radius.md
+    var bordered = false
+    var focused = false
 
     func body(content: Content) -> some View {
-        content.background(
-            hover ? colors.surfaceHover : colors.surface,
-            in: RoundedRectangle(cornerRadius: radius, style: .continuous)
-        )
+        let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
+        return content
+            .background(hover ? colors.surfaceHover : colors.surface, in: shape)
+            .overlay {
+                if bordered {
+                    shape.strokeBorder(
+                        focused ? colors.controlFocusBorder : colors.controlBorder,
+                        lineWidth: 1
+                    )
+                }
+            }
     }
 }

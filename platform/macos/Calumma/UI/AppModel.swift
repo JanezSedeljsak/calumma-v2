@@ -39,6 +39,7 @@ final class AppModel: ObservableObject {
     private var editingHSB = false
     @Published var brushSize: Float = 3
     @Published var fill = false
+    @Published var vectorMode = false
     @Published var layersOpen = true
     @Published var spacePan = false
 
@@ -216,6 +217,52 @@ final class AppModel: ObservableObject {
         try? data.write(to: url)
     }
 
+    /// The document as one SVG file. Unlike the raster exports this one is *layered* — the
+    /// engine keeps vector layers as geometry and embeds only the layers that really are
+    /// pixels — so it is written from the engine's string, not from a composited image.
+    func exportSVG() {
+        guard let svg = engine.exportSVG(), let data = svg.data(using: .utf8) else { return }
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.svg]
+        panel.nameFieldStringValue = "\(activeProjectName).svg"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        try? data.write(to: url)
+    }
+
+    /// One layer to a file, the save-panel counterpart of `copyLayer`. A vector layer offers
+    /// SVG first and keeps its geometry; anything else is written through the same raster
+    /// encoders the whole-document export uses, so the format popup in the panel decides.
+    func exportLayer(index: Int) {
+        let isVector = engine.isLayerVector(index: index)
+        let rasterTypes = ExportFormat.allCases.map(\.utType)
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = isVector ? [.svg] + rasterTypes : rasterTypes
+        panel.nameFieldStringValue = "\(activeProjectName)-\(layerFileName(index)).\(isVector ? "svg" : "png")"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        if url.pathExtension.lowercased() == "svg" {
+            guard let svg = engine.layerSVG(index: index), let data = svg.data(using: .utf8)
+            else {
+                return
+            }
+            try? data.write(to: url)
+            return
+        }
+        guard let format = ExportFormat(fileExtension: url.pathExtension),
+              let image = engine.layerCGImage(index: index),
+              let data = ImageEncode.data(image, format: format)
+        else {
+            return
+        }
+        try? data.write(to: url)
+    }
+
+    private func layerFileName(_ index: Int) -> String {
+        let name = engine.layerNames.indices.contains(index) ? engine.layerNames[index] : ""
+        let cleaned = name.components(separatedBy: CharacterSet(charactersIn: "/:\\")).joined(
+            separator: "-")
+        return cleaned.isEmpty ? l10n.formatKey("layerNamed", "\(index + 1)") : cleaned
+    }
+
     func exportPSD() {
         guard let data = engine.exportPSD() else { return }
         let panel = NSSavePanel()
@@ -385,6 +432,29 @@ final class AppModel: ObservableObject {
         engine.refreshWorkspaces()
     }
 
+    /// Filters act on the active layer, matching `LayerSettingsCard`. Paper is excluded the
+    /// same way merge-down and transform already exclude it.
+    var canFilterActiveLayer: Bool {
+        guard !showLanding, activeProjectId != nil else { return false }
+        let index = Int(engine.state.activeLayer)
+        guard engine.layerNames.indices.contains(index) else { return false }
+        return engine.layerNames[index] != l10n.paper
+    }
+
+    func nudgeActiveLayerFilter(_ kind: CalmAdjustment, steps: Float) {
+        guard canFilterActiveLayer else { return }
+        engine.nudgeLayerAdjustment(Int(engine.state.activeLayer), kind, steps: steps)
+    }
+
+    func resetActiveLayerFilters() {
+        guard canFilterActiveLayer else { return }
+        engine.setLayerAdjustments(Int(engine.state.activeLayer), LayerAdjustments())
+    }
+
+    func toggleFullScreen() {
+        mainWindow?.toggleFullScreen(nil)
+    }
+
     func selectQuickColor(_ index: Int) {
         guard quickColors.indices.contains(index) else { return }
         activeQuickColorIndex = index
@@ -423,6 +493,7 @@ final class AppModel: ObservableObject {
         engine.setColor(color)
         engine.setBrush(brushSize)
         engine.setFill(fill)
+        engine.setVectorMode(vectorMode)
         engine.setDark(theme.isDark)
         engine.setBoardColors(
             desk: colors.desk,
@@ -442,6 +513,9 @@ final class AppModel: ObservableObject {
     }
 
     func selectTool(_ next: CalmTool) {
+        // Leaving the text tool ends the session engine-side, which can drop an empty text
+        // layer — the panel has to hear about that.
+        let wasTyping = engine.textEditing
         tool = next
         if next.isShape {
             lastShapeTool = next
@@ -453,6 +527,10 @@ final class AppModel: ObservableObject {
             clearEyedropperLoupe()
         }
         applyKnobs()
+        if wasTyping, next != .text {
+            engine.syncState()
+            engine.refreshLayers()
+        }
     }
 
     func setTheme(_ next: AppTheme) {

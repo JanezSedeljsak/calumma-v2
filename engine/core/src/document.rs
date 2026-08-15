@@ -4,14 +4,18 @@ use crate::history::{History, TileSnapshot};
 use crate::layer::Layer;
 use crate::limits::{
     BRUSH_SIZE_DEFAULT, DEFAULT_INK, FILL_TOLERANCE_DEFAULT, MAX_CANVAS_SIDE, MIN_CANVAS_SIDE,
-    MIN_STAMP_SPACING, MIN_STROKE_POINT_DISTANCE, STAMP_COVERAGE_PADDING, STAMP_SPACING_RATIO,
-    STROKE_POINT_CAPACITY,
+    MIN_STAMP_SPACING, MIN_STROKE_POINT_DISTANCE, PAPER_WHITE, STAMP_COVERAGE_PADDING,
+    STAMP_SPACING_RATIO, STROKE_POINT_CAPACITY,
 };
 use crate::palette::BoardColors;
 use crate::selection::{Selection, SelectionShape};
 use crate::shape::{Shape, Tool};
+use crate::text_edit::TextEdit;
 use crate::tile::{blend_over, blend_with_mode, DirtyChannel, DocRect, TileCoord, TILE_SIZE};
 use crate::transform::{bounds_center, LayerTransform};
+use crate::vector;
+use crate::vector_edit::{VectorItemDrag, VectorPick};
+use calumma_text::TextRun;
 use rayon::prelude::*;
 use std::collections::HashSet;
 
@@ -84,7 +88,65 @@ fn layer_source_pixel(layer: &Layer, doc_x: f32, doc_y: f32) -> [u8; 4] {
     tiles.get_pixel(sx.floor() as i32, sy.floor() as i32)
 }
 
-fn layer_composited_pixel(layer: &Layer, doc_x: f32, doc_y: f32, doc_w: u32, doc_h: u32) -> [u8; 4] {
+/// Hit-testing a vector layer evaluates its items' coverage directly rather than sampling
+/// pixels — there are no pixels to sample. The point is inverse-mapped through the layer
+/// transform first, exactly as the rasterizer and the shader both do.
+fn vector_alpha_at(items: &[vector::VectorItem], layer: &Layer, doc_x: f32, doc_y: f32) -> u8 {
+    let local = match layer
+        .transform
+        .filter(|t| !t.is_identity())
+        .zip(vector::items_bounds(items))
+    {
+        Some((t, raw)) => t.inverse(bounds_center(raw), (doc_x, doc_y)),
+        None => (doc_x, doc_y),
+    };
+    let mut acc = 0.0f32;
+    for item in items {
+        let coverage = item.coverage(local.0, local.1) * (item.color()[3] as f32 / 255.0);
+        acc = acc.max(coverage);
+    }
+    (acc * 255.0).round().clamp(0.0, 255.0) as u8
+}
+
+/// Alpha alone, for hit-testing. Adjustments never touch alpha, so picking skips the
+/// colour work `layer_composited_pixel` does — an HSL round trip per layer per click.
+fn layer_alpha_at(layer: &Layer, doc_x: f32, doc_y: f32, doc_w: u32, doc_h: u32) -> u8 {
+    let alpha = match layer.content.items() {
+        Some(items) => vector_alpha_at(items, layer, doc_x, doc_y),
+        None => layer_source_pixel(layer, doc_x, doc_y)[3],
+    };
+    if alpha == 0 {
+        return 0;
+    }
+    let alpha = match layer.mask() {
+        Some(mask) => {
+            let ix = doc_x.floor() as i32;
+            let iy = doc_y.floor() as i32;
+            if ix < 0 || iy < 0 || (ix as u32) >= doc_w || (iy as u32) >= doc_h {
+                return 0;
+            }
+            let index = (iy as u32 * doc_w + ix as u32) as usize;
+            match mask.get(index) {
+                Some(&m) => ((alpha as u32 * m as u32) / 255) as u8,
+                None => alpha,
+            }
+        }
+        None => alpha,
+    };
+    if layer.opacity < 1.0 {
+        ((alpha as f32) * layer.opacity).round().clamp(0.0, 255.0) as u8
+    } else {
+        alpha
+    }
+}
+
+fn layer_composited_pixel(
+    layer: &Layer,
+    doc_x: f32,
+    doc_y: f32,
+    doc_w: u32,
+    doc_h: u32,
+) -> [u8; 4] {
     let mut px = layer_source_pixel(layer, doc_x, doc_y);
     if px[3] == 0 {
         return px;
@@ -114,6 +176,10 @@ fn layer_composited_pixel(layer: &Layer, doc_x: f32, doc_y: f32, doc_w: u32, doc
 }
 
 fn copy_layer_into_rgba(layer: &Layer, buf: &mut [u8], w: u32, h: u32) {
+    if let Some(items) = layer.content.items() {
+        vector::rasterize_into_rgba(items, layer.transform, buf, w, h);
+        return;
+    }
     let Some(tiles) = layer.tiles() else {
         return;
     };
@@ -215,7 +281,17 @@ pub struct Document {
     pub preview_shape: Option<Shape>,
     pub selection: Option<Selection>,
     pub shift_held: bool,
+    /// Whether the shape tools and the pen commit as resolution-independent vector items
+    /// instead of stamping pixels. A shell knob, like `fill`.
+    pub vector_mode: bool,
+    vector_revision: u64,
+    pub(crate) selected_vector: Option<VectorPick>,
+    pub(crate) vector_drag: Option<VectorItemDrag>,
     pub transform_active: bool,
+    /// Font, size and alignment the next text layer starts with — a document-level default
+    /// carried between text layers, not a shell knob.
+    pub text_style: TextRun,
+    pub text_edit: Option<TextEdit>,
     transform_drag: Option<TransformDrag>,
     stroke_before: TileSnapshot,
 }
@@ -302,7 +378,13 @@ impl Document {
             preview_shape: None,
             selection: None,
             shift_held: false,
+            vector_mode: false,
+            vector_revision: 0,
+            selected_vector: None,
+            vector_drag: None,
             transform_active: false,
+            text_style: TextRun::default(),
+            text_edit: None,
             transform_drag: None,
             stroke_before: TileSnapshot::new(),
         }
@@ -338,7 +420,22 @@ impl Document {
         self.active_layer = self.layers.len() - 1;
     }
 
+    /// Whether paint tools may write into the active layer.
+    ///
+    /// A text layer's tiles are a cache of its run — `text_layer::resync` clears and rebuilds
+    /// them on the next keystroke, so a stroke committed there would disappear without a
+    /// trace. Painting is refused until the layer is turned into ordinary pixels with
+    /// `rasterize_text_layer`, the same bargain every editor with live text makes.
+    pub fn active_layer_accepts_paint(&self) -> bool {
+        self.layers
+            .get(self.active_layer)
+            .is_some_and(|layer| layer.tiles().is_some() && !layer.is_text())
+    }
+
     pub fn place_image(&mut self, rgba: &[u8], width: u32, height: u32) -> bool {
+        if !self.active_layer_accepts_paint() {
+            return false;
+        }
         let expected = (width as usize) * (height as usize) * 4;
         if width == 0 || height == 0 || rgba.len() < expected {
             return false;
@@ -353,6 +450,8 @@ impl Document {
         if index >= self.layers.len() {
             return false;
         }
+        self.commit_text();
+        self.clear_vector_selection();
         self.layers.remove(index);
         if self.layers.is_empty() {
             self.active_layer = 0;
@@ -382,6 +481,10 @@ impl Document {
 
     pub fn set_active_layer(&mut self, index: usize) {
         if index < self.layers.len() {
+            if index != self.active_layer {
+                self.commit_text();
+                self.clear_vector_selection();
+            }
             self.active_layer = index;
         }
     }
@@ -415,6 +518,74 @@ impl Document {
         }
     }
 
+    pub fn nudge_layer_adjustment(
+        &mut self,
+        index: usize,
+        kind: crate::filters::AdjustmentKind,
+        steps: f32,
+    ) -> bool {
+        let Some(layer) = self.layers.get(index) else {
+            return false;
+        };
+        let current = layer.adjustments.unwrap_or_default();
+        let next = current.nudged(kind, steps);
+        if next == current {
+            return false;
+        }
+        self.set_layer_adjustments(index, next);
+        true
+    }
+
+    pub fn add_vector_layer(&mut self, name: impl Into<String>) -> usize {
+        self.layers.push(Layer::vector(name, Vec::new()));
+        self.active_layer = self.layers.len() - 1;
+        self.active_layer
+    }
+
+    /// Where a vector shape or path lands: the active layer if it is already a vector layer,
+    /// otherwise a fresh vector layer above the stack, which then becomes active so the next
+    /// item joins it. That is what lets a freehand drawing accumulate as many paths in one
+    /// layer instead of one layer per stroke.
+    fn vector_target_layer(&mut self) -> usize {
+        if self
+            .layers
+            .get(self.active_layer)
+            .is_some_and(|l| l.content.is_vector())
+        {
+            return self.active_layer;
+        }
+        let n = self.layers.iter().filter(|l| l.content.is_vector()).count() + 1;
+        self.add_vector_layer(crate::names::numbered_vector_layer(n))
+    }
+
+    fn push_vector_item(&mut self, item: vector::VectorItem) {
+        let index = self.vector_target_layer();
+        let Some(items) = self
+            .layers
+            .get_mut(index)
+            .and_then(|l| l.content.items_mut())
+        else {
+            return;
+        };
+        items.push(item);
+        self.vector_revision = self.vector_revision.wrapping_add(1);
+    }
+
+    /// Vector layers have no tile cache to diff, so nothing about them is incremental: a
+    /// counter is all the renderer needs to know its draw list is stale and must be rebuilt
+    /// whole. Scaling one bumps this the same way adding an item does.
+    pub fn vector_revision(&self) -> u64 {
+        self.vector_revision
+    }
+
+    pub fn bump_vector_revision(&mut self) {
+        self.vector_revision = self.vector_revision.wrapping_add(1);
+    }
+
+    pub fn set_vector_mode(&mut self, on: bool) {
+        self.vector_mode = on;
+    }
+
     pub fn set_shift_held(&mut self, held: bool) {
         self.shift_held = held;
     }
@@ -436,7 +607,7 @@ impl Document {
         let Some(layer) = self.layers.get(self.active_layer) else {
             return false;
         };
-        if !layer.content.is_raster() || layer.content_bounds().is_none() {
+        if layer.content.is_text() || layer.content_bounds().is_none() {
             return false;
         }
         self.transform_active = true;
@@ -446,6 +617,7 @@ impl Document {
     pub fn exit_transform(&mut self) {
         self.transform_active = false;
         self.transform_drag = None;
+        self.clear_vector_selection();
     }
 
     pub fn toggle_transform(&mut self) -> bool {
@@ -479,7 +651,7 @@ impl Document {
         }
         let index = self.active_layer;
         let layer = self.layers.get(index)?;
-        if !layer.content.is_raster() {
+        if layer.content.is_text() {
             return None;
         }
         let raw_bounds = layer.content_bounds()?;
@@ -493,7 +665,7 @@ impl Document {
     fn transform_handle_at(&self, doc_x: f32, doc_y: f32) -> Option<TransformDrag> {
         let index = self.active_layer;
         let layer = self.layers.get(index)?;
-        if !layer.content.is_raster() {
+        if layer.content.is_text() {
             return None;
         }
         let raw_bounds = layer.content_bounds()?;
@@ -550,6 +722,79 @@ impl Document {
         self.transform_drag.is_some()
     }
 
+    pub fn layer_at(&self, doc_x: f32, doc_y: f32) -> Option<usize> {
+        if doc_x < 0.0 || doc_y < 0.0 || doc_x >= self.width as f32 || doc_y >= self.height as f32 {
+            return None;
+        }
+        self.layers
+            .iter()
+            .enumerate()
+            .rev()
+            .find(|(_, layer)| {
+                layer.visible
+                    && !layer.is_paper()
+                    && layer.tiles().is_some()
+                    && layer_alpha_at(layer, doc_x, doc_y, self.width, self.height) != 0
+            })
+            .map(|(index, _)| index)
+    }
+
+    pub fn pick_layer(&mut self, doc_x: f32, doc_y: f32) -> Option<usize> {
+        let index = self.layer_at(doc_x, doc_y)?;
+        self.active_layer = index;
+        Some(index)
+    }
+
+    fn retarget_transform(&mut self, doc_x: f32, doc_y: f32) -> bool {
+        if self.pick_layer(doc_x, doc_y).is_none() {
+            return false;
+        }
+        self.begin_transform_drag(doc_x, doc_y);
+        true
+    }
+
+    fn active_layer_covers(&self, doc_x: f32, doc_y: f32) -> bool {
+        self.layers
+            .get(self.active_layer)
+            .is_some_and(|l| layer_alpha_at(l, doc_x, doc_y, self.width, self.height) != 0)
+    }
+
+    /// The transform box is `content_bounds()`, which is tile-granular — for a small
+    /// scribble on a big canvas it can be the whole document. Taking the Move handle on
+    /// every click inside it would make picking unreachable, so a click that lands on
+    /// *nothing the active layer actually painted* gets offered to the layer stack first.
+    /// Clicking the active layer's own pixels always keeps it, so a transform target is
+    /// never lost to a layer that merely overlaps it.
+    ///
+    /// A vector item under the cursor outranks the whole-layer Move handle — a layer that is
+    /// a *list* of items is moved one item at a time by default, and the corner and rotate
+    /// handles (checked first) are still how the whole layer is scaled or turned.
+    fn transform_pointer_down(&mut self, doc_x: f32, doc_y: f32) {
+        let handle = self.transform_handle_at(doc_x, doc_y);
+        if let Some(drag) = handle.filter(|d| d.handle != TransformHandle::Move) {
+            self.clear_vector_selection();
+            self.transform_drag = Some(drag);
+            return;
+        }
+        if self.begin_vector_item_drag(doc_x, doc_y) {
+            return;
+        }
+        self.clear_vector_selection();
+        let handled_directly = handle.is_some() && self.active_layer_covers(doc_x, doc_y);
+        if handled_directly {
+            self.transform_drag = handle;
+            return;
+        }
+        if self.retarget_transform(doc_x, doc_y) {
+            return;
+        }
+        if handle.is_some() {
+            self.transform_drag = handle;
+            return;
+        }
+        self.exit_transform();
+    }
+
     fn update_transform_drag(&mut self, doc_x: f32, doc_y: f32) {
         let Some(drag) = self.transform_drag else {
             return;
@@ -597,6 +842,10 @@ impl Document {
     }
 
     pub fn duplicate_layer(&mut self, index: usize) -> bool {
+        if index >= self.layers.len() {
+            return false;
+        }
+        self.commit_text();
         let Some(source) = self.layers.get(index) else {
             return false;
         };
@@ -616,12 +865,15 @@ impl Document {
         if self.layers[index - 1].is_paper() {
             return false;
         }
-        if self.layers[index].tiles().is_none() {
+        self.commit_text();
+        self.rasterize_text_layer(index - 1);
+        if self.layers[index].tiles().is_none() && self.layers[index].content.items().is_none() {
             return false;
         }
         if self.layers[index - 1].tiles().is_none() {
             return false;
         }
+        self.clear_vector_selection();
         let mode = self.layers[index].blend_mode;
         let w = self.width.max(1);
         let h = self.height.max(1);
@@ -658,6 +910,7 @@ impl Document {
         if new_width == old_width && new_height == old_height {
             return;
         }
+        self.commit_text();
         for layer in &mut self.layers {
             layer.resize_mask(old_width, old_height, new_width, new_height);
             let is_paper = layer.is_paper();
@@ -670,25 +923,25 @@ impl Document {
                 continue;
             }
             if new_width > old_width {
-                tiles.paint_rect(
+                tiles.fill_uniform(
                     DocRect::new(
                         old_width as i32,
                         0,
                         new_width as i32 - 1,
                         new_height as i32 - 1,
                     ),
-                    |_, _, _| Some([255, 255, 255, 255]),
+                    PAPER_WHITE,
                 );
             }
             if new_height > old_height {
-                tiles.paint_rect(
+                tiles.fill_uniform(
                     DocRect::new(
                         0,
                         old_height as i32,
                         old_width as i32 - 1,
                         new_height as i32 - 1,
                     ),
-                    |_, _, _| Some([255, 255, 255, 255]),
+                    PAPER_WHITE,
                 );
             }
         }
@@ -712,11 +965,16 @@ impl Document {
     pub fn pointer_down(&mut self, screen_x: f32, screen_y: f32) {
         let (dx, dy) = self.camera.to_doc(screen_x, screen_y);
         if self.transform_active {
-            if !self.begin_transform_drag(dx, dy) {
-                self.exit_transform();
-            }
+            self.transform_pointer_down(dx, dy);
             return;
         }
+        if self.tool == Tool::Text {
+            self.begin_text_at(dx, dy);
+            return;
+        }
+        // Any other tool touching the board ends the session — the same "click away to
+        // finish" that leaving the text tool does.
+        self.commit_text();
         if self.tool == Tool::Fill {
             self.commit_fill(dx, dy);
             return;
@@ -747,7 +1005,9 @@ impl Document {
     pub fn pointer_move(&mut self, screen_x: f32, screen_y: f32) {
         let (dx, dy) = self.camera.to_doc(screen_x, screen_y);
         if self.transform_active {
-            self.update_transform_drag(dx, dy);
+            if !self.update_vector_item_drag(dx, dy) {
+                self.update_transform_drag(dx, dy);
+            }
             return;
         }
         if matches!(self.tool, Tool::Pen | Tool::Eraser | Tool::SelectLasso) && self.stroke_active {
@@ -762,6 +1022,7 @@ impl Document {
     pub fn pointer_up(&mut self, screen_x: f32, screen_y: f32) {
         let (dx, dy) = self.camera.to_doc(screen_x, screen_y);
         if self.transform_active {
+            self.end_vector_item_drag();
             self.transform_drag = None;
             return;
         }
@@ -805,9 +1066,21 @@ impl Document {
         if !self.stroke_active {
             return;
         }
+        if !self.vector_mode && !self.active_layer_accepts_paint() {
+            self.stroke_active = false;
+            self.stroke_points.clear();
+            return;
+        }
         self.stroke_active = false;
         let points = std::mem::take(&mut self.stroke_points);
         if points.is_empty() {
+            return;
+        }
+        if self.vector_mode && self.tool == Tool::Pen {
+            let pts: Vec<(f32, f32)> = points.iter().map(|p| (p.x, p.y)).collect();
+            if let Some(item) = vector::item_from_points(&pts, self.color, self.brush_size) {
+                self.push_vector_item(item);
+            }
             return;
         }
         let radius = self.brush_size * 0.5;
@@ -866,6 +1139,15 @@ impl Document {
     }
 
     fn commit_shape(&mut self, shape: Shape) {
+        if !self.vector_mode && !self.active_layer_accepts_paint() {
+            return;
+        }
+        if self.vector_mode {
+            if let Some(item) = vector::item_from_shape(shape, self.color) {
+                self.push_vector_item(item);
+                return;
+            }
+        }
         let (x0, y0, x1, y1) = shape.bounds();
         let Some(rect) = DocRect::from_floats(x0, y0, x1, y1).intersect(self.bounds()) else {
             return;
@@ -942,10 +1224,21 @@ impl Document {
 
     pub fn deselect(&mut self) {
         self.exit_transform();
+        self.commit_text();
         self.selection = None;
     }
 
+    /// The one place the ink colour changes, so a text layer being typed into recolours with
+    /// it instead of the shell having to know that text is special.
+    pub fn set_color(&mut self, color: [u8; 4]) {
+        self.color = color;
+        self.apply_ink_to_text();
+    }
+
     fn commit_fill(&mut self, doc_x: f32, doc_y: f32) {
+        if !self.active_layer_accepts_paint() {
+            return;
+        }
         let x = doc_x.floor() as i32;
         let y = doc_y.floor() as i32;
         let scope = match &self.selection {
@@ -1011,10 +1304,10 @@ impl Document {
             if !layer.visible {
                 continue;
             }
-            if layer.tiles().is_none() {
+            if layer.tiles().is_none() && layer.content.items().is_none() {
                 continue;
             }
-            layer_buf.iter_mut().for_each(|b| *b = 0);
+            layer_buf.fill(0);
             copy_layer_into_rgba(layer, &mut layer_buf, w, h);
             apply_mask(&mut layer_buf, layer.mask());
             let lut = layer.adjustments.map(|a| a.lut());
@@ -1164,7 +1457,9 @@ impl Document {
 
     pub fn layer_rgba(&self, index: usize) -> Option<(u32, u32, Vec<u8>)> {
         let layer = self.layers.get(index)?;
-        layer.tiles()?;
+        if layer.tiles().is_none() && layer.content.items().is_none() {
+            return None;
+        }
         let w = self.width.max(1);
         let h = self.height.max(1);
         let mut buf = vec![0u8; (w as usize) * (h as usize) * 4];
@@ -1180,34 +1475,21 @@ impl Document {
 
     pub fn layer_svg(&self, index: usize) -> Option<String> {
         let layer = self.layers.get(index)?;
-        let paths = layer.content.paths()?;
+        let items = layer.content.items()?;
         let mut svg = format!(
             "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{}\" height=\"{}\" viewBox=\"0 0 {} {}\">",
             self.width, self.height, self.width, self.height
         );
-        for path in paths {
-            let Some((&first, rest)) = path.points.split_first() else {
-                continue;
-            };
-            let mut d = format!("M {} {}", first.0, first.1);
-            for &(x, y) in rest {
-                d.push_str(&format!(" L {x} {y}"));
+        if let Some(group) = crate::vector::svg_transform_attr(items, layer.transform) {
+            svg.push_str(&group);
+        }
+        for item in items {
+            if let Some(markup) = crate::vector::item_svg(item) {
+                svg.push_str(&markup);
             }
-            if path.closed {
-                d.push_str(" Z");
-            }
-            let alpha = path.color[3] as f32 / 255.0;
-            let (r, g, b) = (path.color[0], path.color[1], path.color[2]);
-            if path.fill {
-                svg.push_str(&format!(
-                    "<path d=\"{d}\" fill=\"rgb({r},{g},{b})\" fill-opacity=\"{alpha}\" />"
-                ));
-            } else {
-                svg.push_str(&format!(
-                    "<path d=\"{d}\" fill=\"none\" stroke=\"rgb({r},{g},{b})\" stroke-opacity=\"{alpha}\" stroke-width=\"{}\" />",
-                    path.stroke_width
-                ));
-            }
+        }
+        if layer.transform.is_some_and(|t| !t.is_identity()) {
+            svg.push_str("</g>");
         }
         svg.push_str("</svg>");
         Some(svg)
@@ -1239,6 +1521,9 @@ impl Document {
     }
 
     pub fn clear_selection_pixels(&mut self) -> bool {
+        if !self.active_layer_accepts_paint() {
+            return false;
+        }
         let Some(selection) = self.selection.clone() else {
             return false;
         };
@@ -1308,6 +1593,7 @@ impl Document {
     }
 
     pub fn undo(&mut self) -> bool {
+        self.commit_text();
         let mut active = self.active_layer;
         let changed = self.history.undo(&mut self.layers, &mut active);
         self.active_layer = active.min(self.layers.len().saturating_sub(1));
@@ -1315,6 +1601,7 @@ impl Document {
     }
 
     pub fn redo(&mut self) -> bool {
+        self.commit_text();
         let mut active = self.active_layer;
         let changed = self.history.redo(&mut self.layers, &mut active);
         self.active_layer = active.min(self.layers.len().saturating_sub(1));
@@ -1322,6 +1609,9 @@ impl Document {
     }
 
     pub fn clear_active_layer(&mut self) {
+        if !self.active_layer_accepts_paint() {
+            return;
+        }
         let active = self.active_layer;
         let Some(layer) = self.layers.get_mut(active) else {
             return;
@@ -1352,6 +1642,7 @@ impl Document {
             || self.hover_layer.is_some()
             || self.selection.is_some()
             || self.transform_active
+            || self.text_edit.is_some()
     }
 
     pub fn tile_size(&self) -> u32 {

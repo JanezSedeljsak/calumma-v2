@@ -406,6 +406,77 @@ fn fs_stroke(input: StrokeOut) -> @location(0) vec4<f32> {
     return vec4<f32>(input.color.rgb, input.color.a * cov);
 }
 
+const ARROW_HEAD_RATIO: f32 = 6.0;
+const ARROW_HEAD_MIN: f32 = 10.0;
+const ARROW_HEAD_MAX: f32 = 80.0;
+
+struct VectorShapeIn {
+    @location(0) p0: vec2<f32>,
+    @location(1) p1: vec2<f32>,
+    @location(2) color: vec4<f32>,
+    @location(3) half_width: f32,
+    @location(4) tool: f32,
+    @location(5) fill: f32,
+}
+
+struct VectorShapeOut {
+    @builtin(position) position: vec4<f32>,
+    @location(0) doc: vec2<f32>,
+    @location(1) color: vec4<f32>,
+    @location(2) p0: vec2<f32>,
+    @location(3) p1: vec2<f32>,
+    @location(4) half_width: f32,
+    @location(5) tool: f32,
+    @location(6) fill: f32,
+}
+
+@vertex
+fn vs_vector_shape(input: VectorShapeIn, @builtin(vertex_index) idx: u32) -> VectorShapeOut {
+    var corners = array<vec2<f32>, 6>(
+        vec2<f32>(0.0, 0.0),
+        vec2<f32>(1.0, 0.0),
+        vec2<f32>(0.0, 1.0),
+        vec2<f32>(0.0, 1.0),
+        vec2<f32>(1.0, 0.0),
+        vec2<f32>(1.0, 1.0),
+    );
+    var head = 0.0;
+    if u32(input.tool + 0.5) == TOOL_ARROW {
+        head = clamp(input.half_width * ARROW_HEAD_RATIO, ARROW_HEAD_MIN, ARROW_HEAD_MAX);
+    }
+    let pad = vec2<f32>(input.half_width + head + 1.0);
+    let lo = min(input.p0, input.p1) - pad;
+    let hi = max(input.p0, input.p1) + pad;
+    let doc = mix(lo, hi, corners[idx]);
+    let screen = doc * pu.zoom + pu.pan;
+    let device = screen * pu.dpr;
+    let ndc = vec2<f32>(
+        (device.x / max(pu.viewport.x, 1.0)) * 2.0 - 1.0,
+        1.0 - (device.y / max(pu.viewport.y, 1.0)) * 2.0,
+    );
+    var out: VectorShapeOut;
+    out.position = vec4<f32>(ndc, 0.0, 1.0);
+    out.doc = doc;
+    out.color = input.color;
+    out.p0 = input.p0;
+    out.p1 = input.p1;
+    out.half_width = input.half_width;
+    out.tool = input.tool;
+    out.fill = input.fill;
+    return out;
+}
+
+@fragment
+fn fs_vector_shape(input: VectorShapeOut) -> @location(0) vec4<f32> {
+    let tool = u32(input.tool + 0.5);
+    let d = shape_distance(tool, input.p0, input.p1, input.half_width, input.fill, input.doc);
+    let cov = clamp(0.5 - d, 0.0, 1.0);
+    if cov <= 0.0 {
+        return vec4<f32>(0.0);
+    }
+    return vec4<f32>(input.color.rgb, input.color.a * cov);
+}
+
 @vertex
 fn vs_shape_preview(@builtin(vertex_index) idx: u32) -> VsOut {
     var pos = array<vec2<f32>, 3>(

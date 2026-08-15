@@ -14,12 +14,20 @@ struct LayerSettingsCard: View {
                 CalmPlainButton(title: l10n.copyLayer) {
                     app.copyLayer(index: index)
                 }
+                CalmPlainButton(title: l10n.exportLayer) {
+                    app.exportLayer(index: index)
+                }
                 CalmPlainButton(title: l10n.duplicateLayer) {
                     app.engine.duplicateLayer(index)
                 }
                 if canMergeDown {
                     CalmPlainButton(title: l10n.mergeLayerDown) {
                         app.engine.mergeLayerDown(index)
+                    }
+                }
+                if app.engine.isLayerText(index: index) {
+                    CalmPlainButton(title: l10n.layerRasterizeText) {
+                        app.engine.rasterizeTextLayer(index)
                     }
                 }
                 CalmPlainButton(title: l10n.resetTransform) {

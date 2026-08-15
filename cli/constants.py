@@ -82,6 +82,8 @@ COLOR_KEYS = (
     "paper",
     "paperBorder",
     "islandBorder",
+    "controlBorder",
+    "controlFocusBorder",
 )
 
 RADIUS_KEYS = ("sm", "md", "lg", "window", "island")

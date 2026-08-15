@@ -42,6 +42,7 @@ hardcoded in Rust or WGSL.
 | Path | Role |
 | --- | --- |
 | `engine/core` | Document, sparse tiles, camera, viewport culling, history, shapes, palette, `LayerContent` — no GPU |
+| `engine/text` | System fonts, shaping, layout, caret/hit-test, glyph rasterizing (`cosmic-text`). Leaf crate; `core` depends on it |
 | `engine/render` | wgpu; surface created by the shell; applies layer masks at upload |
 | `engine/io` | SQLite projects + encode/decode |
 | `engine/ops` | `Op` / `OpRegistry` dispatch; apply results into the document |
@@ -56,7 +57,8 @@ hardcoded in Rust or WGSL.
 Dependency direction:
 
 ```
-core  ← std + small utils only
+text  ← std + cosmic-text (leaf)
+core  ← std + small utils + text
 render / io / ops  ← core
 ffi  ← core, render, io, ops
 Swift shell  ← ffi only (via Calumma.h)
@@ -141,29 +143,65 @@ have to be read together.
 ```rust
 pub enum LayerContent {
     Raster(TileGrid),           // sparse 256×256 RGBA tiles
-    Vector(Vec<VectorPath>),    // document-space paths; compositing later
+    Vector(Vec<VectorItem>),    // parametric shapes + freehand paths, movable one by one
+    Text { run, tiles },        // editable run + a tile cache rebuilt from it
 }
 ```
+
+- **Text** (`engine/text`, `core/src/text_layer.rs`, `core/src/text_edit.rs`) keeps its
+  pixels in a `TileGrid` like any painted layer, but that grid is a *cache* of `run` —
+  `text_layer::resync` clears and re-rasterizes it on every change. That is the whole trick:
+  because `tiles()` returns `Some` for text, compositing, masks, opacity, blend modes,
+  adjustments, thumbnails, GPU upload and PNG/PSD/SVG export need no text-awareness at all,
+  while the run stays editable forever. Two consequences to respect when touching layer
+  code: branch on `layer.tiles().is_none()` rather than `!is_raster()` when you mean "has no
+  pixels" (`is_raster()` is **false** for text), and never write text tiles to SQLite — the
+  run is the source of truth (`layers.text_data`, `content_kind = 2`).
+  The same cache is why **paint tools refuse a text layer**
+  (`Document::active_layer_accepts_paint`): anything a brush, shape, fill or clear committed
+  there would be wiped by the next `resync`. `Document::rasterize_text_layer` drops the run
+  and keeps the tiles, and `merge_layer_down` calls it on the destination first. Structural
+  edits (remove/duplicate/merge/resize, switching layers, undo/redo) `commit_text()` first —
+  a session indexes a layer by position, so it must not outlive a stack that moved.
+- Glyph work lives in **`engine/text`**, a leaf crate over `cosmic-text` (system font
+  discovery via `fontdb`, shaping, layout, caret and hit-testing, rasterizing to RGBA).
+  `calumma-core` depends on it. Font enumeration is engine-side on purpose — the shell must
+  never ask AppKit for a font list it might not be able to draw. `fonts.rs` resolves the
+  installed families **once** into a sorted, case-folded registry that also records which
+  bold/italic cuts each family really ships (`calm_font_family_styles`), so `family_exists`
+  is a binary search and `set_text_family` can refuse a name nothing can shape.
+- Caret questions are answered against the **shaped layout**, never against the string:
+  a wrapped paragraph is one `BufferLine` laid out as several rows, so `layout.rs` picks the
+  row by glyph byte range (`run_span`) rather than by `line_i`, and horizontal steps go
+  through cosmic-text `Motion` so one press crosses a whole grapheme cluster.
+- A typing session (`Document::text_edit`) is **one** undo step: tiles *and* the run are
+  snapshotted when it opens, and a single `TileDiff` + `RunDiff` lands when it closes
+  (`History::push_layer_text`). The run has to be in the step because it is what the project
+  stores — restoring only pixels would let the undone text come back on the next open.
+  Per-keystroke history would flood the budget for no benefit.
 
 - `layer.transform: Option<LayerTransform>` (`engine/core/src/transform.rs`)
   — offset/scale/rotation around the layer's `content_bounds()` center, raster
   layers only (`⌘T` transform *mode*, not a toolbar tool). Same non-destructive contract as
   everything else on `Layer`: never baked into tile bytes. Live view applies
   it as a per-layer GPU uniform in `vs_tile` (`board.wgsl`); flattening
-  (`composite_rgba`/`layer_rgba`/PSD export, all via
+  (`composite_rgba`/`layer_rgba`/PSD + SVG export, all via
   `Document::copy_layer_into_rgba`) resamples it with nearest-neighbor,
   not bilinear — a known, disclosed gap between the (smooth, GPU-linear-
   filtered) live view and a flattened/exported result at extreme
-  scale/rotation. Selecting *which* layer to transform still goes through
-  the layers panel only — there is no click-a-layer-on-the-canvas picking
-  yet (see `plans/02-layer-click-to-select.md`). Click outside the handles
-  (or `Esc`) exits the mode; the Select tools remain for region marquee/lasso.
+  scale/rotation. Inside transform mode, clicking a layer's painted pixels
+  retargets the transform to it (`Document::layer_at` — pixel-accurate,
+  mask/transform/opacity-aware, skips Paper) and starts a move drag in the
+  same gesture; clicking the active layer's own pixels always keeps it, so an
+  overlapping layer above cannot steal the target. Clicking empty space (or
+  `Esc`) exits; the Select tools remain for region marquee/lasso.
 - **Paper** (`Layer::paper`) is an ordinary raster layer, name-matched via
   `Layer::is_paper()`, pre-filled fully opaque white at creation — not a
   cheap vector fill. It is paintable/eraseable/editable like any other
-  layer; clearing it exposes transparency through to the desk. This costs a
-  full-size white bitmap per project (no longer free), a deliberate
-  trade-off for making it directly editable. `merge_layer_down` refuses to
+  layer; clearing it exposes transparency through to the desk. It is *not*
+  a full-size white bitmap any more: `TileGrid::fill_uniform` gives every
+  whole tile the same copy-on-write allocation, so Paper costs one tile
+  until it is painted on (see Residency below). `merge_layer_down` refuses to
   merge anything into Paper.
 - Optional `layer.mask: Option<Vec<u8>>` (full-document coverage 0–255). Masks do **not**
   mutate tile bytes; the renderer multiplies alpha when uploading GPU tiles.
@@ -176,14 +214,41 @@ pub enum LayerContent {
 - `layer.adjustments: Option<Adjustments>` (`engine/core/src/filters.rs`) —
   brightness/contrast/vibrance/saturation/levels, `None` = neutral. Also
   applied at CPU upload time, no shader involvement (unlike blend mode,
-  adjustments only ever read the source layer's own pixels).
+  adjustments only ever read the source layer's own pixels). Two entry points:
+  the sliders in `LayerSettingsCard` (`calm_engine_set_layer_adjustments`) and
+  the menu-bar Filters menu, which **nudges** by
+  `limits::ADJUSTMENT_NUDGE_STEP` / `GAMMA_NUDGE_STEP` through
+  `calm_engine_nudge_layer_adjustment` — the step and clamp are core, so the
+  shell never does the arithmetic.
 - `Document::duplicate_layer`/`merge_layer_down`/`resize` are **not**
   undo-tracked, matching the existing precedent that `add_layer`/
   `remove_layer` aren't either — structural layer-list/document edits sit
   outside the tile-diff history model on purpose, not as an oversight.
-- Vector compositing is not finished — filled closed paths render, but no
-  layer uses `LayerContent::Vector` by default today (Paper is a raster
-  layer pre-filled white, see Layers below); other vector work is deferred.
+- **Vector layers** (`core/src/vector.rs`, `core/src/vector_edit.rs`,
+  `render/src/vector_draw.rs`) hold a `Vec<VectorItem>` — a parametric
+  `Shape` or a freehand `VectorPath` — and are filled by the shape tools and
+  the pen while `doc.vector_mode` is on (`calm_engine_set_vector_mode`). Two
+  rules keep them honest: **parameters are the storage**, so moving or
+  scaling an item edits the parameters and never resamples pixels; and the
+  **board and the exporter evaluate the same distance functions**
+  (`Shape::distance` in Rust, `shape_distance` in `board.wgsl`), so live view
+  and flatten agree.
+  - Live drawing is instanced: one `VectorShapeInstance` per parametric shape
+    (`vs_vector_shape`) and stroke segments per path, both replayed from a
+    single per-frame draw list built across the *whole* layer stack
+    (`Renderer::build_layer_draws`) so a vector layer composites in stack
+    order against tile layers instead of always under them.
+  - Individual items are selected and moved inside `⌘T` transform mode
+    (`Document::vector_item_at` / `begin_vector_item_drag`), which outranks
+    the whole-layer Move handle but not the corner/rotate handles. Picking
+    treats a closed shape as solid (`VectorItem::pick_distance`) even when it
+    is drawn as an outline. Selection is `(layer, item)` and re-validated on
+    every read, so layer edits cannot leave it dangling.
+  - Known gaps: a *rotated* vector layer draws its parametric shapes
+    unrotated live (the shader's SDFs are axis-aligned) while flatten/export
+    stay correct; a filled closed freehand path has no GPU path at all and
+    appears only once flattened; and item edits are not undo-tracked, the
+    same as adding an item or any other structural layer edit.
 - `Document.selection: Option<Selection>` (`engine/core/src/selection.rs`) is a **document**-
   level concept, not a layer or a mask — a rect/ellipse/lasso shape (parameters only, not a
   persisted `width×height` buffer) that scopes copy/cut/clear to a region instead of a whole
@@ -279,8 +344,10 @@ CLI paths/binaries live in `cli/constants.py`.
 Compose `CalmText`, `CalmField`, `CalmRow`, `calmSurface()`, `CalmChip`, etc. Theme colours
 via `@Environment(\.themeColors)`; copy via `@Environment(\.l10n)`.
 
-1. Islands (`CalmIsland`) carry a thin `Tokens.Light/Dark.islandBorder` stroke; everywhere
-   else, separate surfaces by background contrast only — do not add borders outside islands.
+1. Islands (`CalmIsland`) carry a thin `Tokens.Light/Dark.islandBorder` stroke. Text/number
+   inputs and list rows carry a stronger `controlBorder` (focused inputs:
+   `controlFocusBorder`) via `calmSurface(bordered:focused:)`. Everywhere else — buttons,
+   chips, swatches, the tool grid, sliders — separate surfaces by background contrast only.
 2. Controls use `Tokens.Radius.sm` / `md`. Islands use `Tokens.Radius.island` (rounded) and
    sit apart with a minimal gap and window margin (`Tokens.Space.sm`), not flush.
 3. Custom Canvas/`AppIcon` drawings only — no icon packs / SF Symbols as product icons.
@@ -311,6 +378,32 @@ not a place to pile micro-opts that muddy the code for single-digit percent gain
 - Scalability checklist on structural changes: sparse tiles stay sparse, history does not
   deep-copy whole layers, GPU uploads stay dirty-region scoped, ops do not block the
   render loop longer than necessary.
+
+### Residency: what is allowed to be in memory
+
+**One document is resident at a time — the one you are working on.** Everything else lives
+in SQLite. There is no document cache, no per-workspace pool, and nothing to evict on a
+timer; switching workspaces or projects goes through `Inner::close_document`, which saves
+the old document, drops it, and calls `Renderer::release_document` so the GPU textures and
+per-layer uniform buffers keyed by its layer ids go with it. Add a new way to leave a
+document and it must route through that same function — otherwise its tiles stay in VRAM,
+where nothing will ever evict them (`sync_tiles` only runs with a document open).
+
+Inside the resident document, memory is spent for speed on purpose and clawed back by
+sharing rather than by unloading:
+
+- Tiles are `Arc` copy-on-write. `TileGrid::fill_uniform` gives **one** allocation to every
+  tile a solid fill covers whole, so Paper costs 256 KB instead of 256 KB × tile count; the
+  first stroke on any of those tiles forks it and nothing else notices. `ProjectStore`
+  re-establishes the same sharing on load (`tile::uniform_color`), so a reopened project is
+  as cheap as a new one.
+- History keeps its full budget for the open document (`HISTORY_MEMORY_BUDGET_BYTES`) —
+  undo staying instant is the whole point — and dies with it.
+- `calumma_core::memory::document_memory` is the measurement, exact rather than estimated:
+  it counts each allocation once by address, so shared tiles are not double-counted, and
+  `history_bytes` is what history holds *alone*. It is served over FFI as `CalmMemory`
+  (`calm_engine_memory`) and shown in the Settings sheet. Reach for it before claiming a
+  memory win.
 
 ### `unsafe` Rust — threshold rules
 
@@ -399,13 +492,16 @@ Pin versions in `[workspace.dependencies]`. Never `*` or bare `^`.
 
 ## Deliberately deferred
 
-Vector compositing polish, BiRefNet / `ort`, GenerateTexture model manager, SuggestShape,
+Vector *rotation* on the GPU and per-item undo (see Layers), BiRefNet / `ort`,
+GenerateTexture model manager, SuggestShape,
 Vectorize (`vtracer`), PDF export, layered PSD import (import is flattened composite only;
-PSD *export* is layered and shipped — see FLOW.md), click-to-pick a layer on the canvas
-(per-layer transform itself has shipped — see Layers above — but selecting the transform
-target still only goes through the layers panel), text layers — add only as considered
-features, not by restoring old app code.
+PSD *and SVG export* are layered and shipped — see FLOW.md), picking a layer by clicking it outside
+transform mode (inside it has shipped — see Layers above — but Option-click and ⌘-click are
+both already Pan, so there is no free modifier for a universal gesture), text *selection*
+(the Text tool ships with a caret only — no shift-arrow, no styled ranges) — add
+only as considered features, not by restoring old app code.
 
-**Promoted out of this list** and now carrying plans in `plans/`: workspaces shipped as
-titlebar tabs + extend overlay (`06-workspaces.md`). Eyedropper shipped (`I` / tools
-island; samples the composited pixel under the cursor into the active ink swatch).
+**Shipped from this list:** workspaces (titlebar tabs + extend overlay), Eyedropper
+(`I` / tools island; samples the composited pixel under the cursor into the active ink
+swatch), vector layers (`V` / tool options; items composite in stack order and move
+individually inside `⌘T`), text layers (`T` / tools island). See `FLOW.md`.

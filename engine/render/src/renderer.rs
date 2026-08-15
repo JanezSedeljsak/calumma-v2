@@ -1,14 +1,19 @@
 use crate::compose::{
     composited_tile_payload, rgba_unit, selection_lasso_points, selection_rect_or_ellipse,
-    stroke_instances, transform_overlay_instances, StrokeInstance,
+    stroke_instances, text_overlay_instances, transform_overlay_instances, StrokeInstance,
+};
+use crate::vector_draw::{
+    item_visible, push_path_instances, shape_instance, vector_placement,
+    vector_selection_instances, VectorShapeInstance,
 };
 use bytemuck::{Pod, Zeroable};
 use calumma_core::filters::AdjustmentLut;
 use calumma_core::limits::{
     GPU_TILE_RETENTION_MARGIN_TILES, STROKE_INSTANCE_CAPACITY, SURFACE_FRAME_LATENCY,
+    VECTOR_SHAPE_INSTANCE_CAPACITY,
 };
-use calumma_core::tile::{DirtyChannel, TileCoord, TileGrid, TILE_SIZE};
-use calumma_core::{BlendMode, Document, Tool};
+use calumma_core::tile::{DirtyChannel, TileCoord, TileGrid, TILE_BYTES, TILE_SIZE};
+use calumma_core::{BlendMode, Document, Tool, VectorItem};
 use rayon::prelude::*;
 use std::collections::{HashMap, HashSet};
 use std::num::NonZeroU64;
@@ -99,6 +104,39 @@ struct GpuTile {
     bind_group: wgpu::BindGroup,
 }
 
+/// Which instance buffer a vector run draws from: parametric shapes evaluate an SDF per
+/// pixel, freehand paths are stroke segments.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum VectorRun {
+    Shapes,
+    Paths,
+}
+
+/// One entry of the board's draw list, in stack order. Vector layers used to be drawn before
+/// every tile — which put them under Paper, where nothing could be seen — so the list is
+/// built across *all* layers and replayed once: a vector layer above a paint layer covers it,
+/// exactly as the flattened composite already had it.
+enum LayerDraw {
+    Tiles(BlendMode, Vec<TileKey>),
+    Vector(VectorRun, std::ops::Range<u32>),
+}
+
+/// Append an instance range, growing the previous entry instead when it is the same kind and
+/// ends where this one starts. Item order survives — a shape between two paths still splits
+/// the run — while the common layer, all of one kind, collapses to a single draw call.
+fn extend_run(out: &mut Vec<LayerDraw>, kind: VectorRun, range: std::ops::Range<u32>) {
+    if range.is_empty() {
+        return;
+    }
+    if let Some(LayerDraw::Vector(prev_kind, prev)) = out.last_mut() {
+        if *prev_kind == kind && prev.end == range.start {
+            prev.end = range.end;
+            return;
+        }
+    }
+    out.push(LayerDraw::Vector(kind, range));
+}
+
 pub struct Renderer {
     device: wgpu::Device,
     queue: wgpu::Queue,
@@ -110,6 +148,7 @@ pub struct Renderer {
     tile_pipeline_screen: wgpu::RenderPipeline,
     stroke_pipeline: wgpu::RenderPipeline,
     shape_pipeline: wgpu::RenderPipeline,
+    vector_shape_pipeline: wgpu::RenderPipeline,
     paper_buf: wgpu::Buffer,
     paper_bg: wgpu::BindGroup,
     tile_bgl: wgpu::BindGroupLayout,
@@ -118,6 +157,8 @@ pub struct Renderer {
     preview_bg: wgpu::BindGroup,
     stroke_buf: wgpu::Buffer,
     stroke_capacity: usize,
+    vector_shape_buf: wgpu::Buffer,
+    vector_shape_capacity: usize,
     sampler: wgpu::Sampler,
     tiles: HashMap<TileKey, GpuTile>,
     layer_transform_bufs: HashMap<String, wgpu::Buffer>,
@@ -365,10 +406,45 @@ impl Renderer {
             cache: None,
         });
 
+        let vector_shape_pipeline =
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("vector-shape"),
+                layout: Some(&preview_pl),
+                vertex: wgpu::VertexState {
+                    module: &shader,
+                    entry_point: Some("vs_vector_shape"),
+                    compilation_options: Default::default(),
+                    buffers: &[Some(wgpu::VertexBufferLayout {
+                        array_stride: std::mem::size_of::<VectorShapeInstance>() as u64,
+                        step_mode: wgpu::VertexStepMode::Instance,
+                        attributes: VECTOR_SHAPE_ATTRS,
+                    })],
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &shader,
+                    entry_point: Some("fs_vector_shape"),
+                    compilation_options: Default::default(),
+                    targets: &[Some(alpha_target(format))],
+                }),
+                primitive: wgpu::PrimitiveState::default(),
+                depth_stencil: None,
+                multisample: wgpu::MultisampleState::default(),
+                multiview_mask: None,
+                cache: None,
+            });
+
         let stroke_capacity = STROKE_INSTANCE_CAPACITY;
         let stroke_buf = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("stroke-instances"),
             size: (stroke_capacity * std::mem::size_of::<StrokeInstance>()) as u64,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        let vector_shape_capacity = VECTOR_SHAPE_INSTANCE_CAPACITY;
+        let vector_shape_buf = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("vector-shape-instances"),
+            size: (vector_shape_capacity * std::mem::size_of::<VectorShapeInstance>()) as u64,
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -384,6 +460,7 @@ impl Renderer {
             tile_pipeline_screen,
             stroke_pipeline,
             shape_pipeline,
+            vector_shape_pipeline,
             paper_buf,
             paper_bg,
             tile_bgl,
@@ -392,6 +469,8 @@ impl Renderer {
             preview_bg,
             stroke_buf,
             stroke_capacity,
+            vector_shape_buf,
+            vector_shape_capacity,
             sampler,
             tiles: HashMap::new(),
             layer_transform_bufs: HashMap::new(),
@@ -435,9 +514,11 @@ impl Renderer {
         self.layer_transform_bufs.insert(layer_id.to_string(), buf);
     }
 
+    /// Every layer `sync_tiles` uploads needs its uniform written, text included — the
+    /// buffer is created zeroed, and a zeroed `LayerXform` scales the tile to nothing.
     fn write_layer_transforms(&mut self, doc: &Document) {
         for layer in &doc.layers {
-            if !layer.content.is_raster() {
+            if layer.tiles().is_none() {
                 continue;
             }
             self.ensure_layer_transform_buf(&layer.id);
@@ -460,6 +541,23 @@ impl Renderer {
 
     pub fn cached_tile_count(&self) -> usize {
         self.tiles.len()
+    }
+
+    /// GPU-side bytes held for the open document: one RGBA texture per cached tile.
+    pub fn gpu_tile_bytes(&self) -> usize {
+        self.tiles.len() * TILE_BYTES
+    }
+
+    /// Hand back everything that belonged to the document being closed — tile textures and
+    /// the per-layer uniform buffers keyed by its layer ids. Eviction otherwise only happens
+    /// inside `sync_tiles`, which needs a document to run, so a closed project's textures
+    /// would sit in VRAM until some *other* project was opened and drawn.
+    pub fn release_document(&mut self) {
+        self.tiles.clear();
+        self.layer_transform_bufs.clear();
+        self.layer_slots.clear();
+        self.next_layer_slot = 0;
+        self.dirty = true;
     }
 
     pub fn invalidate(&mut self) {
@@ -490,6 +588,22 @@ impl Renderer {
             mapped_at_creation: false,
         });
         self.stroke_capacity = next;
+    }
+
+    fn ensure_vector_shape_capacity(&mut self, count: usize) {
+        if count <= self.vector_shape_capacity {
+            return;
+        }
+        let next = count
+            .next_power_of_two()
+            .max(VECTOR_SHAPE_INSTANCE_CAPACITY);
+        self.vector_shape_buf = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("vector-shape-instances"),
+            size: (next * std::mem::size_of::<VectorShapeInstance>()) as u64,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        self.vector_shape_capacity = next;
     }
 
     fn sync_tiles(&mut self, doc: &mut Document) {
@@ -691,13 +805,43 @@ impl Renderer {
         }
     }
 
-    fn visible_tile_groups(&mut self, doc: &Document) -> Vec<(BlendMode, Vec<TileKey>)> {
+    /// The whole layer stack as one ordered draw list, filling the two instance buffers as it
+    /// goes. Within a vector layer, runs of the same kind coalesce into a single instanced
+    /// draw while item order is preserved — so a shapes-only layer is one draw call, and a
+    /// layer that alternates shapes and freehand still stacks in the order it was drawn in.
+    fn build_layer_draws(
+        &mut self,
+        doc: &Document,
+        strokes: &mut Vec<StrokeInstance>,
+        shapes: &mut Vec<VectorShapeInstance>,
+    ) -> Vec<LayerDraw> {
         let Some(visible) = doc.visible_rect() else {
             return Vec::new();
         };
         let mut out = Vec::new();
         for layer in &doc.layers {
             if !layer.visible {
+                continue;
+            }
+            if let Some(items) = layer.content.items() {
+                let placement = vector_placement(layer);
+                for item in items {
+                    if !item_visible(item, placement, visible) {
+                        continue;
+                    }
+                    match item {
+                        VectorItem::Shape(shape) => {
+                            let start = shapes.len() as u32;
+                            shapes.push(shape_instance(shape, placement));
+                            extend_run(&mut out, VectorRun::Shapes, start..shapes.len() as u32);
+                        }
+                        VectorItem::Path(path) => {
+                            let start = strokes.len() as u32;
+                            push_path_instances(path, placement, strokes);
+                            extend_run(&mut out, VectorRun::Paths, start..strokes.len() as u32);
+                        }
+                    }
+                }
                 continue;
             }
             let Some(grid) = layer.tiles() else {
@@ -713,7 +857,7 @@ impl Renderer {
                 }
             }
             if !keys.is_empty() {
-                out.push((layer.blend_mode, keys));
+                out.push(LayerDraw::Tiles(layer.blend_mode, keys));
             }
         }
         out
@@ -829,20 +973,42 @@ impl Renderer {
         } else {
             color
         };
-        let instances = if !doc.stroke_points.is_empty() {
-            stroke_instances(&doc.stroke_points, radius, stroke_color)
+        let mut instances: Vec<StrokeInstance> = Vec::new();
+        let mut shape_instances: Vec<VectorShapeInstance> = Vec::new();
+        let draws = self.build_layer_draws(doc, &mut instances, &mut shape_instances);
+
+        let overlay_start = instances.len() as u32;
+        if doc.text_editing() {
+            instances.extend(text_overlay_instances(
+                doc,
+                self.started.elapsed().as_secs_f32(),
+            ));
+        } else if !doc.stroke_points.is_empty() {
+            instances.extend(stroke_instances(&doc.stroke_points, radius, stroke_color));
         } else if let Some(handles) = doc.transform_handles() {
-            transform_overlay_instances(handles)
+            instances.extend(transform_overlay_instances(handles));
+            instances.extend(vector_selection_instances(doc));
         } else if let Some(points) = selection_lasso_points(doc) {
-            stroke_instances(&points, SELECTION_OUTLINE_WIDTH, SELECTION_OUTLINE_COLOR)
-        } else {
-            Vec::new()
-        };
-        let stroke_count = instances.len();
-        if stroke_count > 0 {
-            self.ensure_stroke_capacity(stroke_count);
+            instances.extend(stroke_instances(
+                &points,
+                SELECTION_OUTLINE_WIDTH,
+                SELECTION_OUTLINE_COLOR,
+            ));
+        }
+        let overlay_range = overlay_start..instances.len() as u32;
+
+        if !instances.is_empty() {
+            self.ensure_stroke_capacity(instances.len());
             self.queue
                 .write_buffer(&self.stroke_buf, 0, bytemuck::cast_slice(&instances));
+        }
+        if !shape_instances.is_empty() {
+            self.ensure_vector_shape_capacity(shape_instances.len());
+            self.queue.write_buffer(
+                &self.vector_shape_buf,
+                0,
+                bytemuck::cast_slice(&shape_instances),
+            );
         }
 
         let frame = match self.surface.get_current_texture() {
@@ -886,78 +1052,9 @@ impl Renderer {
             pass.draw(0..3, 0..1);
         }
 
-        for layer in &doc.layers {
-            if !layer.visible {
-                continue;
-            }
-            let Some(paths) = layer.content.paths() else {
-                continue;
-            };
-            for path in paths {
-                if !(path.fill && path.closed) || path.points.len() < 2 {
-                    continue;
-                }
-                let mut min_x = f32::INFINITY;
-                let mut min_y = f32::INFINITY;
-                let mut max_x = f32::NEG_INFINITY;
-                let mut max_y = f32::NEG_INFINITY;
-                for &(x, y) in &path.points {
-                    min_x = min_x.min(x);
-                    min_y = min_y.min(y);
-                    max_x = max_x.max(x);
-                    max_y = max_y.max(y);
-                }
-                if !min_x.is_finite() {
-                    continue;
-                }
-                let color = [
-                    path.color[0] as f32 / 255.0,
-                    path.color[1] as f32 / 255.0,
-                    path.color[2] as f32 / 255.0,
-                    path.color[3] as f32 / 255.0,
-                ];
-                let vector = PreviewUniforms {
-                    pan: [doc.camera.pan_x, doc.camera.pan_y],
-                    zoom: doc.camera.zoom,
-                    dpr: doc.camera.dpr,
-                    viewport,
-                    _align_color: [0.0, 0.0],
-                    color,
-                    p0: [min_x, min_y],
-                    p1: [max_x, max_y],
-                    half_width: 0.0,
-                    tool: Tool::Rect as u32 as f32,
-                    fill: 1.0,
-                    _pad: 0.0,
-                };
-                self.queue
-                    .write_buffer(&self.preview_buf, 0, bytemuck::bytes_of(&vector));
-                let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: Some("vector"),
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: &view,
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Load,
-                            store: wgpu::StoreOp::Store,
-                        },
-                        depth_slice: None,
-                    })],
-                    depth_stencil_attachment: None,
-                    timestamp_writes: None,
-                    occlusion_query_set: None,
-                    ..Default::default()
-                });
-                pass.set_pipeline(&self.shape_pipeline);
-                pass.set_bind_group(0, &self.preview_bg, &[]);
-                pass.draw(0..3, 0..1);
-            }
-        }
-
-        let tile_groups = self.visible_tile_groups(doc);
-        if !tile_groups.is_empty() {
+        if !draws.is_empty() {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("tiles"),
+                label: Some("layers"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &view,
                     resolve_target: None,
@@ -972,19 +1069,35 @@ impl Renderer {
                 occlusion_query_set: None,
                 ..Default::default()
             });
-            for (mode, keys) in &tile_groups {
-                pass.set_pipeline(self.tile_pipeline(*mode));
-                for key in keys {
-                    let Some(gpu) = self.tiles.get(key) else {
-                        continue;
-                    };
-                    pass.set_bind_group(0, &gpu.bind_group, &[]);
-                    pass.draw(0..6, 0..1);
+            for draw in &draws {
+                match draw {
+                    LayerDraw::Tiles(mode, keys) => {
+                        pass.set_pipeline(self.tile_pipeline(*mode));
+                        for key in keys {
+                            let Some(gpu) = self.tiles.get(key) else {
+                                continue;
+                            };
+                            pass.set_bind_group(0, &gpu.bind_group, &[]);
+                            pass.draw(0..6, 0..1);
+                        }
+                    }
+                    LayerDraw::Vector(kind, range) => {
+                        let (pipeline, buf) = match kind {
+                            VectorRun::Shapes => {
+                                (&self.vector_shape_pipeline, &self.vector_shape_buf)
+                            }
+                            VectorRun::Paths => (&self.stroke_pipeline, &self.stroke_buf),
+                        };
+                        pass.set_pipeline(pipeline);
+                        pass.set_bind_group(0, &self.preview_bg, &[]);
+                        pass.set_vertex_buffer(0, buf.slice(..));
+                        pass.draw(0..6, range.clone());
+                    }
                 }
             }
         }
 
-        if stroke_count > 0 {
+        if !overlay_range.is_empty() {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("stroke-preview"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -1004,7 +1117,7 @@ impl Renderer {
             pass.set_pipeline(&self.stroke_pipeline);
             pass.set_bind_group(0, &self.preview_bg, &[]);
             pass.set_vertex_buffer(0, self.stroke_buf.slice(..));
-            pass.draw(0..6, 0..stroke_count as u32);
+            pass.draw(0..6, overlay_range.clone());
         }
 
         if doc.preview_shape.is_some() {
@@ -1128,6 +1241,39 @@ const STROKE_ATTRS: &[wgpu::VertexAttribute] = &[
     wgpu::VertexAttribute {
         offset: 32,
         shader_location: 2,
+        format: wgpu::VertexFormat::Float32,
+    },
+];
+
+const VECTOR_SHAPE_ATTRS: &[wgpu::VertexAttribute] = &[
+    wgpu::VertexAttribute {
+        offset: 0,
+        shader_location: 0,
+        format: wgpu::VertexFormat::Float32x2,
+    },
+    wgpu::VertexAttribute {
+        offset: 8,
+        shader_location: 1,
+        format: wgpu::VertexFormat::Float32x2,
+    },
+    wgpu::VertexAttribute {
+        offset: 16,
+        shader_location: 2,
+        format: wgpu::VertexFormat::Float32x4,
+    },
+    wgpu::VertexAttribute {
+        offset: 32,
+        shader_location: 3,
+        format: wgpu::VertexFormat::Float32,
+    },
+    wgpu::VertexAttribute {
+        offset: 36,
+        shader_location: 4,
+        format: wgpu::VertexFormat::Float32,
+    },
+    wgpu::VertexAttribute {
+        offset: 40,
+        shader_location: 5,
         format: wgpu::VertexFormat::Float32,
     },
 ];
