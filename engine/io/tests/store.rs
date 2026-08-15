@@ -357,7 +357,9 @@ fn delete_all_projects_clears_store() {
     let store = ProjectStore::open(dir.path().join("t.sqlite")).unwrap();
     let doc_a = store.create("A", 32, 32).unwrap();
     let doc_b = store.create("B", 64, 64).unwrap();
-    let ws = store.create_workspace_for_project(&doc_a.id, "Desk", [1, 2, 3]).unwrap();
+    let ws = store
+        .create_workspace_for_project(&doc_a.id, "Desk", [1, 2, 3])
+        .unwrap();
     store
         .set_open_workspace_tabs(std::slice::from_ref(&ws.id))
         .unwrap();

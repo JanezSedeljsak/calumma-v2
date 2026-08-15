@@ -284,6 +284,11 @@ pub struct Document {
     pub hover_layer: Option<usize>,
     pub stroke_active: bool,
     pub stroke_points: Vec<StrokePoint>,
+    /// Index into `stroke_points` the current straight segment pivots on, set the moment
+    /// Shift is first seen held during a Pen/Eraser stroke and cleared on release — so toggling
+    /// Shift mid-stroke straightens only the segment drawn while it was held, matching the
+    /// Shift-constrain read-on-render pattern `preview_shape()` uses for shapes.
+    stroke_straight_anchor: Option<usize>,
     /// The drag the pointer is describing, with its **unclamped** end. What gets drawn and
     /// committed is `preview_shape()`, which applies the Shift constraint on read — so
     /// pressing or releasing Shift mid-drag changes the shape without needing a pointer
@@ -407,6 +412,7 @@ impl Document {
             hover_layer: None,
             stroke_active: false,
             stroke_points: Vec::with_capacity(STROKE_POINT_CAPACITY),
+            stroke_straight_anchor: None,
             shape_drag: None,
             selection: None,
             shift_held: false,
@@ -1109,10 +1115,27 @@ impl Document {
     fn begin_stroke(&mut self) {
         self.stroke_active = true;
         self.stroke_points.clear();
+        self.stroke_straight_anchor = None;
         self.stroke_before.clear();
     }
 
     fn push_stroke_point(&mut self, x: f32, y: f32) {
+        if self.shift_held && matches!(self.tool, Tool::Pen | Tool::Eraser) {
+            let anchor = *self
+                .stroke_straight_anchor
+                .get_or_insert(self.stroke_points.len().saturating_sub(1));
+            self.stroke_points.truncate(anchor + 1);
+            if let Some(anchor_pt) = self.stroke_points.get(anchor) {
+                let dx = x - anchor_pt.x;
+                let dy = y - anchor_pt.y;
+                if dx * dx + dy * dy < MIN_STROKE_POINT_DISTANCE * MIN_STROKE_POINT_DISTANCE {
+                    return;
+                }
+            }
+            self.stroke_points.push(StrokePoint { x, y });
+            return;
+        }
+        self.stroke_straight_anchor = None;
         if let Some(last) = self.stroke_points.last() {
             let dx = x - last.x;
             let dy = y - last.y;
@@ -1709,6 +1732,30 @@ impl Document {
         for layer in &mut self.layers {
             layer.clear_dirty(channel);
         }
+    }
+
+    pub fn layer_highlight(&self) -> Option<(usize, [(f32, f32); 4])> {
+        if let Some(drag) = &self.transform_drag {
+            if drag.handle != TransformHandle::Move {
+                return None;
+            }
+            let corners = self.layer_outline_corners(drag.layer_index)?;
+            return Some((drag.layer_index, corners));
+        }
+        let index = self.hover_layer?;
+        let corners = self.layer_outline_corners(index)?;
+        Some((index, corners))
+    }
+
+    fn layer_outline_corners(&self, index: usize) -> Option<[(f32, f32); 4]> {
+        let layer = self.layers.get(index)?;
+        if layer.is_paper() {
+            return None;
+        }
+        let raw_bounds = layer.content_bounds()?;
+        let pivot = bounds_center(raw_bounds);
+        let t = layer.transform.unwrap_or_default();
+        Some(t.transformed_corners(pivot, raw_bounds))
     }
 
     pub fn has_live_preview(&self) -> bool {

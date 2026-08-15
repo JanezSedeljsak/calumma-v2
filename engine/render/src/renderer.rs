@@ -1,7 +1,7 @@
 use crate::compose::{
-    composited_tile_payload, rgba_unit, selection_lasso_points, selection_rect_or_ellipse,
-    stroke_instances, text_overlay_instances, tile_mip_chain, transform_overlay_instances,
-    StrokeInstance,
+    composited_tile_payload, layer_highlight_instances, rgba_unit, selection_lasso_points,
+    selection_rect_or_ellipse, stroke_instances, text_overlay_instances, tile_mip_chain,
+    transform_overlay_instances, StrokeInstance,
 };
 use crate::tile_atlas::TileAtlas;
 use crate::vector_draw::{
@@ -31,17 +31,13 @@ struct PaperUniforms {
     dpr: f32,
     doc_size: [f32; 2],
     viewport: [f32; 2],
-    time: f32,
     dark: f32,
-    _align_hover: [f32; 2],
-    hover_rect: [f32; 4],
-    desk: [f32; 4],
-    grid: [f32; 4],
-    paper_border: [f32; 4],
-    hover_enabled: f32,
     _pad0: f32,
     _pad1: f32,
     _pad2: f32,
+    desk: [f32; 4],
+    grid: [f32; 4],
+    paper_border: [f32; 4],
 }
 
 #[repr(C)]
@@ -933,13 +929,6 @@ impl Renderer {
         let (dw, dh) = doc.camera.device_size();
         self.resize(dw, dh);
 
-        let hover = doc
-            .hover_layer
-            .and_then(|i| doc.layers.get(i))
-            .and_then(|l| l.content_bounds())
-            .map(|(x0, y0, x1, y1)| [x0, y0, x1, y1])
-            .unwrap_or([0.0; 4]);
-
         let viewport = [
             (self.config.width as f32).max(1.0),
             (self.config.height as f32).max(1.0),
@@ -951,21 +940,13 @@ impl Renderer {
             dpr: doc.camera.dpr,
             doc_size: [doc.width as f32, doc.height as f32],
             viewport,
-            time: self.started.elapsed().as_secs_f32(),
             dark: if doc.dark_theme { 1.0 } else { 0.0 },
-            _align_hover: [0.0, 0.0],
-            hover_rect: hover,
-            desk: rgba_unit(doc.board_colors.desk),
-            grid: rgba_unit(doc.board_colors.grid),
-            paper_border: rgba_unit(doc.board_colors.paper_border),
-            hover_enabled: if doc.hover_layer.is_some() && hover != [0.0; 4] {
-                1.0
-            } else {
-                0.0
-            },
             _pad0: 0.0,
             _pad1: 0.0,
             _pad2: 0.0,
+            desk: rgba_unit(doc.board_colors.desk),
+            grid: rgba_unit(doc.board_colors.grid),
+            paper_border: rgba_unit(doc.board_colors.paper_border),
         };
         self.queue
             .write_buffer(&self.paper_buf, 0, bytemuck::bytes_of(&paper));
@@ -1061,6 +1042,17 @@ impl Renderer {
                 SELECTION_OUTLINE_WIDTH,
                 SELECTION_OUTLINE_COLOR,
             ));
+        }
+        if let Some((index, corners)) = doc.layer_highlight() {
+            let covered = doc
+                .transform_handles()
+                .is_some_and(|(handle_index, _, _)| handle_index == index);
+            if !covered {
+                instances.extend(layer_highlight_instances(
+                    corners,
+                    self.started.elapsed().as_secs_f32(),
+                ));
+            }
         }
         let overlay_range = overlay_start..instances.len() as u32;
 

@@ -92,6 +92,9 @@ pub(crate) struct Inner {
     platform_ops: Option<CalmPlatformOps>,
     last_shape_tool: Tool,
     last_select_tool: Tool,
+    viewport_width: f32,
+    viewport_height: f32,
+    viewport_dpr: f32,
 }
 
 fn _assert_inner_send() {
@@ -121,7 +124,22 @@ impl Inner {
             platform_ops: None,
             last_shape_tool: Tool::Rect,
             last_select_tool: Tool::SelectRect,
+            viewport_width: 0.0,
+            viewport_height: 0.0,
+            viewport_dpr: 1.0,
         })
+    }
+
+    fn remember_viewport(&mut self, width: f32, height: f32, dpr: f32) {
+        self.viewport_width = width.max(1.0);
+        self.viewport_height = height.max(1.0);
+        self.viewport_dpr = dpr.max(1.0);
+    }
+
+    fn apply_stored_viewport(&self, doc: &mut Document) {
+        if self.viewport_width > 0.0 && self.viewport_height > 0.0 {
+            doc.resize_viewport(self.viewport_width, self.viewport_height, self.viewport_dpr);
+        }
     }
 
     pub(crate) fn mark_dirty_save(&mut self) {
@@ -149,6 +167,13 @@ impl Inner {
         if let Some(mut doc) = self.doc.take() {
             self.last_shape_tool = doc.last_shape_tool;
             self.last_select_tool = doc.last_select_tool;
+            if doc.camera.viewport_width > 0.0 && doc.camera.viewport_height > 0.0 {
+                self.remember_viewport(
+                    doc.camera.viewport_width,
+                    doc.camera.viewport_height,
+                    doc.camera.dpr,
+                );
+            }
             let _ = self.store.save(&mut doc);
         }
         self.release_gpu_resources();
@@ -157,7 +182,8 @@ impl Inner {
     pub(crate) fn install_document(&mut self, mut doc: Document) {
         doc.last_shape_tool = self.last_shape_tool;
         doc.last_select_tool = self.last_select_tool;
-        if self.renderer.is_some() {
+        self.apply_stored_viewport(&mut doc);
+        if doc.camera.viewport_width > 0.0 {
             doc.fit_to_view();
         }
         self.doc = Some(doc);
@@ -378,6 +404,7 @@ pub unsafe extern "C" fn calm_engine_attach_surface(
                 .map_err(|e| anyhow!("creating the Metal renderer: {e}"))?;
             inner.renderer = Some(ActiveRenderer::Gpu(renderer));
         }
+        inner.remember_viewport(w as f32, h as f32, scale);
         if let Some(doc) = &mut inner.doc {
             doc.resize_viewport(w as f32, h as f32, scale);
             doc.fit_to_view();
@@ -394,6 +421,7 @@ pub unsafe extern "C" fn calm_engine_resize(
     scale: f32,
 ) -> CalmStatus {
     with_inner(engine, |inner| {
+        inner.remember_viewport(w as f32, h as f32, scale);
         if let Some(doc) = &mut inner.doc {
             doc.resize_viewport(w as f32, h as f32, scale);
         }

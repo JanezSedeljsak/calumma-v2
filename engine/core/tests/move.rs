@@ -66,6 +66,19 @@ fn move_tool_drags_a_painted_layer() {
 }
 
 #[test]
+fn move_drag_highlights_the_layer_being_moved() {
+    let mut doc = doc_with_viewport();
+    paint(&mut doc, 1, DocRect::new(40, 40, 80, 80), [255, 0, 0, 255]);
+    doc.set_tool(Tool::Move);
+    let down = doc.camera.to_screen(50.0, 50.0);
+    doc.pointer_down(down.0, down.1);
+    assert!(doc.layer_highlight().is_some());
+    let up = doc.camera.to_screen(70.0, 60.0);
+    doc.pointer_up(up.0, up.1);
+    assert!(doc.layer_highlight().is_none());
+}
+
+#[test]
 fn move_tool_skips_paper() {
     let mut doc = doc_with_viewport();
     doc.set_tool(Tool::Move);

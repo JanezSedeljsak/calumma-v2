@@ -4,16 +4,13 @@ struct Uniforms {
     dpr: f32,
     doc_size: vec2<f32>,
     viewport: vec2<f32>,
-    time: f32,
     dark: f32,
-    hover_rect: vec4<f32>,
-    desk: vec4<f32>,
-    grid: vec4<f32>,
-    paper_border: vec4<f32>,
-    hover_enabled: f32,
     _pad0: f32,
     _pad1: f32,
     _pad2: f32,
+    desk: vec4<f32>,
+    grid: vec4<f32>,
+    paper_border: vec4<f32>,
 }
 
 @group(0) @binding(0) var<uniform> u: Uniforms;
@@ -73,19 +70,6 @@ fn fs_paper(in: VsOut) -> @location(0) vec4<f32> {
         && xy.x <= u.doc_size.x + band && xy.y <= u.doc_size.y + band;
     if in_band && !inside {
         rgb = mix(rgb, u.paper_border.rgb, u.paper_border.a);
-    }
-
-    if u.hover_enabled > 0.5 && inside {
-        let r = u.hover_rect;
-        let hover_inside = xy.x >= r.x && xy.y >= r.y && xy.x <= r.z && xy.y <= r.w;
-        if hover_inside {
-            let edge = min(min(xy.x - r.x, r.z - xy.x), min(xy.y - r.y, r.w - xy.y));
-            let dash = floor((xy.x + xy.y + u.time * 40.0) / 8.0);
-            let on = (i32(dash) & 1) == 0;
-            if edge < 2.0 / max(u.zoom, 1e-6) && on {
-                rgb = mix(rgb, vec3<f32>(0.24, 0.78, 0.84), 0.85);
-            }
-        }
     }
 
     return vec4<f32>(rgb, 1.0);

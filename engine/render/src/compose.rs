@@ -36,6 +36,70 @@ pub fn rgba_unit(rgba: [u8; 4]) -> [f32; 4] {
     ]
 }
 
+const LAYER_HIGHLIGHT_COLOR: [f32; 4] = [0.24, 0.78, 0.84, 0.85];
+const LAYER_HIGHLIGHT_WIDTH: f32 = 1.5;
+const LAYER_HIGHLIGHT_DASH: f32 = 8.0;
+const LAYER_HIGHLIGHT_GAP: f32 = 8.0;
+const LAYER_HIGHLIGHT_SPEED: f32 = 40.0;
+
+pub fn layer_highlight_instances(corners: [(f32, f32); 4], elapsed: f32) -> Vec<StrokeInstance> {
+    let phase = elapsed * LAYER_HIGHLIGHT_SPEED;
+    let mut out = Vec::with_capacity(32);
+    for i in 0..4 {
+        out.extend(dashed_edge(
+            corners[i],
+            corners[(i + 1) % 4],
+            phase,
+            LAYER_HIGHLIGHT_COLOR,
+            LAYER_HIGHLIGHT_WIDTH,
+            LAYER_HIGHLIGHT_DASH,
+            LAYER_HIGHLIGHT_GAP,
+        ));
+    }
+    out
+}
+
+fn dashed_edge(
+    a: (f32, f32),
+    b: (f32, f32),
+    phase: f32,
+    color: [f32; 4],
+    width: f32,
+    dash: f32,
+    gap: f32,
+) -> Vec<StrokeInstance> {
+    let dx = b.0 - a.0;
+    let dy = b.1 - a.1;
+    let len = (dx * dx + dy * dy).sqrt();
+    if len < 1e-6 {
+        return Vec::new();
+    }
+    let ux = dx / len;
+    let uy = dy / len;
+    let period = dash + gap;
+    let mut t = -phase.rem_euclid(period);
+    let mut out = Vec::new();
+    while t < len {
+        let start = t.max(0.0);
+        let end = (t + dash).min(len);
+        if end > start {
+            out.push(StrokeInstance {
+                segment: [
+                    a.0 + ux * start,
+                    a.1 + uy * start,
+                    a.0 + ux * end,
+                    a.1 + uy * end,
+                ],
+                color,
+                radius: width,
+                _pad: [0.0; 3],
+            });
+        }
+        t += period;
+    }
+    out
+}
+
 pub fn transform_overlay_instances(handles: TransformHandles) -> Vec<StrokeInstance> {
     let (_, corners, rotate_handle) = handles;
     let mut out = Vec::with_capacity(4 + 1 + 5);

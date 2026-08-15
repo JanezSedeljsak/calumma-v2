@@ -58,6 +58,15 @@ fn n_points_become_n_minus_one_segments_joined_end_to_end() {
 }
 
 #[test]
+fn layer_highlight_outline_marches() {
+    let corners = [(0.0, 0.0), (100.0, 0.0), (100.0, 50.0), (0.0, 50.0)];
+    let a = layer_highlight_instances(corners, 0.0);
+    let b = layer_highlight_instances(corners, 0.25);
+    assert!(!a.is_empty());
+    assert!(a.iter().zip(b.iter()).any(|(x, y)| x.segment != y.segment));
+}
+
+#[test]
 fn transform_overlay_draws_four_edges_a_stem_and_five_handles() {
     let corners = [(0.0, 0.0), (10.0, 0.0), (10.0, 8.0), (0.0, 8.0)];
     let rotate = (5.0, -6.0);

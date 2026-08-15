@@ -464,3 +464,68 @@ fn workspace_switch_opens_the_named_project() {
         assert_eq!(state.height, 48);
     }
 }
+
+#[test]
+fn workspace_switch_restores_viewport() {
+    let engine = TestEngine::new();
+    let a = engine.create_project("A", 1280, 720);
+    let b = engine.create_project("B", 640, 360);
+    let ws = engine.create_workspace("Desk");
+    let ws_c = CString::new(ws.as_str()).unwrap();
+    let a_c = CString::new(a.as_str()).unwrap();
+    let b_c = CString::new(b.as_str()).unwrap();
+    unsafe {
+        assert_eq!(
+            calm_engine_resize(engine.ptr, 960, 540, 2.0),
+            CalmStatus::Ok
+        );
+        assert_eq!(
+            calm_workspace_add_project(engine.ptr, ws_c.as_ptr(), a_c.as_ptr()),
+            CalmStatus::Ok
+        );
+        assert_eq!(
+            calm_workspace_add_project(engine.ptr, ws_c.as_ptr(), b_c.as_ptr()),
+            CalmStatus::Ok
+        );
+        assert_eq!(
+            calm_workspace_switch(engine.ptr, ws_c.as_ptr(), a_c.as_ptr()),
+            CalmStatus::Ok
+        );
+        let mut state = CalmState {
+            width: 0,
+            height: 0,
+            zoom: 0.0,
+            min_zoom: 0.0,
+            max_zoom: 0.0,
+            pan_x: 0.0,
+            pan_y: 0.0,
+            active_layer: 0,
+            layer_count: 0,
+            can_undo: 0,
+            can_redo: 0,
+            stroke_active: 0,
+            dark_theme: 0,
+            accent: 0,
+            zoom_unit: 0.0,
+            last_shape_tool: 0,
+            last_select_tool: 0,
+        };
+        assert_eq!(calm_engine_state(engine.ptr, &mut state), CalmStatus::Ok);
+        assert!(
+            state.zoom < 0.9,
+            "wide board should fit below 1x, got {}",
+            state.zoom
+        );
+        assert_eq!(
+            calm_workspace_switch(engine.ptr, ws_c.as_ptr(), b_c.as_ptr()),
+            CalmStatus::Ok
+        );
+        assert_eq!(calm_engine_state(engine.ptr, &mut state), CalmStatus::Ok);
+        assert!(
+            state.zoom > 1.05,
+            "smaller board should fit above 1x with a live viewport, got {}",
+            state.zoom
+        );
+        assert_eq!(calm_engine_render(engine.ptr), CalmStatus::Ok);
+    }
+}
