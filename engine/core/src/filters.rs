@@ -1,12 +1,14 @@
 use crate::limits::{ADJUSTMENT_NUDGE_STEP, GAMMA_NUDGE_STEP};
+use num_enum::{IntoPrimitive, TryFromPrimitive};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, IntoPrimitive, TryFromPrimitive)]
+#[repr(u32)]
 pub enum AdjustmentKind {
-    Brightness,
-    Contrast,
-    Vibrance,
-    Saturation,
-    LevelsGamma,
+    Brightness = 0,
+    Contrast = 1,
+    Vibrance = 2,
+    Saturation = 3,
+    LevelsGamma = 4,
 }
 
 impl AdjustmentKind {
@@ -19,24 +21,11 @@ impl AdjustmentKind {
     ];
 
     pub fn from_u32(value: u32) -> Option<Self> {
-        match value {
-            0 => Some(Self::Brightness),
-            1 => Some(Self::Contrast),
-            2 => Some(Self::Vibrance),
-            3 => Some(Self::Saturation),
-            4 => Some(Self::LevelsGamma),
-            _ => None,
-        }
+        Self::try_from(value).ok()
     }
 
     pub fn as_u32(self) -> u32 {
-        match self {
-            Self::Brightness => 0,
-            Self::Contrast => 1,
-            Self::Vibrance => 2,
-            Self::Saturation => 3,
-            Self::LevelsGamma => 4,
-        }
+        self.into()
     }
 
     pub fn step(self) -> f32 {

@@ -1,7 +1,7 @@
 use crate::document::Document;
 use crate::layer::LayerContent;
 use crate::vector::VectorItem;
-use std::collections::HashSet;
+use rustc_hash::FxHashSet;
 use std::sync::Arc;
 
 /// What the open document is holding, by category. Counting is exact rather than estimated:
@@ -30,7 +30,7 @@ impl DocumentMemory {
 /// Tracks which allocations have already been counted, by address. Two `Arc`s to one buffer
 /// share an address, so this is what turns "bytes referenced" into "bytes owned".
 #[derive(Default)]
-struct Seen(HashSet<usize>);
+struct Seen(FxHashSet<usize>);
 
 impl Seen {
     fn count(&mut self, tile: &Arc<Vec<u8>>) -> Option<usize> {

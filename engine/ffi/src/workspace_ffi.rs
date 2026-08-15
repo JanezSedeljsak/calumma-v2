@@ -3,10 +3,10 @@ use crate::engine::{
 };
 use anyhow::Context;
 use calumma_io::WorkspaceListItem;
+use parking_lot::Mutex;
 use std::ffi::{c_char, CStr};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::ptr;
-use std::sync::Mutex;
 
 #[repr(C)]
 pub struct CalmWorkspaceInfo {
@@ -69,7 +69,7 @@ pub unsafe extern "C" fn calm_workspace_list(
     }
     catch_unwind(AssertUnwindSafe(|| {
         let mutex = unsafe { &*(engine as *const Mutex<Inner>) };
-        let inner = mutex.lock().ok()?;
+        let inner = mutex.lock();
         let items = inner.store.list_workspaces(cap).unwrap_or_default();
         Some(write_workspaces(out, &items, cap))
     }))
@@ -88,9 +88,7 @@ pub unsafe extern "C" fn calm_workspace_create(
     }
     match catch_unwind(AssertUnwindSafe(|| {
         let mutex = unsafe { &*(engine as *const Mutex<Inner>) };
-        let inner = mutex
-            .lock()
-            .map_err(|_| anyhow::anyhow!("engine mutex poisoned by an earlier panic"))?;
+        let inner = mutex.lock();
         let name = unsafe { CStr::from_ptr(name) }
             .to_str()
             .unwrap_or(calumma_core::UNTITLED);
@@ -235,7 +233,7 @@ pub unsafe extern "C" fn calm_workspace_projects(
     }
     catch_unwind(AssertUnwindSafe(|| {
         let mutex = unsafe { &*(engine as *const Mutex<Inner>) };
-        let inner = mutex.lock().ok()?;
+        let inner = mutex.lock();
         let workspace_id = unsafe { CStr::from_ptr(workspace_id) }.to_str().ok()?;
         let items = inner
             .store
@@ -366,7 +364,7 @@ pub unsafe extern "C" fn calm_open_workspace_tabs(
     }
     catch_unwind(AssertUnwindSafe(|| {
         let mutex = unsafe { &*(engine as *const Mutex<Inner>) };
-        let inner = mutex.lock().ok()?;
+        let inner = mutex.lock();
         let ids = inner.store.open_workspace_tabs().unwrap_or_default();
         let n = ids.len().min(cap);
         for (i, id) in ids.iter().take(n).enumerate() {
@@ -420,9 +418,7 @@ pub unsafe extern "C" fn calm_workspace_for_project(
     }
     match catch_unwind(AssertUnwindSafe(|| {
         let mutex = unsafe { &*(engine as *const Mutex<Inner>) };
-        let inner = mutex
-            .lock()
-            .map_err(|_| anyhow::anyhow!("engine mutex poisoned by an earlier panic"))?;
+        let inner = mutex.lock();
         let project_id = unsafe { CStr::from_ptr(project_id) }
             .to_str()
             .context("project id is not valid UTF-8")?;
@@ -448,9 +444,7 @@ pub unsafe extern "C" fn calm_workspace_create_for_project(
     }
     match catch_unwind(AssertUnwindSafe(|| {
         let mutex = unsafe { &*(engine as *const Mutex<Inner>) };
-        let inner = mutex
-            .lock()
-            .map_err(|_| anyhow::anyhow!("engine mutex poisoned by an earlier panic"))?;
+        let inner = mutex.lock();
         let project_id = unsafe { CStr::from_ptr(project_id) }
             .to_str()
             .context("project id is not valid UTF-8")?;

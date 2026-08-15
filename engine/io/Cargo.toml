@@ -11,8 +11,8 @@ rusqlite = { workspace = true, features = ["bundled"] }
 dirs = { workspace = true }
 thiserror = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }
-image = { workspace = true, default-features = false, features = ["png"] }
+png = { workspace = true }
+rustc-hash = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
-image = { workspace = true, default-features = false, features = ["png"] }

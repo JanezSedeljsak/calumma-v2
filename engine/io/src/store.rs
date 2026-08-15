@@ -2,7 +2,7 @@ use calumma_core::limits::{PROJECT_THUMB_MAX_SIDE, RECENT_PROJECTS_LIMIT};
 use calumma_core::tile::{self, DirtyChannel, TileCoord, TILE_BYTES};
 use calumma_core::{BlendMode, Document, Layer, LayerContent};
 use rusqlite::{params, params_from_iter, Connection, OptionalExtension};
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -344,7 +344,7 @@ impl ProjectStore {
         })?;
 
         let mask_len = (width as usize) * (height as usize);
-        let mut solid_tiles: HashMap<[u8; 4], Arc<Vec<u8>>> = HashMap::new();
+        let mut solid_tiles: FxHashMap<[u8; 4], Arc<Vec<u8>>> = FxHashMap::default();
         let mut tile_stmt = self
             .conn
             .prepare("SELECT tx, ty, pixels FROM tiles WHERE project_id = ?1 AND layer_id = ?2")?;
@@ -555,7 +555,7 @@ impl ProjectStore {
 
     fn write_project_thumbnail(&self, doc: &Document) -> Result<(), StoreError> {
         let (w, h, rgba) = doc.composite_thumbnail(PROJECT_THUMB_MAX_SIDE);
-        let png = crate::encode_png_rgba(&rgba, w, h).map_err(StoreError::Io)?;
+        let png = crate::encode_png_rgba(&rgba, w, h).map_err(|e| StoreError::Io(e.into()))?;
         self.conn.execute(
             "UPDATE projects SET thumb = ?1 WHERE id = ?2",
             params![png, doc.id],

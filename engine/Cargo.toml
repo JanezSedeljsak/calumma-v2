@@ -11,7 +11,6 @@ license = "MIT"
 [workspace.dependencies]
 wgpu = { version = "30.0", default-features = false }
 naga = { version = "30.0", default-features = false }
-image = { version = "0.25.10", default-features = false }
 bytemuck = { version = "1.25", default-features = false }
 thiserror = "2.0"
 anyhow = "1.0"
@@ -21,14 +20,11 @@ rusqlite = "0.40.2"
 dirs = "5.0"
 proptest = "1.11"
 tempfile = "3.27.0"
-serde = { version = "1.0", default-features = false }
 rayon = "1.12"
-tiny-skia = "0.12"
-resvg = "0.48.1"
-usvg = "0.48.1"
-vtracer = "0.6.5"
-ravif = "0.13"
-cbindgen = "0.29"
+parking_lot = "0.12.5"
+num_enum = "0.7"
+png = "0.17"
+rustc-hash = "2.1"
 cosmic-text = "0.19.0"
 
 [profile.dev]

@@ -10,6 +10,7 @@ bytemuck = { workspace = true, features = ["derive"] }
 wgpu = { workspace = true, default-features = false, features = ["metal", "wgsl"] }
 pollster = { workspace = true }
 rayon = { workspace = true }
+rustc-hash = { workspace = true }
 
 [build-dependencies]
 naga = { workspace = true, features = ["wgsl-in"] }

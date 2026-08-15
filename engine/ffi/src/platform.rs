@@ -1,10 +1,11 @@
 use calumma_ops::{Backend, Op, OpError, OpInput, OpKind, OpOutput, OpParams};
+use num_enum::TryFromPrimitive;
 use std::os::raw::c_int;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::ptr;
 
 #[repr(u32)]
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, TryFromPrimitive)]
 pub enum CalmOpKind {
     RemoveBackground = 0,
     GenerateTexture = 1,
@@ -14,13 +15,7 @@ pub enum CalmOpKind {
 
 impl CalmOpKind {
     fn from_u32(v: u32) -> Option<Self> {
-        match v {
-            0 => Some(Self::RemoveBackground),
-            1 => Some(Self::GenerateTexture),
-            2 => Some(Self::Vectorize),
-            3 => Some(Self::SuggestShape),
-            _ => None,
-        }
+        Self::try_from(v).ok()
     }
 
     fn to_op_kind(self) -> OpKind {

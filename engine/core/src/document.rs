@@ -12,13 +12,14 @@ use crate::palette::BoardColors;
 use crate::selection::{Selection, SelectionShape};
 use crate::shape::{Shape, Tool};
 use crate::text_edit::TextEdit;
-use crate::tile::{blend_over, blend_with_mode, DirtyChannel, DocRect, TileCoord, TILE_SIZE};
+use crate::tile::{
+    blend_over, blend_with_mode, DirtyChannel, DocRect, TileCoord, TileSet, TILE_SIZE,
+};
 use crate::transform::{bounds_center, clipped_pixel_span, LayerTransform};
 use crate::vector;
 use crate::vector_edit::{VectorItemDrag, VectorPick};
 use calumma_text::TextRun;
 use rayon::prelude::*;
-use std::collections::HashSet;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct StrokePoint {
@@ -241,7 +242,7 @@ fn apply_layer_effects(rgba: &mut [u8], layer: &Layer, lut: Option<&AdjustmentLu
     });
 }
 
-fn tiles_covering(rect: DocRect, out: &mut HashSet<TileCoord>) {
+fn tiles_covering(rect: DocRect, out: &mut TileSet) {
     let (tx0, ty0, tx1, ty1) = rect.tile_span();
     for ty in ty0..=ty1 {
         for tx in tx0..=tx1 {
@@ -434,7 +435,7 @@ impl Document {
             text_style: TextRun::default(),
             text_edit: None,
             transform_drag: None,
-            stroke_before: TileSnapshot::new(),
+            stroke_before: TileSnapshot::default(),
         }
     }
 
@@ -808,10 +809,16 @@ impl Document {
         true
     }
 
+    /// Same rule as picking a layer from the stack (`layer_pickable_at`): a layer that is
+    /// hidden, has no opacity, or has nothing painted here does not get to claim the click.
+    /// Without the `visible` check, hiding the active layer while it still has paint under
+    /// the cursor made every later click there grab the invisible layer instead of falling
+    /// through to whatever visible layer is actually underneath — dragging looked like a
+    /// no-op because the layer that moved couldn't be seen.
     fn active_layer_covers(&self, doc_x: f32, doc_y: f32) -> bool {
         self.layers
             .get(self.active_layer)
-            .is_some_and(|l| layer_alpha_at(l, doc_x, doc_y, self.width, self.height) != 0)
+            .is_some_and(|l| layer_pickable_at(l, doc_x, doc_y, self.width, self.height))
     }
 
     /// The transform box is `content_bounds()`, which is tile-granular — for a small
@@ -937,7 +944,9 @@ impl Document {
         let lut = self.layers[index].adjustments.map(|a| a.lut());
         apply_layer_effects(&mut src_buf, &self.layers[index], lut.as_ref());
 
-        let dst = self.layers[index - 1].tiles_mut().unwrap();
+        let Some(dst) = self.layers[index - 1].tiles_mut() else {
+            return false;
+        };
         dst.paint_rect(DocRect::from_size(w, h), |x, y, dst_px| {
             let i = ((y as usize) * (w as usize) + (x as usize)) * 4;
             let src_px = [src_buf[i], src_buf[i + 1], src_buf[i + 2], src_buf[i + 3]];
@@ -1183,7 +1192,7 @@ impl Document {
             return;
         };
 
-        let mut touched = HashSet::new();
+        let mut touched = TileSet::default();
         tiles_covering(span, &mut touched);
 
         let Some(layer) = self.layers.get(active) else {
@@ -1240,7 +1249,7 @@ impl Document {
             return;
         };
 
-        let mut coords = HashSet::new();
+        let mut coords = TileSet::default();
         tiles_covering(rect, &mut coords);
         let coords: Vec<TileCoord> = coords.into_iter().collect();
 
@@ -1362,7 +1371,7 @@ impl Document {
         let Some(grid) = layer.tiles() else {
             return;
         };
-        let mut coords = HashSet::new();
+        let mut coords = TileSet::default();
         tiles_covering(scope, &mut coords);
         let coords: Vec<TileCoord> = coords
             .into_iter()
@@ -1639,7 +1648,7 @@ impl Document {
         let Some(grid) = layer.tiles() else {
             return false;
         };
-        let mut coords = HashSet::new();
+        let mut coords = TileSet::default();
         tiles_covering(bounds, &mut coords);
         let coords: Vec<TileCoord> = coords
             .into_iter()

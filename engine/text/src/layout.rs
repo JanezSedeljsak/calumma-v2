@@ -10,7 +10,9 @@ pub struct CaretRect {
     pub height: f32,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+use num_enum::TryFromPrimitive;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, TryFromPrimitive)]
 #[repr(u32)]
 pub enum Step {
     Left = 0,
@@ -25,17 +27,7 @@ pub enum Step {
 
 impl Step {
     pub fn from_u32(value: u32) -> Option<Self> {
-        match value {
-            0 => Some(Self::Left),
-            1 => Some(Self::Right),
-            2 => Some(Self::Up),
-            3 => Some(Self::Down),
-            4 => Some(Self::LineStart),
-            5 => Some(Self::LineEnd),
-            6 => Some(Self::DocStart),
-            7 => Some(Self::DocEnd),
-            _ => None,
-        }
+        Self::try_from(value).ok()
     }
 }
 

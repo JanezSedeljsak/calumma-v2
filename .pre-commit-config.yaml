@@ -11,7 +11,11 @@ repos:
   - repo: https://github.com/crate-ci/typos
     rev: v1.28.4
     hooks:
+      # No --write-changes (the hook's own default): a spellchecker guessing fixes for short
+      # identifiers is a real hazard here — it silently rewrote `iy` (a y-index) to `it`
+      # while this config was being tested. Report-only; a human decides the fix.
       - id: typos
+        args: []
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.16.3

@@ -1,37 +1,30 @@
 use crate::filters::Adjustments;
 use crate::limits::PAPER_WHITE;
-use crate::tile::{DirtyChannel, DocRect, TileCoord, TileGrid, TILE_SIZE};
+use crate::tile::{DirtyChannel, DocRect, TileGrid, TileMap, TileSet, TILE_SIZE};
 use crate::transform::LayerTransform;
 use crate::vector::{items_bounds, VectorItem};
 use calumma_text::TextRun;
-use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use uuid::Uuid;
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+use num_enum::{IntoPrimitive, TryFromPrimitive};
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, IntoPrimitive, TryFromPrimitive)]
+#[repr(u32)]
 pub enum BlendMode {
     #[default]
-    Normal,
-    Multiply,
-    Screen,
+    Normal = 0,
+    Multiply = 1,
+    Screen = 2,
 }
 
 impl BlendMode {
     pub fn from_u32(value: u32) -> Option<Self> {
-        match value {
-            0 => Some(Self::Normal),
-            1 => Some(Self::Multiply),
-            2 => Some(Self::Screen),
-            _ => None,
-        }
+        Self::try_from(value).ok()
     }
 
     pub fn as_u32(self) -> u32 {
-        match self {
-            Self::Normal => 0,
-            Self::Multiply => 1,
-            Self::Screen => 2,
-        }
+        self.into()
     }
 }
 
@@ -249,7 +242,7 @@ impl Layer {
         self.set_mask(Some(next));
     }
 
-    pub fn dirty_tiles(&self, channel: DirtyChannel) -> Option<&HashSet<TileCoord>> {
+    pub fn dirty_tiles(&self, channel: DirtyChannel) -> Option<&TileSet> {
         self.tiles().map(|t| t.dirty_tiles(channel))
     }
 
@@ -271,9 +264,9 @@ impl Layer {
         }
     }
 
-    pub fn clear(&mut self) -> HashMap<TileCoord, Option<Arc<Vec<u8>>>> {
+    pub fn clear(&mut self) -> TileMap<Option<Arc<Vec<u8>>>> {
         let Some(tiles) = self.tiles_mut() else {
-            return HashMap::new();
+            return TileMap::default();
         };
         let coords: Vec<_> = tiles.coords().collect();
         let snap = tiles.snapshot_tiles(&coords);

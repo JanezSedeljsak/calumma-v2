@@ -2,11 +2,11 @@ use crate::engine::{with_inner, write_boxed, CalmEngine, CalmStatus, Inner};
 use anyhow::Context;
 use calumma_core::{format_hex_rgb, parse_hex_rgb, unpack_rgb, Tool};
 use calumma_io::encode_png_rgba;
+use parking_lot::Mutex;
 use std::ffi::{c_char, CStr, CString};
 use std::os::raw::c_int;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::ptr;
-use std::sync::Mutex;
 
 pub const CLIPBOARD_PNG: u32 = 0;
 pub const CLIPBOARD_SVG: u32 = 1;
@@ -192,7 +192,7 @@ pub extern "C" fn calm_engine_nudge_move_target(
     }
     match catch_unwind(AssertUnwindSafe(|| {
         let mutex = unsafe { &*(engine as *const Mutex<Inner>) };
-        let mut inner = mutex.lock().ok()?;
+        let mut inner = mutex.lock();
         let nudged = {
             let doc = inner.doc.as_mut()?;
             doc.nudge_move_target(steps_x, steps_y)

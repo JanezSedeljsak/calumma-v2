@@ -129,3 +129,57 @@ fn pen_does_not_nudge_the_layer() {
     doc.set_tool(Tool::Pen);
     assert!(!doc.nudge_move_target(1.0, 0.0));
 }
+
+#[test]
+fn move_tool_reaches_a_visible_layer_under_an_invisible_one() {
+    let mut doc = doc_with_viewport();
+    paint(&mut doc, 1, DocRect::new(20, 20, 60, 60), [255, 0, 0, 255]);
+    doc.add_layer("Top");
+    let top = doc.layers.len() - 1;
+    paint(
+        &mut doc,
+        top,
+        DocRect::new(20, 20, 60, 60),
+        [0, 255, 0, 255],
+    );
+    doc.set_layer_visible(top, false);
+    doc.set_active_layer(1);
+    doc.set_tool(Tool::Move);
+    drag(&mut doc, (30.0, 30.0), (50.0, 40.0));
+    assert!(doc.layers[1].transform.is_some(), "the visible layer moved");
+    assert!(
+        doc.layers[top].transform.is_none(),
+        "the hidden layer underneath the click was left alone"
+    );
+}
+
+/// Hiding a layer does not deselect it, so it can stay `active_layer` while invisible. Before
+/// the fix, `active_layer_covers` read raw pixel alpha with no `visible` check, so the hidden
+/// active layer's own paint under the cursor "won" precedence in `transform_pointer_down` and
+/// ate the drag — the layer that actually moved couldn't be seen, so it looked like Move did
+/// nothing at all.
+#[test]
+fn transform_retargets_past_an_invisible_active_layer_to_the_visible_one_below() {
+    let mut doc = doc_with_viewport();
+    paint(&mut doc, 1, DocRect::new(20, 20, 60, 60), [255, 0, 0, 255]);
+    doc.add_layer("Top");
+    let top = doc.layers.len() - 1;
+    paint(
+        &mut doc,
+        top,
+        DocRect::new(20, 20, 60, 60),
+        [0, 255, 0, 255],
+    );
+    doc.set_layer_visible(top, false);
+    doc.set_active_layer(top);
+    assert!(doc.enter_transform());
+
+    drag(&mut doc, (30.0, 30.0), (50.0, 40.0));
+
+    assert_eq!(doc.active_layer, 1, "retargeted to the visible layer");
+    assert!(doc.layers[1].transform.is_some(), "the visible layer moved");
+    assert!(
+        doc.layers[top].transform.is_none(),
+        "the hidden layer was never touched"
+    );
+}

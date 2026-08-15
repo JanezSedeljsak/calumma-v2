@@ -1,6 +1,7 @@
 use crate::selection::Selection;
 use crate::tile::{DocRect, TileGrid};
-use std::collections::{HashSet, VecDeque};
+use rustc_hash::FxHashSet;
+use std::collections::VecDeque;
 
 fn color_distance(a: [u8; 4], b: [u8; 4]) -> u32 {
     let dr = a[0] as i32 - b[0] as i32;
@@ -31,7 +32,7 @@ pub fn flood_fill(
         return 0;
     }
     let tol2 = (tolerance as u32) * (tolerance as u32) * 4;
-    let mut visited: HashSet<(i32, i32)> = HashSet::new();
+    let mut visited: FxHashSet<(i32, i32)> = FxHashSet::default();
     let mut queue = VecDeque::new();
     queue.push_back((start_x, start_y));
     visited.insert((start_x, start_y));

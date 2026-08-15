@@ -10,11 +10,11 @@ use calumma_io::{encode_psd, encode_svg, ProjectListItem, ProjectStore};
 use calumma_ops::{
     apply_output, layer_input, run_op_on_document, Backend, Op, OpParams, OpRegistry,
 };
+use parking_lot::Mutex;
 use std::ffi::{c_char, c_void, CStr, CString};
 use std::os::raw::c_int;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::ptr;
-use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 #[repr(C)]
@@ -268,9 +268,7 @@ where
     }
     match catch_unwind(AssertUnwindSafe(|| {
         let mutex = unsafe { &*(engine as *const Mutex<Inner>) };
-        let mut inner = mutex
-            .lock()
-            .map_err(|_| anyhow!("engine mutex poisoned by an earlier panic"))?;
+        let mut inner = mutex.lock();
         f(&mut inner)
     })) {
         Ok(Ok(())) => CalmStatus::Ok,
@@ -298,7 +296,7 @@ pub(crate) fn read_doc<T>(
     }
     match catch_unwind(AssertUnwindSafe(|| {
         let mutex = unsafe { &*(engine as *const Mutex<Inner>) };
-        let inner = mutex.lock().ok()?;
+        let inner = mutex.lock();
         let doc = inner.doc.as_ref()?;
         Some(f(doc))
     })) {
@@ -315,7 +313,7 @@ pub(crate) fn renderer_gpu_bytes(engine: *mut CalmEngine) -> usize {
     }
     catch_unwind(AssertUnwindSafe(|| {
         let mutex = unsafe { &*(engine as *const Mutex<Inner>) };
-        let inner = mutex.lock().ok()?;
+        let inner = mutex.lock();
         Some(inner.renderer.as_ref().map_or(0, |r| r.gpu_tile_bytes()))
     }))
     .ok()
@@ -359,7 +357,8 @@ pub unsafe extern "C" fn calm_engine_free(engine: *mut CalmEngine) {
     }
     let _ = catch_unwind(AssertUnwindSafe(|| {
         let mutex = unsafe { Box::from_raw(engine as *mut Mutex<Inner>) };
-        if let Ok(mut inner) = mutex.lock() {
+        {
+            let mut inner = mutex.lock();
             if let Some(mut doc) = inner.doc.take() {
                 let _ = inner.store.save(&mut doc);
             }
@@ -1021,9 +1020,7 @@ pub unsafe extern "C" fn calm_engine_layer_visible(engine: *mut CalmEngine, inde
     }
     match catch_unwind(AssertUnwindSafe(|| {
         let mutex = unsafe { &*(engine as *const Mutex<Inner>) };
-        let inner = mutex
-            .lock()
-            .map_err(|_| anyhow!("engine mutex poisoned by an earlier panic"))?;
+        let inner = mutex.lock();
         let doc = inner.doc.as_ref().context("no project is open")?;
         let layer = doc
             .layers
@@ -1131,9 +1128,7 @@ pub unsafe extern "C" fn calm_engine_layer_opacity(engine: *mut CalmEngine, inde
     }
     match catch_unwind(AssertUnwindSafe(|| {
         let mutex = unsafe { &*(engine as *const Mutex<Inner>) };
-        let inner = mutex
-            .lock()
-            .map_err(|_| anyhow!("engine mutex poisoned by an earlier panic"))?;
+        let inner = mutex.lock();
         let doc = inner.doc.as_ref().context("no project is open")?;
         let layer = doc
             .layers
@@ -1153,9 +1148,7 @@ pub unsafe extern "C" fn calm_engine_layer_blend_mode(engine: *mut CalmEngine, i
     }
     match catch_unwind(AssertUnwindSafe(|| {
         let mutex = unsafe { &*(engine as *const Mutex<Inner>) };
-        let inner = mutex
-            .lock()
-            .map_err(|_| anyhow!("engine mutex poisoned by an earlier panic"))?;
+        let inner = mutex.lock();
         let doc = inner.doc.as_ref().context("no project is open")?;
         let layer = doc
             .layers
@@ -1361,7 +1354,7 @@ pub unsafe extern "C" fn calm_engine_layer_name(
     }
     match catch_unwind(AssertUnwindSafe(|| {
         let mutex = unsafe { &*(engine as *const Mutex<Inner>) };
-        let inner = mutex.lock().ok()?;
+        let inner = mutex.lock();
         inner
             .doc
             .as_ref()
@@ -1402,9 +1395,7 @@ pub unsafe extern "C" fn calm_engine_layer_thumbnail(
     }
     match catch_unwind(AssertUnwindSafe(|| {
         let mutex = unsafe { &*(engine as *const Mutex<Inner>) };
-        let inner = mutex
-            .lock()
-            .map_err(|_| anyhow!("engine mutex poisoned by an earlier panic"))?;
+        let inner = mutex.lock();
         let doc = inner.doc.as_ref().context("no project is open")?;
         let layer = doc
             .layers
@@ -1458,9 +1449,7 @@ pub unsafe extern "C" fn calm_engine_composite_rgba(
     }
     match catch_unwind(AssertUnwindSafe(|| {
         let mutex = unsafe { &*(engine as *const Mutex<Inner>) };
-        let inner = mutex
-            .lock()
-            .map_err(|_| anyhow!("engine mutex poisoned by an earlier panic"))?;
+        let inner = mutex.lock();
         let doc = inner.doc.as_ref().context("no project is open")?;
         let (w, h, rgba) = doc.composite_rgba();
         let mut boxed = rgba.into_boxed_slice();
@@ -1493,9 +1482,7 @@ pub unsafe extern "C" fn calm_engine_export_psd(
     }
     match catch_unwind(AssertUnwindSafe(|| {
         let mutex = unsafe { &*(engine as *const Mutex<Inner>) };
-        let inner = mutex
-            .lock()
-            .map_err(|_| anyhow!("engine mutex poisoned by an earlier panic"))?;
+        let inner = mutex.lock();
         let doc = inner.doc.as_ref().context("no project is open")?;
         let bytes = encode_psd(doc);
         let mut boxed = bytes.into_boxed_slice();
@@ -1531,9 +1518,7 @@ pub unsafe extern "C" fn calm_engine_layer_rgba(
     }
     match catch_unwind(AssertUnwindSafe(|| {
         let mutex = unsafe { &*(engine as *const Mutex<Inner>) };
-        let inner = mutex
-            .lock()
-            .map_err(|_| anyhow!("engine mutex poisoned by an earlier panic"))?;
+        let inner = mutex.lock();
         let doc = inner.doc.as_ref().context("no project is open")?;
         let (w, h, rgba) = doc
             .layer_rgba(layer_index as usize)
@@ -1563,9 +1548,7 @@ pub unsafe extern "C" fn calm_engine_layer_svg(
     }
     match catch_unwind(AssertUnwindSafe(|| {
         let mutex = unsafe { &*(engine as *const Mutex<Inner>) };
-        let inner = mutex
-            .lock()
-            .map_err(|_| anyhow!("engine mutex poisoned by an earlier panic"))?;
+        let inner = mutex.lock();
         let doc = inner.doc.as_ref().context("no project is open")?;
         let svg = doc
             .layer_svg(layer_index as usize)
@@ -1586,9 +1569,7 @@ pub unsafe extern "C" fn calm_engine_export_svg(engine: *mut CalmEngine) -> *mut
     }
     match catch_unwind(AssertUnwindSafe(|| {
         let mutex = unsafe { &*(engine as *const Mutex<Inner>) };
-        let inner = mutex
-            .lock()
-            .map_err(|_| anyhow!("engine mutex poisoned by an earlier panic"))?;
+        let inner = mutex.lock();
         let doc = inner.doc.as_ref().context("no project is open")?;
         CString::new(encode_svg(doc)).context("svg contained an interior NUL")
     })) {
@@ -1614,9 +1595,7 @@ pub unsafe extern "C" fn calm_engine_selection_rgba(
     }
     match catch_unwind(AssertUnwindSafe(|| {
         let mutex = unsafe { &*(engine as *const Mutex<Inner>) };
-        let inner = mutex
-            .lock()
-            .map_err(|_| anyhow!("engine mutex poisoned by an earlier panic"))?;
+        let inner = mutex.lock();
         let doc = inner.doc.as_ref().context("no project is open")?;
         let (w, h, rgba) = doc
             .selection_rgba()
@@ -1643,9 +1622,7 @@ pub unsafe extern "C" fn calm_engine_has_selection(engine: *mut CalmEngine) -> c
     }
     match catch_unwind(AssertUnwindSafe(|| {
         let mutex = unsafe { &*(engine as *const Mutex<Inner>) };
-        let inner = mutex
-            .lock()
-            .map_err(|_| anyhow!("engine mutex poisoned by an earlier panic"))?;
+        let inner = mutex.lock();
         let doc = inner.doc.as_ref().context("no project is open")?;
         Ok::<bool, anyhow::Error>(doc.selection.is_some())
     })) {
@@ -1721,9 +1698,7 @@ pub unsafe extern "C" fn calm_project_create(
     }
     match catch_unwind(AssertUnwindSafe(|| {
         let mutex = unsafe { &*(engine as *const Mutex<Inner>) };
-        let mut inner = mutex
-            .lock()
-            .map_err(|_| anyhow!("engine mutex poisoned by an earlier panic"))?;
+        let mut inner = mutex.lock();
         let name = unsafe { CStr::from_ptr(name) }
             .to_str()
             .unwrap_or(calumma_core::UNTITLED);
@@ -1771,9 +1746,7 @@ pub unsafe extern "C" fn calm_project_create_from_image(
     }
     match catch_unwind(AssertUnwindSafe(|| {
         let mutex = unsafe { &*(engine as *const Mutex<Inner>) };
-        let mut inner = mutex
-            .lock()
-            .map_err(|_| anyhow!("engine mutex poisoned by an earlier panic"))?;
+        let mut inner = mutex.lock();
         let name = unsafe { CStr::from_ptr(name) }
             .to_str()
             .unwrap_or(calumma_core::UNTITLED);
@@ -1838,7 +1811,7 @@ pub unsafe extern "C" fn calm_project_list(
     }
     catch_unwind(AssertUnwindSafe(|| {
         let mutex = unsafe { &*(engine as *const Mutex<Inner>) };
-        let inner = mutex.lock().ok()?;
+        let inner = mutex.lock();
         let items = inner.store.list_recent(cap).unwrap_or_default();
         Some(write_projects(out, &items, cap))
     }))
@@ -1945,7 +1918,7 @@ pub unsafe extern "C" fn calm_engine_op_available(engine: *mut CalmEngine, kind:
     };
     catch_unwind(AssertUnwindSafe(|| {
         let mutex = unsafe { &*(engine as *const Mutex<Inner>) };
-        let inner = mutex.lock().ok()?;
+        let inner = mutex.lock();
         Some(inner.registry.available(op_kind))
     }))
     .ok()
@@ -1978,9 +1951,7 @@ pub unsafe extern "C" fn calm_engine_run_op(
         }
 
         let prepared = {
-            let mut inner = mutex
-                .lock()
-                .map_err(|_| anyhow!("engine mutex poisoned by an earlier panic"))?;
+            let mut inner = mutex.lock();
             match inner.registry.backend_for(op_kind) {
                 Some(Backend::Core) => {
                     let Inner {
@@ -2017,9 +1988,7 @@ pub unsafe extern "C" fn calm_engine_run_op(
             let output = PlatformOp::for_kind(op_kind, ops)
                 .run(input, &OpParams::default())
                 .context("running the platform op")?;
-            let mut inner = mutex
-                .lock()
-                .map_err(|_| anyhow!("engine mutex poisoned by an earlier panic"))?;
+            let mut inner = mutex.lock();
             let Inner {
                 doc,
                 renderer,
@@ -2080,5 +2049,29 @@ mod stub_renderer_tests {
             assert_eq!(calm_engine_render(ptr), CalmStatus::Ok);
             calm_engine_free(ptr);
         }
+    }
+
+    /// The regression this guards: a `parking_lot::Mutex` (unlike `std::sync::Mutex`) never
+    /// poisons, so a bug that panics while the lock is held degrades that one call — caught by
+    /// `catch_unwind` above — instead of wedging every later call behind "engine mutex poisoned
+    /// by an earlier panic" for the rest of the process.
+    #[test]
+    fn a_panic_while_locked_does_not_wedge_later_calls() {
+        let (_dir, ptr) = engine_with_project();
+        let status = with_inner(ptr, |_inner| {
+            panic!("simulated panic while holding the lock")
+        });
+        assert_eq!(
+            status,
+            CalmStatus::Error,
+            "the panic is caught, not propagated"
+        );
+
+        assert_eq!(
+            unsafe { calm_engine_render(ptr) },
+            CalmStatus::Ok,
+            "the lock still works after the earlier panic"
+        );
+        unsafe { calm_engine_free(ptr) };
     }
 }

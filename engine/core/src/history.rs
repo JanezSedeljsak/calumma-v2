@@ -1,11 +1,10 @@
 use crate::layer::Layer;
 use crate::limits::HISTORY_MEMORY_BUDGET_BYTES;
-use crate::tile::{TileCoord, TILE_BYTES};
+use crate::tile::{TileMap, TILE_BYTES};
 use calumma_text::TextRun;
-use std::collections::HashMap;
 use std::sync::Arc;
 
-pub type TileSnapshot = HashMap<TileCoord, Option<Arc<Vec<u8>>>>;
+pub type TileSnapshot = TileMap<Option<Arc<Vec<u8>>>>;
 
 #[derive(Clone, Debug)]
 pub struct TileDiff {

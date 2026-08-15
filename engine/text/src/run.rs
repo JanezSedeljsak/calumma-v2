@@ -3,30 +3,24 @@ use crate::limits::{
     TEXT_SIZE_MAX, TEXT_SIZE_MIN, TEXT_WRAP_MIN_WIDTH,
 };
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+use num_enum::{IntoPrimitive, TryFromPrimitive};
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, IntoPrimitive, TryFromPrimitive)]
+#[repr(u32)]
 pub enum TextAlign {
     #[default]
-    Left,
-    Center,
-    Right,
+    Left = 0,
+    Center = 1,
+    Right = 2,
 }
 
 impl TextAlign {
     pub fn from_u32(value: u32) -> Option<Self> {
-        match value {
-            0 => Some(Self::Left),
-            1 => Some(Self::Center),
-            2 => Some(Self::Right),
-            _ => None,
-        }
+        Self::try_from(value).ok()
     }
 
     pub fn as_u32(self) -> u32 {
-        match self {
-            Self::Left => 0,
-            Self::Center => 1,
-            Self::Right => 2,
-        }
+        self.into()
     }
 }
 

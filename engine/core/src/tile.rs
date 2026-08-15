@@ -1,7 +1,10 @@
 use crate::limits::{ALPHA_MAX, ALPHA_ROUND_BIAS, EFFECT_CHUNK_BYTES};
 use rayon::prelude::*;
-use std::collections::{HashMap, HashSet};
+use rustc_hash::{FxHashMap, FxHashSet};
 use std::sync::Arc;
+
+pub type TileSet = FxHashSet<TileCoord>;
+pub type TileMap<V> = FxHashMap<TileCoord, V>;
 
 pub const TILE_SIZE: u32 = 256;
 pub const TILE_BYTES: usize = (TILE_SIZE as usize) * (TILE_SIZE as usize) * 4;
@@ -254,8 +257,8 @@ impl DirtyChannel {
 
 #[derive(Clone, Debug)]
 pub struct TileGrid {
-    tiles: HashMap<TileCoord, Arc<Vec<u8>>>,
-    dirty: [HashSet<TileCoord>; DirtyChannel::COUNT],
+    tiles: TileMap<Arc<Vec<u8>>>,
+    dirty: [TileSet; DirtyChannel::COUNT],
     pub width: u32,
     pub height: u32,
 }
@@ -269,8 +272,8 @@ impl PartialEq for TileGrid {
 impl TileGrid {
     pub fn new(width: u32, height: u32) -> Self {
         Self {
-            tiles: HashMap::new(),
-            dirty: std::array::from_fn(|_| HashSet::new()),
+            tiles: TileMap::default(),
+            dirty: std::array::from_fn(|_| TileSet::default()),
             width,
             height,
         }
@@ -296,7 +299,7 @@ impl TileGrid {
         self.tiles.get(&coord)
     }
 
-    pub fn dirty_tiles(&self, channel: DirtyChannel) -> &HashSet<TileCoord> {
+    pub fn dirty_tiles(&self, channel: DirtyChannel) -> &TileSet {
         &self.dirty[channel.slot()]
     }
 
@@ -364,15 +367,16 @@ impl TileGrid {
         true
     }
 
-    pub fn snapshot_tiles(&self, coords: &[TileCoord]) -> HashMap<TileCoord, Option<Arc<Vec<u8>>>> {
-        let mut out = HashMap::with_capacity(coords.len());
+    pub fn snapshot_tiles(&self, coords: &[TileCoord]) -> TileMap<Option<Arc<Vec<u8>>>> {
+        let mut out = TileMap::default();
+        out.reserve(coords.len());
         for c in coords {
             out.insert(*c, self.tiles.get(c).cloned());
         }
         out
     }
 
-    pub fn restore_tiles(&mut self, snapshot: &HashMap<TileCoord, Option<Arc<Vec<u8>>>>) {
+    pub fn restore_tiles(&mut self, snapshot: &TileMap<Option<Arc<Vec<u8>>>>) {
         for (coord, maybe) in snapshot {
             match maybe {
                 Some(pixels) => {

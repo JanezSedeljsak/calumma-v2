@@ -1,5 +1,5 @@
+use crate::png::encode_png_rgba;
 use calumma_core::{vector, BlendMode, Document, Layer};
-use image::ImageEncoder;
 
 /// Whole-document SVG export.
 ///
@@ -114,11 +114,7 @@ fn crop(rgba: &[u8], width: u32, box_: (u32, u32, u32, u32)) -> Vec<u8> {
 }
 
 fn png_bytes(rgba: &[u8], width: u32, height: u32) -> Option<Vec<u8>> {
-    let mut out = std::io::Cursor::new(Vec::new());
-    image::codecs::png::PngEncoder::new(&mut out)
-        .write_image(rgba, width, height, image::ExtendedColorType::Rgba8)
-        .ok()?;
-    Some(out.into_inner())
+    encode_png_rgba(rgba, width, height).ok()
 }
 
 const BASE64_ALPHABET: &[u8; 64] =

@@ -6,6 +6,7 @@ license.workspace = true
 
 [dependencies]
 calumma-core = { path = "../core" }
+rustc-hash = { workspace = true }
 
 [features]
 default = []

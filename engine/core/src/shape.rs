@@ -1,4 +1,6 @@
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+use num_enum::{IntoPrimitive, TryFromPrimitive};
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, IntoPrimitive, TryFromPrimitive)]
 #[repr(u32)]
 pub enum Tool {
     #[default]
@@ -22,25 +24,7 @@ pub enum Tool {
 
 impl Tool {
     pub fn from_u32(v: u32) -> Option<Self> {
-        match v {
-            0 => Some(Self::Pen),
-            1 => Some(Self::Line),
-            2 => Some(Self::Rect),
-            3 => Some(Self::Ellipse),
-            4 => Some(Self::Arrow),
-            5 => Some(Self::Eraser),
-            6 => Some(Self::SelectRect),
-            7 => Some(Self::SelectEllipse),
-            8 => Some(Self::SelectLasso),
-            9 => Some(Self::Fill),
-            10 => Some(Self::Transform),
-            11 => Some(Self::Eyedropper),
-            12 => Some(Self::Triangle),
-            13 => Some(Self::Pentagon),
-            14 => Some(Self::Text),
-            15 => Some(Self::Move),
-            _ => None,
-        }
+        Self::try_from(v).ok()
     }
 
     pub fn is_shape(self) -> bool {

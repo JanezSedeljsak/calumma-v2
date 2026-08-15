@@ -17,7 +17,8 @@ use calumma_core::limits::{
 use calumma_core::tile::{DirtyChannel, TileCoord, TileGrid};
 use calumma_core::{BlendMode, Document, Tool, VectorItem};
 use rayon::prelude::*;
-use std::collections::{HashMap, HashSet};
+use rustc_hash::FxHashSet;
+use std::collections::HashMap;
 use std::num::NonZeroU64;
 use std::time::Instant;
 
@@ -695,8 +696,8 @@ impl Renderer {
         let retained = visible.expanded_by_tiles(GPU_TILE_RETENTION_MARGIN_TILES);
         let doc_width = doc.width;
 
-        let mut live: HashSet<TileKey> = HashSet::new();
-        let mut visible_keys: HashSet<TileKey> = HashSet::new();
+        let mut live: FxHashSet<TileKey> = FxHashSet::default();
+        let mut visible_keys: FxHashSet<TileKey> = FxHashSet::default();
         let mut uploads: Vec<(usize, TileCoord, TileKey)> = Vec::new();
 
         for layer_index in 0..doc.layers.len() {
@@ -740,7 +741,7 @@ impl Renderer {
         // zooming re-enters `render()` every frame via `dirty` without marking any tile
         // dirty, and rebuilding every adjusted layer's LUT on each of those frames for no
         // reason was pure waste.
-        let needed_layers: HashSet<usize> = uploads.iter().map(|(li, _, _)| *li).collect();
+        let needed_layers: FxHashSet<usize> = uploads.iter().map(|(li, _, _)| *li).collect();
         let luts: HashMap<usize, Option<AdjustmentLut>> = needed_layers
             .into_iter()
             .map(|li| (li, doc.layers[li].adjustments.map(|a| a.lut())))
@@ -830,7 +831,7 @@ impl Renderer {
             self.atlas.free(slot);
         }
         self.tiles.retain(|k, _| live.contains(k));
-        let live_layers: HashSet<&str> = doc.layers.iter().map(|l| l.id.as_str()).collect();
+        let live_layers: FxHashSet<&str> = doc.layers.iter().map(|l| l.id.as_str()).collect();
         self.layer_slots
             .retain(|id, _| live_layers.contains(id.as_str()));
         self.layer_xforms

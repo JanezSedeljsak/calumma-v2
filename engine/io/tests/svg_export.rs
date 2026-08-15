@@ -1,8 +1,30 @@
 use calumma_core::vector::{VectorItem, VectorShape};
 use calumma_core::{BlendMode, Document, Shape, Tool};
-use calumma_io::encode_svg;
+use calumma_io::{decode_png_rgba, encode_svg};
 
 const SIDE: u32 = 64;
+
+struct RgbaImage {
+    width: u32,
+    height: u32,
+    pixels: Vec<u8>,
+}
+
+impl RgbaImage {
+    fn dimensions(&self) -> (u32, u32) {
+        (self.width, self.height)
+    }
+
+    fn get_pixel(&self, x: u32, y: u32) -> [u8; 4] {
+        let i = ((y as usize) * self.width as usize + x as usize) * 4;
+        [
+            self.pixels[i],
+            self.pixels[i + 1],
+            self.pixels[i + 2],
+            self.pixels[i + 3],
+        ]
+    }
+}
 
 fn doc() -> Document {
     let mut doc = Document::new("p".into(), "t", SIDE, SIDE);
@@ -65,7 +87,7 @@ fn filled_layer(doc: &mut Document, color: [u8; 4]) -> usize {
 
 /// The `<image>` payloads back into pixels, so "the raster half is embedded correctly" is
 /// checked against a real PNG decode rather than against the string that claims to hold one.
-fn embedded_images(svg: &str) -> Vec<(u32, u32, image::RgbaImage)> {
+fn embedded_images(svg: &str) -> Vec<(u32, u32, RgbaImage)> {
     let mut out = Vec::new();
     for chunk in svg.split("<image ").skip(1) {
         let x: u32 = attr(chunk, "x").parse().unwrap();
@@ -75,10 +97,16 @@ fn embedded_images(svg: &str) -> Vec<(u32, u32, image::RgbaImage)> {
             .strip_prefix("data:image/png;base64,")
             .expect("data uri");
         let bytes = base64_decode(payload);
-        let decoded = image::load_from_memory_with_format(&bytes, image::ImageFormat::Png)
-            .expect("embedded png decodes")
-            .to_rgba8();
-        out.push((x, y, decoded));
+        let (width, height, pixels) = decode_png_rgba(&bytes).expect("embedded png decodes");
+        out.push((
+            x,
+            y,
+            RgbaImage {
+                width,
+                height,
+                pixels,
+            },
+        ));
     }
     out
 }
@@ -175,12 +203,8 @@ fn a_painted_layer_is_embedded_as_a_cropped_png() {
         "the image is placed at its ink, not at 0,0"
     );
     assert_eq!(png.dimensions(), (10, 10), "and cropped to it");
-    assert_eq!(png.get_pixel(0, 0).0, [0, 128, 255, 255]);
-    assert_eq!(
-        png.get_pixel(1, 0).0,
-        [0, 64, 127, 255],
-        "and it is not flat"
-    );
+    assert_eq!(png.get_pixel(0, 0), [0, 128, 255, 255]);
+    assert_eq!(png.get_pixel(1, 0), [0, 64, 127, 255], "and it is not flat");
 }
 
 #[test]

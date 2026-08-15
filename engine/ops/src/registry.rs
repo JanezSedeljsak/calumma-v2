@@ -1,10 +1,10 @@
 use crate::types::{Backend, Op, OpError, OpInput, OpKind, OpOutput, OpParams};
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 
 #[derive(Default)]
 pub struct OpRegistry {
-    core: HashMap<OpKind, Box<dyn Op>>,
-    platform: HashMap<OpKind, Box<dyn Op>>,
+    core: FxHashMap<OpKind, Box<dyn Op>>,
+    platform: FxHashMap<OpKind, Box<dyn Op>>,
 }
 
 impl OpRegistry {
