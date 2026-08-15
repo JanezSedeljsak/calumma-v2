@@ -34,10 +34,27 @@ fn path_item(points: Vec<(f32, f32)>) -> VectorItem {
     })
 }
 
+fn filled_rect_path(x0: f32, y0: f32, x1: f32, y1: f32) -> VectorItem {
+    VectorItem::Path(VectorPath {
+        points: vec![(x0, y0), (x1, y0), (x1, y1), (x0, y1)],
+        closed: true,
+        fill: true,
+        color: [255, 0, 0, 255],
+        stroke_width: 1.0,
+    })
+}
+
 fn vector_layer(doc: &mut Document, items: Vec<VectorItem>) -> usize {
     let index = doc.add_vector_layer("V");
     *doc.layers[index].content.items_mut().unwrap() = items;
     index
+}
+
+fn paint(doc: &mut Document, index: usize, rect: DocRect, rgba: [u8; 4]) {
+    doc.layers[index]
+        .tiles_mut()
+        .unwrap()
+        .paint_rect(rect, |_, _, _| Some(rgba));
 }
 
 fn drag(doc: &mut Document, from: (f32, f32), to: (f32, f32)) {
@@ -175,6 +192,54 @@ fn an_invisible_layer_is_not_pickable() {
     let layer = vector_layer(&mut doc, vec![rect_item((10.0, 10.0), (40.0, 40.0))]);
     doc.layers[layer].visible = false;
     assert_eq!(doc.vector_item_at(20.0, 20.0), None);
+}
+
+#[test]
+fn picking_skips_a_hidden_raster_layer_above() {
+    let mut doc = doc_with_viewport();
+    doc.add_layer("Blocker");
+    let blocker = doc.active_layer;
+    paint(
+        &mut doc,
+        blocker,
+        DocRect::new(0, 0, 120, 120),
+        [0, 0, 0, 255],
+    );
+    doc.set_layer_visible(blocker, false);
+    let svg = vector_layer(&mut doc, vec![filled_rect_path(10.0, 10.0, 50.0, 50.0)]);
+    doc.set_tool(Tool::Move);
+    assert_eq!(
+        doc.vector_item_at(30.0, 30.0),
+        Some(VectorPick {
+            layer: svg,
+            item: 0
+        })
+    );
+    assert!(doc.begin_move_at(30.0, 30.0));
+}
+
+#[test]
+fn picking_respects_visible_raster_ink_above() {
+    let mut doc = doc_with_viewport();
+    let _svg = vector_layer(&mut doc, vec![filled_rect_path(10.0, 10.0, 50.0, 50.0)]);
+    doc.add_layer("Cover");
+    let cover = doc.active_layer;
+    paint(
+        &mut doc,
+        cover,
+        DocRect::new(0, 0, 120, 120),
+        [0, 0, 0, 255],
+    );
+    assert_eq!(doc.vector_item_at(30.0, 30.0), None);
+}
+
+#[test]
+fn move_tool_can_grab_a_visible_vector_layer_as_a_whole() {
+    let mut doc = doc_with_viewport();
+    let layer = vector_layer(&mut doc, vec![filled_rect_path(10.0, 10.0, 50.0, 50.0)]);
+    doc.set_tool(Tool::Move);
+    assert_eq!(doc.layer_at(30.0, 30.0), Some(layer));
+    assert!(doc.begin_move_at(30.0, 30.0));
 }
 
 #[test]

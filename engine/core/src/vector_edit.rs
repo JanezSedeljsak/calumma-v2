@@ -1,3 +1,4 @@
+use crate::document::layer_alpha_at;
 use crate::document::Document;
 use crate::layer::Layer;
 use crate::limits::{VECTOR_NUDGE_STEP, VECTOR_PICK_SLACK_PX};
@@ -60,21 +61,24 @@ impl Document {
     pub fn vector_item_at(&self, doc_x: f32, doc_y: f32) -> Option<VectorPick> {
         let doc_slack = VECTOR_PICK_SLACK_PX / self.camera.zoom.max(1e-6);
         for (layer_index, layer) in self.layers.iter().enumerate().rev() {
-            if !layer.visible {
+            if !layer.visible || layer.is_paper() || layer.opacity <= 0.0 {
                 continue;
             }
-            let Some(items) = layer.content.items() else {
-                continue;
-            };
-            let local = to_item_space(layer, (doc_x, doc_y));
-            let slack = item_space_slack(layer, doc_slack);
-            for (item_index, item) in items.iter().enumerate().rev() {
-                if item.pick_distance(local.0, local.1) <= slack {
-                    return Some(VectorPick {
-                        layer: layer_index,
-                        item: item_index,
-                    });
+            if let Some(items) = layer.content.items() {
+                let local = to_item_space(layer, (doc_x, doc_y));
+                let slack = item_space_slack(layer, doc_slack);
+                for (item_index, item) in items.iter().enumerate().rev() {
+                    if item.pick_distance(local.0, local.1) <= slack {
+                        return Some(VectorPick {
+                            layer: layer_index,
+                            item: item_index,
+                        });
+                    }
                 }
+                continue;
+            }
+            if layer_alpha_at(layer, doc_x, doc_y, self.width, self.height) != 0 {
+                return None;
             }
         }
         None

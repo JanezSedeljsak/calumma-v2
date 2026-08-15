@@ -56,6 +56,23 @@ fn layer_at_never_returns_paper() {
 }
 
 #[test]
+fn layer_at_finds_a_visible_vector_layer() {
+    let mut doc = doc_with_viewport();
+    let layer = doc.add_vector_layer("SVG");
+    *doc.layers[layer].content.items_mut().unwrap() = vec![VectorItem::Shape(VectorShape {
+        shape: Shape {
+            tool: Tool::Rect,
+            start: (10.0, 10.0),
+            end: (50.0, 50.0),
+            half_width: 1.0,
+            fill: true,
+        },
+        color: [255, 0, 0, 255],
+    })];
+    assert_eq!(doc.layer_at(30.0, 30.0), Some(layer));
+}
+
+#[test]
 fn layer_at_skips_hidden_layers() {
     let mut doc = doc_with_viewport();
     paint(&mut doc, 1, DocRect::new(10, 10, 40, 40), [255, 0, 0, 255]);

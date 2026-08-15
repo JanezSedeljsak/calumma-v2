@@ -34,7 +34,11 @@ fn shift_collapses_a_wobbly_pen_stroke_to_a_straight_line() {
     move_to(&mut doc, (60.0, 30.0));
     move_to(&mut doc, (100.0, 100.0));
 
-    assert_eq!(doc.stroke_points.len(), 2, "only the anchor and the tip remain");
+    assert_eq!(
+        doc.stroke_points.len(),
+        2,
+        "only the anchor and the tip remain"
+    );
     assert!(close(
         (doc.stroke_points[0].x, doc.stroke_points[0].y),
         (20.0, 20.0)
@@ -113,7 +117,11 @@ fn the_lasso_is_left_alone_by_shift() {
     move_to(&mut doc, (40.0, 60.0));
     move_to(&mut doc, (60.0, 30.0));
 
-    assert_eq!(doc.stroke_points.len(), 3, "lasso stays freehand under Shift");
+    assert_eq!(
+        doc.stroke_points.len(),
+        3,
+        "lasso stays freehand under Shift"
+    );
 }
 
 #[test]

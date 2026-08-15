@@ -110,7 +110,7 @@ fn vector_alpha_at(items: &[vector::VectorItem], layer: &Layer, doc_x: f32, doc_
 
 /// Alpha alone, for hit-testing. Adjustments never touch alpha, so picking skips the
 /// colour work `layer_composited_pixel` does — an HSL round trip per layer per click.
-fn layer_alpha_at(layer: &Layer, doc_x: f32, doc_y: f32, doc_w: u32, doc_h: u32) -> u8 {
+pub(crate) fn layer_alpha_at(layer: &Layer, doc_x: f32, doc_y: f32, doc_w: u32, doc_h: u32) -> u8 {
     let alpha = match layer.content.items() {
         Some(items) => vector_alpha_at(items, layer, doc_x, doc_y),
         None => layer_source_pixel(layer, doc_x, doc_y)[3],
@@ -138,6 +138,14 @@ fn layer_alpha_at(layer: &Layer, doc_x: f32, doc_y: f32, doc_w: u32, doc_h: u32)
     } else {
         alpha
     }
+}
+
+fn layer_pickable_at(layer: &Layer, doc_x: f32, doc_y: f32, doc_w: u32, doc_h: u32) -> bool {
+    layer.visible
+        && !layer.is_paper()
+        && layer.opacity > 0.0
+        && (layer.tiles().is_some() || layer.content.items().is_some())
+        && layer_alpha_at(layer, doc_x, doc_y, doc_w, doc_h) != 0
 }
 
 fn layer_composited_pixel(
@@ -782,12 +790,7 @@ impl Document {
             .iter()
             .enumerate()
             .rev()
-            .find(|(_, layer)| {
-                layer.visible
-                    && !layer.is_paper()
-                    && layer.tiles().is_some()
-                    && layer_alpha_at(layer, doc_x, doc_y, self.width, self.height) != 0
-            })
+            .find(|(_, layer)| layer_pickable_at(layer, doc_x, doc_y, self.width, self.height))
             .map(|(index, _)| index)
     }
 
