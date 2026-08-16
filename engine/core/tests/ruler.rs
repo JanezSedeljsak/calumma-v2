@@ -50,7 +50,7 @@ fn ticks_stay_in_lockstep_with_pan_and_zoom() {
     let ticks = ruler_ticks(2.0, -150.0, 1000.0);
     for tick in &ticks {
         let screen = tick.doc * 2.0 + -150.0;
-        assert!(screen >= -1.0 && screen <= 1001.0);
+        assert!((-1.0..=1001.0).contains(&screen));
     }
 }
 

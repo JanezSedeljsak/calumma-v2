@@ -62,12 +62,13 @@ struct NewProjectView: View {
 
     private var header: some View {
         HStack(alignment: .firstTextBaseline, spacing: Tokens.Space.sm) {
+            CalmText.brand(l10n.brand)
+            CalmText.eyebrow(l10n.tagline)
+            Spacer()
             Image(nsImage: NSImage(named: "AppIcon") ?? NSImage())
                 .resizable()
                 .frame(width: Tokens.TypeSize.brand, height: Tokens.TypeSize.brand)
                 .alignmentGuide(.firstTextBaseline) { $0.height * 0.9 }
-            CalmText.brand(l10n.brand)
-            CalmText.eyebrow(l10n.tagline)
         }
         .lineLimit(1)
         .minimumScaleFactor(0.8)

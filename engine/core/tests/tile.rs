@@ -258,7 +258,10 @@ fn coords_intersecting_skips_empty_cells_and_out_of_map_tiles() {
     let rect = DocRect::new(256, 256, 1023, 511);
     let found: Vec<_> = grid.coords_intersecting(rect).collect();
     assert_eq!(found, vec![a, b]);
-    assert!(grid.coords_intersecting(DocRect::new(0, 0, 255, 255)).next().is_none());
+    assert!(grid
+        .coords_intersecting(DocRect::new(0, 0, 255, 255))
+        .next()
+        .is_none());
 }
 
 #[test]
@@ -326,10 +329,7 @@ fn stamp_disc_erase_clears_inside_the_radius_only() {
 fn whole_tiles_share_one_arc_detects_unpainted_fill() {
     let side = TILE_SIZE * 2;
     let mut grid = TileGrid::new(side + 9, side + 9);
-    grid.fill_uniform(
-        DocRect::from_size(side + 9, side + 9),
-        [255, 255, 255, 255],
-    );
+    grid.fill_uniform(DocRect::from_size(side + 9, side + 9), [255, 255, 255, 255]);
     assert!(grid.whole_tiles_share_one_arc());
     grid.set_pixel(1, 1, [200, 200, 200, 255]);
     assert!(!grid.whole_tiles_share_one_arc());

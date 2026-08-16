@@ -5,8 +5,8 @@ use crate::layer::Layer;
 use crate::limits::{
     BRUSH_SIZE_DEFAULT, DEFAULT_INK, EFFECT_CHUNK_BYTES, FILL_TOLERANCE_DEFAULT,
     INK_OPACITY_DEFAULT, INK_OPACITY_MAX, INK_OPACITY_MIN, MAX_CANVAS_SIDE, MIN_CANVAS_SIDE,
-    MIN_STAMP_SPACING, MIN_STROKE_POINT_DISTANCE, PAPER_WHITE,
-    STAMP_COVERAGE_PADDING, STAMP_SPACING_RATIO, STROKE_POINT_CAPACITY,
+    MIN_STAMP_SPACING, MIN_STROKE_POINT_DISTANCE, PAPER_WHITE, STAMP_COVERAGE_PADDING,
+    STAMP_SPACING_RATIO, STROKE_POINT_CAPACITY,
 };
 use crate::palette::BoardColors;
 use crate::selection::{Selection, SelectionShape};
@@ -1538,23 +1538,21 @@ impl Document {
         let tw = ((dw as f32) * scale).round().max(1.0) as u32;
         let th = ((dh as f32) * scale).round().max(1.0) as u32;
         let mut rgba = vec![0u8; (tw as usize) * (th as usize) * 4];
-        rgba.par_chunks_mut(4)
-            .enumerate()
-            .for_each(|(index, px)| {
-                let tx = (index as u32) % tw;
-                let ty = (index as u32) / tw;
-                let doc_x = if tw <= 1 {
-                    0.0
-                } else {
-                    tx as f32 * (dw - 1) as f32 / (tw - 1) as f32
-                };
-                let doc_y = if th <= 1 {
-                    0.0
-                } else {
-                    ty as f32 * (dh - 1) as f32 / (th - 1) as f32
-                };
-                px.copy_from_slice(&self.composite_pixel(doc_x, doc_y));
-            });
+        rgba.par_chunks_mut(4).enumerate().for_each(|(index, px)| {
+            let tx = (index as u32) % tw;
+            let ty = (index as u32) / tw;
+            let doc_x = if tw <= 1 {
+                0.0
+            } else {
+                tx as f32 * (dw - 1) as f32 / (tw - 1) as f32
+            };
+            let doc_y = if th <= 1 {
+                0.0
+            } else {
+                ty as f32 * (dh - 1) as f32 / (th - 1) as f32
+            };
+            px.copy_from_slice(&self.composite_pixel(doc_x, doc_y));
+        });
         (tw, th, rgba)
     }
 

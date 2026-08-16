@@ -680,10 +680,7 @@ impl Renderer {
         let Some((buf, _)) = self.layer_xforms.get(layer_id) else {
             return;
         };
-        let uniform = SolidLayerUniform {
-            slot,
-            _pad: [0; 7],
-        };
+        let uniform = SolidLayerUniform { slot, _pad: [0; 7] };
         self.queue
             .write_buffer(buf, 0, bytemuck::bytes_of(&uniform));
     }
@@ -1076,11 +1073,9 @@ impl Renderer {
             ) {
                 Some(slot) => slot,
                 None => {
-                    let victim = evictable.pop().or_else(|| {
-                        live.iter()
-                            .copied()
-                            .find(|key| !visible_keys.contains(key))
-                    });
+                    let victim = evictable
+                        .pop()
+                        .or_else(|| live.iter().copied().find(|key| !visible_keys.contains(key)));
                     let Some(victim) = victim else {
                         continue;
                     };
@@ -1247,20 +1242,17 @@ impl Renderer {
                 || self.visible_needs_gpu_upload(doc));
         let need_draw_rebuild = !use_overview
             && (need_tile_sync || Self::visible_span(doc) != self.cached_visible_span);
-        let camera_only = self.frame_dirty == FrameDirty::Camera
-            && !doc.has_live_preview()
-            && !use_overview;
+        let camera_only =
+            self.frame_dirty == FrameDirty::Camera && !doc.has_live_preview() && !use_overview;
 
         if use_overview {
             if self.frame_dirty == FrameDirty::Content {
                 self.overview.mark_dirty();
             }
-            self.overview
-                .sync(doc, &self.device, &self.queue);
+            self.overview.sync(doc, &self.device, &self.queue);
             self.overview.write_camera(&self.queue, doc, viewport);
         } else {
-            self.overview
-                .prewarm(doc, &self.device, &self.queue);
+            self.overview.prewarm(doc, &self.device, &self.queue);
             if need_tile_sync {
                 self.write_layer_transforms(doc);
                 self.sync_tiles(doc);
@@ -1294,11 +1286,8 @@ impl Renderer {
             viewport,
             doc_size: [doc.width as f32, doc.height as f32],
         };
-        self.queue.write_buffer(
-            &self.tile_camera_buf,
-            0,
-            bytemuck::bytes_of(&tile_camera),
-        );
+        self.queue
+            .write_buffer(&self.tile_camera_buf, 0, bytemuck::bytes_of(&tile_camera));
 
         let preview_shape = doc.preview_shape();
         let mut overlay_range = 0u32..0u32;
