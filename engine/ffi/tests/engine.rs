@@ -1005,3 +1005,62 @@ fn hex_and_tool_queries_do_not_need_an_engine() {
         assert!((calm_lossy_export_quality() - 0.92).abs() < f32::EPSILON);
     }
 }
+
+/// Regression: hiding a text layer from the panel worked for the first one and was ignored for
+/// every later one. This drives the same calls the shell does — create the layers by clicking
+/// with the Text tool, type into each, then toggle visibility by index and read it back.
+#[test]
+fn every_text_layer_toggles_visibility_through_the_ffi() {
+    let engine = TestEngine::new();
+    engine.create_project("text-visibility", 512, 512);
+    unsafe {
+        assert_eq!(
+            calm_engine_resize(engine.ptr, 512, 512, 1.0),
+            CalmStatus::Ok
+        );
+        assert_eq!(calm_engine_fit(engine.ptr), CalmStatus::Ok);
+        assert_eq!(
+            calm_engine_set_tool(engine.ptr, Tool::Text as u32),
+            CalmStatus::Ok
+        );
+    }
+
+    for (n, y) in [(1u32, 80.0f32), (2, 240.0)] {
+        let body = CString::new(format!("layer {n}")).unwrap();
+        unsafe {
+            assert_eq!(
+                calm_engine_pointer_down(engine.ptr, 80.0, y),
+                CalmStatus::Ok
+            );
+            assert_eq!(
+                calm_engine_text_insert(engine.ptr, body.as_ptr()),
+                CalmStatus::Ok
+            );
+        }
+    }
+
+    let count = engine.state().layer_count;
+    let text_layers: Vec<u32> = (0..count)
+        .filter(|&i| unsafe { calm_engine_layer_is_text(engine.ptr, i) } == 1)
+        .collect();
+    assert_eq!(text_layers.len(), 2, "two text layers reached the document");
+
+    for &index in &text_layers {
+        unsafe {
+            assert_eq!(
+                calm_engine_set_layer_visible(engine.ptr, index, 0),
+                CalmStatus::Ok
+            );
+            assert_eq!(
+                calm_engine_layer_visible(engine.ptr, index),
+                0,
+                "text layer {index} refused to hide"
+            );
+            assert_eq!(
+                calm_engine_set_layer_visible(engine.ptr, index, 1),
+                CalmStatus::Ok
+            );
+            assert_eq!(calm_engine_layer_visible(engine.ptr, index), 1);
+        }
+    }
+}

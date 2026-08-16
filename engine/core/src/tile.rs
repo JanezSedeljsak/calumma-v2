@@ -341,6 +341,7 @@ pub struct TileGrid {
     tiles: TileMap<Arc<Vec<u8>>>,
     dirty: [TileSet; DirtyChannel::COUNT],
     preview: Option<Arc<Preview>>,
+    content_revision: u64,
     pub width: u32,
     pub height: u32,
 }
@@ -357,6 +358,7 @@ impl TileGrid {
             tiles: TileMap::default(),
             dirty: std::array::from_fn(|_| TileSet::default()),
             preview: None,
+            content_revision: 0,
             width,
             height,
         }
@@ -396,13 +398,22 @@ impl TileGrid {
         &self.dirty[channel.slot()]
     }
 
+    /// Bumped by every write to these pixels, and by nothing else. This is what lets a caller
+    /// tell whether a layer's picture has actually changed — a layer being shown or hidden, its
+    /// opacity or blend mode moved, or a *different* layer being edited all leave it alone.
+    pub fn content_revision(&self) -> u64 {
+        self.content_revision
+    }
+
     pub fn mark_dirty(&mut self, coord: TileCoord) {
+        self.content_revision = self.content_revision.wrapping_add(1);
         for set in &mut self.dirty {
             set.insert(coord);
         }
     }
 
     pub fn mark_all_dirty(&mut self) {
+        self.content_revision = self.content_revision.wrapping_add(1);
         let coords: Vec<TileCoord> = self.tiles.keys().copied().collect();
         for set in &mut self.dirty {
             set.extend(coords.iter().copied());

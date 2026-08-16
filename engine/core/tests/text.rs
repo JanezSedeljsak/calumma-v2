@@ -409,3 +409,59 @@ fn only_an_installed_family_is_accepted() {
         "the family is stored as the font database spells it"
     );
 }
+
+/// Regression: only the first text layer could be hidden. Later ones ignored the eye entirely,
+/// wherever they sat in the stack, while a duplicate of the first stayed toggleable — which is
+/// the shape of a bug that follows the layer rather than the index.
+#[test]
+fn every_text_layer_can_be_hidden_not_just_the_first() {
+    let mut doc = board();
+
+    click(&mut doc, 100.0, 100.0);
+    doc.text_insert("one");
+    doc.commit_text();
+
+    click(&mut doc, 100.0, 300.0);
+    doc.text_insert("two");
+    doc.commit_text();
+
+    let text_layers: Vec<usize> = (0..doc.layers.len())
+        .filter(|&i| doc.layers[i].is_text())
+        .collect();
+    assert_eq!(text_layers.len(), 2, "two text layers were created");
+
+    for &index in &text_layers {
+        doc.set_layer_visible(index, false);
+        assert!(
+            !doc.layers[index].visible,
+            "text layer at {index} ({}) refused to hide",
+            doc.layers[index].name
+        );
+        doc.set_layer_visible(index, true);
+        assert!(doc.layers[index].visible, "and it comes back");
+    }
+}
+
+/// `TextEdit.layer` is a position, and every path that shifts the stack today remembers to
+/// remap it — but one that forgets would have `commit_text` remove whatever layer moved into
+/// that slot. Resolution goes through the layer id, so a stale index costs nothing.
+#[test]
+fn committing_text_follows_the_layer_id_not_a_stale_index() {
+    let mut doc = board();
+    click(&mut doc, 100.0, 100.0);
+    doc.text_insert("keep me");
+    let edited_id = doc.layers[doc.active_layer].id.clone();
+    let before = doc.layers.len();
+
+    // Exactly what a missed remap looks like: the edit still points at a real layer, just the
+    // wrong one — here Paper, which an index-trusting commit would have been free to delete.
+    doc.text_edit.as_mut().expect("editing").layer = 0;
+    doc.commit_text();
+
+    assert_eq!(doc.layers.len(), before, "no layer was removed");
+    assert!(
+        doc.layers.iter().any(|l| l.id == edited_id),
+        "the edited layer survived"
+    );
+    assert!(doc.layers[0].is_paper(), "and Paper was not the casualty");
+}

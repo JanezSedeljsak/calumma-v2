@@ -221,37 +221,52 @@ struct EditorView: View {
         }
     }
 
+    /// How much of the layers island the scrolling stack may claim before it starts scrolling
+    /// instead of growing. The rest is reserved for the header and the bounds/canvas fields,
+    /// which must stay reachable no matter how deep the stack gets.
+    private static let layerListHeightFraction: CGFloat = 0.5
+
     private var layersIsland: some View {
         CalmIsland {
-            VStack(alignment: .leading, spacing: Tokens.Space.md) {
-                HStack {
-                    CalmText.label(l10n.layers)
-                    Spacer()
-                    Button {
-                        app.engine.addLayer()
-                    } label: {
-                        AppIcon.plus(color: colors.textMuted)
+            GeometryReader { proxy in
+                VStack(alignment: .leading, spacing: Tokens.Space.md) {
+                    HStack {
+                        CalmText.label(l10n.layers)
+                        Spacer()
+                        Button {
+                            app.engine.addLayer()
+                        } label: {
+                            AppIcon.plus(color: colors.textMuted)
+                        }
+                        .buttonStyle(.plain)
+                        .calmTooltip(l10n.addLayer, edge: .leading)
+                        .calmPointer()
                     }
-                    .buttonStyle(.plain)
-                    .calmTooltip(l10n.addLayer, edge: .leading)
-                    .calmPointer()
+                    // The stack scrolls; the header above and the bounds/canvas fields below
+                    // stay put. Capped against the island's own height rather than a constant
+                    // so the list keeps its share of a resized window.
+                    ScrollView(.vertical) {
+                        VStack(alignment: .leading, spacing: Tokens.Space.md) {
+                            ForEach((0..<app.engine.layerNames.count).reversed(), id: \.self) {
+                                index in
+                                layerRow(index)
+                            }
+                        }
+                    }
+                    .frame(maxHeight: proxy.size.height * Self.layerListHeightFraction)
+                    CalmDivider()
+                    Spacer(minLength: 0)
+                    CalmDivider()
+                    panelFooter
                 }
-                ForEach((0..<app.engine.layerNames.count).reversed(), id: \.self) { index in
-                    layerRow(index)
-                }
-                Spacer(minLength: 0)
-                CalmDivider()
-                layerBoundsFooter
-                CalmDivider()
-                canvasResizeFooter
+                .frame(maxHeight: .infinity, alignment: .top)
             }
-            .frame(maxHeight: .infinity, alignment: .top)
         }
         .frame(width: 252)
         .overlay(alignment: .leading) {
             if let hoveredLayer {
                 let name = app.engine.layerNames[hoveredLayer]
-                LayerHoverCard(name: name, image: app.engine.layerThumbnail(index: hoveredLayer))
+                LayerHoverCard(name: name, image: app.engine.layerPreviewCard(index: hoveredLayer))
                     .offset(x: -(192 + Tokens.Space.md))
                     .transition(.opacity)
             }
@@ -299,10 +314,19 @@ struct EditorView: View {
         syncLayerBounds()
     }
 
-    private var layerBoundsFooter: some View {
-        VStack(alignment: .leading, spacing: Tokens.Space.sm) {
-            CalmText.label(l10n.layerBounds)
-            HStack(spacing: Tokens.Space.sm) {
+    /// Layer bounds and canvas size share one `Grid` rather than sitting in separate stacks, so
+    /// all six fields keep the same two columns — label widths differ per glyph ("W" is wider
+    /// than "X"), which is what pushed the fields out of line when each row measured itself.
+    private var panelFooter: some View {
+        Grid(
+            alignment: .leading,
+            horizontalSpacing: Tokens.Space.sm,
+            verticalSpacing: Tokens.Space.sm
+        ) {
+            GridRow {
+                CalmText.label(l10n.layerBounds).gridCellColumns(4)
+            }
+            GridRow {
                 CalmText.label(l10n.layerBoundsX)
                 CalmNumberField(value: $boundsX, width: 56)
                     .onSubmit { commitLayerBounds() }
@@ -310,7 +334,7 @@ struct EditorView: View {
                 CalmNumberField(value: $boundsY, width: 56)
                     .onSubmit { commitLayerBounds() }
             }
-            HStack(spacing: Tokens.Space.sm) {
+            GridRow {
                 CalmText.label(l10n.canvasWidth)
                 CalmNumberField(value: $boundsWidth, width: 56)
                     .onSubmit { commitLayerBounds() }
@@ -318,17 +342,15 @@ struct EditorView: View {
                 CalmNumberField(value: $boundsHeight, width: 56)
                     .onSubmit { commitLayerBounds() }
             }
-        }
-    }
-
-    private var canvasResizeFooter: some View {
-        HStack(spacing: Tokens.Space.sm) {
-            CalmText.label(l10n.canvasWidth)
-            CalmNumberField(value: $canvasWidth, width: 56)
-                .onSubmit { app.engine.resizeDocument(width: canvasWidth, height: canvasHeight) }
-            CalmText.label(l10n.canvasHeight)
-            CalmNumberField(value: $canvasHeight, width: 56)
-                .onSubmit { app.engine.resizeDocument(width: canvasWidth, height: canvasHeight) }
+            CalmDivider().gridCellColumns(4)
+            GridRow {
+                CalmText.label(l10n.canvasWidth)
+                CalmNumberField(value: $canvasWidth, width: 56)
+                    .onSubmit { app.engine.resizeDocument(width: canvasWidth, height: canvasHeight) }
+                CalmText.label(l10n.canvasHeight)
+                CalmNumberField(value: $canvasHeight, width: 56)
+                    .onSubmit { app.engine.resizeDocument(width: canvasWidth, height: canvasHeight) }
+            }
         }
     }
 
@@ -431,11 +453,11 @@ struct EditorView: View {
         let busy = app.engine.aiOpBusyLayer == index
         return ZStack {
             shape.fill(colors.surfaceHover)
-            if let image = app.engine.layerThumbnail(index: index, maxSide: 96) {
+            if let image = app.engine.layerThumbnail(index: index) {
+                // Already cropped and sized to exactly this frame by `rowThumbnail`, so it
+                // draws 1:1 — no `.resizable()`, no aspect fit to recompute, nothing for
+                // AppKit to resample on every re-render of the panel.
                 Image(nsImage: image)
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-                    .frame(width: 40, height: 28)
                     .clipShape(shape)
             } else {
                 Text("\(index + 1)")

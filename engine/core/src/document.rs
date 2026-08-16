@@ -149,6 +149,11 @@ fn layer_pickable_at(layer: &Layer, doc_x: f32, doc_y: f32, doc_w: u32, doc_h: u
         && layer_alpha_at(layer, doc_x, doc_y, doc_w, doc_h) != 0
 }
 
+/// A layer paired with the document-space box it can paint into — what
+/// `Document::contributing_layers` hands the per-pixel composite so the loop can skip a layer
+/// without touching its pixels.
+type BoundedLayer<'a> = (&'a Layer, (f32, f32, f32, f32));
+
 fn layer_composited_pixel(
     layer: &Layer,
     doc_x: f32,
@@ -1510,13 +1515,27 @@ impl Document {
         }
     }
 
-    fn composite_pixel(&self, doc_x: f32, doc_y: f32) -> [u8; 4] {
+    /// The layers a composite has to sample, each with the box it can possibly paint into.
+    /// Hoisting this out of the per-pixel loop is what keeps a whole-document flatten from
+    /// scaling with the layers that are hidden, empty, or nowhere near the pixel being asked
+    /// about — on a deep stack that is most of them, for most pixels.
+    fn contributing_layers(&self) -> Vec<BoundedLayer<'_>> {
+        self.layers
+            .iter()
+            .filter(|l| l.visible)
+            .filter(|l| l.tiles().is_some() || l.content.items().is_some())
+            .filter_map(|l| {
+                let raw = l.content_bounds()?;
+                let t = l.transform.unwrap_or_default();
+                Some((l, t.transformed_aabb(raw)))
+            })
+            .collect()
+    }
+
+    fn composite_pixel_of(&self, layers: &[BoundedLayer<'_>], doc_x: f32, doc_y: f32) -> [u8; 4] {
         let mut acc = [0u8; 4];
-        for layer in &self.layers {
-            if !layer.visible {
-                continue;
-            }
-            if layer.tiles().is_none() && layer.content.items().is_none() {
+        for (layer, bounds) in layers {
+            if doc_x < bounds.0 || doc_y < bounds.1 || doc_x > bounds.2 || doc_y > bounds.3 {
                 continue;
             }
             let src = layer_composited_pixel(layer, doc_x, doc_y, self.width, self.height);
@@ -1538,6 +1557,7 @@ impl Document {
         let tw = ((dw as f32) * scale).round().max(1.0) as u32;
         let th = ((dh as f32) * scale).round().max(1.0) as u32;
         let mut rgba = vec![0u8; (tw as usize) * (th as usize) * 4];
+        let contributing = self.contributing_layers();
         rgba.par_chunks_mut(4).enumerate().for_each(|(index, px)| {
             let tx = (index as u32) % tw;
             let ty = (index as u32) / tw;
@@ -1551,7 +1571,7 @@ impl Document {
             } else {
                 ty as f32 * (dh - 1) as f32 / (th - 1) as f32
             };
-            px.copy_from_slice(&self.composite_pixel(doc_x, doc_y));
+            px.copy_from_slice(&self.composite_pixel_of(&contributing, doc_x, doc_y));
         });
         (tw, th, rgba)
     }

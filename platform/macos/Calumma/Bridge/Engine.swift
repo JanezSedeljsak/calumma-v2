@@ -147,14 +147,15 @@ struct EngineState {
 
 /// One ruler mark, in document pixels — the engine already resolved the adaptive
 /// 1/2/5×10ⁿ spacing, so the shell only draws what it's given.
+struct LayerThumbnailEntry {
+    var revision: UInt64
+    var row: NSImage?
+    var card: NSImage?
+}
+
 struct RulerTick {
     var doc: Float
     var major: Bool
-}
-
-struct LayerThumbnailKey: Hashable {
-    var index: Int
-    var maxSide: UInt32
 }
 
 final class Engine: ObservableObject, @unchecked Sendable {
@@ -180,11 +181,19 @@ final class Engine: ObservableObject, @unchecked Sendable {
     @Published var textBold = false
     @Published var textItalic = false
     @Published private(set) var thumbnailRevision: UInt64 = 0
-    /// Layer thumbnails are read from SwiftUI bodies — once per row, plus once for the hover
-    /// card — so an uncached read meant the engine rasterised every layer again on every
-    /// re-render of the panel, which is every published engine change. `refreshLayers` is the
-    /// one place layer content can have moved under us, so it is the one place this clears.
-    private var layerThumbnails: [LayerThumbnailKey: NSImage?] = [:]
+    /// One rendered preview per layer, parallel to `layerNames`. Rows read this array — they
+    /// never call into the engine while building their body, which is what made a click on the
+    /// eye take seconds on a deep stack: six `@Published` writes per refresh, each re-running
+    /// every row, each row rasterising a layer.
+    @Published private(set) var layerThumbnails: [NSImage?] = []
+    /// Memo behind `layerThumbnails`, keyed by layer id and that layer's content revision. A
+    /// preview is a function of its own layer's pixels and nothing else, so anything that does
+    /// not touch pixels — visibility, opacity, blend mode, reordering, edits to *other* layers
+    /// — finds the same entry and reuses the exact same image.
+    private var layerThumbnailMemo: [String: LayerThumbnailEntry] = [:]
+    /// Full-size previews, for the hover card. Only one is ever on screen, so these are never
+    /// the per-row cost that `layerThumbnails` is.
+    @Published private(set) var layerPreviewCards: [NSImage?] = []
     /// The layer an AI op is currently running against, so the layers panel can show it's
     /// busy — `nil` the rest of the time, including right after the op finishes.
     @Published private(set) var aiOpBusyLayer: Int?
@@ -1038,7 +1047,8 @@ final class Engine: ObservableObject, @unchecked Sendable {
 
     func refreshLayers() {
         guard let ptr else { return }
-        layerThumbnails.removeAll(keepingCapacity: true)
+        var ids: [String] = []
+        var revisions: [UInt64] = []
         var names: [String] = []
         var visibles: [Bool] = []
         var opacities: [Float] = []
@@ -1053,6 +1063,13 @@ final class Engine: ObservableObject, @unchecked Sendable {
             } else {
                 names.append(L10nStore.catalog.formatKey("layerNamed", "\(i + 1)"))
             }
+            if let idPtr = calm_engine_layer_id(ptr, i) {
+                ids.append(String(cString: idPtr))
+                calm_string_free(idPtr)
+            } else {
+                ids.append("layer-\(i)")
+            }
+            revisions.append(calm_engine_layer_preview_revision(ptr, i))
             visibles.append(calm_engine_layer_visible(ptr, i) == 1)
             isText.append(calm_engine_layer_is_text(ptr, i) == 1)
             opacities.append(calm_engine_layer_opacity(ptr, i))
@@ -1075,6 +1092,7 @@ final class Engine: ObservableObject, @unchecked Sendable {
         layerBlendModes = blendModes
         layerAdjustments = adjustments
         layerIsText = isText
+        rebuildLayerThumbnails(ids: ids, revisions: revisions)
         syncTextState()
     }
 
@@ -1097,15 +1115,79 @@ final class Engine: ObservableObject, @unchecked Sendable {
         render()
     }
 
-    func layerThumbnail(index: Int, maxSide: UInt32 = 160) -> NSImage? {
-        let key = LayerThumbnailKey(index: index, maxSide: maxSide)
-        if let cached = layerThumbnails[key] {
-            return cached
-        }
-        let image = renderLayerThumbnail(index: index, maxSide: maxSide)
-        layerThumbnails[key] = image
-        return image
+    func layerThumbnail(index: Int) -> NSImage? {
+        layerThumbnails.indices.contains(index) ? layerThumbnails[index] : nil
     }
+
+    func layerPreviewCard(index: Int) -> NSImage? {
+        layerPreviewCards.indices.contains(index) ? layerPreviewCards[index] : nil
+    }
+
+    /// Rebuilds the parallel thumbnail array, reusing every image whose layer has not been
+    /// painted on since it was made. `ids` and `revisions` come from the same pass that reads
+    /// the rest of the layer state, so this costs one dictionary probe per layer in the common
+    /// case and touches the engine only for layers that actually changed.
+    private func rebuildLayerThumbnails(ids: [String], revisions: [UInt64]) {
+        var rows: [NSImage?] = []
+        var cards: [NSImage?] = []
+        var memo: [String: LayerThumbnailEntry] = [:]
+        rows.reserveCapacity(ids.count)
+        cards.reserveCapacity(ids.count)
+        for (index, id) in ids.enumerated() {
+            let revision = revisions[index]
+            if let hit = layerThumbnailMemo[id], hit.revision == revision {
+                memo[id] = hit
+                rows.append(hit.row)
+                cards.append(hit.card)
+                continue
+            }
+            let card = renderLayerThumbnail(index: index, maxSide: Engine.layerPreviewSide)
+            let entry = LayerThumbnailEntry(revision: revision, row: rowThumbnail(from: card), card: card)
+            memo[id] = entry
+            rows.append(entry.row)
+            cards.append(entry.card)
+        }
+        layerThumbnailMemo = memo
+        layerThumbnails = rows
+        layerPreviewCards = cards
+    }
+
+    /// Redraws a preview once at exactly the size the layer row shows it, cropped to fill.
+    ///
+    /// The row used to take the full-size preview and lean on `.resizable()` +
+    /// `.aspectRatio(.fill)` to fit it — which made AppKit resample an interpolated image down
+    /// to 40×28 on every pass of every row's body. Baking it here means the view draws 1:1 and
+    /// the scaling happens once per layer edit rather than once per re-render.
+    private func rowThumbnail(from source: NSImage?) -> NSImage? {
+        guard let source,
+              let cg = source.cgImage(forProposedRect: nil, context: nil, hints: nil)
+        else { return nil }
+        let w = Engine.rowThumbPixelSize.width
+        let h = Engine.rowThumbPixelSize.height
+        guard let ctx = CGContext(
+            data: nil,
+            width: Int(w),
+            height: Int(h),
+            bitsPerComponent: 8,
+            bytesPerRow: Int(w) * 4,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else { return nil }
+        ctx.interpolationQuality = .high
+        let sw = CGFloat(cg.width)
+        let sh = CGFloat(cg.height)
+        let scale = max(w / sw, h / sh)
+        let dw = sw * scale
+        let dh = sh * scale
+        ctx.draw(cg, in: CGRect(x: (w - dw) / 2, y: (h - dh) / 2, width: dw, height: dh))
+        guard let out = ctx.makeImage() else { return nil }
+        return NSImage(cgImage: out, size: Engine.rowThumbPointSize)
+    }
+
+    private static let layerPreviewSide: UInt32 = 160
+    /// Backing pixels for a row thumb at 2×, and the point size it is drawn at.
+    private static let rowThumbPixelSize = CGSize(width: 80, height: 56)
+    private static let rowThumbPointSize = NSSize(width: 40, height: 28)
 
     private func renderLayerThumbnail(index: Int, maxSide: UInt32) -> NSImage? {
         guard let ptr else { return nil }

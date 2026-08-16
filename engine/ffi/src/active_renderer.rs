@@ -28,6 +28,14 @@ impl ActiveRenderer {
         }
     }
 
+    pub(crate) fn invalidate_overlay(&mut self) {
+        match self {
+            Self::Gpu(renderer) => renderer.invalidate_overlay(),
+            #[cfg(test)]
+            Self::Stub => {}
+        }
+    }
+
     pub(crate) fn invalidate_camera(&mut self) {
         match self {
             Self::Gpu(renderer) => renderer.invalidate_camera(),

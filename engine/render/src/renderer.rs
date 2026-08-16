@@ -144,6 +144,11 @@ enum LayerDraw {
 enum FrameDirty {
     Clean,
     Camera,
+    /// Only the overlay layer changed — the hover outline, most often. Tiles, the draw list and
+    /// the overview are all still valid, so the frame skips straight to rebuilding overlay
+    /// instances. Treating this as `Content` meant every row the cursor crossed while scrolling
+    /// the layers panel cost a full tile resync and draw-list rebuild.
+    Overlay,
     Content,
 }
 
@@ -892,6 +897,14 @@ impl Renderer {
         self.pan_cache.invalidate();
     }
 
+    /// Cheapest invalidation there is: redraw with fresh overlays, keep every cache. Never
+    /// downgrades a pending `Camera` or `Content` frame — those already imply an overlay pass.
+    pub fn invalidate_overlay(&mut self) {
+        if self.frame_dirty == FrameDirty::Clean {
+            self.frame_dirty = FrameDirty::Overlay;
+        }
+    }
+
     pub fn invalidate_camera(&mut self) {
         self.begin_camera_motion();
         if self.frame_dirty != FrameDirty::Content {
@@ -991,6 +1004,20 @@ impl Renderer {
         for layer_index in 0..doc.layers.len() {
             let layer = &doc.layers[layer_index];
             if !layer.visible {
+                // A hidden layer keeps whatever it already has in the atlas. Dropping it would
+                // make the eye icon cost a full re-upload — every tile recomposited and
+                // re-mipped — on the way back, which on a document with many layers is seconds
+                // of stalled main thread per click. Its tiles stay out of `visible_keys`, so
+                // they are the first thing `evictable` gives up when the atlas runs short.
+                if let Some(&slot) = self.layer_slots.get(&layer.id) {
+                    let retain: Vec<TileKey> = self
+                        .tiles
+                        .keys()
+                        .filter(|(s, _, _)| *s == slot)
+                        .copied()
+                        .collect();
+                    live.extend(retain);
+                }
                 continue;
             }
             let Some(grid) = layer.tiles() else {
@@ -1429,14 +1456,15 @@ impl Renderer {
             (self.config.height as f32).max(1.0),
         ];
 
-        let tile_draw_count = if self.frame_dirty == FrameDirty::Camera {
-            self.cached_tile_draw_count
-                .unwrap_or_else(|| self.visible_tile_draw_count(doc))
-        } else {
-            let count = self.visible_tile_draw_count(doc);
-            self.cached_tile_draw_count = Some(count);
-            count
-        };
+        let tile_draw_count =
+            if matches!(self.frame_dirty, FrameDirty::Camera | FrameDirty::Overlay) {
+                self.cached_tile_draw_count
+                    .unwrap_or_else(|| self.visible_tile_draw_count(doc))
+            } else {
+                let count = self.visible_tile_draw_count(doc);
+                self.cached_tile_draw_count = Some(count);
+                count
+            };
         let use_overview = self
             .overview
             .should_use(tile_draw_count, doc.has_live_preview());

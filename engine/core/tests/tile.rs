@@ -360,3 +360,31 @@ fn opaque_bounds_ignores_pixels_past_the_document_edge() {
     let b = grid.opaque_bounds().expect("painted pixels have bounds");
     assert_eq!((b.min_x, b.min_y, b.max_x, b.max_y), (3, 5, far, far));
 }
+
+#[test]
+fn content_revision_moves_only_when_pixels_do() {
+    let mut grid = TileGrid::new(256, 256);
+    let start = grid.content_revision();
+
+    grid.set_pixel(10, 10, [1, 2, 3, 255]);
+    let painted = grid.content_revision();
+    assert_ne!(painted, start, "painting is a content change");
+
+    let preview = grid.preview();
+    assert_eq!(
+        grid.content_revision(),
+        painted,
+        "asking for the preview is not a content change"
+    );
+    assert!(Arc::ptr_eq(&preview, &grid.preview()), "and it is cached");
+
+    grid.mark_channel_dirty(DirtyChannel::Render);
+    assert_eq!(
+        grid.content_revision(),
+        painted,
+        "an opacity or adjustment change re-renders but repaints nothing"
+    );
+
+    grid.set_pixel(20, 20, [4, 5, 6, 255]);
+    assert_ne!(grid.content_revision(), painted, "the next stroke does");
+}

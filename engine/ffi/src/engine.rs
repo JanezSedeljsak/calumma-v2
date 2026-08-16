@@ -1352,13 +1352,20 @@ pub unsafe extern "C" fn calm_engine_set_hover_layer(
 ) -> CalmStatus {
     with_inner(engine, |inner| {
         if let Some(doc) = &mut inner.doc {
-            doc.hover_layer = if index < 0 {
+            let next = if index < 0 {
                 None
             } else {
                 Some(index as usize)
             };
+            // Scrolling the layers panel drags row after row under a stationary cursor, so this
+            // arrives constantly. Nothing but the outline changes, and only when the index
+            // actually moves — anything heavier here is paid once per row crossed.
+            if doc.hover_layer == next {
+                return Ok(());
+            }
+            doc.hover_layer = next;
             if let Some(r) = &mut inner.renderer {
-                r.invalidate();
+                r.invalidate_overlay();
             }
         }
         Ok(())
@@ -1460,6 +1467,28 @@ pub unsafe extern "C" fn calm_engine_layer_name(
     }
 }
 
+/// The layer's stable identity. Names are user-editable and can collide; the shell keys its
+/// per-layer caches on this so reordering or renaming never makes one layer wear another's
+/// preview.
+#[no_mangle]
+pub unsafe extern "C" fn calm_engine_layer_id(engine: *mut CalmEngine, index: u32) -> *mut c_char {
+    if engine.is_null() {
+        return ptr::null_mut();
+    }
+    match catch_unwind(AssertUnwindSafe(|| {
+        let mutex = unsafe { &*(engine as *const Mutex<Inner>) };
+        let inner = mutex.lock();
+        inner
+            .doc
+            .as_ref()
+            .and_then(|d| d.layers.get(index as usize))
+            .map(|l| cstring(&l.id))
+    })) {
+        Ok(Some(p)) => p,
+        _ => ptr::null_mut(),
+    }
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn calm_buffer_free(ptr: *mut u8, len: usize) {
     if ptr.is_null() || len == 0 {
@@ -1532,6 +1561,33 @@ pub unsafe extern "C" fn calm_engine_set_layer_bounds(
         }
         Ok(())
     })
+}
+
+/// A counter that changes only when this layer's own pixels change. The shell caches one
+/// rendered thumbnail per layer against it, which is what guarantees a preview is a function of
+/// that layer's content and nothing else — showing or hiding any layer never moves it.
+#[no_mangle]
+pub unsafe extern "C" fn calm_engine_layer_preview_revision(
+    engine: *mut CalmEngine,
+    index: u32,
+) -> u64 {
+    if engine.is_null() {
+        return 0;
+    }
+    catch_unwind(AssertUnwindSafe(|| {
+        let mutex = unsafe { &*(engine as *const Mutex<Inner>) };
+        let inner = mutex.lock();
+        let layer = inner.doc.as_ref()?.layers.get(index as usize)?;
+        match layer.tiles() {
+            Some(grid) => Some(grid.content_revision()),
+            // A vector layer's thumbnail is a flat swatch of its first item's colour, so its
+            // item count is all the shell has to notice a change in.
+            None => Some(layer.content.items().map_or(0, |i| i.len() as u64)),
+        }
+    }))
+    .ok()
+    .flatten()
+    .unwrap_or(0)
 }
 
 #[no_mangle]

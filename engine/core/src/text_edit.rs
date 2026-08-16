@@ -137,11 +137,29 @@ impl Document {
     /// run touched from start to finish; a layer that was created this session and left
     /// empty leaves nothing behind, while emptying a layer that already existed is an edit
     /// like any other and stays undoable.
+    /// Where the edited layer sits *now*. `TextEdit.layer` is a position, and positions move
+    /// when the stack is reordered or a layer is inserted beneath this one; the layer's id does
+    /// not. `commit_text` can remove a layer, so it resolves through this rather than trusting
+    /// a stored index — getting that wrong deletes somebody else's work.
+    fn text_edit_index(&self, edit: &TextEdit) -> Option<usize> {
+        if self
+            .layers
+            .get(edit.layer)
+            .is_some_and(|l| l.id == edit.layer_id)
+        {
+            return Some(edit.layer);
+        }
+        self.layers.iter().position(|l| l.id == edit.layer_id)
+    }
+
     pub fn commit_text(&mut self) {
         let Some(edit) = self.text_edit.take() else {
             return;
         };
-        let index = edit.layer;
+        // The layer can be gone entirely, in which case there is nothing left to commit.
+        let Some(index) = self.text_edit_index(&edit) else {
+            return;
+        };
         if let Some(run) = self.layers.get_mut(index).and_then(|l| l.content.run_mut()) {
             if !run.marked.is_empty() {
                 run.marked.clear();
@@ -182,8 +200,9 @@ impl Document {
     }
 
     pub(crate) fn with_run<R>(&mut self, f: impl FnOnce(&mut TextRun, usize) -> R) -> Option<R> {
-        let index = self.text_edit.as_ref()?.layer;
-        let caret = self.text_edit.as_ref()?.caret;
+        let edit = self.text_edit.as_ref()?;
+        let index = self.text_edit_index(edit)?;
+        let caret = edit.caret;
         let run = self.layers.get_mut(index)?.content.run_mut()?;
         let out = f(run, caret);
         self.resync_text(index);
