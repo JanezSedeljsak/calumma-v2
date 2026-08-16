@@ -10,6 +10,10 @@ struct EditorView: View {
     @State private var artworkDropTargeted = false
     @State private var canvasWidth = 0
     @State private var canvasHeight = 0
+    @State private var boundsX = 0
+    @State private var boundsY = 0
+    @State private var boundsWidth = 0
+    @State private var boundsHeight = 0
     @State private var layerSettingsIndex: Int?
     @State private var aiBlinkOn = false
 
@@ -236,6 +240,9 @@ struct EditorView: View {
                     layerRow(index)
                 }
                 Spacer(minLength: 0)
+                CalmDivider()
+                layerBoundsFooter
+                CalmDivider()
                 canvasResizeFooter
             }
             .frame(maxHeight: .infinity, alignment: .top)
@@ -249,14 +256,69 @@ struct EditorView: View {
                     .transition(.opacity)
             }
         }
-        .onAppear { syncCanvasSize() }
+        .onAppear {
+            syncCanvasSize()
+            syncLayerBounds()
+        }
         .onChange(of: app.engine.state.width) { _, _ in syncCanvasSize() }
         .onChange(of: app.engine.state.height) { _, _ in syncCanvasSize() }
+        .onChange(of: app.engine.state.activeLayer) { _, _ in syncLayerBounds() }
+        .onChange(of: app.engine.layerNames.count) { _, _ in syncLayerBounds() }
+        .onChange(of: app.engine.thumbnailRevision) { _, _ in syncLayerBounds() }
     }
 
     private func syncCanvasSize() {
         canvasWidth = Int(app.engine.state.width)
         canvasHeight = Int(app.engine.state.height)
+    }
+
+    /// Mirrors the engine's answer, never the last thing typed — a size larger than the layer
+    /// is clamped rather than scaling it up, so the field has to show what actually landed.
+    private func syncLayerBounds() {
+        guard let bounds = app.engine.layerBounds(index: Int(app.engine.state.activeLayer)) else {
+            boundsX = 0
+            boundsY = 0
+            boundsWidth = 0
+            boundsHeight = 0
+            return
+        }
+        boundsX = Int(bounds.x.rounded())
+        boundsY = Int(bounds.y.rounded())
+        boundsWidth = Int(bounds.width.rounded())
+        boundsHeight = Int(bounds.height.rounded())
+    }
+
+    private func commitLayerBounds() {
+        app.engine.setLayerBounds(
+            index: Int(app.engine.state.activeLayer),
+            x: Float(boundsX),
+            y: Float(boundsY),
+            width: Float(boundsWidth),
+            height: Float(boundsHeight)
+        )
+        syncLayerBounds()
+    }
+
+    private var layerBoundsFooter: some View {
+        VStack(alignment: .leading, spacing: Tokens.Space.sm) {
+            CalmText.label(l10n.layerBounds)
+            HStack(spacing: Tokens.Space.sm) {
+                CalmText.label(l10n.layerBoundsX)
+                CalmNumberField(value: $boundsX, width: 56)
+                    .onSubmit { commitLayerBounds() }
+                CalmText.label(l10n.layerBoundsY)
+                CalmNumberField(value: $boundsY, width: 56)
+                    .onSubmit { commitLayerBounds() }
+            }
+            HStack(spacing: Tokens.Space.sm) {
+                CalmText.label(l10n.canvasWidth)
+                CalmNumberField(value: $boundsWidth, width: 56)
+                    .onSubmit { commitLayerBounds() }
+                CalmText.label(l10n.canvasHeight)
+                CalmNumberField(value: $boundsHeight, width: 56)
+                    .onSubmit { commitLayerBounds() }
+            }
+        }
     }
 
     private var canvasResizeFooter: some View {

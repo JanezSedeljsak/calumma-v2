@@ -148,6 +148,9 @@ struct L10nCatalog: Equatable {
     var selectionTools: String { self["selectionTools"] }
     var exportMenu: String { self["exportMenu"] }
     var copyLayer: String { self["copyLayer"] }
+    var layerBounds: String { self["layerBounds"] }
+    var layerBoundsX: String { self["layerBoundsX"] }
+    var layerBoundsY: String { self["layerBoundsY"] }
     var canvasWidth: String { self["canvasWidth"] }
     var canvasHeight: String { self["canvasHeight"] }
     var duplicateLayer: String { self["duplicateLayer"] }

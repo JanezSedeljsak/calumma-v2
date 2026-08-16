@@ -1470,6 +1470,70 @@ pub unsafe extern "C" fn calm_buffer_free(ptr: *mut u8, len: usize) {
     }));
 }
 
+/// A layer's document-space box, as the layers panel shows it.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct CalmLayerBounds {
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    pub height: f32,
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn calm_engine_layer_bounds(
+    engine: *mut CalmEngine,
+    index: u32,
+    out: *mut CalmLayerBounds,
+) -> CalmStatus {
+    if engine.is_null() || out.is_null() {
+        return CalmStatus::Null;
+    }
+    unsafe { *out = CalmLayerBounds::default() };
+    match catch_unwind(AssertUnwindSafe(|| {
+        let mutex = unsafe { &*(engine as *const Mutex<Inner>) };
+        let inner = mutex.lock();
+        let doc = inner.doc.as_ref()?;
+        let (x, y, x1, y1) = doc.layer_bounds(index as usize)?;
+        Some(CalmLayerBounds {
+            x,
+            y,
+            width: x1 - x,
+            height: y1 - y,
+        })
+    })) {
+        Ok(Some(bounds)) => {
+            unsafe { *out = bounds };
+            CalmStatus::Ok
+        }
+        _ => CalmStatus::Error,
+    }
+}
+
+/// Moves the layer to `(x, y)` and crops it to `width` × `height`. Size never scales the layer
+/// up — see `Document::set_layer_bounds`; the shell reads the bounds back to see what stuck.
+#[no_mangle]
+pub unsafe extern "C" fn calm_engine_set_layer_bounds(
+    engine: *mut CalmEngine,
+    index: u32,
+    x: f32,
+    y: f32,
+    width: f32,
+    height: f32,
+) -> CalmStatus {
+    with_inner(engine, |inner| {
+        let doc = inner.doc.as_mut().context("no project is open")?;
+        if !doc.set_layer_bounds(index as usize, x, y, width, height) {
+            bail!("layer index {index} has no bounds to set");
+        }
+        inner.dirty_save = true;
+        if let Some(r) = &mut inner.renderer {
+            r.invalidate();
+        }
+        Ok(())
+    })
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn calm_engine_layer_thumbnail(
     engine: *mut CalmEngine,

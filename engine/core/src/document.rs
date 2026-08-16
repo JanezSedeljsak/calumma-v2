@@ -1839,6 +1839,79 @@ impl Document {
         }
     }
 
+    /// A layer's box in document space, tight to what is actually painted.
+    ///
+    /// This deliberately uses `opaque_bounds` rather than the `content_bounds` the hover
+    /// outline draws from. `content_bounds` is tile-granular, so a ten-pixel stroke reports a
+    /// 256-pixel box — fine for an outline the eye reads as approximate, useless as a number
+    /// in a panel and actively wrong as the thing a crop is measured against. The two can
+    /// disagree by up to a tile; the readout is the exact one.
+    pub fn layer_bounds(&self, index: usize) -> Option<(f32, f32, f32, f32)> {
+        let layer = self.layers.get(index)?;
+        let raw = match layer.tiles() {
+            Some(grid) => {
+                let r = grid.opaque_bounds()?;
+                (
+                    r.min_x as f32,
+                    r.min_y as f32,
+                    (r.max_x + 1) as f32,
+                    (r.max_y + 1) as f32,
+                )
+            }
+            None => layer.content_bounds()?,
+        };
+        let t = layer.transform.unwrap_or_default();
+        Some(t.transformed_aabb(raw))
+    }
+
+    /// Moves a layer so its box starts at `(x, y)`, and crops it to `width` × `height`.
+    ///
+    /// Size only ever **crops**. A size larger than the layer already is gets clamped rather
+    /// than scaling the content up: there are no pixels to invent, and a number field that
+    /// quietly resampled a layer would destroy detail on a typo. Scaling up is what the
+    /// Transform tool is for.
+    ///
+    /// Position is a transform offset, so moving is non-destructive and undoes cleanly — the
+    /// same thing the Move tool writes. Cropping is not: it discards pixels outside the box.
+    /// A layer carrying a scale or rotation is moved but **not** cropped, since the crop
+    /// rectangle would have to be resolved in the layer's own frame rather than the
+    /// document's; the caller can see that from the bounds it reads back.
+    pub fn set_layer_bounds(&mut self, index: usize, x: f32, y: f32, w: f32, h: f32) -> bool {
+        let Some((cur_x, cur_y, cur_x1, cur_y1)) = self.layer_bounds(index) else {
+            return false;
+        };
+        let Some(layer) = self.layers.get_mut(index) else {
+            return false;
+        };
+        let mut t = layer.transform.unwrap_or_default();
+        t.offset_x += x - cur_x;
+        t.offset_y += y - cur_y;
+        layer.transform = (!t.is_identity()).then_some(t);
+
+        let crop_w = w.max(1.0).min(cur_x1 - cur_x);
+        let crop_h = h.max(1.0).min(cur_y1 - cur_y);
+        let shrinks = crop_w < cur_x1 - cur_x || crop_h < cur_y1 - cur_y;
+        let square = t.scale_x == 1.0 && t.scale_y == 1.0 && t.rotation == 0.0;
+        if !shrinks || !square {
+            return true;
+        }
+        // The crop is stated in document space but the pixels live in the layer's own
+        // untransformed space, so the offset comes back off before the rectangle is applied.
+        let keep = DocRect::from_floats(
+            x - t.offset_x,
+            y - t.offset_y,
+            x - t.offset_x + crop_w - 1.0,
+            y - t.offset_y + crop_h - 1.0,
+        );
+        let Some(grid) = layer.tiles_mut() else {
+            return true;
+        };
+        for band in outside_bands(grid.bounds(), keep) {
+            grid.paint_rect(band, |_, _, _| Some([0, 0, 0, 0]));
+        }
+        true
+    }
+
     pub fn layer_highlight(&self) -> Option<(usize, [(f32, f32); 4])> {
         if let Some(drag) = &self.transform_drag {
             if drag.handle != TransformHandle::Move {
@@ -1882,4 +1955,46 @@ impl Document {
     pub fn tile_size(&self) -> u32 {
         TILE_SIZE
     }
+}
+
+/// `outer \ inner` as up to four non-overlapping bands. Cropping clears these rather than
+/// rewriting the whole layer, so the cost is the discarded margin and not the picture.
+fn outside_bands(outer: DocRect, inner: DocRect) -> Vec<DocRect> {
+    let Some(inner) = outer.intersect(inner) else {
+        return vec![outer];
+    };
+    let mut out = Vec::with_capacity(4);
+    if inner.min_y > outer.min_y {
+        out.push(DocRect::new(
+            outer.min_x,
+            outer.min_y,
+            outer.max_x,
+            inner.min_y - 1,
+        ));
+    }
+    if inner.max_y < outer.max_y {
+        out.push(DocRect::new(
+            outer.min_x,
+            inner.max_y + 1,
+            outer.max_x,
+            outer.max_y,
+        ));
+    }
+    if inner.min_x > outer.min_x {
+        out.push(DocRect::new(
+            outer.min_x,
+            inner.min_y,
+            inner.min_x - 1,
+            inner.max_y,
+        ));
+    }
+    if inner.max_x < outer.max_x {
+        out.push(DocRect::new(
+            inner.max_x + 1,
+            inner.min_y,
+            outer.max_x,
+            inner.max_y,
+        ));
+    }
+    out
 }

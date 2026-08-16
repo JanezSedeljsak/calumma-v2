@@ -1078,6 +1078,25 @@ final class Engine: ObservableObject, @unchecked Sendable {
         syncTextState()
     }
 
+    /// The active layer's document-space box, or `nil` for a layer with nothing to bound.
+    func layerBounds(index: Int) -> CalmLayerBounds? {
+        guard let ptr, index >= 0 else { return nil }
+        var out = CalmLayerBounds()
+        guard calm_engine_layer_bounds(ptr, UInt32(index), &out) == CalmStatusOk else { return nil }
+        return out
+    }
+
+    /// Moves the layer and crops it to the given box. The engine clamps a size larger than the
+    /// layer already is rather than scaling it up, so callers read the bounds back afterwards
+    /// instead of assuming what they asked for is what landed.
+    func setLayerBounds(index: Int, x: Float, y: Float, width: Float, height: Float) {
+        guard let ptr, index >= 0 else { return }
+        _ = calm_engine_set_layer_bounds(ptr, UInt32(index), x, y, width, height)
+        syncState()
+        refreshLayers()
+        render()
+    }
+
     func layerThumbnail(index: Int, maxSide: UInt32 = 160) -> NSImage? {
         let key = LayerThumbnailKey(index: index, maxSide: maxSide)
         if let cached = layerThumbnails[key] {

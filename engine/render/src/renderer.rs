@@ -209,6 +209,11 @@ pub struct Renderer {
     camera_motion: bool,
     motion_idle_frames: u32,
     cached_tile_draw_count: Option<usize>,
+    /// Tiles uploaded during camera motion, which skips the mip chain to keep a pan cheap and
+    /// writes only level 0. Their remaining levels are whatever the atlas slot happened to
+    /// hold, so they have to be uploaded again in full once the camera settles — otherwise
+    /// zooming out far enough samples a level nobody ever wrote and the layer fades out.
+    base_only_tiles: FxHashSet<TileKey>,
     pan_cache: PanCache,
 }
 
@@ -624,6 +629,7 @@ impl Renderer {
             camera_motion: false,
             motion_idle_frames: 0,
             cached_tile_draw_count: None,
+            base_only_tiles: FxHashSet::default(),
             pan_cache,
         })
     }
@@ -668,6 +674,11 @@ impl Renderer {
         self.motion_idle_frames = 0;
         self.cached_tile_draw_count = None;
         self.set_frame_latency(SURFACE_FRAME_LATENCY);
+        // Anything uploaded mid-gesture is still missing its mip chain. Ask for one more
+        // content frame so `sync_tiles` can finish those tiles now that there is idle time.
+        if !self.base_only_tiles.is_empty() {
+            self.frame_dirty = FrameDirty::Content;
+        }
     }
 
     fn tick_camera_motion(&mut self) {
@@ -861,6 +872,7 @@ impl Renderer {
     /// would sit in VRAM until some *other* project was opened and drawn.
     pub fn release_document(&mut self) {
         self.tiles.clear();
+        self.base_only_tiles.clear();
         self.atlas.clear();
         self.layer_xforms.clear();
         self.layer_slots.clear();
@@ -943,6 +955,28 @@ impl Renderer {
         self.tile_instance_capacity = next;
     }
 
+    /// Whether this tile is sitting in the atlas with only its base level written and the
+    /// camera has since settled, so there is now time to finish it.
+    fn needs_full_mips(&self, key: &TileKey) -> bool {
+        !self.camera_motion && self.base_only_tiles.contains(key)
+    }
+
+    fn note_mip_state(&mut self, key: TileKey, skipped_mips: bool) {
+        if skipped_mips {
+            self.base_only_tiles.insert(key);
+        } else {
+            self.base_only_tiles.remove(&key);
+        }
+    }
+
+    /// Motion mode skips the mip chain to keep a gesture cheap, but that is only safe when the
+    /// slot already holds a chain to fall back on. A tile reaching the atlas for the first time
+    /// mid-gesture has nothing in its upper levels, so it pays for them even during motion —
+    /// otherwise zooming out samples levels that were never written.
+    fn may_skip_mips(&self, key: &TileKey) -> bool {
+        self.camera_motion && self.tiles.contains_key(key) && !self.base_only_tiles.contains(key)
+    }
+
     fn sync_tiles(&mut self, doc: &mut Document) {
         let Some(visible) = doc.visible_rect() else {
             return;
@@ -952,7 +986,7 @@ impl Renderer {
 
         let mut live: FxHashSet<TileKey> = FxHashSet::default();
         let mut visible_keys: FxHashSet<TileKey> = FxHashSet::default();
-        let mut uploads: Vec<(usize, TileCoord, TileKey)> = Vec::new();
+        let mut uploads: Vec<(usize, TileCoord, TileKey, bool)> = Vec::new();
 
         for layer_index in 0..doc.layers.len() {
             let layer = &doc.layers[layer_index];
@@ -972,8 +1006,8 @@ impl Renderer {
                 live.insert(key);
                 visible_keys.insert(key);
                 let known = self.tiles.contains_key(&key);
-                if !known || dirty.contains(&coord) {
-                    uploads.push((layer_index, coord, key));
+                if !known || dirty.contains(&coord) || self.needs_full_mips(&key) {
+                    uploads.push((layer_index, coord, key, self.may_skip_mips(&key)));
                 }
                 continue;
             }
@@ -987,10 +1021,10 @@ impl Renderer {
                 }
                 visible_keys.insert(key);
                 let known = self.tiles.contains_key(&key);
-                if known && !dirty.contains(&coord) {
+                if known && !dirty.contains(&coord) && !self.needs_full_mips(&key) {
                     continue;
                 }
-                uploads.push((layer_index, coord, key));
+                uploads.push((layer_index, coord, key, self.may_skip_mips(&key)));
             }
         }
 
@@ -1004,7 +1038,7 @@ impl Renderer {
         // zooming re-enters `render()` every frame via `dirty` without marking any tile
         // dirty, and rebuilding every adjusted layer's LUT on each of those frames for no
         // reason was pure waste.
-        let needed_layers: FxHashSet<usize> = uploads.iter().map(|(li, _, _)| *li).collect();
+        let needed_layers: FxHashSet<usize> = uploads.iter().map(|(li, _, _, _)| *li).collect();
         let luts: HashMap<usize, Option<AdjustmentLut>> = needed_layers
             .into_iter()
             .map(|li| (li, doc.layers[li].adjustments.map(|a| a.lut())))
@@ -1020,14 +1054,14 @@ impl Renderer {
         // dominates a heavy frame.
         let payloads: Vec<Option<(Vec<Vec<u8>>, bool)>> = uploads
             .par_iter()
-            .map(|(layer_index, coord, _)| {
+            .map(|(layer_index, coord, _, skip_mips)| {
                 let layer = doc.layers.get(*layer_index)?;
                 let pixels = layer.tiles()?.get(*coord)?;
                 let lut = luts.get(layer_index).and_then(|l| l.as_ref());
                 let composited = composited_tile_payload(pixels, *coord, layer, lut, doc_width);
                 let baked = composited.is_some();
                 let base: &[u8] = composited.as_deref().unwrap_or(pixels.as_slice());
-                Some((tile_upload_levels(base, self.camera_motion), baked))
+                Some((tile_upload_levels(base, *skip_mips), baked))
             })
             .collect();
 
@@ -1048,8 +1082,9 @@ impl Renderer {
         // through as bare paper until something happens to dirty that tile again.
         let mut uploaded: Vec<(usize, TileCoord)> = Vec::with_capacity(uploads.len());
 
-        for ((layer_index, coord, key), payload) in uploads.iter().zip(payloads.iter()) {
+        for ((layer_index, coord, key, skip_mips), payload) in uploads.iter().zip(payloads.iter()) {
             let key = *key;
+            let skip_mips = *skip_mips;
             let Some((levels, baked)) = payload else {
                 continue;
             };
@@ -1062,17 +1097,20 @@ impl Renderer {
                 let ptr = Arc::as_ptr(pixels) as usize;
                 if let Some(&array_layer) = shared_gpu.get(&(*layer_index, ptr)) {
                     self.tiles.insert(key, GpuTile { array_layer });
+                    self.note_mip_state(key, skip_mips);
                     uploaded.push((*layer_index, *coord));
                     continue;
                 }
             }
 
             if let Some(existing) = self.tiles.get(&key) {
-                self.atlas.write(&self.queue, existing.array_layer, levels);
+                let slot = existing.array_layer;
+                self.atlas.write(&self.queue, slot, levels);
                 if !baked {
                     let ptr = Arc::as_ptr(pixels) as usize;
-                    shared_gpu.insert((*layer_index, ptr), existing.array_layer);
+                    shared_gpu.insert((*layer_index, ptr), slot);
                 }
+                self.note_mip_state(key, skip_mips);
                 uploaded.push((*layer_index, *coord));
                 continue;
             }
@@ -1113,6 +1151,7 @@ impl Renderer {
                 let ptr = Arc::as_ptr(pixels) as usize;
                 shared_gpu.insert((*layer_index, ptr), array_layer);
             }
+            self.note_mip_state(key, skip_mips);
             uploaded.push((*layer_index, *coord));
         }
 
@@ -1129,6 +1168,7 @@ impl Renderer {
             self.atlas.free(slot);
         }
         self.tiles.retain(|k, _| live.contains(k));
+        self.base_only_tiles.retain(|k| live.contains(k));
         let live_layers: FxHashSet<&str> = doc.layers.iter().map(|l| l.id.as_str()).collect();
         self.layer_slots
             .retain(|id, _| live_layers.contains(id.as_str()));

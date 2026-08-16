@@ -284,12 +284,20 @@ fn tile_mip_chain_has_nine_levels_shrinking_to_one_pixel() {
     assert_eq!(chain[8].len(), 4, "the last level is a single pixel");
 }
 
+/// Skipping the chain is only ever safe for a slot that already holds one — `sync_tiles`
+/// decides that per tile via `may_skip_mips`. The levels this leaves unwritten are why: a slot
+/// that never had them would be sampled as whatever the atlas happened to contain, which at a
+/// far enough zoom-out is nothing at all.
 #[test]
 fn motion_upload_skips_mip_chain() {
     let base = opaque_tile();
     let chain = tile_upload_levels(&base, true);
     assert_eq!(chain.len(), 1);
     assert_eq!(chain[0].len(), TILE_BYTES);
+    assert!(
+        tile_upload_levels(&base, false).len() > 1,
+        "a settled upload still has to carry every level"
+    );
 }
 
 #[test]

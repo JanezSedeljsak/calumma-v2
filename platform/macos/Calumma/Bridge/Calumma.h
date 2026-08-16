@@ -91,6 +91,13 @@ typedef struct CalmMemory {
     uint32_t shared_tile_count;
 } CalmMemory;
 
+typedef struct CalmLayerBounds {
+    float x;
+    float y;
+    float width;
+    float height;
+} CalmLayerBounds;
+
 typedef struct CalmAdjustments {
     float brightness;
     float contrast;
@@ -198,6 +205,8 @@ size_t calm_engine_ruler_ticks_y(CalmEngine *engine, CalmRulerTick *out, size_t 
 CalmStatus calm_engine_memory(CalmEngine *engine, CalmMemory *out);
 char *calm_engine_layer_name(CalmEngine *engine, uint32_t index);
 CalmStatus calm_engine_layer_thumbnail(CalmEngine *engine, uint32_t layer_index, uint32_t max_side, uint8_t **out_rgba, uint32_t *out_w, uint32_t *out_h);
+CalmStatus calm_engine_layer_bounds(CalmEngine *engine, uint32_t index, CalmLayerBounds *out);
+CalmStatus calm_engine_set_layer_bounds(CalmEngine *engine, uint32_t index, float x, float y, float width, float height);
 CalmStatus calm_engine_composite_rgba(CalmEngine *engine, uint8_t **out_rgba, uint32_t *out_w, uint32_t *out_h);
 CalmStatus calm_engine_export_psd(CalmEngine *engine, uint8_t **out_bytes, size_t *out_len);
 CalmStatus calm_engine_layer_rgba(CalmEngine *engine, uint32_t layer_index, uint8_t **out_rgba, uint32_t *out_w, uint32_t *out_h);

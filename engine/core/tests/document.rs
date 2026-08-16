@@ -1066,3 +1066,60 @@ fn hovering_a_layer_outlines_it_without_forcing_a_live_frame() {
          content resync every frame, nor disable the overview proxy"
     );
 }
+
+#[test]
+fn layer_bounds_move_is_free_but_size_only_ever_crops() {
+    let mut doc = Document::new("p".into(), "t", 200, 100);
+    let grid = doc.layers[1].tiles_mut().unwrap();
+    for x in 10..=29 {
+        for y in 10..=19 {
+            grid.set_pixel(x, y, [1, 2, 3, 255]);
+        }
+    }
+    let (x0, y0, x1, y1) = doc.layer_bounds(1).expect("a painted layer has bounds");
+    let (w, h) = (x1 - x0, y1 - y0);
+
+    assert!(doc.set_layer_bounds(1, x0 + 40.0, y0 + 5.0, w, h));
+    let moved = doc.layer_bounds(1).unwrap();
+    assert!(
+        (moved.0 - (x0 + 40.0)).abs() < 0.5,
+        "position follows the box"
+    );
+    assert!(
+        (moved.3 - moved.1 - h).abs() < 0.5,
+        "a pure move keeps its size"
+    );
+
+    assert!(doc.set_layer_bounds(1, moved.0, moved.1, w * 4.0, h * 4.0));
+    let grown = doc.layer_bounds(1).unwrap();
+    assert!(
+        (grown.2 - grown.0 - w).abs() < 0.5 && (grown.3 - grown.1 - h).abs() < 0.5,
+        "asking for a bigger box must not scale the layer up, it clamps"
+    );
+}
+
+#[test]
+fn shrinking_a_layer_box_discards_the_pixels_outside_it() {
+    let mut doc = Document::new("p".into(), "t", 200, 100);
+    let grid = doc.layers[1].tiles_mut().unwrap();
+    for x in 10..=49 {
+        grid.set_pixel(x, 10, [9, 9, 9, 255]);
+    }
+    let (x0, y0, x1, y1) = doc.layer_bounds(1).unwrap();
+    assert_eq!(
+        (x0, y0, x1, y1),
+        (10.0, 10.0, 50.0, 11.0),
+        "bounds are the painted pixels, not the tile they landed in"
+    );
+
+    assert!(doc.set_layer_bounds(1, x0, y0, 10.0, y1 - y0));
+    let tiles = doc.layers[1].tiles().unwrap();
+    assert_eq!(tiles.get_pixel(12, 10)[3], 255, "inside the box survives");
+    assert_eq!(
+        tiles.get_pixel(45, 10)[3],
+        0,
+        "outside the box is cropped away"
+    );
+    let after = doc.layer_bounds(1).unwrap();
+    assert_eq!(after.2 - after.0, 10.0, "the box reports its new width");
+}
