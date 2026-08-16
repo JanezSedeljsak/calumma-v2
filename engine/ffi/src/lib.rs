@@ -1,6 +1,7 @@
 #![allow(clippy::missing_safety_doc)]
 
 mod active_renderer;
+mod autosave;
 mod clipboard_ffi;
 mod engine;
 mod memory_ffi;

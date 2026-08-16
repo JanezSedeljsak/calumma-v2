@@ -90,6 +90,61 @@ fn palette_and_import_limits_are_exposed() {
 }
 
 #[test]
+fn autosave_persists_off_the_render_path() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("t.sqlite");
+    let path_c = CString::new(path.to_str().unwrap()).unwrap();
+
+    let writer = unsafe { calm_engine_new(path_c.as_ptr()) };
+    assert!(!writer.is_null());
+    let id_ptr = unsafe { calm_project_create(writer, c"autosave".as_ptr(), 64, 64) };
+    let id = unsafe { CStr::from_ptr(id_ptr) }
+        .to_str()
+        .unwrap()
+        .to_string();
+    unsafe { calm_string_free(id_ptr) };
+
+    let status = unsafe { calm_engine_resize_document(writer, 96, 128) };
+    assert_eq!(status, CalmStatus::Ok);
+
+    std::thread::sleep(std::time::Duration::from_millis(
+        calumma_core::limits::AUTOSAVE_INTERVAL_MS * 3,
+    ));
+
+    let reader = unsafe { calm_engine_new(path_c.as_ptr()) };
+    assert!(!reader.is_null());
+    let id_c = CString::new(id).unwrap();
+    let status = unsafe { calm_project_open(reader, id_c.as_ptr()) };
+    assert_eq!(status, CalmStatus::Ok);
+    let mut state = CalmState {
+        width: 0,
+        height: 0,
+        zoom: 0.0,
+        min_zoom: 0.0,
+        max_zoom: 0.0,
+        pan_x: 0.0,
+        pan_y: 0.0,
+        active_layer: 0,
+        layer_count: 0,
+        can_undo: 0,
+        can_redo: 0,
+        stroke_active: 0,
+        dark_theme: 0,
+        accent: 0,
+        zoom_unit: 0.0,
+        last_shape_tool: 0,
+        last_select_tool: 0,
+    };
+    let status = unsafe { calm_engine_state(reader, &mut state) };
+    assert_eq!(status, CalmStatus::Ok);
+    assert_eq!(state.width, 96);
+    assert_eq!(state.height, 128);
+
+    unsafe { calm_engine_free(reader) };
+    unsafe { calm_engine_free(writer) };
+}
+
+#[test]
 fn project_create_open_close_save_round_trip() {
     let engine = TestEngine::new();
     let id = engine.create_project("Demo", 64, 64);

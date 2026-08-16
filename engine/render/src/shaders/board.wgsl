@@ -602,3 +602,38 @@ fn fs_overview(in: OverviewVsOut) -> @location(0) vec4<f32> {
     let c = textureSample(overview_tex, overview_sampler, in.uv);
     return vec4<f32>(c.rgb * c.a, c.a);
 }
+
+@group(0) @binding(0) var pan_cache_tex: texture_2d<f32>;
+@group(0) @binding(1) var pan_cache_sampler: sampler;
+
+struct BlitVsOut {
+    @builtin(position) position: vec4<f32>,
+    @location(0) uv: vec2<f32>,
+}
+
+// Content textures are sized 1:1 with the swapchain every frame (`PanCache::resize`), so a
+// bare NDC → UV remap lines the sample up with the destination pixel exactly — no camera
+// uniform needed for this pass.
+@vertex
+fn vs_blit(@builtin(vertex_index) idx: u32) -> BlitVsOut {
+    var pos = array<vec2<f32>, 3>(
+        vec2<f32>(-1.0, -1.0),
+        vec2<f32>(3.0, -1.0),
+        vec2<f32>(-1.0, 3.0),
+    );
+    var out: BlitVsOut;
+    let p = pos[idx];
+    out.position = vec4<f32>(p, 0.0, 1.0);
+    out.uv = vec2<f32>(p.x * 0.5 + 0.5, 1.0 - (p.y * 0.5 + 0.5));
+    return out;
+}
+
+@fragment
+fn fs_blit(in: BlitVsOut) -> @location(0) vec4<f32> {
+    return textureSample(pan_cache_tex, pan_cache_sampler, in.uv);
+}
+
+@fragment
+fn fs_clear_transparent() -> @location(0) vec4<f32> {
+    return vec4<f32>(0.0, 0.0, 0.0, 0.0);
+}

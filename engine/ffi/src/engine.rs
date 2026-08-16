@@ -94,6 +94,7 @@ pub(crate) struct Inner {
     instance: wgpu::Instance,
     last_save: Instant,
     dirty_save: bool,
+    autosave_thread: Option<crate::autosave::AutosaveThread>,
     registry: OpRegistry,
     platform_ops: Option<CalmPlatformOps>,
     last_shape_tool: Tool,
@@ -131,6 +132,7 @@ impl Inner {
             instance,
             last_save: Instant::now() - Duration::from_secs(60),
             dirty_save: false,
+            autosave_thread: None,
             registry: OpRegistry::new(),
             platform_ops: None,
             last_shape_tool: Tool::Rect,
@@ -273,7 +275,7 @@ impl Inner {
         }
     }
 
-    fn autosave(&mut self) {
+    pub(crate) fn autosave(&mut self) {
         if !self.dirty_save {
             return;
         }
@@ -399,7 +401,12 @@ pub unsafe extern "C" fn calm_engine_new(db_path: *const c_char) -> *mut CalmEng
         unsafe { CStr::from_ptr(db_path) }.to_str().ok()
     };
     match catch_unwind(AssertUnwindSafe(|| Inner::new(path))) {
-        Ok(Ok(inner)) => Box::into_raw(Box::new(Mutex::new(inner))) as *mut CalmEngine,
+        Ok(Ok(inner)) => {
+            let ptr = Box::into_raw(Box::new(Mutex::new(inner)));
+            let thread = crate::autosave::spawn(ptr as *const Mutex<Inner>);
+            unsafe { (*ptr).lock().autosave_thread = Some(thread) };
+            ptr as *mut CalmEngine
+        }
         _ => ptr::null_mut(),
     }
 }
@@ -411,6 +418,10 @@ pub unsafe extern "C" fn calm_engine_free(engine: *mut CalmEngine) {
     }
     let _ = catch_unwind(AssertUnwindSafe(|| {
         let mutex = unsafe { Box::from_raw(engine as *mut Mutex<Inner>) };
+        let thread = mutex.lock().autosave_thread.take();
+        if let Some(thread) = thread {
+            thread.stop();
+        }
         {
             let mut inner = mutex.lock();
             if let Some(mut doc) = inner.doc.take() {
@@ -510,7 +521,6 @@ pub unsafe extern "C" fn calm_engine_resize_document(
 #[no_mangle]
 pub unsafe extern "C" fn calm_engine_render(engine: *mut CalmEngine) -> CalmStatus {
     with_inner(engine, |inner| {
-        inner.autosave();
         inner.flush_pending_camera();
         if inner.doc.is_none() {
             return Ok(());
@@ -1479,14 +1489,18 @@ pub unsafe extern "C" fn calm_engine_layer_thumbnail(
     }
     match catch_unwind(AssertUnwindSafe(|| {
         let mutex = unsafe { &*(engine as *const Mutex<Inner>) };
-        let inner = mutex.lock();
-        let doc = inner.doc.as_ref().context("no project is open")?;
+        let mut inner = mutex.lock();
+        let doc = inner.doc.as_mut().context("no project is open")?;
         let layer = doc
             .layers
-            .get(layer_index as usize)
+            .get_mut(layer_index as usize)
             .with_context(|| format!("layer index {layer_index} out of range"))?;
-        let (w, h, rgba) = if let Some(tiles) = layer.tiles() {
-            tiles.thumbnail(max_side.max(1))
+        // Served from the layer's cached preview, so asking for the same layer again at any
+        // size costs a resample of at most `LAYER_PREVIEW_MAX_SIDE` rather than another scan of
+        // the whole layer. The cache rebuilds itself the first time it is asked for after an
+        // edit; nothing here has to know when that was.
+        let (w, h, rgba) = if let Some(tiles) = layer.tiles_mut() {
+            tiles.preview().scaled(max_side.max(1))
         } else if let Some(items) = layer.content.items() {
             let side = max_side.clamp(1, 64);
             let color = items

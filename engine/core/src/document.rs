@@ -1863,10 +1863,15 @@ impl Document {
         Some(t.transformed_corners(pivot, raw_bounds))
     }
 
+    /// Whether something on the board is mid-change and needs a frame per display refresh.
+    /// A hovered layer deliberately does not count: its outline is a static overlay that
+    /// `set_hover_layer` already invalidates once on the way in and once on the way out.
+    /// Counting it here pinned `frame_dirty` to `Content` for as long as the cursor sat on a
+    /// layer row — re-syncing every tile every frame — and forced the overview proxy off on
+    /// exactly the documents that are too large to draw the full way.
     pub fn has_live_preview(&self) -> bool {
         self.stroke_active
             || self.shape_drag.is_some()
-            || self.hover_layer.is_some()
             || self.selection.is_some()
             || self.transform_active
             || self.transform_drag.is_some()

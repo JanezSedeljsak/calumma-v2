@@ -12,6 +12,7 @@ pub struct CalmMemory {
     pub mask_bytes: u64,
     pub vector_bytes: u64,
     pub text_bytes: u64,
+    pub preview_bytes: u64,
     pub gpu_bytes: u64,
     pub tile_count: u32,
     /// Tiles whose pixels another tile already paid for — Paper's shared fill, and whatever
@@ -44,6 +45,7 @@ pub unsafe extern "C" fn calm_engine_memory(
             mask_bytes: report.mask_bytes as u64,
             vector_bytes: report.vector_bytes as u64,
             text_bytes: report.text_bytes as u64,
+            preview_bytes: report.preview_bytes as u64,
             gpu_bytes: gpu_bytes as u64,
             tile_count: report.tile_count as u32,
             shared_tile_count: report.shared_tile_count as u32,

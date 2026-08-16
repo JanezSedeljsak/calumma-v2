@@ -60,6 +60,14 @@ pub const SURFACE_FRAME_LATENCY_MOTION: u32 = 1;
 pub const CAMERA_MOTION_IDLE_FRAMES: u32 = 4;
 pub const GPU_TILE_RETENTION_MARGIN_TILES: i32 = 3;
 
+/// Long-side cap on the cached per-layer preview the layers panel draws its thumbnails from.
+/// The preview is kept in memory beside the tiles and rebuilt only when the layer's pixels
+/// change, so every size the shell asks for — a 40pt row thumb, a hover card — is a cheap
+/// resample of this instead of another full-resolution scan of the whole layer. 512 costs at
+/// most 1 MiB per layer and is still several times any thumbnail the chrome shows, so it
+/// survives future panel sizes without being rebuilt at a new resolution.
+pub const LAYER_PREVIEW_MAX_SIDE: u32 = 512;
+
 pub const OVERVIEW_MAX_SIDE: u32 = 2048;
 pub const OVERVIEW_ENTER_TILE_THRESHOLD: usize = 48;
 pub const OVERVIEW_EXIT_TILE_THRESHOLD: usize = 24;

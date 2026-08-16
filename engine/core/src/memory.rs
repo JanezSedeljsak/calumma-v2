@@ -15,6 +15,10 @@ pub struct DocumentMemory {
     pub mask_bytes: usize,
     pub vector_bytes: usize,
     pub text_bytes: usize,
+    /// Cached layer previews (`TileGrid::preview`). Capped per layer by
+    /// `LAYER_PREVIEW_MAX_SIDE`, and only present for layers whose thumbnail has been asked
+    /// for at least once since their last edit.
+    pub preview_bytes: usize,
     pub tile_count: usize,
     /// Tiles reachable from a layer whose storage another tile already paid for — Paper's
     /// shared white fill, and anything history still shares with the live document.
@@ -23,7 +27,12 @@ pub struct DocumentMemory {
 
 impl DocumentMemory {
     pub fn total(&self) -> usize {
-        self.tile_bytes + self.history_bytes + self.mask_bytes + self.vector_bytes + self.text_bytes
+        self.tile_bytes
+            + self.history_bytes
+            + self.mask_bytes
+            + self.vector_bytes
+            + self.text_bytes
+            + self.preview_bytes
     }
 }
 
@@ -48,6 +57,7 @@ pub fn document_memory(doc: &Document) -> DocumentMemory {
 
     for layer in &doc.layers {
         if let Some(tiles) = layer.tiles() {
+            out.preview_bytes += tiles.preview_bytes();
             for coord in tiles.coords() {
                 let Some(tile) = tiles.get(coord) else {
                     continue;

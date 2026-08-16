@@ -3,6 +3,7 @@ use crate::compose::{
     selection_rect_or_ellipse, stroke_instances, text_overlay_instances, tile_upload_levels,
     transform_overlay_instances, StrokeInstance,
 };
+use crate::framebuffer::{self, PanCache, PanCacheSlot, PxRect};
 use crate::overview::OverviewPass;
 use crate::tile_atlas::TileAtlas;
 use crate::vector_draw::{
@@ -208,6 +209,7 @@ pub struct Renderer {
     camera_motion: bool,
     motion_idle_frames: u32,
     cached_tile_draw_count: Option<usize>,
+    pan_cache: PanCache,
 }
 
 impl Renderer {
@@ -574,6 +576,7 @@ impl Renderer {
         });
 
         let overview = OverviewPass::new(&device, &shader, format);
+        let pan_cache = PanCache::new(&device, &shader, format);
 
         Ok(Self {
             device,
@@ -621,6 +624,7 @@ impl Renderer {
             camera_motion: false,
             motion_idle_frames: 0,
             cached_tile_draw_count: None,
+            pan_cache,
         })
     }
 
@@ -863,6 +867,7 @@ impl Renderer {
         self.next_layer_slot = 0;
         self.clear_layer_cache();
         self.overview.clear();
+        self.pan_cache.invalidate();
         self.frame_dirty = FrameDirty::Content;
     }
 
@@ -872,6 +877,7 @@ impl Renderer {
         self.cached_visible_span = None;
         self.cached_tile_draw_count = None;
         self.overview.mark_dirty();
+        self.pan_cache.invalidate();
     }
 
     pub fn invalidate_camera(&mut self) {
@@ -1006,15 +1012,22 @@ impl Renderer {
         // The mip chain is built here too, alongside the mask/adjustment bake — both are pure
         // pixel math that scales with tile count, so both go through rayon rather than running
         // sequentially on the frame thread once the wgpu upload loop below gets to them.
-        let payloads: Vec<Option<Vec<Vec<u8>>>> = uploads
+        //
+        // Whether the tile had to be baked travels back with its levels. The upload loop needs
+        // that answer to decide if the tile may share an atlas slot with its siblings, and
+        // re-deriving it there meant compositing every dirty tile a second time, sequentially,
+        // on the frame thread — exactly doubling the cost of the one path that already
+        // dominates a heavy frame.
+        let payloads: Vec<Option<(Vec<Vec<u8>>, bool)>> = uploads
             .par_iter()
             .map(|(layer_index, coord, _)| {
                 let layer = doc.layers.get(*layer_index)?;
                 let pixels = layer.tiles()?.get(*coord)?;
                 let lut = luts.get(layer_index).and_then(|l| l.as_ref());
                 let composited = composited_tile_payload(pixels, *coord, layer, lut, doc_width);
+                let baked = composited.is_some();
                 let base: &[u8] = composited.as_deref().unwrap_or(pixels.as_slice());
-                Some(tile_upload_levels(base, self.camera_motion))
+                Some((tile_upload_levels(base, self.camera_motion), baked))
             })
             .collect();
 
@@ -1029,28 +1042,27 @@ impl Renderer {
             .collect();
 
         let mut shared_gpu: HashMap<(usize, usize), u32> = HashMap::new();
+        // Only tiles that actually reached the atlas may be marked clean at the end. An upload
+        // the atlas had no room for has to stay dirty, or it is skipped by `build_layer_draws`
+        // (no slot) and never retried (not dirty) — a permanent hole in the layer, showing
+        // through as bare paper until something happens to dirty that tile again.
+        let mut uploaded: Vec<(usize, TileCoord)> = Vec::with_capacity(uploads.len());
 
         for ((layer_index, coord, key), payload) in uploads.iter().zip(payloads.iter()) {
             let key = *key;
-            let Some(levels) = payload else {
+            let Some((levels, baked)) = payload else {
                 continue;
             };
+            let baked = *baked;
             let layer = &doc.layers[*layer_index];
             let Some(pixels) = layer.tiles().and_then(|g| g.get(*coord)) else {
                 continue;
             };
-            let baked = composited_tile_payload(
-                pixels.as_slice(),
-                *coord,
-                layer,
-                luts.get(layer_index).and_then(|l| l.as_ref()),
-                doc_width,
-            )
-            .is_some();
             if !baked {
                 let ptr = Arc::as_ptr(pixels) as usize;
                 if let Some(&array_layer) = shared_gpu.get(&(*layer_index, ptr)) {
                     self.tiles.insert(key, GpuTile { array_layer });
+                    uploaded.push((*layer_index, *coord));
                     continue;
                 }
             }
@@ -1061,6 +1073,7 @@ impl Renderer {
                     let ptr = Arc::as_ptr(pixels) as usize;
                     shared_gpu.insert((*layer_index, ptr), existing.array_layer);
                 }
+                uploaded.push((*layer_index, *coord));
                 continue;
             }
 
@@ -1100,6 +1113,7 @@ impl Renderer {
                 let ptr = Arc::as_ptr(pixels) as usize;
                 shared_gpu.insert((*layer_index, ptr), array_layer);
             }
+            uploaded.push((*layer_index, *coord));
         }
 
         // Anything no longer live (scrolled entirely out of the retention margin, or its
@@ -1121,7 +1135,7 @@ impl Renderer {
         self.layer_xforms
             .retain(|id, _| live_layers.contains(id.as_str()));
 
-        for (layer_index, coord, _) in uploads {
+        for (layer_index, coord) in uploaded {
             if let Some(grid) = doc.layers.get_mut(layer_index).and_then(|l| l.tiles_mut()) {
                 grid.clear_dirty_tile(DirtyChannel::Render, coord);
             }
@@ -1211,6 +1225,155 @@ impl Renderer {
         out
     }
 
+    /// Replays `cached_draws` into whatever colour attachment `pass` targets — the shared body
+    /// behind both a full content redraw (the whole visible tile/vector set, into a fresh
+    /// `PanCache` reference) and a blit-frame's exposed-strip repair (the same draws, scissored
+    /// down to just the strip). Positions are document-space in the instance buffer, so the
+    /// same buffers and draw calls reproduce correctly at any camera state — nothing here reads
+    /// `doc` directly.
+    fn draw_cached_content<'a>(&'a self, pass: &mut wgpu::RenderPass<'a>) {
+        for draw in &self.cached_draws {
+            match draw {
+                LayerDraw::Tiles(mode, layer_id, range) => {
+                    let Some((_, xform_bg)) = self.layer_xforms.get(layer_id) else {
+                        continue;
+                    };
+                    pass.set_pipeline(self.tile_pipeline(*mode));
+                    pass.set_bind_group(0, self.atlas.bind_group(), &[]);
+                    pass.set_bind_group(1, xform_bg, &[]);
+                    pass.set_vertex_buffer(0, self.tile_instance_buf.slice(..));
+                    pass.draw(0..6, range.clone());
+                }
+                LayerDraw::Solid(mode, layer_id) => {
+                    let Some((_, xform_bg)) = self.layer_xforms.get(layer_id) else {
+                        continue;
+                    };
+                    pass.set_pipeline(self.solid_pipeline(*mode));
+                    pass.set_bind_group(0, self.atlas.bind_group(), &[]);
+                    pass.set_bind_group(1, xform_bg, &[]);
+                    pass.draw(0..6, 0..1);
+                }
+                LayerDraw::Vector(kind, range) => {
+                    let (pipeline, buf) = match kind {
+                        VectorRun::Shapes => (&self.vector_shape_pipeline, &self.vector_shape_buf),
+                        VectorRun::Paths => (&self.stroke_pipeline, &self.stroke_buf),
+                    };
+                    pass.set_pipeline(pipeline);
+                    pass.set_bind_group(0, &self.preview_bg, &[]);
+                    pass.set_vertex_buffer(0, buf.slice(..));
+                    pass.draw(0..6, range.clone());
+                }
+            }
+        }
+    }
+
+    /// Draws the whole visible stack fresh into the `PanCache` reference texture, scissored to
+    /// the current paper rect, and commits it as the new blit baseline. This is the "content
+    /// pass" side of `ChunkDraw` in the plan's terms — a full redraw, just retargeted from the
+    /// swapchain to an offscreen texture so a later camera-only frame has something to shift.
+    fn redraw_pan_cache_reference(
+        &mut self,
+        encoder: &mut wgpu::CommandEncoder,
+        pan: (f32, f32),
+        zoom: f32,
+        dpr: f32,
+        scissor: PxRect,
+    ) {
+        {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("pan-cache-full"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: self.pan_cache.reference_view(),
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color {
+                            r: 0.0,
+                            g: 0.0,
+                            b: 0.0,
+                            a: 0.0,
+                        }),
+                        store: wgpu::StoreOp::Store,
+                    },
+                    depth_slice: None,
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                ..Default::default()
+            });
+            pass.set_scissor_rect(scissor.0, scissor.1, scissor.2, scissor.3);
+            self.draw_cached_content(&mut pass);
+        }
+        self.pan_cache.commit_reference(pan, zoom, dpr, scissor);
+    }
+
+    /// Copies the last full redraw shifted by the pan delta into the `PanCache` working
+    /// texture, then patches the strips the copy could not have populated (`framebuffer::
+    /// exposed_rects`) by replaying `cached_draws` scissored to just those rects. Each strip is
+    /// cleared to transparent first — `LoadOp::Load` preserves the freshly copied region, so
+    /// without an explicit clear a semi-transparent stroke in the strip would blend against
+    /// whatever this texture held two frames ago instead of nothing.
+    fn patch_pan_cache_working(
+        &mut self,
+        encoder: &mut wgpu::CommandEncoder,
+        src: PxRect,
+        dst: PxRect,
+        scissor: PxRect,
+    ) {
+        encoder.copy_texture_to_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: self.pan_cache.reference_texture(),
+                mip_level: 0,
+                origin: wgpu::Origin3d {
+                    x: src.0,
+                    y: src.1,
+                    z: 0,
+                },
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::TexelCopyTextureInfo {
+                texture: self.pan_cache.working_texture(),
+                mip_level: 0,
+                origin: wgpu::Origin3d {
+                    x: dst.0,
+                    y: dst.1,
+                    z: 0,
+                },
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::Extent3d {
+                width: src.2,
+                height: src.3,
+                depth_or_array_layers: 1,
+            },
+        );
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("pan-cache-patch"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: self.pan_cache.working_view(),
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Load,
+                    store: wgpu::StoreOp::Store,
+                },
+                depth_slice: None,
+            })],
+            depth_stencil_attachment: None,
+            timestamp_writes: None,
+            occlusion_query_set: None,
+            ..Default::default()
+        });
+        for strip in framebuffer::exposed_rects(scissor, dst)
+            .into_iter()
+            .flatten()
+        {
+            pass.set_scissor_rect(strip.0, strip.1, strip.2, strip.3);
+            pass.set_pipeline(self.pan_cache.clear_pipeline());
+            pass.draw(0..3, 0..1);
+            self.draw_cached_content(&mut pass);
+        }
+    }
+
     pub fn render(&mut self, doc: &mut Document) {
         if self.frame_dirty == FrameDirty::Clean && !doc.has_live_preview() {
             return;
@@ -1218,6 +1381,8 @@ impl Renderer {
 
         let (dw, dh) = doc.camera.device_size();
         self.resize(dw, dh);
+        self.pan_cache
+            .resize(&self.device, self.config.width, self.config.height);
 
         let viewport = [
             (self.config.width as f32).max(1.0),
@@ -1288,6 +1453,19 @@ impl Renderer {
         };
         self.queue
             .write_buffer(&self.tile_camera_buf, 0, bytemuck::bytes_of(&tile_camera));
+
+        let scissor: Option<PxRect> = doc.camera.paper_scissor(
+            doc.width as f32,
+            doc.height as f32,
+            self.config.width,
+            self.config.height,
+        );
+        let pan = (doc.camera.pan_x, doc.camera.pan_y);
+        let blit_plan = if !use_overview && camera_only && !need_draw_rebuild {
+            scissor.and_then(|s| self.pan_cache.plan(pan, doc.camera.zoom, doc.camera.dpr, s))
+        } else {
+            None
+        };
 
         let preview_shape = doc.preview_shape();
         let mut overlay_range = 0u32..0u32;
@@ -1423,6 +1601,31 @@ impl Renderer {
                 label: Some("frame"),
             });
 
+        // The content pass: either a full redraw of `cached_draws` into the `PanCache`
+        // reference texture, or — on a camera-only frame where `blit_plan` found a usable
+        // overlap — a cheap shift of that reference into the working texture plus a patch of
+        // just the strips the shift exposed. Either way the board pass below only ever draws a
+        // single textured quad for the content, not the tile/vector instance list.
+        let content_slot = if use_overview {
+            None
+        } else {
+            scissor.map(|s| {
+                if let Some((src, dst)) = blit_plan {
+                    self.patch_pan_cache_working(&mut encoder, src, dst, s);
+                    PanCacheSlot::Working
+                } else {
+                    self.redraw_pan_cache_reference(
+                        &mut encoder,
+                        pan,
+                        doc.camera.zoom,
+                        doc.camera.dpr,
+                        s,
+                    );
+                    PanCacheSlot::Reference
+                }
+            })
+        };
+
         // One render pass for the whole frame. These four stages used to be four separate
         // passes chained with LoadOp::Load — correct, but every begin/end pair is a real
         // boundary on tile-based GPUs (Apple Silicon among them), forcing a tile-memory
@@ -1450,52 +1653,15 @@ impl Renderer {
             pass.set_bind_group(0, &self.paper_bg, &[]);
             pass.draw(0..3, 0..1);
 
-            if let Some((x, y, w, h)) = doc.camera.paper_scissor(
-                doc.width as f32,
-                doc.height as f32,
-                self.config.width,
-                self.config.height,
-            ) {
+            if let Some((x, y, w, h)) = scissor {
                 pass.set_scissor_rect(x, y, w, h);
 
                 if use_overview {
                     self.overview.draw(&mut pass);
-                } else {
-                    for draw in &self.cached_draws {
-                        match draw {
-                            LayerDraw::Tiles(mode, layer_id, range) => {
-                                let Some((_, xform_bg)) = self.layer_xforms.get(layer_id) else {
-                                    continue;
-                                };
-                                pass.set_pipeline(self.tile_pipeline(*mode));
-                                pass.set_bind_group(0, self.atlas.bind_group(), &[]);
-                                pass.set_bind_group(1, xform_bg, &[]);
-                                pass.set_vertex_buffer(0, self.tile_instance_buf.slice(..));
-                                pass.draw(0..6, range.clone());
-                            }
-                            LayerDraw::Solid(mode, layer_id) => {
-                                let Some((_, xform_bg)) = self.layer_xforms.get(layer_id) else {
-                                    continue;
-                                };
-                                pass.set_pipeline(self.solid_pipeline(*mode));
-                                pass.set_bind_group(0, self.atlas.bind_group(), &[]);
-                                pass.set_bind_group(1, xform_bg, &[]);
-                                pass.draw(0..6, 0..1);
-                            }
-                            LayerDraw::Vector(kind, range) => {
-                                let (pipeline, buf) = match kind {
-                                    VectorRun::Shapes => {
-                                        (&self.vector_shape_pipeline, &self.vector_shape_buf)
-                                    }
-                                    VectorRun::Paths => (&self.stroke_pipeline, &self.stroke_buf),
-                                };
-                                pass.set_pipeline(pipeline);
-                                pass.set_bind_group(0, &self.preview_bg, &[]);
-                                pass.set_vertex_buffer(0, buf.slice(..));
-                                pass.draw(0..6, range.clone());
-                            }
-                        }
-                    }
+                } else if let Some(slot) = content_slot {
+                    pass.set_pipeline(self.pan_cache.blit_pipeline());
+                    pass.set_bind_group(0, self.pan_cache.bind_group(slot), &[]);
+                    pass.draw(0..3, 0..1);
                 }
 
                 if !overlay_range.is_empty() {
@@ -1548,7 +1714,7 @@ fn replace_target(format: wgpu::TextureFormat) -> wgpu::ColorTargetState {
     }
 }
 
-const PREMULTIPLIED_ALPHA_COMPONENT: wgpu::BlendComponent = wgpu::BlendComponent {
+pub(crate) const PREMULTIPLIED_ALPHA_COMPONENT: wgpu::BlendComponent = wgpu::BlendComponent {
     src_factor: wgpu::BlendFactor::One,
     dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
     operation: wgpu::BlendOperation::Add,

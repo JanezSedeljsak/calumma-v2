@@ -85,6 +85,7 @@ typedef struct CalmMemory {
     uint64_t mask_bytes;
     uint64_t vector_bytes;
     uint64_t text_bytes;
+    uint64_t preview_bytes;
     uint64_t gpu_bytes;
     uint32_t tile_count;
     uint32_t shared_tile_count;

@@ -13,7 +13,6 @@ owns the `MTKView` surface and calls FFI.
 MTKView draw (60–120 Hz, display-linked)
   └─ Engine.flushPendingState()     // zoom pill, pan readout — once per frame max
   └─ calm_engine_render
-       ├─ autosave()                // SQLite, throttled (800 ms), skipped while stroking
        ├─ flush_pending_camera()    // coalesced pan/scroll deltas from FFI
        └─ Renderer::render(doc)
             ├─ early-out if Clean && no live preview
@@ -21,11 +20,14 @@ MTKView draw (60–120 Hz, display-linked)
             ├─ sync GPU tiles / overview texture (if needed)
             ├─ rebuild draw lists (if needed)
             ├─ write uniforms (paper, tile camera, preview — camera-only skips preview)
-            └─ one Metal render pass: desk → paper content → overlays
+            ├─ content pass: PanCache full redraw, or shift + patch on a camera-only frame
+            └─ one Metal render pass: desk → PanCache blit quad (or overview) → overlays
 ```
 
 Input during pan does **not** call `render()` directly. `calm_engine_pan` queues deltas and
 marks the renderer **camera-dirty**; the next `MTKView` frame flushes and draws.
+
+Autosave no longer lives on this path — see "Autosave" below.
 
 ---
 
@@ -48,10 +50,29 @@ Per-tile dirty sets on each `TileGrid`:
 
 | Channel | Cleared when | Purpose |
 | --- | --- | --- |
-| `Render` | GPU upload in `sync_tiles` | Tile needs (re)composite + atlas upload |
+| `Render` | GPU upload in `sync_tiles` **succeeded** | Tile needs (re)composite + atlas upload |
 | `Store` | SQLite save | Tile bytes changed on disk |
 
 Mask/adjustment/opacity changes mark tiles render-dirty without mutating tile bytes.
+
+`Render` is cleared per tile only for uploads that actually reached the atlas. When the atlas
+is at `TILE_ATLAS_MAX_CAPACITY` and every live tile is on screen, there is nothing to evict and
+the upload is dropped; clearing that tile's dirty bit anyway stranded it — `build_layer_draws`
+skips a tile with no atlas slot, and nothing would ever ask for it again — so the layer kept a
+permanent hole showing through as bare paper.
+
+### What counts as a live preview
+
+`Document::has_live_preview()` means *something is mid-change and needs a frame per display
+refresh*: an active stroke, a shape/vector/transform drag, a selection, a text caret. It pins
+`frame_dirty` to `Content` and forces the overview proxy off, so anything listed there costs a
+full tile resync every frame for as long as it is true.
+
+A **hovered layer is deliberately not** in that set. Its outline is a static overlay, and
+`calm_engine_set_hover_layer` already calls `invalidate()` on the way in and on the way out,
+which is exactly the one frame it needs. Counting the hover as live made resting the cursor on
+a layer row resync every tile at 120 Hz *and* disable the overview proxy — on precisely the
+documents that are too large to draw the full way.
 
 ### Shell `stateDirty` (Swift)
 
@@ -61,8 +82,21 @@ editor on every mouse-drag event. `flushPendingState()` runs inside `draw()` and
 
 ### Save `dirty_save` (FFI `Inner`)
 
-Set on document edits; `autosave()` may write SQLite inside `render()` when the 800 ms
-interval has elapsed and no stroke is active.
+Set on document edits; `Inner::autosave` writes SQLite when the 800 ms interval has elapsed
+and no stroke is active. It runs on a dedicated background thread (`engine/ffi/src/
+autosave.rs`), not inside `calm_engine_render` — see "Autosave" below.
+
+---
+
+## Autosave
+
+`AutosaveThread` (`engine/ffi/src/autosave.rs`) is spawned in `calm_engine_new` and stopped
+(signal + join) in `calm_engine_free`, before the `Inner` mutex is dropped. It wakes every
+`AUTOSAVE_INTERVAL_MS` on a condvar (so `calm_engine_free` doesn't wait out a full interval to
+tear down), locks `Inner` briefly, and calls the same `autosave()` the render path used to call
+inline. Nothing about `autosave()` itself changed — dirty-flag check, stroke-active guard, the
+800 ms throttle — only *what calls it*. This is Phase 0 of `plans/07-display-cache.md`: SQLite
+and the `Inner` mutex no longer compete with `calm_engine_render` for frame budget.
 
 ---
 
@@ -75,7 +109,15 @@ interval has elapsed and no stroke is active.
    mip chain (skipped in motion mode).
 2. **`build_layer_draws`** — walk the layer stack; emit `LayerDraw` entries (tiles, solid
    paper quad, vector runs).
-3. **Draw** — instanced quads per tile layer; vectors as stroke/shape instances.
+3. **Content pass** — `draw_cached_content` replays those `LayerDraw` entries into the
+   `PanCache` reference texture (`engine/render/src/framebuffer.rs`), not the swapchain
+   directly. On a camera-only frame with zoom/dpr/viewport unchanged from that reference,
+   `sync_tiles`/`build_layer_draws` are skipped entirely (as before) and the content pass
+   instead shifts the reference into the `PanCache` working texture by the rounded device-pixel
+   pan delta (`copy_texture_to_texture`) and redraws only the exposed edge strip(s)
+   (`framebuffer::exposed_rects`) — see "PanCache" below.
+4. **Board pass** — draws a single textured quad sampling whichever `PanCache` texture the
+   content pass produced, instead of the tile/vector instances directly.
 
 Retention: tiles within `GPU_TILE_RETENTION_MARGIN_TILES` (3) of the visible rect stay
 GPU-resident even when off-screen, so small pans do not re-upload.
@@ -89,6 +131,46 @@ When visible tile count ≥ **48** (exit at **24**), skip tile sync entirely:
 2. **One textured quad** inside the paper scissor — pan/zoom = uniform updates only.
 
 Disabled while live-editing (stroke, shape preview, text caret).
+
+---
+
+## PanCache (scroll-blit)
+
+Phase 1 of `plans/07-display-cache.md`. `PanCache` (`engine/render/src/framebuffer.rs`) is two
+fixed-role offscreen colour textures, sized to the viewport — not an alternating ping-pong:
+
+- **`reference`** holds the last full content redraw (every visible tile/vector draw call,
+  scissored to the paper rect) and the exact pan/zoom/dpr/scissor it was drawn at. It is only
+  ever replaced by another full redraw.
+- **`working`** is rebuilt from `reference` every camera-only frame: `copy_texture_to_texture`
+  shifts `reference` by the rounded device-pixel delta between `reference`'s pan and the
+  current one, then `exposed_rects` computes the up-to-four bands the copy could not have
+  populated (the edges the shift slid away from) and `draw_cached_content` repaints just those,
+  each cleared to transparent first (`fs_clear_transparent`) so a semi-transparent stroke there
+  cannot blend against two-frames-old pixels.
+
+Blitting always measures the shift from the same frozen `reference` pan rather than chaining
+frame to frame, so per-frame rounding to whole device pixels cannot accumulate into visible
+drift over a long pan gesture. `PanCache::plan` is the eligibility gate: no reference yet, or
+zoom/dpr changed since it was captured, or the shifted overlap is empty (a jump too large, or a
+corner case at a viewport edge) all fall back to a full redraw that frame instead of blitting.
+`shift_plan`/`exposed_rects` are pure rect arithmetic, unit-tested without a GPU device in
+`engine/render/tests/framebuffer.rs`.
+
+The board pass never draws tile/vector instances directly on a camera-only frame — it draws one
+textured quad (`vs_blit`/`fs_blit`) sampling whichever `PanCache` texture the content pass
+produced. Desk and the paper border still redraw every frame (`fs_paper`, screen-space, cheap);
+only the tile/vector content — the part that scales with document size — goes through
+`PanCache`. The overview path (see above) is unaffected; it keeps drawing its own quad.
+
+**Known gap:** content is composited into `PanCache` starting from a transparent texture, then
+blended over the desk in the board pass — mathematically identical to compositing progressively
+over desk from the start for Normal-alpha layers, but a Multiply/Screen layer that is the
+*bottom-most visible* layer (Paper hidden or fully erased) now blends against transparent
+instead of against the desk pattern. Paper is the bottom layer in the overwhelming common case,
+where this does not apply; fixing the edge case would mean baking desk into the shiftable
+texture, which would make the (deliberately screen-locked, non-scrolling) desk grid pan with
+the content instead.
 
 ---
 
@@ -116,11 +198,18 @@ single document-sized quad (`vs_doc_quad`). Any paint on a whole tile forks the 
 
 ---
 
-## Render pass order (one pass)
+## Render pass order
+
+Two passes now, both inside the same `wgpu::CommandEncoder`:
+
+**Content pass** (skipped entirely when `use_overview`) — draws or shifts+patches into a
+`PanCache` texture; see "PanCache" above.
+
+**Board pass**, into the swapchain:
 
 1. **Fullscreen desk** (`fs_paper`) — grid + paper border outside scissor logic
 2. **Paper scissor set** — clip to on-screen paper bounds
-3. **Content** — overview quad *or* layer draw list (tiles / solid / vectors)
+3. **Content** — overview quad, *or* one `PanCache` blit quad (`vs_blit`/`fs_blit`)
 4. **Overlays** — live stroke, selection, transform handles, text caret (skipped on
    camera-only frames)
 
@@ -130,37 +219,35 @@ Clear colour is black; desk fills the viewport.
 
 ## What still costs on a camera-only pan
 
-Even after Tier A optimizations:
+After Tier A **and** shipped Tier B1/B2 (below):
 
-- `autosave()` check every frame (cheap unless interval elapsed)
-- Full framebuffer **clear** every frame
-- Desk fullscreen triangle (simplified in motion mode)
+- Desk fullscreen triangle every frame (simplified in motion mode; not blitted — see PanCache's
+  known gap above for why)
+- `PanCache` blit quad: one `copy_texture_to_texture` + a scissored draw per exposed strip,
+  bounded by how far the camera moved that frame, not by document size
 - Uniform writes: paper + tile camera (+ overview camera if active)
 - `get_current_texture` + present
-- Mutex: entire `render()` holds `Inner`
+- Mutex: entire `render()` holds `Inner` (autosave no longer competes for it mid-frame)
 
 ---
 
 ## Optimization roadmap
 
-See `plans/07-display-cache.md` for the full Figma-style display-cache plan
-(todo #7). Tier B items below are folded into that plan's phases.
-
-See the tier list at the end of this file. Highest leverage next steps are
-**framebuffer scroll-blit** (phase 1) and **decoupling autosave from the
-render thread** (phase 0).
+See `plans/07-display-cache.md` for the full Figma-style display-cache plan (todo #7).
+Tier B1 (framebuffer scroll-blit) and B2 (autosave off the render thread) are **shipped** —
+phases 0 and 1 of that plan. The rest of Tier B, and Tiers C/D, remain open.
 
 ---
 
 ## Tier B — next high-impact (recommended)
 
-| # | Change | Effect | Throw away? |
-| --- | --- | --- | --- |
-| B1 | **Framebuffer scroll / ping-pong blit** on camera-only pan: copy previous frame with offset, redraw only exposed strips | Biggest Figma-like win; pan becomes ~2 blits + edge repair | No — additive |
-| B2 | **Move autosave off render path** — background thread or timer, never inside `calm_engine_render` | Removes mutex + SQLite from frame budget | No |
-| B3 | **Skip desk clear on camera-only** — `LoadOp::Load` + blit previous colour attachment, or persistent desk texture | Saves full-screen fill | No |
-| B4 | **Lower overview enter to ~32** once prewarm is reliable | More 8K pans hit overview sooner | Slight quality trade at mid zoom |
-| B5 | **R8 or RGB10A2 desk** if banding acceptable | Less memory bandwidth on fill | Minor visual |
+| # | Change | Effect | Throw away? | Status |
+| --- | --- | --- | --- | --- |
+| B1 | **Framebuffer scroll / ping-pong blit** on camera-only pan: copy previous frame with offset, redraw only exposed strips | Biggest Figma-like win; pan becomes ~2 blits + edge repair | No — additive | **Shipped** — `PanCache`, see above |
+| B2 | **Move autosave off render path** — background thread or timer, never inside `calm_engine_render` | Removes mutex + SQLite from frame budget | No | **Shipped** — `engine/ffi/src/autosave.rs` |
+| B3 | **Skip desk clear on camera-only** — `LoadOp::Load` + blit previous colour attachment, or persistent desk texture | Saves full-screen fill | No | Open |
+| B4 | **Lower overview enter to ~32** once prewarm is reliable | More 8K pans hit overview sooner | Slight quality trade at mid zoom | Open |
+| B5 | **R8 or RGB10A2 desk** if banding acceptable | Less memory bandwidth on fill | Minor visual | Open |
 
 ## Tier C — medium
 
@@ -193,14 +280,17 @@ Things you can remove or gate behind quality settings if smooth pan matters more
 Figma's smoothness comes from a **different contract**:
 
 - Infinite canvas with **scene graph** + **cached tiles** at multiple fixed zoom levels
-- Pan often **translates existing pixels** (scroll blit), not re-rasterize
+- Pan often **translates existing pixels** (scroll blit) — Calumma now does this too for a
+  camera-only frame at unchanged zoom, via `PanCache`, though only single-level (no pyramid)
 - **No full-scene CPU composite** on the hot path
-- **No SQLite** on the display thread
+- **No SQLite** on the display thread — Calumma now matches this too (autosave is background)
 - Aggressive **level-of-detail** — text, effects, and grid degrade during motion
 
 Calumma is closer to a **pixel editor** (sparse tiles, undo, masks, adjustments). Matching
 Figma on pan is achievable; matching Figma on *everything* without a scene-graph rewrite
 is not. The pragmatic target: **pan/zoom feels like Figma; edit fidelity stays like Krita**.
+Phases 2+ of `plans/07-display-cache.md` (a real chunk pyramid, multi-level LOD) are what
+would close the remaining gap.
 
 ---
 
@@ -209,10 +299,12 @@ is not. The pragmatic target: **pan/zoom feels like Figma; edit fidelity stays l
 | Path | Role |
 | --- | --- |
 | `engine/render/src/renderer.rs` | Frame loop, dirty flags, sync, draw lists |
+| `engine/render/src/framebuffer.rs` | `PanCache` — scroll-blit reference/working textures, shift + exposed-rect math |
 | `engine/render/src/overview.rs` | Overview texture LOD |
 | `engine/render/src/tile_atlas.rs` | Shared GPU tile array |
-| `engine/render/src/shaders/board.wgsl` | Desk, tiles, overview, solid quad, vectors |
+| `engine/render/src/shaders/board.wgsl` | Desk, tiles, overview, solid quad, vectors, `PanCache` blit/clear |
 | `engine/render/src/compose.rs` | CPU tile bake, mips, overlay instances |
 | `engine/ffi/src/engine.rs` | Pan coalescing, `calm_engine_render` |
+| `engine/ffi/src/autosave.rs` | Background autosave thread |
 | `platform/macos/.../BoardCanvas.swift` | `MTKView` delegate, input |
 | `engine/core/src/limits.rs` | Thresholds (overview, retention, latency) |

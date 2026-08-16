@@ -334,3 +334,29 @@ fn whole_tiles_share_one_arc_detects_unpainted_fill() {
     grid.set_pixel(1, 1, [200, 200, 200, 255]);
     assert!(!grid.whole_tiles_share_one_arc());
 }
+
+#[test]
+fn opaque_bounds_spans_every_tile_that_shares_one_buffer() {
+    let side = TILE_SIZE * 2;
+    let extent = side + 9;
+    let mut grid = TileGrid::new(extent, extent);
+    grid.fill_uniform(DocRect::from_size(extent, extent), [255, 255, 255, 255]);
+    assert!(grid.whole_tiles_share_one_arc());
+    let b = grid
+        .opaque_bounds()
+        .expect("a filled grid is opaque somewhere");
+    let last = extent as i32 - 1;
+    assert_eq!((b.min_x, b.min_y, b.max_x, b.max_y), (0, 0, last, last));
+}
+
+#[test]
+fn opaque_bounds_ignores_pixels_past_the_document_edge() {
+    let extent = TILE_SIZE + 4;
+    let mut grid = TileGrid::new(extent, extent);
+    grid.set_pixel(3, 5, [1, 2, 3, 255]);
+    let far = extent as i32 - 1;
+    grid.set_pixel(far, far, [4, 5, 6, 255]);
+    grid.set_pixel(far + 20, far + 20, [7, 8, 9, 255]);
+    let b = grid.opaque_bounds().expect("painted pixels have bounds");
+    assert_eq!((b.min_x, b.min_y, b.max_x, b.max_y), (3, 5, far, far));
+}

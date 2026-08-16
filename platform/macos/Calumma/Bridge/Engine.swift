@@ -152,6 +152,11 @@ struct RulerTick {
     var major: Bool
 }
 
+struct LayerThumbnailKey: Hashable {
+    var index: Int
+    var maxSide: UInt32
+}
+
 final class Engine: ObservableObject, @unchecked Sendable {
     /// Readable across the bridge's own files (`EngineText`), settable only here.
     private(set) var ptr: OpaquePointer?
@@ -175,6 +180,11 @@ final class Engine: ObservableObject, @unchecked Sendable {
     @Published var textBold = false
     @Published var textItalic = false
     @Published private(set) var thumbnailRevision: UInt64 = 0
+    /// Layer thumbnails are read from SwiftUI bodies — once per row, plus once for the hover
+    /// card — so an uncached read meant the engine rasterised every layer again on every
+    /// re-render of the panel, which is every published engine change. `refreshLayers` is the
+    /// one place layer content can have moved under us, so it is the one place this clears.
+    private var layerThumbnails: [LayerThumbnailKey: NSImage?] = [:]
     /// The layer an AI op is currently running against, so the layers panel can show it's
     /// busy — `nil` the rest of the time, including right after the op finishes.
     @Published private(set) var aiOpBusyLayer: Int?
@@ -698,7 +708,7 @@ final class Engine: ObservableObject, @unchecked Sendable {
         var out = CalmMemory()
         guard calm_engine_memory(ptr, &out) == CalmStatusOk else { return 0 }
         return out.tile_bytes + out.history_bytes + out.mask_bytes + out.vector_bytes
-            + out.text_bytes + out.gpu_bytes
+            + out.text_bytes + out.preview_bytes + out.gpu_bytes
     }
 
     func bumpThumbnailRevision() {
@@ -1028,6 +1038,7 @@ final class Engine: ObservableObject, @unchecked Sendable {
 
     func refreshLayers() {
         guard let ptr else { return }
+        layerThumbnails.removeAll(keepingCapacity: true)
         var names: [String] = []
         var visibles: [Bool] = []
         var opacities: [Float] = []
@@ -1068,6 +1079,16 @@ final class Engine: ObservableObject, @unchecked Sendable {
     }
 
     func layerThumbnail(index: Int, maxSide: UInt32 = 160) -> NSImage? {
+        let key = LayerThumbnailKey(index: index, maxSide: maxSide)
+        if let cached = layerThumbnails[key] {
+            return cached
+        }
+        let image = renderLayerThumbnail(index: index, maxSide: maxSide)
+        layerThumbnails[key] = image
+        return image
+    }
+
+    private func renderLayerThumbnail(index: Int, maxSide: UInt32) -> NSImage? {
         guard let ptr else { return nil }
         var rgbaPtr: UnsafeMutablePointer<UInt8>?
         var width: UInt32 = 0

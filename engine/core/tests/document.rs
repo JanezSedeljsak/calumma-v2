@@ -1045,3 +1045,24 @@ fn eraser_ignores_ink_opacity() {
     doc.pointer_up(sx, sy);
     assert_eq!(pixel(&doc, doc.active_layer, 40, 40), [0, 0, 0, 0]);
 }
+
+#[test]
+fn hovering_a_layer_outlines_it_without_forcing_a_live_frame() {
+    let mut doc = Document::new("p".into(), "t", 200, 100);
+    doc.layers[1]
+        .tiles_mut()
+        .unwrap()
+        .set_pixel(10, 10, [1, 2, 3, 255]);
+    assert!(!doc.has_live_preview());
+
+    doc.hover_layer = Some(1);
+    assert!(
+        doc.layer_highlight().is_some(),
+        "the hovered layer still gets its outline"
+    );
+    assert!(
+        !doc.has_live_preview(),
+        "that outline is a static overlay — a hover must not pin the renderer to a full \
+         content resync every frame, nor disable the overview proxy"
+    );
+}

@@ -1,10 +1,15 @@
-use crate::limits::{ALPHA_MAX, ALPHA_ROUND_BIAS, EFFECT_CHUNK_BYTES};
+use crate::limits::{ALPHA_MAX, ALPHA_ROUND_BIAS, EFFECT_CHUNK_BYTES, LAYER_PREVIEW_MAX_SIDE};
 use rayon::prelude::*;
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::sync::Arc;
 
 pub type TileSet = FxHashSet<TileCoord>;
 pub type TileMap<V> = FxHashMap<TileCoord, V>;
+
+/// The tile a resampling walk last looked up, and whether that coordinate held one at all — a
+/// miss is worth remembering too, since the transparent parts of a crop come in runs like the
+/// painted ones do.
+type TileCursor<'a> = Option<(TileCoord, Option<&'a Arc<Vec<u8>>>)>;
 
 pub const TILE_SIZE: u32 = 256;
 pub const TILE_BYTES: usize = (TILE_SIZE as usize) * (TILE_SIZE as usize) * 4;
@@ -208,6 +213,28 @@ fn pixel_index(local_x: usize, local_y: usize) -> usize {
     (local_y * TILE_SIZE as usize + local_x) * CHANNELS
 }
 
+/// Inclusive `(min_x, min_y, max_x, max_y)` of a tile's non-transparent pixels in tile-local
+/// coordinates. Position-independent, which is what lets one scan serve every coordinate that
+/// shares the buffer.
+type LocalRect = (i32, i32, i32, i32);
+
+fn tile_local_opaque_rect(tile: &[u8]) -> Option<LocalRect> {
+    let mut acc: Option<LocalRect> = None;
+    for ly in 0..TILE_SIZE as i32 {
+        for lx in 0..TILE_SIZE as i32 {
+            let i = pixel_index(lx as usize, ly as usize);
+            if tile[i + 3] == 0 {
+                continue;
+            }
+            acc = Some(match acc {
+                None => (lx, ly, lx, ly),
+                Some((x0, y0, x1, y1)) => (x0.min(lx), y0.min(ly), x1.max(lx), y1.max(ly)),
+            });
+        }
+    }
+    acc
+}
+
 fn tile_opaque_rect(coord: TileCoord, tile: &[u8], width: i32, height: i32) -> Option<DocRect> {
     let (ox, oy) = coord.origin();
     let mut acc: Option<DocRect> = None;
@@ -240,25 +267,80 @@ fn tile_opaque_rect(coord: TileCoord, tile: &[u8], width: i32, height: i32) -> O
 pub enum DirtyChannel {
     Render,
     Store,
+    Preview,
 }
 
 impl DirtyChannel {
-    pub const COUNT: usize = 2;
-    pub const ALL: [DirtyChannel; Self::COUNT] = [Self::Render, Self::Store];
+    pub const COUNT: usize = 3;
+    pub const ALL: [DirtyChannel; Self::COUNT] = [Self::Render, Self::Store, Self::Preview];
 
     #[inline]
     fn slot(self) -> usize {
         match self {
             Self::Render => 0,
             Self::Store => 1,
+            Self::Preview => 2,
         }
     }
+}
+
+/// A layer's cached picture of itself, cropped to its painted pixels and capped at
+/// [`LAYER_PREVIEW_MAX_SIDE`] on the long side. Held behind an `Arc` so cloning a grid — which
+/// history does — copies a pointer rather than up to a megabyte of pixels.
+#[derive(Clone, Debug)]
+pub struct Preview {
+    pub width: u32,
+    pub height: u32,
+    pub rgba: Vec<u8>,
+}
+
+impl Preview {
+    /// Point-samples down to `max_side` on the long side, or hands back a copy unchanged when
+    /// the caller wants at least what is cached. The preview is already the crop, so every size
+    /// derived from it frames the layer identically.
+    pub fn scaled(&self, max_side: u32) -> (u32, u32, Vec<u8>) {
+        let max_side = max_side.max(1);
+        if self.width.max(self.height) <= max_side {
+            return (self.width, self.height, self.rgba.clone());
+        }
+        let scale = (max_side as f32 / self.width as f32).min(max_side as f32 / self.height as f32);
+        let tw = ((self.width as f32) * scale).round().max(1.0) as u32;
+        let th = ((self.height as f32) * scale).round().max(1.0) as u32;
+        let mut out = vec![0u8; (tw as usize) * (th as usize) * CHANNELS];
+        for ty in 0..th {
+            let sy = nearest_source(ty, th, self.height);
+            for tx in 0..tw {
+                let sx = nearest_source(tx, tw, self.width);
+                let src = ((sy as usize) * (self.width as usize) + (sx as usize)) * CHANNELS;
+                let dst = ((ty as usize) * (tw as usize) + (tx as usize)) * CHANNELS;
+                out[dst..dst + CHANNELS].copy_from_slice(&self.rgba[src..src + CHANNELS]);
+            }
+        }
+        (tw, th, out)
+    }
+
+    pub fn bytes(&self) -> usize {
+        self.rgba.capacity()
+    }
+}
+
+/// Maps output index `i` of `out_len` onto the source index it samples, spreading the samples
+/// across the full source extent so the first and last output pixels land on the source's first
+/// and last.
+#[inline]
+fn nearest_source(i: u32, out_len: u32, src_len: u32) -> u32 {
+    if out_len <= 1 {
+        return 0;
+    }
+    let t = (i as f32) * ((src_len - 1) as f32) / ((out_len - 1) as f32);
+    (t.round() as u32).min(src_len.saturating_sub(1))
 }
 
 #[derive(Clone, Debug)]
 pub struct TileGrid {
     tiles: TileMap<Arc<Vec<u8>>>,
     dirty: [TileSet; DirtyChannel::COUNT],
+    preview: Option<Arc<Preview>>,
     pub width: u32,
     pub height: u32,
 }
@@ -274,6 +356,7 @@ impl TileGrid {
         Self {
             tiles: TileMap::default(),
             dirty: std::array::from_fn(|_| TileSet::default()),
+            preview: None,
             width,
             height,
         }
@@ -551,23 +634,89 @@ impl TileGrid {
         out
     }
 
+    /// The tightest rectangle covering every non-transparent pixel, in document coordinates.
+    ///
+    /// A grid can hold the same pixel buffer at many coordinates — a filled paper layer is one
+    /// `Arc` repeated across the whole canvas — so the scan is keyed by buffer identity rather
+    /// than by coordinate. Tiles that lie wholly inside the document reuse one scan of their
+    /// buffer, translated to each coordinate; only the tiles straddling the document edge, where
+    /// clipping makes the answer depend on position, are scanned individually.
     pub fn opaque_bounds(&self) -> Option<DocRect> {
         let width = self.width as i32;
         let height = self.height as i32;
-        let tiles: Vec<_> = self.iter().collect();
-        tiles
+        if width <= 0 || height <= 0 {
+            return None;
+        }
+        let ts = TILE_SIZE as i32;
+
+        let mut inside: Vec<(TileCoord, &Arc<Vec<u8>>)> = Vec::new();
+        let mut clipped: Vec<(TileCoord, &Arc<Vec<u8>>)> = Vec::new();
+        let mut seen: FxHashSet<usize> = FxHashSet::default();
+        let mut unique: Vec<&Arc<Vec<u8>>> = Vec::new();
+        for (coord, pixels) in self.iter() {
+            let (ox, oy) = coord.origin();
+            if ox < 0 || oy < 0 || ox + ts > width || oy + ts > height {
+                clipped.push((coord, pixels));
+                continue;
+            }
+            inside.push((coord, pixels));
+            if seen.insert(Arc::as_ptr(pixels) as usize) {
+                unique.push(pixels);
+            }
+        }
+
+        let locals: FxHashMap<usize, Option<LocalRect>> = unique
             .into_par_iter()
-            .filter_map(|(coord, pixels)| tile_opaque_rect(coord, pixels.as_slice(), width, height))
-            .reduce_with(|a, b| {
-                DocRect::new(
-                    a.min_x.min(b.min_x),
-                    a.min_y.min(b.min_y),
-                    a.max_x.max(b.max_x),
-                    a.max_y.max(b.max_y),
+            .map(|pixels| {
+                (
+                    Arc::as_ptr(pixels) as usize,
+                    tile_local_opaque_rect(pixels.as_slice()),
                 )
             })
+            .collect();
+
+        let placed = inside.par_iter().filter_map(|(coord, pixels)| {
+            let (lx0, ly0, lx1, ly1) = (*locals.get(&(Arc::as_ptr(*pixels) as usize))?)?;
+            let (ox, oy) = coord.origin();
+            Some(DocRect::new(ox + lx0, oy + ly0, ox + lx1, oy + ly1))
+        });
+        let edges = clipped.par_iter().filter_map(|(coord, pixels)| {
+            tile_opaque_rect(*coord, pixels.as_slice(), width, height)
+        });
+
+        placed.chain(edges).reduce_with(|a, b| {
+            DocRect::new(
+                a.min_x.min(b.min_x),
+                a.min_y.min(b.min_y),
+                a.max_x.max(b.max_x),
+                a.max_y.max(b.max_y),
+            )
+        })
     }
 
+    /// The cached [`Preview`] of this grid, rebuilt only when a tile has changed since the last
+    /// time it was asked for. Every thumbnail the shell wants is a resample of this, so a layer
+    /// is scanned at full resolution once per edit instead of once per request.
+    pub fn preview(&mut self) -> Arc<Preview> {
+        if self.preview.is_none() || !self.dirty[DirtyChannel::Preview.slot()].is_empty() {
+            let (width, height, rgba) = self.thumbnail(LAYER_PREVIEW_MAX_SIDE);
+            self.preview = Some(Arc::new(Preview {
+                width,
+                height,
+                rgba,
+            }));
+            self.clear_dirty(DirtyChannel::Preview);
+        }
+        Arc::clone(self.preview.as_ref().expect("just rebuilt when missing"))
+    }
+
+    pub fn preview_bytes(&self) -> usize {
+        self.preview.as_ref().map_or(0, |p| p.bytes())
+    }
+
+    /// Point-samples the grid down to `max_side`, cropped to its painted pixels. Prefer
+    /// [`TileGrid::preview`] for anything the UI shows repeatedly — this walks the layer at full
+    /// resolution every call.
     pub fn thumbnail(&self, max_side: u32) -> (u32, u32, Vec<u8>) {
         let max_side = max_side.max(1);
         let dw = self.width.max(1);
@@ -581,26 +730,43 @@ impl TileGrid {
         let tw = ((crop_w as f32) * scale).round().max(1.0) as u32;
         let th = ((crop_h as f32) * scale).round().max(1.0) as u32;
         let mut rgba = vec![0u8; (tw as usize) * (th as usize) * CHANNELS];
+        let mut cursor = TileCursor::default();
         for ty in 0..th {
+            let sy = crop.min_y + nearest_source(ty, th, crop_h) as i32;
             for tx in 0..tw {
-                let sx = if tw <= 1 {
-                    crop.min_x
-                } else {
-                    crop.min_x
-                        + ((tx as f32) * ((crop_w - 1) as f32) / ((tw - 1) as f32)).round() as i32
-                };
-                let sy = if th <= 1 {
-                    crop.min_y
-                } else {
-                    crop.min_y
-                        + ((ty as f32) * ((crop_h - 1) as f32) / ((th - 1) as f32)).round() as i32
-                };
-                let px = self.get_pixel(sx, sy);
+                let sx = crop.min_x + nearest_source(tx, tw, crop_w) as i32;
+                let px = self.sample_pixel(sx, sy, &mut cursor);
                 let i = ((ty as usize) * (tw as usize) + (tx as usize)) * CHANNELS;
                 rgba[i..i + CHANNELS].copy_from_slice(&px);
             }
         }
         (tw, th, rgba)
+    }
+
+    /// `get_pixel` with the last tile carried forward. Resampling walks the crop row-major, so
+    /// run after run of samples land in the tile the one before them did — hashing the map for
+    /// each of them is what made a 512² preview a quarter of a million probes.
+    fn sample_pixel<'a>(&'a self, x: i32, y: i32, cursor: &mut TileCursor<'a>) -> [u8; 4] {
+        if !self.contains_doc_point(x, y) {
+            return [0; 4];
+        }
+        let coord = TileCoord::from_doc_i32(x, y);
+        let tile = match cursor {
+            Some((at, tile)) if *at == coord => *tile,
+            _ => {
+                let found = self.tiles.get(&coord);
+                *cursor = Some((coord, found));
+                found
+            }
+        };
+        let Some(tile) = tile else {
+            return [0; 4];
+        };
+        let (ox, oy) = coord.origin();
+        let i = pixel_index((x - ox) as usize, (y - oy) as usize);
+        let mut out = [0u8; 4];
+        out.copy_from_slice(&tile[i..i + CHANNELS]);
+        out
     }
 
     pub fn stamp_disc(&mut self, cx: f32, cy: f32, radius: f32, rgba: [u8; 4]) -> usize {
