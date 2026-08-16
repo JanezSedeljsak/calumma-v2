@@ -83,6 +83,17 @@ targets:
             cargo build -p calumma-ffi --manifest-path "${MANIFEST}"
           fi
         basedOnDependencyAnalysis: false
+    postCompileScripts:
+      - name: Stamp version from Cargo.toml
+        script: |
+          set -euo pipefail
+          export PATH="$HOME/.cargo/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
+          ROOT="${SRCROOT}/../.."
+          VERSION="${CALUMMA_VERSION_OVERRIDE:-$(python3 "${ROOT}/manage.py" version)}"
+          PLIST="${TARGET_BUILD_DIR}/${INFOPLIST_PATH}"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${VERSION}" "${PLIST}"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${VERSION}" "${PLIST}"
+        basedOnDependencyAnalysis: false
   CalummaTests:
     type: bundle.unit-test
     platform: macOS

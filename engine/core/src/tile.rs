@@ -295,6 +295,16 @@ impl TileGrid {
         self.tiles.keys().copied()
     }
 
+    pub fn coords_intersecting(&self, rect: DocRect) -> impl Iterator<Item = TileCoord> + '_ {
+        let (tx0, ty0, tx1, ty1) = rect.tile_span();
+        (ty0..=ty1).flat_map(move |ty| {
+            (tx0..=tx1).filter_map(move |tx| {
+                let coord = TileCoord { x: tx, y: ty };
+                self.tiles.contains_key(&coord).then_some(coord)
+            })
+        })
+    }
+
     pub fn get(&self, coord: TileCoord) -> Option<&Arc<Vec<u8>>> {
         self.tiles.get(&coord)
     }
@@ -692,6 +702,24 @@ impl TileGrid {
 
     pub fn iter(&self) -> impl Iterator<Item = (TileCoord, &Arc<Vec<u8>>)> {
         self.tiles.iter().map(|(c, p)| (*c, p))
+    }
+
+    pub fn whole_tiles_share_one_arc(&self) -> bool {
+        let bounds = self.bounds();
+        let mut shared: Option<*const Vec<u8>> = None;
+        for (coord, pixels) in self.iter() {
+            let cell = Self::tile_rect(coord);
+            if !bounds.contains_rect(cell) {
+                continue;
+            }
+            let ptr = Arc::as_ptr(pixels);
+            match shared {
+                None => shared = Some(ptr),
+                Some(p) if p == ptr => {}
+                _ => return false,
+            }
+        }
+        shared.is_some()
     }
 
     pub fn pixels_ref(&self, coord: TileCoord) -> Option<&[u8]> {

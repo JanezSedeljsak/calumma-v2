@@ -167,6 +167,9 @@ OUTPUT_KEY_VERSION = "version"
 ENV_GITHUB_STEP_SUMMARY = "GITHUB_STEP_SUMMARY"
 
 ENV_CALUMMA_VERSION = "CALUMMA_VERSION"
+# Read by the "Stamp version from Cargo.toml" Xcode build phase (platform/macos/project.yml)
+# to override its Cargo.toml self-heal with a git-tag-resolved release version.
+ENV_CALUMMA_VERSION_OVERRIDE = "CALUMMA_VERSION_OVERRIDE"
 
 # GitHub Actions sets these automatically for every step; see
 # https://docs.github.com/actions/learn-github-actions/variables#default-environment-variables

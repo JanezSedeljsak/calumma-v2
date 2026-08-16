@@ -28,6 +28,7 @@ from constants import (
     DMG_FORMAT,
     DMG_SUFFIX,
     ENCODING_UTF8,
+    ENV_CALUMMA_VERSION_OVERRIDE,
     ENV_GITHUB_OUTPUT,
     MACOS_DERIVED,
     MACOS_RELEASE_PRODUCTS,
@@ -74,6 +75,12 @@ def build_release_app(version: str) -> Path:
             "build",
         ],
         cwd=MACOS,
+        # The "Stamp version from Cargo.toml" build phase self-heals MARKETING_VERSION on
+        # every build so local Xcode/xcodebuild runs never ship a stale baked-in version —
+        # but a release build's version can come from a git tag rather than Cargo.toml
+        # (see resolve_version()), so it has to override that self-heal instead of losing
+        # to it.
+        env={ENV_CALUMMA_VERSION_OVERRIDE: version},
     )
     app = MACOS_RELEASE_PRODUCTS / APP_BUNDLE
     if not app.is_dir():

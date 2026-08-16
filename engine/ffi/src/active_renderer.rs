@@ -28,6 +28,30 @@ impl ActiveRenderer {
         }
     }
 
+    pub(crate) fn invalidate_camera(&mut self) {
+        match self {
+            Self::Gpu(renderer) => renderer.invalidate_camera(),
+            #[cfg(test)]
+            Self::Stub => {}
+        }
+    }
+
+    pub(crate) fn end_camera_motion(&mut self) {
+        match self {
+            Self::Gpu(renderer) => renderer.end_camera_motion(),
+            #[cfg(test)]
+            Self::Stub => {}
+        }
+    }
+
+    pub(crate) fn request_overview_prewarm(&mut self) {
+        match self {
+            Self::Gpu(renderer) => renderer.request_overview_prewarm(),
+            #[cfg(test)]
+            Self::Stub => {}
+        }
+    }
+
     pub(crate) fn release_document(&mut self) {
         match self {
             Self::Gpu(renderer) => renderer.release_document(),

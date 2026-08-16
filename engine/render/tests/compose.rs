@@ -285,6 +285,14 @@ fn tile_mip_chain_has_nine_levels_shrinking_to_one_pixel() {
 }
 
 #[test]
+fn motion_upload_skips_mip_chain() {
+    let base = opaque_tile();
+    let chain = tile_upload_levels(&base, true);
+    assert_eq!(chain.len(), 1);
+    assert_eq!(chain[0].len(), TILE_BYTES);
+}
+
+#[test]
 fn downsampling_a_flat_colour_tile_keeps_the_colour_at_every_level() {
     let mut base = vec![0u8; TILE_BYTES];
     for px in base.chunks_exact_mut(4) {

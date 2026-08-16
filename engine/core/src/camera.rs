@@ -226,4 +226,12 @@ impl Camera {
         }
         min * (max / min).powf(unit.clamp(0.0, 1.0))
     }
+
+    pub fn ruler_ticks_x(&self) -> Vec<crate::ruler::RulerTick> {
+        crate::ruler::ruler_ticks(self.zoom, self.pan_x, self.viewport_width)
+    }
+
+    pub fn ruler_ticks_y(&self) -> Vec<crate::ruler::RulerTick> {
+        crate::ruler::ruler_ticks(self.zoom, self.pan_y, self.viewport_height)
+    }
 }

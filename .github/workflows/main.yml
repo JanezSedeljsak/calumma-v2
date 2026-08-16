@@ -142,12 +142,15 @@ jobs:
 
   macos-dmg:
     name: macos installable (.dmg)
-    needs: [version-check]
+    needs: [version-check, core-linux, core-windows, macos]
     if: |
       always() &&
       (github.event_name == 'workflow_dispatch' ||
        github.ref_type == 'tag' ||
-       needs.version-check.outputs.changed == 'true')
+       needs.version-check.outputs.changed == 'true') &&
+      needs.core-linux.result == 'success' &&
+      needs.macos.result == 'success' &&
+      (needs.core-windows.result == 'success' || needs.core-windows.result == 'skipped')
     runs-on: macos-26
     permissions:
       contents: write

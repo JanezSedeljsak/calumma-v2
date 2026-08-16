@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		003758EFE9AFCEC31EBE0916 /* QuickColorPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 325DCF49B2075A1668143925 /* QuickColorPicker.swift */; };
 		044AC973DA0486186FD98643 /* EngineClipboard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88CB056FB322D551B39916BA /* EngineClipboard.swift */; };
+		172AB3B35B9A43CC638AEF65 /* RulerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 841BE8081B1CD6392825EAFD /* RulerView.swift */; };
 		22FD5D2BC31EF4DCDBDE5C44 /* PasteArtworkIsland.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A68AB27B47F3D877681F5A5 /* PasteArtworkIsland.swift */; };
 		271D05E9C3C1712DD26F4358 /* MenuBarChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D3C37748893CB5EC5112010 /* MenuBarChrome.swift */; };
 		42B7FBCF7FFC086EA1AEA0F0 /* WorkspaceSettingsCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2BBA741ED8F2E775A39D449 /* WorkspaceSettingsCard.swift */; };
@@ -78,6 +79,7 @@
 		73B27E8AC4A6063E13D35EE5 /* ImageEncode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageEncode.swift; sourceTree = "<group>"; };
 		7DCA78B24B6AD85210634C47 /* CalummaApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalummaApp.swift; sourceTree = "<group>"; };
 		80FFB98EB115FF0399DB79FF /* translations */ = {isa = PBXFileReference; lastKnownFileType = folder; name = translations; path = ../../translations; sourceTree = SOURCE_ROOT; };
+		841BE8081B1CD6392825EAFD /* RulerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RulerView.swift; sourceTree = "<group>"; };
 		84F6D524731F2D8CD1FB6BBA /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
 		85740C4E5198AEEB3EA2C0CC /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
 		8785BD6BC0D2FF8DDBFB7CD2 /* ProjectSettingsCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectSettingsCard.swift; sourceTree = "<group>"; };
@@ -130,6 +132,7 @@
 			children = (
 				39E6D658C6F44E0516A14BB4 /* BoardCanvas.swift */,
 				527C9A6D14B45E509DBE1D28 /* BoardTextInput.swift */,
+				841BE8081B1CD6392825EAFD /* RulerView.swift */,
 			);
 			path = Canvas;
 			sourceTree = "<group>";
@@ -258,6 +261,7 @@
 			buildPhases = (
 				054B622AEE1ACD5273AF16F0 /* Tokens and calumma-ffi */,
 				738AB5536B4B8B994333A16E /* Sources */,
+				E7C363B9FF3CD973E126D068 /* Stamp version from Cargo.toml */,
 				12A8344B41527F0292AF5E9A /* Resources */,
 			);
 			buildRules = (
@@ -338,6 +342,25 @@
 			shellPath = /bin/sh;
 			shellScript = "set -euo pipefail\nexport PATH=\"$HOME/.cargo/bin:/opt/homebrew/bin:/usr/local/bin:$PATH\"\nROOT=\"${SRCROOT}/../..\"\npython3 \"${ROOT}/manage.py\" tokens\nexport CARGO_TARGET_DIR=\"${ROOT}/engine/target\"\nMANIFEST=\"${ROOT}/engine/Cargo.toml\"\nif [ \"${CONFIGURATION}\" = \"Release\" ]; then\n  cargo build --release -p calumma-ffi --manifest-path \"${MANIFEST}\"\nelse\n  cargo build -p calumma-ffi --manifest-path \"${MANIFEST}\"\nfi\n";
 		};
+		E7C363B9FF3CD973E126D068 /* Stamp version from Cargo.toml */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Stamp version from Cargo.toml";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -euo pipefail\nexport PATH=\"$HOME/.cargo/bin:/opt/homebrew/bin:/usr/local/bin:$PATH\"\nROOT=\"${SRCROOT}/../..\"\nVERSION=\"${CALUMMA_VERSION_OVERRIDE:-$(python3 \"${ROOT}/manage.py\" version)}\"\nPLIST=\"${TARGET_BUILD_DIR}/${INFOPLIST_PATH}\"\n/usr/libexec/PlistBuddy -c \"Set :CFBundleShortVersionString ${VERSION}\" \"${PLIST}\"\n/usr/libexec/PlistBuddy -c \"Set :CFBundleVersion ${VERSION}\" \"${PLIST}\"\n";
+		};
 /* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -369,6 +392,7 @@
 				22FD5D2BC31EF4DCDBDE5C44 /* PasteArtworkIsland.swift in Sources */,
 				457103E8669325D73966619A /* ProjectSettingsCard.swift in Sources */,
 				003758EFE9AFCEC31EBE0916 /* QuickColorPicker.swift in Sources */,
+				172AB3B35B9A43CC638AEF65 /* RulerView.swift in Sources */,
 				98D7BC93FC54FD64A9C6285E /* SettingsView.swift in Sources */,
 				69E2FE9AE763FCDBACE3EE9C /* SvgIcon.swift in Sources */,
 				886AAE0E29829132AD1302AD /* TextOptions.swift in Sources */,
@@ -408,7 +432,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 0.1.0;
+				CURRENT_PROJECT_VERSION = 0.2.0;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				HEADER_SEARCH_PATHS = (
@@ -425,7 +449,7 @@
 				LIBRARY_SEARCH_PATHS = (
 					"$(SRCROOT)/../../engine/target/debug",
 				);
-				MARKETING_VERSION = 0.1.0;
+				MARKETING_VERSION = 0.2.0;
 				OTHER_LDFLAGS = (
 					"-lcalumma_ffi",
 					"-lc++",
@@ -539,7 +563,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 0.1.0;
+				CURRENT_PROJECT_VERSION = 0.2.0;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				HEADER_SEARCH_PATHS = (
@@ -556,7 +580,7 @@
 				LIBRARY_SEARCH_PATHS = (
 					"$(SRCROOT)/../../engine/target/release",
 				);
-				MARKETING_VERSION = 0.1.0;
+				MARKETING_VERSION = 0.2.0;
 				OTHER_LDFLAGS = (
 					"-lcalumma_ffi",
 					"-lc++",

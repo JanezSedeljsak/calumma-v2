@@ -10,6 +10,7 @@ pub mod memory;
 pub mod move_edit;
 pub mod names;
 pub mod palette;
+pub mod ruler;
 pub mod selection;
 pub mod shape;
 pub mod text_edit;
@@ -40,6 +41,7 @@ pub use limits::{
 };
 pub use names::{LAYER_ONE, PAPER, UNTITLED};
 pub use palette::{project_color, random_project_color, BoardColors, PROJECT_COLORS};
+pub use ruler::{ruler_ticks, RulerTick};
 pub use selection::{Selection, SelectionShape};
 pub use shape::{Shape, Tool};
 pub use text_edit::TextEdit;

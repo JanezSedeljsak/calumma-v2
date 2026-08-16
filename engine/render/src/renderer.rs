@@ -1,8 +1,9 @@
 use crate::compose::{
     composited_tile_payload, layer_highlight_instances, rgba_unit, selection_lasso_points,
-    selection_rect_or_ellipse, stroke_instances, text_overlay_instances, tile_mip_chain,
+    selection_rect_or_ellipse, stroke_instances, text_overlay_instances, tile_upload_levels,
     transform_overlay_instances, StrokeInstance,
 };
+use crate::overview::OverviewPass;
 use crate::tile_atlas::TileAtlas;
 use crate::vector_draw::{
     item_visible, push_path_instances, shape_instance, vector_placement,
@@ -11,8 +12,9 @@ use crate::vector_draw::{
 use bytemuck::{Pod, Zeroable};
 use calumma_core::filters::AdjustmentLut;
 use calumma_core::limits::{
-    GPU_TILE_RETENTION_MARGIN_TILES, STROKE_INSTANCE_CAPACITY, SURFACE_FRAME_LATENCY,
-    TILE_ATLAS_MAX_CAPACITY, TILE_INSTANCE_CAPACITY, VECTOR_SHAPE_INSTANCE_CAPACITY,
+    CAMERA_MOTION_IDLE_FRAMES, GPU_TILE_RETENTION_MARGIN_TILES, STROKE_INSTANCE_CAPACITY,
+    SURFACE_FRAME_LATENCY, SURFACE_FRAME_LATENCY_MOTION, TILE_ATLAS_MAX_CAPACITY,
+    TILE_INSTANCE_CAPACITY, VECTOR_SHAPE_INSTANCE_CAPACITY,
 };
 use calumma_core::tile::{DirtyChannel, TileCoord, TileGrid};
 use calumma_core::{BlendMode, Document, Tool, VectorItem};
@@ -20,6 +22,7 @@ use rayon::prelude::*;
 use rustc_hash::FxHashSet;
 use std::collections::HashMap;
 use std::num::NonZeroU64;
+use std::sync::Arc;
 use std::time::Instant;
 
 type TileKey = (u32, i32, i32);
@@ -48,7 +51,14 @@ struct TileCamera {
     zoom: f32,
     dpr: f32,
     viewport: [f32; 2],
-    _pad: [f32; 2],
+    doc_size: [f32; 2],
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
+struct SolidLayerUniform {
+    slot: u32,
+    _pad: [u32; 7],
 }
 
 /// One visible tile: where it sits in document space, and which array layer of the shared
@@ -125,7 +135,15 @@ enum LayerDraw {
     /// buffer — one instanced draw regardless of how many tiles that is. The layer id looks up
     /// its transform bind group at draw time.
     Tiles(BlendMode, String, std::ops::Range<u32>),
+    Solid(BlendMode, String),
     Vector(VectorRun, std::ops::Range<u32>),
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum FrameDirty {
+    Clean,
+    Camera,
+    Content,
 }
 
 /// Append an instance range, growing the previous entry instead when it is the same kind and
@@ -153,6 +171,9 @@ pub struct Renderer {
     tile_pipeline_normal: wgpu::RenderPipeline,
     tile_pipeline_multiply: wgpu::RenderPipeline,
     tile_pipeline_screen: wgpu::RenderPipeline,
+    solid_pipeline_normal: wgpu::RenderPipeline,
+    solid_pipeline_multiply: wgpu::RenderPipeline,
+    solid_pipeline_screen: wgpu::RenderPipeline,
     stroke_pipeline: wgpu::RenderPipeline,
     shape_pipeline: wgpu::RenderPipeline,
     vector_shape_pipeline: wgpu::RenderPipeline,
@@ -176,7 +197,17 @@ pub struct Renderer {
     layer_slots: HashMap<String, u32>,
     next_layer_slot: u32,
     started: Instant,
-    dirty: bool,
+    frame_dirty: FrameDirty,
+    cached_retained_span: Option<(i32, i32, i32, i32)>,
+    cached_visible_span: Option<(i32, i32, i32, i32)>,
+    cached_tile_instances: Vec<TileInstance>,
+    cached_strokes: Vec<StrokeInstance>,
+    cached_shapes: Vec<VectorShapeInstance>,
+    cached_draws: Vec<LayerDraw>,
+    overview: OverviewPass,
+    camera_motion: bool,
+    motion_idle_frames: u32,
+    cached_tile_draw_count: Option<usize>,
 }
 
 impl Renderer {
@@ -223,13 +254,26 @@ impl Renderer {
             .find(|f| f.is_srgb())
             .unwrap_or(caps.formats[0]);
 
+        let present_mode = caps
+            .present_modes
+            .iter()
+            .copied()
+            .find(|m| *m == wgpu::PresentMode::Mailbox)
+            .or_else(|| {
+                caps.present_modes
+                    .iter()
+                    .copied()
+                    .find(|m| *m == wgpu::PresentMode::Fifo)
+            })
+            .unwrap_or(caps.present_modes[0]);
+
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format,
             color_space: wgpu::SurfaceColorSpace::default(),
             width: width.max(1),
             height: height.max(1),
-            present_mode: wgpu::PresentMode::Fifo,
+            present_mode,
             alpha_mode: caps.alpha_modes[0],
             view_formats: vec![],
             desired_maximum_frame_latency: SURFACE_FRAME_LATENCY,
@@ -376,6 +420,34 @@ impl Renderer {
         let tile_pipeline_multiply = tile_pipeline_for("tile-multiply", multiply_target(format));
         let tile_pipeline_screen = tile_pipeline_for("tile-screen", screen_target(format));
 
+        let solid_pipeline_for = |label: &str, target: wgpu::ColorTargetState| {
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some(label),
+                layout: Some(&tile_pl),
+                vertex: wgpu::VertexState {
+                    module: &shader,
+                    entry_point: Some("vs_doc_quad"),
+                    compilation_options: Default::default(),
+                    buffers: &[],
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &shader,
+                    entry_point: Some("fs_solid_tile"),
+                    compilation_options: Default::default(),
+                    targets: &[Some(target)],
+                }),
+                primitive: wgpu::PrimitiveState::default(),
+                depth_stencil: None,
+                multisample: wgpu::MultisampleState::default(),
+                multiview_mask: None,
+                cache: None,
+            })
+        };
+        let solid_pipeline_normal =
+            solid_pipeline_for("solid-normal", premultiplied_target(format));
+        let solid_pipeline_multiply = solid_pipeline_for("solid-multiply", multiply_target(format));
+        let solid_pipeline_screen = solid_pipeline_for("solid-screen", screen_target(format));
+
         let preview_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("preview-bgl"),
             entries: &[uniform_entry(0, std::mem::size_of::<PreviewUniforms>())],
@@ -501,6 +573,8 @@ impl Renderer {
             mapped_at_creation: false,
         });
 
+        let overview = OverviewPass::new(&device, &shader, format);
+
         Ok(Self {
             device,
             queue,
@@ -510,6 +584,9 @@ impl Renderer {
             tile_pipeline_normal,
             tile_pipeline_multiply,
             tile_pipeline_screen,
+            solid_pipeline_normal,
+            solid_pipeline_multiply,
+            solid_pipeline_screen,
             stroke_pipeline,
             shape_pipeline,
             vector_shape_pipeline,
@@ -533,7 +610,17 @@ impl Renderer {
             layer_slots: HashMap::new(),
             next_layer_slot: 0,
             started: Instant::now(),
-            dirty: true,
+            frame_dirty: FrameDirty::Content,
+            cached_retained_span: None,
+            cached_visible_span: None,
+            cached_tile_instances: Vec::new(),
+            cached_strokes: Vec::new(),
+            cached_shapes: Vec::new(),
+            cached_draws: Vec::new(),
+            overview,
+            camera_motion: false,
+            motion_idle_frames: 0,
+            cached_tile_draw_count: None,
         })
     }
 
@@ -543,6 +630,154 @@ impl Renderer {
             BlendMode::Multiply => &self.tile_pipeline_multiply,
             BlendMode::Screen => &self.tile_pipeline_screen,
         }
+    }
+
+    fn solid_pipeline(&self, mode: BlendMode) -> &wgpu::RenderPipeline {
+        match mode {
+            BlendMode::Normal => &self.solid_pipeline_normal,
+            BlendMode::Multiply => &self.solid_pipeline_multiply,
+            BlendMode::Screen => &self.solid_pipeline_screen,
+        }
+    }
+
+    fn set_frame_latency(&mut self, latency: u32) {
+        if self.config.desired_maximum_frame_latency == latency {
+            return;
+        }
+        self.config.desired_maximum_frame_latency = latency;
+        self.surface.configure(&self.device, &self.config);
+    }
+
+    pub fn begin_camera_motion(&mut self) {
+        self.motion_idle_frames = 0;
+        if !self.camera_motion {
+            self.camera_motion = true;
+            self.set_frame_latency(SURFACE_FRAME_LATENCY_MOTION);
+        }
+    }
+
+    pub fn end_camera_motion(&mut self) {
+        if !self.camera_motion {
+            return;
+        }
+        self.camera_motion = false;
+        self.motion_idle_frames = 0;
+        self.cached_tile_draw_count = None;
+        self.set_frame_latency(SURFACE_FRAME_LATENCY);
+    }
+
+    fn tick_camera_motion(&mut self) {
+        if !self.camera_motion {
+            return;
+        }
+        self.motion_idle_frames += 1;
+        if self.motion_idle_frames >= CAMERA_MOTION_IDLE_FRAMES {
+            self.end_camera_motion();
+        }
+    }
+
+    fn write_solid_layer_slot(&self, layer_id: &str, slot: u32) {
+        let Some((buf, _)) = self.layer_xforms.get(layer_id) else {
+            return;
+        };
+        let uniform = SolidLayerUniform {
+            slot,
+            _pad: [0; 7],
+        };
+        self.queue
+            .write_buffer(buf, 0, bytemuck::bytes_of(&uniform));
+    }
+
+    fn visible_span(doc: &Document) -> Option<(i32, i32, i32, i32)> {
+        doc.visible_rect().map(|visible| visible.tile_span())
+    }
+
+    pub fn request_overview_prewarm(&mut self) {
+        self.overview.request_prewarm();
+    }
+
+    fn retained_span(doc: &Document) -> Option<(i32, i32, i32, i32)> {
+        doc.visible_rect().map(|visible| {
+            visible
+                .expanded_by_tiles(GPU_TILE_RETENTION_MARGIN_TILES)
+                .tile_span()
+        })
+    }
+
+    fn clear_layer_cache(&mut self) {
+        self.cached_retained_span = None;
+        self.cached_visible_span = None;
+        self.cached_tile_instances.clear();
+        self.cached_strokes.clear();
+        self.cached_shapes.clear();
+        self.cached_draws.clear();
+    }
+
+    fn rebuild_layer_cache(&mut self, doc: &Document) {
+        let mut tile_instances = Vec::new();
+        let mut strokes = Vec::new();
+        let mut shapes = Vec::new();
+        let draws = self.build_layer_draws(doc, &mut tile_instances, &mut strokes, &mut shapes);
+        self.cached_tile_instances = tile_instances;
+        self.cached_strokes = strokes;
+        self.cached_shapes = shapes;
+        self.cached_draws = draws;
+        self.cached_retained_span = Self::retained_span(doc);
+        self.cached_visible_span = Self::visible_span(doc);
+    }
+
+    fn visible_needs_gpu_upload(&self, doc: &Document) -> bool {
+        let Some(visible) = doc.visible_rect() else {
+            return false;
+        };
+        for layer in &doc.layers {
+            if !layer.visible {
+                continue;
+            }
+            let Some(grid) = layer.tiles() else {
+                continue;
+            };
+            let Some(slot) = self.layer_slots.get(&layer.id) else {
+                return true;
+            };
+            if layer.is_paper() {
+                if layer.tiles().is_some_and(|g| g.whole_tiles_share_one_arc()) {
+                    let key: TileKey = (*slot, 0, 0);
+                    if !self.tiles.contains_key(&key) {
+                        return true;
+                    }
+                }
+                continue;
+            }
+            for coord in grid.coords_intersecting(visible) {
+                let key: TileKey = (*slot, coord.x, coord.y);
+                if !self.tiles.contains_key(&key) {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    fn visible_tile_draw_count(&self, doc: &Document) -> usize {
+        let Some(visible) = doc.visible_rect() else {
+            return 0;
+        };
+        let mut count = 0;
+        for layer in &doc.layers {
+            if !layer.visible {
+                continue;
+            }
+            let Some(grid) = layer.tiles() else {
+                continue;
+            };
+            if layer.is_paper() && grid.whole_tiles_share_one_arc() {
+                count += 1;
+                continue;
+            }
+            count += grid.coords_intersecting(visible).count();
+        }
+        count
     }
 
     fn layer_slot(&mut self, layer_id: &str) -> u32 {
@@ -586,6 +821,9 @@ impl Renderer {
             if layer.tiles().is_none() {
                 continue;
             }
+            if layer.is_paper() && layer.tiles().is_some_and(|g| g.whole_tiles_share_one_arc()) {
+                continue;
+            }
             self.ensure_layer_xform(&layer.id);
             let Some((buf, _)) = self.layer_xforms.get(&layer.id) else {
                 continue;
@@ -626,11 +864,24 @@ impl Renderer {
         self.layer_xforms.clear();
         self.layer_slots.clear();
         self.next_layer_slot = 0;
-        self.dirty = true;
+        self.clear_layer_cache();
+        self.overview.clear();
+        self.frame_dirty = FrameDirty::Content;
     }
 
     pub fn invalidate(&mut self) {
-        self.dirty = true;
+        self.frame_dirty = FrameDirty::Content;
+        self.cached_retained_span = None;
+        self.cached_visible_span = None;
+        self.cached_tile_draw_count = None;
+        self.overview.mark_dirty();
+    }
+
+    pub fn invalidate_camera(&mut self) {
+        self.begin_camera_motion();
+        if self.frame_dirty != FrameDirty::Content {
+            self.frame_dirty = FrameDirty::Camera;
+        }
     }
 
     pub fn resize(&mut self, width: u32, height: u32) {
@@ -641,7 +892,7 @@ impl Renderer {
             self.config.width = width;
             self.config.height = height;
             self.surface.configure(&self.device, &self.config);
-            self.dirty = true;
+            self.invalidate_camera();
         }
     }
 
@@ -712,11 +963,20 @@ impl Renderer {
             self.ensure_layer_xform(&layer.id);
             let dirty = grid.dirty_tiles(DirtyChannel::Render);
 
-            for (coord, _) in grid.iter() {
-                let cell = TileGrid::tile_rect(coord);
-                if !cell.intersects(retained) {
-                    continue;
+            if layer.is_paper() && grid.whole_tiles_share_one_arc() {
+                let coord = TileCoord { x: 0, y: 0 };
+                let key: TileKey = (slot, 0, 0);
+                live.insert(key);
+                visible_keys.insert(key);
+                let known = self.tiles.contains_key(&key);
+                if !known || dirty.contains(&coord) {
+                    uploads.push((layer_index, coord, key));
                 }
+                continue;
+            }
+
+            for coord in grid.coords_intersecting(retained) {
+                let cell = TileGrid::tile_rect(coord);
                 let key: TileKey = (slot, coord.x, coord.y);
                 live.insert(key);
                 if !cell.intersects(visible) {
@@ -757,7 +1017,7 @@ impl Renderer {
                 let lut = luts.get(layer_index).and_then(|l| l.as_ref());
                 let composited = composited_tile_payload(pixels, *coord, layer, lut, doc_width);
                 let base: &[u8] = composited.as_deref().unwrap_or(pixels.as_slice());
-                Some(tile_mip_chain(base))
+                Some(tile_upload_levels(base, self.camera_motion))
             })
             .collect();
 
@@ -771,14 +1031,39 @@ impl Renderer {
             .copied()
             .collect();
 
-        for ((_, _, key), payload) in uploads.iter().zip(payloads.iter()) {
+        let mut shared_gpu: HashMap<(usize, usize), u32> = HashMap::new();
+
+        for ((layer_index, coord, key), payload) in uploads.iter().zip(payloads.iter()) {
             let key = *key;
             let Some(levels) = payload else {
                 continue;
             };
+            let layer = &doc.layers[*layer_index];
+            let Some(pixels) = layer.tiles().and_then(|g| g.get(*coord)) else {
+                continue;
+            };
+            let baked = composited_tile_payload(
+                pixels.as_slice(),
+                *coord,
+                layer,
+                luts.get(layer_index).and_then(|l| l.as_ref()),
+                doc_width,
+            )
+            .is_some();
+            if !baked {
+                let ptr = Arc::as_ptr(pixels) as usize;
+                if let Some(&array_layer) = shared_gpu.get(&(*layer_index, ptr)) {
+                    self.tiles.insert(key, GpuTile { array_layer });
+                    continue;
+                }
+            }
 
             if let Some(existing) = self.tiles.get(&key) {
                 self.atlas.write(&self.queue, existing.array_layer, levels);
+                if !baked {
+                    let ptr = Arc::as_ptr(pixels) as usize;
+                    shared_gpu.insert((*layer_index, ptr), existing.array_layer);
+                }
                 continue;
             }
 
@@ -791,12 +1076,12 @@ impl Renderer {
             ) {
                 Some(slot) => slot,
                 None => {
-                    // The atlas is at capacity with nothing free. Evict a prefetch-margin
-                    // tile — one outside the viewport right now — to make room; if there is
-                    // none left to sacrifice, every live tile is genuinely on screen at once
-                    // and this upload is skipped for this frame rather than forcing growth
-                    // past the ceiling.
-                    let Some(victim) = evictable.pop() else {
+                    let victim = evictable.pop().or_else(|| {
+                        live.iter()
+                            .copied()
+                            .find(|key| !visible_keys.contains(key))
+                    });
+                    let Some(victim) = victim else {
                         continue;
                     };
                     if let Some(freed) = self.tiles.remove(&victim) {
@@ -816,6 +1101,10 @@ impl Renderer {
             };
             self.atlas.write(&self.queue, array_layer, levels);
             self.tiles.insert(key, GpuTile { array_layer });
+            if !baked {
+                let ptr = Arc::as_ptr(pixels) as usize;
+                shared_gpu.insert((*layer_index, ptr), array_layer);
+            }
         }
 
         // Anything no longer live (scrolled entirely out of the retention margin, or its
@@ -892,11 +1181,19 @@ impl Renderer {
             let Some(slot) = self.layer_slots.get(&layer.id).copied() else {
                 continue;
             };
-            let start = tiles.len() as u32;
-            for coord in grid.coords() {
-                if !TileGrid::tile_rect(coord).intersects(visible) {
-                    continue;
+            if layer.is_paper() && grid.whole_tiles_share_one_arc() {
+                let key: TileKey = (slot, 0, 0);
+                if self.tiles.contains_key(&key) {
+                    self.ensure_layer_xform(&layer.id);
+                    if let Some(gpu) = self.tiles.get(&key) {
+                        self.write_solid_layer_slot(&layer.id, gpu.array_layer);
+                        out.push(LayerDraw::Solid(layer.blend_mode, layer.id.clone()));
+                    }
                 }
+                continue;
+            }
+            let start = tiles.len() as u32;
+            for coord in grid.coords_intersecting(visible) {
                 let key: TileKey = (slot, coord.x, coord.y);
                 let Some(gpu) = self.tiles.get(&key) else {
                     continue;
@@ -920,12 +1217,9 @@ impl Renderer {
     }
 
     pub fn render(&mut self, doc: &mut Document) {
-        if !self.dirty && !doc.has_live_preview() {
+        if self.frame_dirty == FrameDirty::Clean && !doc.has_live_preview() {
             return;
         }
-
-        self.write_layer_transforms(doc);
-        self.sync_tiles(doc);
 
         let (dw, dh) = doc.camera.device_size();
         self.resize(dw, dh);
@@ -934,6 +1228,47 @@ impl Renderer {
             (self.config.width as f32).max(1.0),
             (self.config.height as f32).max(1.0),
         ];
+
+        let tile_draw_count = if self.frame_dirty == FrameDirty::Camera {
+            self.cached_tile_draw_count
+                .unwrap_or_else(|| self.visible_tile_draw_count(doc))
+        } else {
+            let count = self.visible_tile_draw_count(doc);
+            self.cached_tile_draw_count = Some(count);
+            count
+        };
+        let use_overview = self
+            .overview
+            .should_use(tile_draw_count, doc.has_live_preview());
+
+        let need_tile_sync = !use_overview
+            && (self.frame_dirty == FrameDirty::Content
+                || Self::retained_span(doc) != self.cached_retained_span
+                || self.visible_needs_gpu_upload(doc));
+        let need_draw_rebuild = !use_overview
+            && (need_tile_sync || Self::visible_span(doc) != self.cached_visible_span);
+        let camera_only = self.frame_dirty == FrameDirty::Camera
+            && !doc.has_live_preview()
+            && !use_overview;
+
+        if use_overview {
+            if self.frame_dirty == FrameDirty::Content {
+                self.overview.mark_dirty();
+            }
+            self.overview
+                .sync(doc, &self.device, &self.queue);
+            self.overview.write_camera(&self.queue, doc, viewport);
+        } else {
+            self.overview
+                .prewarm(doc, &self.device, &self.queue);
+            if need_tile_sync {
+                self.write_layer_transforms(doc);
+                self.sync_tiles(doc);
+            }
+            if need_draw_rebuild {
+                self.rebuild_layer_cache(doc);
+            }
+        }
 
         let paper = PaperUniforms {
             pan: [doc.camera.pan_x, doc.camera.pan_y],
@@ -952,130 +1287,131 @@ impl Renderer {
         self.queue
             .write_buffer(&self.paper_buf, 0, bytemuck::bytes_of(&paper));
 
-        let ink = doc.ink_rgba();
-        let color = [
-            ink[0] as f32 / 255.0,
-            ink[1] as f32 / 255.0,
-            ink[2] as f32 / 255.0,
-            ink[3] as f32 / 255.0,
-        ];
-        let preview_shape = doc.preview_shape();
-        let (p0, p1, tool, half_width, fill, shape_color) = match preview_shape {
-            Some(s) => (
-                [s.start.0, s.start.1],
-                [s.end.0, s.end.1],
-                s.tool as u32 as f32,
-                s.half_width,
-                if s.fill { 1.0 } else { 0.0 },
-                color,
-            ),
-            None => match selection_rect_or_ellipse(doc) {
-                Some((p0, p1, sel_tool)) => (
-                    p0,
-                    p1,
-                    sel_tool as u32 as f32,
-                    SELECTION_OUTLINE_WIDTH,
-                    0.0,
-                    SELECTION_OUTLINE_COLOR,
-                ),
-                None => ([0.0, 0.0], [0.0, 0.0], 0.0, 0.0, 0.0, color),
-            },
-        };
-        let preview = PreviewUniforms {
+        let tile_camera = TileCamera {
             pan: [doc.camera.pan_x, doc.camera.pan_y],
             zoom: doc.camera.zoom,
             dpr: doc.camera.dpr,
             viewport,
-            _align_color: [0.0, 0.0],
-            color: shape_color,
-            p0,
-            p1,
-            half_width,
-            tool,
-            fill,
-            _pad: 0.0,
+            doc_size: [doc.width as f32, doc.height as f32],
         };
-        self.queue
-            .write_buffer(&self.preview_buf, 0, bytemuck::bytes_of(&preview));
-
         self.queue.write_buffer(
             &self.tile_camera_buf,
             0,
-            bytemuck::bytes_of(&TileCamera {
+            bytemuck::bytes_of(&tile_camera),
+        );
+
+        let preview_shape = doc.preview_shape();
+        let mut overlay_range = 0u32..0u32;
+        if !camera_only {
+            let ink = doc.ink_rgba();
+            let color = [
+                ink[0] as f32 / 255.0,
+                ink[1] as f32 / 255.0,
+                ink[2] as f32 / 255.0,
+                ink[3] as f32 / 255.0,
+            ];
+            let (p0, p1, tool, half_width, fill, shape_color) = match preview_shape {
+                Some(s) => (
+                    [s.start.0, s.start.1],
+                    [s.end.0, s.end.1],
+                    s.tool as u32 as f32,
+                    s.half_width,
+                    if s.fill { 1.0 } else { 0.0 },
+                    color,
+                ),
+                None => match selection_rect_or_ellipse(doc) {
+                    Some((p0, p1, sel_tool)) => (
+                        p0,
+                        p1,
+                        sel_tool as u32 as f32,
+                        SELECTION_OUTLINE_WIDTH,
+                        0.0,
+                        SELECTION_OUTLINE_COLOR,
+                    ),
+                    None => ([0.0, 0.0], [0.0, 0.0], 0.0, 0.0, 0.0, color),
+                },
+            };
+            let preview = PreviewUniforms {
                 pan: [doc.camera.pan_x, doc.camera.pan_y],
                 zoom: doc.camera.zoom,
                 dpr: doc.camera.dpr,
                 viewport,
-                _pad: [0.0, 0.0],
-            }),
-        );
+                _align_color: [0.0, 0.0],
+                color: shape_color,
+                p0,
+                p1,
+                half_width,
+                tool,
+                fill,
+                _pad: 0.0,
+            };
+            self.queue
+                .write_buffer(&self.preview_buf, 0, bytemuck::bytes_of(&preview));
 
-        let radius = doc.brush_size * 0.5;
-        let stroke_color = if doc.tool == Tool::Eraser {
-            ERASER_PREVIEW_COLOR
-        } else {
-            color
-        };
-        let mut tile_instances: Vec<TileInstance> = Vec::new();
-        let mut instances: Vec<StrokeInstance> = Vec::new();
-        let mut shape_instances: Vec<VectorShapeInstance> = Vec::new();
-        let draws = self.build_layer_draws(
-            doc,
-            &mut tile_instances,
-            &mut instances,
-            &mut shape_instances,
-        );
-
-        let overlay_start = instances.len() as u32;
-        if doc.text_editing() {
-            instances.extend(text_overlay_instances(
-                doc,
-                self.started.elapsed().as_secs_f32(),
-            ));
-        } else if !doc.stroke_points.is_empty() {
-            instances.extend(stroke_instances(&doc.stroke_points, radius, stroke_color));
-        } else if let Some(handles) = doc.transform_handles() {
-            instances.extend(transform_overlay_instances(handles));
-            instances.extend(vector_selection_instances(doc));
-        } else if let Some(points) = selection_lasso_points(doc) {
-            instances.extend(stroke_instances(
-                &points,
-                SELECTION_OUTLINE_WIDTH,
-                SELECTION_OUTLINE_COLOR,
-            ));
-        }
-        if let Some((index, corners)) = doc.layer_highlight() {
-            let covered = doc
-                .transform_handles()
-                .is_some_and(|(handle_index, _, _)| handle_index == index);
-            if !covered {
-                instances.extend(layer_highlight_instances(
-                    corners,
+            let radius = doc.brush_size * 0.5;
+            let stroke_color = if doc.tool == Tool::Eraser {
+                ERASER_PREVIEW_COLOR
+            } else {
+                color
+            };
+            let mut instances = if self.camera_motion {
+                Vec::new()
+            } else {
+                self.cached_strokes.clone()
+            };
+            let overlay_start = instances.len() as u32;
+            if doc.text_editing() {
+                instances.extend(text_overlay_instances(
+                    doc,
                     self.started.elapsed().as_secs_f32(),
                 ));
+            } else if !doc.stroke_points.is_empty() {
+                instances.extend(stroke_instances(&doc.stroke_points, radius, stroke_color));
+            } else if let Some(handles) = doc.transform_handles() {
+                instances.extend(transform_overlay_instances(handles));
+                instances.extend(vector_selection_instances(doc));
+            } else if let Some(points) = selection_lasso_points(doc) {
+                instances.extend(stroke_instances(
+                    &points,
+                    SELECTION_OUTLINE_WIDTH,
+                    SELECTION_OUTLINE_COLOR,
+                ));
+            }
+            if let Some((index, corners)) = doc.layer_highlight() {
+                let covered = doc
+                    .transform_handles()
+                    .is_some_and(|(handle_index, _, _)| handle_index == index);
+                if !covered {
+                    instances.extend(layer_highlight_instances(
+                        corners,
+                        self.started.elapsed().as_secs_f32(),
+                    ));
+                }
+            }
+            overlay_range = overlay_start..instances.len() as u32;
+            let strokes_dirty = need_draw_rebuild || overlay_start < instances.len() as u32;
+
+            if strokes_dirty && !instances.is_empty() {
+                self.ensure_stroke_capacity(instances.len());
+                self.queue
+                    .write_buffer(&self.stroke_buf, 0, bytemuck::cast_slice(&instances));
+            }
+            if need_draw_rebuild && !self.cached_shapes.is_empty() {
+                self.ensure_vector_shape_capacity(self.cached_shapes.len());
+                self.queue.write_buffer(
+                    &self.vector_shape_buf,
+                    0,
+                    bytemuck::cast_slice(&self.cached_shapes),
+                );
             }
         }
-        let overlay_range = overlay_start..instances.len() as u32;
 
-        if !tile_instances.is_empty() {
-            self.ensure_tile_instance_capacity(tile_instances.len());
+        if need_draw_rebuild && !self.cached_tile_instances.is_empty() {
+            self.ensure_tile_instance_capacity(self.cached_tile_instances.len());
             self.queue.write_buffer(
                 &self.tile_instance_buf,
                 0,
-                bytemuck::cast_slice(&tile_instances),
-            );
-        }
-        if !instances.is_empty() {
-            self.ensure_stroke_capacity(instances.len());
-            self.queue
-                .write_buffer(&self.stroke_buf, 0, bytemuck::cast_slice(&instances));
-        }
-        if !shape_instances.is_empty() {
-            self.ensure_vector_shape_capacity(shape_instances.len());
-            self.queue.write_buffer(
-                &self.vector_shape_buf,
-                0,
-                bytemuck::cast_slice(&shape_instances),
+                bytemuck::cast_slice(&self.cached_tile_instances),
             );
         }
 
@@ -1133,33 +1469,42 @@ impl Renderer {
             ) {
                 pass.set_scissor_rect(x, y, w, h);
 
-                for draw in &draws {
-                    match draw {
-                        LayerDraw::Tiles(mode, layer_id, range) => {
-                            let Some((_, xform_bg)) = self.layer_xforms.get(layer_id) else {
-                                continue;
-                            };
-                            // Group 0 (the atlas) and the vertex buffer are the same for every
-                            // tile draw, but a vector draw in between overwrites both slots, so
-                            // each tile run still has to rebind — there is no cross-run state
-                            // to reuse once the layer stack interleaves tiles and vectors.
-                            pass.set_pipeline(self.tile_pipeline(*mode));
-                            pass.set_bind_group(0, self.atlas.bind_group(), &[]);
-                            pass.set_bind_group(1, xform_bg, &[]);
-                            pass.set_vertex_buffer(0, self.tile_instance_buf.slice(..));
-                            pass.draw(0..6, range.clone());
-                        }
-                        LayerDraw::Vector(kind, range) => {
-                            let (pipeline, buf) = match kind {
-                                VectorRun::Shapes => {
-                                    (&self.vector_shape_pipeline, &self.vector_shape_buf)
-                                }
-                                VectorRun::Paths => (&self.stroke_pipeline, &self.stroke_buf),
-                            };
-                            pass.set_pipeline(pipeline);
-                            pass.set_bind_group(0, &self.preview_bg, &[]);
-                            pass.set_vertex_buffer(0, buf.slice(..));
-                            pass.draw(0..6, range.clone());
+                if use_overview {
+                    self.overview.draw(&mut pass);
+                } else {
+                    for draw in &self.cached_draws {
+                        match draw {
+                            LayerDraw::Tiles(mode, layer_id, range) => {
+                                let Some((_, xform_bg)) = self.layer_xforms.get(layer_id) else {
+                                    continue;
+                                };
+                                pass.set_pipeline(self.tile_pipeline(*mode));
+                                pass.set_bind_group(0, self.atlas.bind_group(), &[]);
+                                pass.set_bind_group(1, xform_bg, &[]);
+                                pass.set_vertex_buffer(0, self.tile_instance_buf.slice(..));
+                                pass.draw(0..6, range.clone());
+                            }
+                            LayerDraw::Solid(mode, layer_id) => {
+                                let Some((_, xform_bg)) = self.layer_xforms.get(layer_id) else {
+                                    continue;
+                                };
+                                pass.set_pipeline(self.solid_pipeline(*mode));
+                                pass.set_bind_group(0, self.atlas.bind_group(), &[]);
+                                pass.set_bind_group(1, xform_bg, &[]);
+                                pass.draw(0..6, 0..1);
+                            }
+                            LayerDraw::Vector(kind, range) => {
+                                let (pipeline, buf) = match kind {
+                                    VectorRun::Shapes => {
+                                        (&self.vector_shape_pipeline, &self.vector_shape_buf)
+                                    }
+                                    VectorRun::Paths => (&self.stroke_pipeline, &self.stroke_buf),
+                                };
+                                pass.set_pipeline(pipeline);
+                                pass.set_bind_group(0, &self.preview_bg, &[]);
+                                pass.set_vertex_buffer(0, buf.slice(..));
+                                pass.draw(0..6, range.clone());
+                            }
                         }
                     }
                 }
@@ -1181,7 +1526,12 @@ impl Renderer {
 
         self.queue.submit(Some(encoder.finish()));
         self.queue.present(frame);
-        self.dirty = doc.has_live_preview();
+        self.tick_camera_motion();
+        self.frame_dirty = if doc.has_live_preview() {
+            FrameDirty::Content
+        } else {
+            FrameDirty::Clean
+        };
     }
 }
 

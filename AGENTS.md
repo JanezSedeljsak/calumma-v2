@@ -451,6 +451,9 @@ Rules for agents:
 
 ## Canvas / render
 
+Frame loop, dirty flags, and the pan/zoom performance strategy (GPU tile atlas, overview
+LOD, motion mode) are documented in `engine/render/rendering.md`, not repeated here.
+
 - Viewport-sized Metal surface; paper positioned by camera matrix in WGSL.
 - Layer pixels, vectors, live previews, and handles are GPU-scissored to the paper
   (`Camera::paper_scissor`); the desk and paper border stay unclipped.
@@ -481,14 +484,41 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 
 `./manage.py` re-execs into `.venv` when that folder exists, so you do not need to activate it.
 
-Distribution: pushing a `v*` tag runs `.github/workflows/release.yml`, which runs
-`./manage.py package` on a macOS runner and publishes the `.dmg` + `.sha256` as
-**GitHub Release** assets (GitHub Packages hosts only npm/Maven/NuGet/RubyGems/
-container registries — a `.dmg` cannot live there). Version comes from the tag,
-falling back to `[workspace.package] version` in `engine/Cargo.toml`; it is stamped
-into the bundle as `MARKETING_VERSION`. Builds are **ad-hoc signed, not notarized**
-— there is no Developer ID in CI secrets, so Gatekeeper blocks the first launch
-until the user right-clicks → Open.
+Rust unit tests live in `engine/<crate>/tests/<module>.rs`, one file per module under test
+(`camera.rs` → `tests/camera.rs`), not in a `#[cfg(test)] mod tests` block inside the source
+file — logic files stay logic, and `cargo test` already treats each `tests/*.rs` file as its
+own integration-test crate against the library's public API, so this is free.
+
+Distribution: `.github/workflows/main.yml`'s `macos-dmg` job builds and publishes. On a
+`push` to `main` it only runs if `version-check` (diffs `engine/Cargo.toml`'s version
+against the previous commit) says the version changed; it always runs on a `v*` tag push
+or a manual `workflow_dispatch`, and — since it packages a release — it also requires
+`core-linux`, `core-windows` (skipped-is-OK, dispatch-only), and `macos` to have passed,
+so a red lint/test job in the same run can never ship a release anyway. It runs
+`./manage.py package` and publishes the `.dmg` + `.sha256` as **GitHub Release** assets
+(GitHub Packages hosts only npm/Maven/NuGet/RubyGems/container registries — a `.dmg`
+cannot live there). Version comes from the tag, falling back to `[workspace.package]
+version` in `engine/Cargo.toml`; it is stamped into the bundle as `MARKETING_VERSION`.
+Builds are **ad-hoc signed, not notarized** — there is no Developer ID in CI secrets, so
+Gatekeeper blocks the first launch until the user right-clicks → Open.
+
+App version stays in sync with zero manual Swift-side edits, in two layers:
+
+1. The **committed** `project.pbxproj`: a local pre-commit hook (`xcodegen-version` in
+   `.pre-commit-config.yaml`, triggered on `engine/Cargo.toml`) runs `./manage.py xcodegen`
+   whenever that file changes, so a version bump never leaves a stale `MARKETING_VERSION`
+   baked into the tracked project file waiting for someone to happen to build the app —
+   same shape as the pre-existing `app-icon` hook regenerating `AppIcon.appiconset` from
+   `design/icon.png`.
+2. The **built app**, regardless of route (`manage.py dev`/`build`, a raw `xcodebuild`, or
+   Xcode.app's own Run): the "Stamp version from Cargo.toml" build phase
+   (`platform/macos/project.yml`, `postCompileScripts`) overwrites the built `Info.plist`'s
+   `CFBundleShortVersionString`/`CFBundleVersion` with `./manage.py version` on every
+   build, so even a still-stale `pbxproj` (a fresh clone that hasn't run pre-commit yet)
+   can't ship the wrong version. It runs after Compile Sources but before Code Sign, so
+   the signature is never invalidated. `./manage.py package`'s tag-resolved version has to
+   win over that self-heal, so it passes `CALUMMA_VERSION_OVERRIDE` as an env var, which
+   the script checks first (`cli/package_macos.py`).
 
 Expectations:
 

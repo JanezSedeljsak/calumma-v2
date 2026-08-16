@@ -40,6 +40,7 @@ from _helpers import (
     ensure_engine_env,
     format_coverage_markdown,
     format_pct,
+    format_pct_with_count,
     print_coverage_table,
     python_module,
     run,
@@ -91,6 +92,13 @@ def cmd_tokens(_: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_version(_: argparse.Namespace) -> int:
+    # Bare stdout print, no MSG_* prefix: the Xcode build phase captures this directly
+    # into MARKETING_VERSION/CFBundleShortVersionString, so it has to be just the number.
+    print(workspace_version())
+    return 0
+
+
 def cmd_icon(_: argparse.Namespace) -> int:
     # Deferred: Pillow is only needed for icon generation, and every other subcommand
     # (including `tokens`, which the Xcode build phase runs on each build) has to be
@@ -115,6 +123,15 @@ def cmd_purity(_: argparse.Namespace) -> int:
 def xcodegen_generate() -> None:
     if which(BIN_XCODEGEN):
         run([BIN_XCODEGEN, "generate"], cwd=MACOS, env={ENV_CALUMMA_VERSION: workspace_version()})
+
+
+def cmd_xcodegen(_: argparse.Namespace) -> int:
+    # Regenerates project.pbxproj from project.yml, version-stamped from Cargo.toml, without
+    # the rest of `dev`'s side effects (building the ffi lib, opening Xcode) — cheap enough to
+    # run from the pre-commit hook that keeps a committed pbxproj from going stale on a version
+    # bump. A no-op (not an error) when xcodegen isn't installed, same as every other caller.
+    xcodegen_generate()
+    return 0
 
 
 def cmd_dev(_: argparse.Namespace) -> int:
@@ -288,7 +305,7 @@ def parse_llvm_cov_json(payload: dict[str, object]) -> list[dict[str, object]]:
         rows.append(
             {
                 "crate": crate,
-                "lines": format_pct(b["lines_covered"], b["lines_count"]),
+                "lines": format_pct_with_count(b["lines_covered"], b["lines_count"]),
                 "funcs": format_pct(b["funcs_covered"], b["funcs_count"]),
                 "regions": format_pct(b["regions_covered"], b["regions_count"]),
             }
@@ -302,7 +319,9 @@ def parse_llvm_cov_json(payload: dict[str, object]) -> list[dict[str, object]]:
             rows.append(
                 {
                     "crate": MSG_COVERAGE_TOTAL,
-                    "lines": format_pct(int(lines.get("covered", 0)), int(lines.get("count", 0))),
+                    "lines": format_pct_with_count(
+                        int(lines.get("covered", 0)), int(lines.get("count", 0))
+                    ),
                     "funcs": format_pct(int(funcs.get("covered", 0)), int(funcs.get("count", 0))),
                     "regions": format_pct(
                         int(regions.get("covered", 0)), int(regions.get("count", 0))
@@ -389,6 +408,12 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("tokens", help="regenerate Swift tokens from design/tokens.json").set_defaults(
         func=cmd_tokens
     )
+    sub.add_parser(
+        "version", help="print engine/Cargo.toml's [workspace.package] version"
+    ).set_defaults(func=cmd_version)
+    sub.add_parser(
+        "xcodegen", help="regenerate Calumma.xcodeproj from project.yml, version-stamped"
+    ).set_defaults(func=cmd_xcodegen)
     sub.add_parser("purity", help="assert calumma-core has no platform/GPU deps").set_defaults(
         func=cmd_purity
     )

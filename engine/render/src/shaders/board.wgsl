@@ -80,7 +80,14 @@ struct TileCamera {
     zoom: f32,
     dpr: f32,
     viewport: vec2<f32>,
-    _pad: vec2<f32>,
+    doc_size: vec2<f32>,
+}
+
+struct SolidLayer {
+    slot: u32,
+    _pad0: u32,
+    _pad1: u32,
+    _pad2: u32,
 }
 
 struct LayerXform {
@@ -160,6 +167,41 @@ fn fs_tile(input: TileVsOut) -> @location(0) vec4<f32> {
     // by `tile_sampler`'s mipmap_filter. That is what keeps a zoomed-out pan from shimmering:
     // without mips this would minify raw 256x256 texels with nothing pre-filtered underneath.
     let c = textureSample(tile_tex, tile_sampler, input.uv, i32(input.slot));
+    return vec4<f32>(c.rgb * c.a, c.a);
+}
+
+struct SolidVsOut {
+    @builtin(position) position: vec4<f32>,
+    @location(0) @interpolate(flat) slot: u32,
+}
+
+@vertex
+fn vs_doc_quad(@builtin(vertex_index) idx: u32) -> SolidVsOut {
+    var corners = array<vec2<f32>, 6>(
+        vec2<f32>(0.0, 0.0),
+        vec2<f32>(1.0, 0.0),
+        vec2<f32>(0.0, 1.0),
+        vec2<f32>(0.0, 1.0),
+        vec2<f32>(1.0, 0.0),
+        vec2<f32>(1.0, 1.0),
+    );
+    let uv = corners[idx];
+    let doc = uv * tu.doc_size;
+    let screen = doc * tu.zoom + tu.pan;
+    let device = screen * tu.dpr;
+    let ndc = vec2<f32>(
+        (device.x / max(tu.viewport.x, 1.0)) * 2.0 - 1.0,
+        1.0 - (device.y / max(tu.viewport.y, 1.0)) * 2.0,
+    );
+    var out: SolidVsOut;
+    out.position = vec4<f32>(ndc, 0.0, 1.0);
+    out.slot = bitcast<u32>(lx.pivot.x);
+    return out;
+}
+
+@fragment
+fn fs_solid_tile(input: SolidVsOut) -> @location(0) vec4<f32> {
+    let c = textureSample(tile_tex, tile_sampler, vec2<f32>(0.5, 0.5), i32(input.slot));
     return vec4<f32>(c.rgb * c.a, c.a);
 }
 
@@ -511,4 +553,52 @@ fn fs_shape_preview(in: VsOut) -> @location(0) vec4<f32> {
         return vec4<f32>(0.0);
     }
     return vec4<f32>(pu.color.rgb, pu.color.a * cov);
+}
+
+struct OverviewCamera {
+    pan: vec2<f32>,
+    zoom: f32,
+    dpr: f32,
+    viewport: vec2<f32>,
+    doc_size: vec2<f32>,
+    _pad: vec2<f32>,
+}
+
+@group(0) @binding(0) var<uniform> ou: OverviewCamera;
+@group(0) @binding(1) var overview_tex: texture_2d<f32>;
+@group(0) @binding(2) var overview_sampler: sampler;
+
+struct OverviewVsOut {
+    @builtin(position) position: vec4<f32>,
+    @location(0) uv: vec2<f32>,
+}
+
+@vertex
+fn vs_overview(@builtin(vertex_index) idx: u32) -> OverviewVsOut {
+    var corners = array<vec2<f32>, 6>(
+        vec2<f32>(0.0, 0.0),
+        vec2<f32>(1.0, 0.0),
+        vec2<f32>(0.0, 1.0),
+        vec2<f32>(0.0, 1.0),
+        vec2<f32>(1.0, 0.0),
+        vec2<f32>(1.0, 1.0),
+    );
+    let uv = corners[idx];
+    let doc = uv * ou.doc_size;
+    let screen = doc * ou.zoom + ou.pan;
+    let device = screen * ou.dpr;
+    let ndc = vec2<f32>(
+        (device.x / max(ou.viewport.x, 1.0)) * 2.0 - 1.0,
+        1.0 - (device.y / max(ou.viewport.y, 1.0)) * 2.0,
+    );
+    var out: OverviewVsOut;
+    out.position = vec4<f32>(ndc, 0.0, 1.0);
+    out.uv = uv;
+    return out;
+}
+
+@fragment
+fn fs_overview(in: OverviewVsOut) -> @location(0) vec4<f32> {
+    let c = textureSample(overview_tex, overview_sampler, in.uv);
+    return vec4<f32>(c.rgb * c.a, c.a);
 }

@@ -59,6 +59,12 @@ pub struct CalmLayerInfo {
 }
 
 #[repr(C)]
+pub struct CalmRulerTick {
+    pub doc: f32,
+    pub major: u8,
+}
+
+#[repr(C)]
 pub struct CalmProjectInfo {
     pub id: *mut c_char,
     pub name: *mut c_char,
@@ -95,6 +101,11 @@ pub(crate) struct Inner {
     viewport_width: f32,
     viewport_height: f32,
     viewport_dpr: f32,
+    pending_pan_dx: f32,
+    pending_pan_dy: f32,
+    pending_scroll_dx: f32,
+    pending_scroll_dy: f32,
+    pending_scroll_precise: bool,
 }
 
 fn _assert_inner_send() {
@@ -127,6 +138,11 @@ impl Inner {
             viewport_width: 0.0,
             viewport_height: 0.0,
             viewport_dpr: 1.0,
+            pending_pan_dx: 0.0,
+            pending_pan_dy: 0.0,
+            pending_scroll_dx: 0.0,
+            pending_scroll_dy: 0.0,
+            pending_scroll_precise: false,
         })
     }
 
@@ -149,6 +165,41 @@ impl Inner {
     pub(crate) fn invalidate_renderer(&mut self) {
         if let Some(r) = &mut self.renderer {
             r.invalidate();
+        }
+    }
+
+    pub(crate) fn invalidate_camera(&mut self) {
+        if let Some(r) = &mut self.renderer {
+            r.invalidate_camera();
+        }
+    }
+
+    fn flush_pending_camera(&mut self) {
+        let Some(doc) = &mut self.doc else {
+            self.pending_pan_dx = 0.0;
+            self.pending_pan_dy = 0.0;
+            self.pending_scroll_dx = 0.0;
+            self.pending_scroll_dy = 0.0;
+            return;
+        };
+        let (w, h) = (doc.width as f32, doc.height as f32);
+        if self.pending_pan_dx != 0.0 || self.pending_pan_dy != 0.0 {
+            doc.camera
+                .pan_by(self.pending_pan_dx, self.pending_pan_dy, w, h);
+            self.pending_pan_dx = 0.0;
+            self.pending_pan_dy = 0.0;
+        }
+        if self.pending_scroll_dx != 0.0 || self.pending_scroll_dy != 0.0 {
+            doc.camera.pan_by_scroll(
+                self.pending_scroll_dx,
+                self.pending_scroll_dy,
+                self.pending_scroll_precise,
+                w,
+                h,
+            );
+            self.pending_scroll_dx = 0.0;
+            self.pending_scroll_dy = 0.0;
+            self.pending_scroll_precise = false;
         }
     }
 
@@ -189,6 +240,9 @@ impl Inner {
         self.doc = Some(doc);
         self.dirty_save = false;
         self.invalidate_renderer();
+        if let Some(r) = &mut self.renderer {
+            r.request_overview_prewarm();
+        }
     }
 
     pub(crate) fn switch_workspace(
@@ -430,7 +484,7 @@ pub unsafe extern "C" fn calm_engine_resize(
                 ((w as f32 * dpr).round() as u32).max(1),
                 ((h as f32 * dpr).round() as u32).max(1),
             );
-            renderer.invalidate();
+            renderer.invalidate_camera();
         }
         Ok(())
     })
@@ -457,6 +511,7 @@ pub unsafe extern "C" fn calm_engine_resize_document(
 pub unsafe extern "C" fn calm_engine_render(engine: *mut CalmEngine) -> CalmStatus {
     with_inner(engine, |inner| {
         inner.autosave();
+        inner.flush_pending_camera();
         if inner.doc.is_none() {
             return Ok(());
         }
@@ -523,15 +578,21 @@ pub unsafe extern "C" fn calm_engine_pointer_up(
 }
 
 #[no_mangle]
+pub unsafe extern "C" fn calm_engine_end_camera_motion(engine: *mut CalmEngine) -> CalmStatus {
+    with_inner(engine, |inner| {
+        if let Some(renderer) = &mut inner.renderer {
+            renderer.end_camera_motion();
+        }
+        Ok(())
+    })
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn calm_engine_pan(engine: *mut CalmEngine, dx: f32, dy: f32) -> CalmStatus {
     with_inner(engine, |inner| {
-        if let Some(doc) = &mut inner.doc {
-            let (w, h) = (doc.width as f32, doc.height as f32);
-            doc.camera.pan_by(dx, dy, w, h);
-            if let Some(r) = &mut inner.renderer {
-                r.invalidate();
-            }
-        }
+        inner.pending_pan_dx += dx;
+        inner.pending_pan_dy += dy;
+        inner.invalidate_camera();
         Ok(())
     })
 }
@@ -544,13 +605,12 @@ pub unsafe extern "C" fn calm_engine_pan_scroll(
     precise: u8,
 ) -> CalmStatus {
     with_inner(engine, |inner| {
-        if let Some(doc) = &mut inner.doc {
-            let (w, h) = (doc.width as f32, doc.height as f32);
-            doc.camera.pan_by_scroll(dx, dy, precise != 0, w, h);
-            if let Some(r) = &mut inner.renderer {
-                r.invalidate();
-            }
+        inner.pending_scroll_dx += dx;
+        inner.pending_scroll_dy += dy;
+        if precise != 0 {
+            inner.pending_scroll_precise = true;
         }
+        inner.invalidate_camera();
         Ok(())
     })
 }
@@ -567,9 +627,7 @@ pub unsafe extern "C" fn calm_engine_zoom_scroll(
         if let Some(doc) = &mut inner.doc {
             let (w, h) = (doc.width as f32, doc.height as f32);
             doc.camera.zoom_by_scroll(x, y, delta, precise != 0, w, h);
-            if let Some(r) = &mut inner.renderer {
-                r.invalidate();
-            }
+            inner.invalidate_camera();
         }
         Ok(())
     })
@@ -587,9 +645,7 @@ pub unsafe extern "C" fn calm_engine_zoom(
             let next = doc.camera.zoom * factor;
             let (w, h) = (doc.width as f32, doc.height as f32);
             doc.camera.zoom_at(x, y, next, w, h);
-            if let Some(r) = &mut inner.renderer {
-                r.invalidate();
-            }
+            inner.invalidate_camera();
         }
         Ok(())
     })
@@ -600,9 +656,7 @@ pub unsafe extern "C" fn calm_engine_fit(engine: *mut CalmEngine) -> CalmStatus 
     with_inner(engine, |inner| {
         if let Some(doc) = &mut inner.doc {
             doc.fit_to_view();
-            if let Some(r) = &mut inner.renderer {
-                r.invalidate();
-            }
+            inner.invalidate_camera();
         }
         Ok(())
     })
@@ -614,9 +668,7 @@ pub unsafe extern "C" fn calm_engine_set_zoom(engine: *mut CalmEngine, zoom: f32
         if let Some(doc) = &mut inner.doc {
             let (w, h) = (doc.width as f32, doc.height as f32);
             doc.camera.zoom_to_center(zoom, w, h);
-            if let Some(r) = &mut inner.renderer {
-                r.invalidate();
-            }
+            inner.invalidate_camera();
         }
         Ok(())
     })
@@ -628,9 +680,7 @@ pub unsafe extern "C" fn calm_engine_step_zoom(engine: *mut CalmEngine, zoom_in:
         if let Some(doc) = &mut inner.doc {
             let (w, h) = (doc.width as f32, doc.height as f32);
             doc.camera.step_zoom(zoom_in != 0, w, h);
-            if let Some(r) = &mut inner.renderer {
-                r.invalidate();
-            }
+            inner.invalidate_camera();
         }
         Ok(())
     })
@@ -646,9 +696,7 @@ pub unsafe extern "C" fn calm_engine_set_zoom_unit(
             let (w, h) = (doc.width as f32, doc.height as f32);
             let zoom = doc.camera.zoom_from_unit(unit, w, h);
             doc.camera.zoom_to_center(zoom, w, h);
-            if let Some(r) = &mut inner.renderer {
-                r.invalidate();
-            }
+            inner.invalidate_camera();
         }
         Ok(())
     })

@@ -67,6 +67,7 @@ __all__ = [
     "ensure_engine_env",
     "format_coverage_markdown",
     "format_pct",
+    "format_pct_with_count",
     "hex_to_srgb",
     "load_tokens",
     "print_coverage_table",
@@ -208,16 +209,25 @@ def format_pct(covered: int, total: int) -> str:
     return f"{(100.0 * covered / total):5.1f}%"
 
 
+def format_pct_with_count(covered: int, total: int) -> str:
+    pct = format_pct(covered, total)
+    if total <= 0:
+        return pct
+    return f"{pct} ({covered}/{total})"
+
+
 def print_coverage_table(rows: list[dict[str, object]]) -> None:
     name_w = max(len(str(r["crate"])) for r in rows)
     name_w = max(name_w, 5)
+    lines_w = max(len(str(r["lines"])) for r in rows)
+    lines_w = max(lines_w, 5)
     print()
-    print(f"{'crate':<{name_w}}  {'lines':>7}  {'funcs':>7}  {'regs':>7}")
-    print(f"{'-' * name_w}  {'------':>7}  {'------':>7}  {'------':>7}")
+    print(f"{'crate':<{name_w}}  {'lines':>{lines_w}}  {'funcs':>7}  {'regs':>7}")
+    print(f"{'-' * name_w}  {'-' * lines_w}  {'------':>7}  {'------':>7}")
     for row in rows:
         print(
             f"{str(row['crate']):<{name_w}}  "
-            f"{str(row['lines']):>7}  "
+            f"{str(row['lines']):>{lines_w}}  "
             f"{str(row['funcs']):>7}  "
             f"{str(row['regions']):>7}"
         )
@@ -228,7 +238,7 @@ def format_coverage_markdown(rows: list[dict[str, object]], title: str) -> str:
     lines = [
         f"### {title}",
         "",
-        "| crate | lines | funcs | regions |",
+        "| crate | lines (cov/total) | funcs | regions |",
         "| --- | ---: | ---: | ---: |",
     ]
     for row in rows:

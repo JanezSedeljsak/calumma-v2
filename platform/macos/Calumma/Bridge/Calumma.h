@@ -74,6 +74,11 @@ typedef struct CalmState {
     uint32_t last_select_tool;
 } CalmState;
 
+typedef struct CalmRulerTick {
+    float doc;
+    uint8_t major;
+} CalmRulerTick;
+
 typedef struct CalmMemory {
     uint64_t tile_bytes;
     uint64_t history_bytes;
@@ -131,6 +136,7 @@ CalmStatus calm_engine_zoom(CalmEngine *engine, float x, float y, float factor);
 CalmStatus calm_engine_zoom_scroll(CalmEngine *engine, float x, float y, float delta,
                                    uint8_t precise);
 CalmStatus calm_engine_fit(CalmEngine *engine);
+CalmStatus calm_engine_end_camera_motion(CalmEngine *engine);
 CalmStatus calm_engine_set_zoom(CalmEngine *engine, float zoom);
 CalmStatus calm_engine_step_zoom(CalmEngine *engine, uint8_t zoom_in);
 CalmStatus calm_engine_set_zoom_unit(CalmEngine *engine, float unit);
@@ -186,6 +192,8 @@ CalmStatus calm_engine_layer_adjustments(CalmEngine *engine, uint32_t index, Cal
 CalmStatus calm_engine_set_hover_layer(CalmEngine *engine, int32_t index);
 CalmStatus calm_engine_clear_layer(CalmEngine *engine);
 CalmStatus calm_engine_state(CalmEngine *engine, CalmState *out);
+size_t calm_engine_ruler_ticks_x(CalmEngine *engine, CalmRulerTick *out, size_t cap);
+size_t calm_engine_ruler_ticks_y(CalmEngine *engine, CalmRulerTick *out, size_t cap);
 CalmStatus calm_engine_memory(CalmEngine *engine, CalmMemory *out);
 char *calm_engine_layer_name(CalmEngine *engine, uint32_t index);
 CalmStatus calm_engine_layer_thumbnail(CalmEngine *engine, uint32_t layer_index, uint32_t max_side, uint8_t **out_rgba, uint32_t *out_w, uint32_t *out_h);

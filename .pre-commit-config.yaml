@@ -59,3 +59,10 @@ repos:
         language: system
         files: ^design/icon\.png$
         pass_filenames: false
+
+      - id: xcodegen-version
+        name: regenerate Calumma.xcodeproj on a Cargo.toml version bump
+        entry: python3 ./manage.py xcodegen
+        language: system
+        files: ^engine/Cargo\.toml$
+        pass_filenames: false

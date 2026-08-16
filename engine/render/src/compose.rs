@@ -261,15 +261,22 @@ pub fn composited_tile_payload(
 /// a pan actually is: minification aliasing from sampling a texture well below its own
 /// resolution with nothing pre-filtered to fall back to.
 pub fn tile_mip_chain(base: &[u8]) -> Vec<Vec<u8>> {
+    tile_upload_levels(base, false)
+}
+
+pub fn tile_upload_levels(base: &[u8], motion: bool) -> Vec<Vec<u8>> {
+    let mut out = vec![base.to_vec()];
+    if motion {
+        return out;
+    }
     let levels = tile_mip_levels();
-    let mut out = Vec::with_capacity(levels as usize);
-    out.push(base.to_vec());
     let mut side = TILE_SIZE;
     for _ in 1..levels {
         let prev = out.last().expect("just pushed the base level");
         out.push(downsample_box(prev, side));
         side = (side / 2).max(1);
     }
+    debug_assert_eq!(out.len(), levels as usize);
     out
 }
 

@@ -249,6 +249,19 @@ fn intersects_agrees_with_intersect() {
 }
 
 #[test]
+fn coords_intersecting_skips_empty_cells_and_out_of_map_tiles() {
+    let mut grid = TileGrid::new(1024, 1024);
+    let a = TileCoord { x: 1, y: 1 };
+    let b = TileCoord { x: 3, y: 1 };
+    grid.set_pixel(300, 300, [1, 2, 3, 255]);
+    grid.set_pixel(900, 300, [4, 5, 6, 255]);
+    let rect = DocRect::new(256, 256, 1023, 511);
+    let found: Vec<_> = grid.coords_intersecting(rect).collect();
+    assert_eq!(found, vec![a, b]);
+    assert!(grid.coords_intersecting(DocRect::new(0, 0, 255, 255)).next().is_none());
+}
+
+#[test]
 fn tile_rect_covers_exactly_one_tile() {
     let rect = TileGrid::tile_rect(TileCoord { x: 2, y: 3 });
     let ts = TILE_SIZE as i32;
@@ -307,4 +320,17 @@ fn stamp_disc_erase_clears_inside_the_radius_only() {
     assert_eq!(grid.get_pixel(20, 20), [0, 0, 0, 0]);
     assert_eq!(grid.get_pixel(39, 39), [9, 9, 9, 255]);
     assert_eq!(grid.stamp_disc_erase(20.0, 20.0, 0.0), 0);
+}
+
+#[test]
+fn whole_tiles_share_one_arc_detects_unpainted_fill() {
+    let side = TILE_SIZE * 2;
+    let mut grid = TileGrid::new(side + 9, side + 9);
+    grid.fill_uniform(
+        DocRect::from_size(side + 9, side + 9),
+        [255, 255, 255, 255],
+    );
+    assert!(grid.whole_tiles_share_one_arc());
+    grid.set_pixel(1, 1, [200, 200, 200, 255]);
+    assert!(!grid.whole_tiles_share_one_arc());
 }

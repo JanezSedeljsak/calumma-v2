@@ -56,7 +56,13 @@ pub const VECTOR_SHAPE_INSTANCE_CAPACITY: usize = 256;
 /// this frame, and grows the same way the stroke/vector-shape instance buffers do.
 pub const TILE_INSTANCE_CAPACITY: usize = 1024;
 pub const SURFACE_FRAME_LATENCY: u32 = 2;
-pub const GPU_TILE_RETENTION_MARGIN_TILES: i32 = 1;
+pub const SURFACE_FRAME_LATENCY_MOTION: u32 = 1;
+pub const CAMERA_MOTION_IDLE_FRAMES: u32 = 4;
+pub const GPU_TILE_RETENTION_MARGIN_TILES: i32 = 3;
+
+pub const OVERVIEW_MAX_SIDE: u32 = 2048;
+pub const OVERVIEW_ENTER_TILE_THRESHOLD: usize = 48;
+pub const OVERVIEW_EXIT_TILE_THRESHOLD: usize = 24;
 
 /// Starting depth of the GPU tile atlas (one shared `texture_2d_array` every layer's tiles are
 /// packed into, so a whole document layer draws in one instanced call instead of one draw per
@@ -107,3 +113,9 @@ pub const LOSSY_EXPORT_QUALITY: f32 = 0.92;
 
 pub const MIN_CANVAS_SIDE: u32 = 16;
 pub const MAX_CANVAS_SIDE: u32 = 8192;
+
+/// Ruler tick spacing floor, in *screen* pixels — the doc-pixel step is chosen so a minor
+/// tick never lands closer together than this, and a labeled major tick never closer than
+/// `RULER_MIN_MAJOR_SPACING_PX`, at any zoom.
+pub const RULER_MIN_MINOR_SPACING_PX: f32 = 8.0;
+pub const RULER_MIN_MAJOR_SPACING_PX: f32 = 56.0;

@@ -18,7 +18,7 @@ struct BoardCanvas: NSViewRepresentable {
         view.preferredFramesPerSecond = NSScreen.main?.maximumFramesPerSecond ?? 60
         view.framebufferOnly = true
         view.colorPixelFormat = .bgra8Unorm_srgb
-        view.clearColor = MTLClearColor(red: 0.055, green: 0.071, blue: 0.086, alpha: 1)
+        view.clearColor = MTLClearColor(red: 0.039, green: 0.047, blue: 0.059, alpha: 1)
         view.autoResizeDrawable = true
         view.boardCoordinator = context.coordinator
         view.wantsLayer = true
@@ -289,6 +289,7 @@ final class BoardMTKView: MTKView {
     override func mouseUp(with event: NSEvent) {
         guard let coordinator = boardCoordinator else { return }
         let point = coordinator.screenPoint(in: self, event: event)
+        let wasPanning = panning
         if painting {
             coordinator.engine.setShift(event.modifierFlags.contains(.shift))
             coordinator.engine.pointerUp(x: Float(point.x), y: Float(point.y))
@@ -296,6 +297,9 @@ final class BoardMTKView: MTKView {
         painting = false
         panning = false
         lastDrag = nil
+        if wasPanning {
+            coordinator.engine.endCameraMotion()
+        }
         refreshCursor()
     }
 
@@ -329,8 +333,12 @@ final class BoardMTKView: MTKView {
             super.otherMouseUp(with: event)
             return
         }
+        let wasPanning = panning
         panning = false
         lastDrag = nil
+        if wasPanning, let coordinator = boardCoordinator {
+            coordinator.engine.endCameraMotion()
+        }
         refreshCursor()
     }
 

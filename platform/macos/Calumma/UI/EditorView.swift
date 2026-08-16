@@ -65,7 +65,7 @@ struct EditorView: View {
 
     private var canvasIsland: some View {
         let shape = RoundedRectangle(cornerRadius: Tokens.Radius.island, style: .continuous)
-        return BoardCanvas()
+        return canvasWithRulers
             .clipShape(shape)
             .background(colors.surface, in: shape)
             .overlay(shape.strokeBorder(colors.islandBorder, lineWidth: 1))
@@ -79,12 +79,63 @@ struct EditorView: View {
                 zoomControls
                     .padding(Tokens.Space.md)
             }
-            .overlay(alignment: .topLeading) {
-                eyedropperLoupeOverlay
-            }
             .onDrop(of: ArtworkImport.dropTypes, isTargeted: $artworkDropTargeted) { providers in
                 app.dropArtworkIntoWorkspace(providers: providers)
             }
+    }
+
+    /// Horizontal ruler along the top, vertical along the left, both inset (Figma-style) so
+    /// ticks never sit over paint — the board's own viewport just shrinks to what's left, the
+    /// same way it already reacts to any other resize (`BoardCanvas.Coordinator.resize`).
+    private var canvasWithRulers: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 0) {
+                rulerCorner
+                horizontalRuler
+            }
+            .frame(height: RulerView.thickness)
+
+            HStack(spacing: 0) {
+                verticalRuler
+                    .frame(width: RulerView.thickness)
+                BoardCanvas()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .overlay(alignment: .topLeading) {
+                        eyedropperLoupeOverlay
+                    }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    private var rulerCorner: some View {
+        Rectangle()
+            .fill(colors.surface)
+            .frame(width: RulerView.thickness, height: RulerView.thickness)
+    }
+
+    private var horizontalRuler: some View {
+        RulerView(
+            axis: .horizontal,
+            ticks: app.engine.rulerTicksX(),
+            zoom: app.engine.state.zoom,
+            pan: app.engine.state.panX
+        )
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(colors.islandBorder).frame(height: 1)
+        }
+    }
+
+    private var verticalRuler: some View {
+        RulerView(
+            axis: .vertical,
+            ticks: app.engine.rulerTicksY(),
+            zoom: app.engine.state.zoom,
+            pan: app.engine.state.panY
+        )
+        .overlay(alignment: .trailing) {
+            Rectangle().fill(colors.islandBorder).frame(width: 1)
+        }
     }
 
     @ViewBuilder

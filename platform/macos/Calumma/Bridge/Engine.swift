@@ -145,6 +145,13 @@ struct EngineState {
     var accentColor: Color { Color(rgb: accent) }
 }
 
+/// One ruler mark, in document pixels — the engine already resolved the adaptive
+/// 1/2/5×10ⁿ spacing, so the shell only draws what it's given.
+struct RulerTick {
+    var doc: Float
+    var major: Bool
+}
+
 final class Engine: ObservableObject, @unchecked Sendable {
     /// Readable across the bridge's own files (`EngineText`), settable only here.
     private(set) var ptr: OpaquePointer?
@@ -254,6 +261,11 @@ final class Engine: ObservableObject, @unchecked Sendable {
         syncStateSoon()
     }
 
+    func endCameraMotion() {
+        guard let ptr else { return }
+        _ = calm_engine_end_camera_motion(ptr)
+    }
+
     func panScroll(dx: Float, dy: Float, precise: Bool) {
         guard let ptr else { return }
         fitDeadline = 0
@@ -308,6 +320,32 @@ final class Engine: ObservableObject, @unchecked Sendable {
         guard let ptr else { return }
         _ = calm_engine_set_zoom_unit(ptr, unit)
         syncState()
+    }
+
+    /// Adaptive tick positions for one ruler axis, in document pixels — recomputed fresh
+    /// each call rather than cached, since `RulerView` only asks while the camera state it
+    /// reads has actually changed. `cap` is generous headroom over what any real viewport
+    /// produces (`RULER_MIN_MINOR_SPACING_PX` bounds the count to roughly `viewport / 8`).
+    private static let rulerTickCapacity = 1024
+
+    func rulerTicksX() -> [RulerTick] {
+        rulerTicks { calm_engine_ruler_ticks_x($0, $1, $2) }
+    }
+
+    func rulerTicksY() -> [RulerTick] {
+        rulerTicks { calm_engine_ruler_ticks_y($0, $1, $2) }
+    }
+
+    private func rulerTicks(
+        _ call: (OpaquePointer, UnsafeMutablePointer<CalmRulerTick>?, Int) -> Int
+    ) -> [RulerTick] {
+        guard let ptr else { return [] }
+        var buffer = Array(
+            repeating: CalmRulerTick(doc: 0, major: 0),
+            count: Self.rulerTickCapacity
+        )
+        let count = buffer.withUnsafeMutableBufferPointer { call(ptr, $0.baseAddress, Self.rulerTickCapacity) }
+        return (0..<count).map { RulerTick(doc: buffer[$0].doc, major: buffer[$0].major != 0) }
     }
 
     func setBoardColors(desk: Color, grid: Color, paperBorder: Color) {

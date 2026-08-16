@@ -5,8 +5,8 @@ use crate::layer::Layer;
 use crate::limits::{
     BRUSH_SIZE_DEFAULT, DEFAULT_INK, EFFECT_CHUNK_BYTES, FILL_TOLERANCE_DEFAULT,
     INK_OPACITY_DEFAULT, INK_OPACITY_MAX, INK_OPACITY_MIN, MAX_CANVAS_SIDE, MIN_CANVAS_SIDE,
-    MIN_STAMP_SPACING, MIN_STROKE_POINT_DISTANCE, PAPER_WHITE, STAMP_COVERAGE_PADDING,
-    STAMP_SPACING_RATIO, STROKE_POINT_CAPACITY,
+    MIN_STAMP_SPACING, MIN_STROKE_POINT_DISTANCE, PAPER_WHITE,
+    STAMP_COVERAGE_PADDING, STAMP_SPACING_RATIO, STROKE_POINT_CAPACITY,
 };
 use crate::palette::BoardColors;
 use crate::selection::{Selection, SelectionShape};
@@ -1508,6 +1508,54 @@ impl Document {
         } else {
             Some(acc)
         }
+    }
+
+    fn composite_pixel(&self, doc_x: f32, doc_y: f32) -> [u8; 4] {
+        let mut acc = [0u8; 4];
+        for layer in &self.layers {
+            if !layer.visible {
+                continue;
+            }
+            if layer.tiles().is_none() && layer.content.items().is_none() {
+                continue;
+            }
+            let src = layer_composited_pixel(layer, doc_x, doc_y, self.width, self.height);
+            if src[3] == 0 {
+                continue;
+            }
+            acc = blend_with_mode(acc, src, layer.blend_mode);
+        }
+        acc
+    }
+
+    pub fn composite_overview(&self, max_side: u32) -> (u32, u32, Vec<u8>) {
+        let max_side = max_side.max(1);
+        let dw = self.width.max(1);
+        let dh = self.height.max(1);
+        let scale = (max_side as f32 / dw as f32)
+            .min(max_side as f32 / dh as f32)
+            .min(1.0);
+        let tw = ((dw as f32) * scale).round().max(1.0) as u32;
+        let th = ((dh as f32) * scale).round().max(1.0) as u32;
+        let mut rgba = vec![0u8; (tw as usize) * (th as usize) * 4];
+        rgba.par_chunks_mut(4)
+            .enumerate()
+            .for_each(|(index, px)| {
+                let tx = (index as u32) % tw;
+                let ty = (index as u32) / tw;
+                let doc_x = if tw <= 1 {
+                    0.0
+                } else {
+                    tx as f32 * (dw - 1) as f32 / (tw - 1) as f32
+                };
+                let doc_y = if th <= 1 {
+                    0.0
+                } else {
+                    ty as f32 * (dh - 1) as f32 / (th - 1) as f32
+                };
+                px.copy_from_slice(&self.composite_pixel(doc_x, doc_y));
+            });
+        (tw, th, rgba)
     }
 
     pub fn pick_color(&mut self, doc_x: f32, doc_y: f32) -> Option<[u8; 4]> {
