@@ -12,6 +12,8 @@ use std::sync::Arc;
 pub struct DocumentMemory {
     pub tile_bytes: usize,
     pub history_bytes: usize,
+    /// Layer masks, plus the selection when it is a magic-wand bitmap rather than a formula —
+    /// the one selection shape that owns storage worth counting.
     pub mask_bytes: usize,
     pub vector_bytes: usize,
     pub text_bytes: usize,
@@ -77,6 +79,10 @@ pub fn document_memory(doc: &Document) -> DocumentMemory {
             LayerContent::Text { run, .. } => out.text_bytes += run.text.capacity(),
             LayerContent::Raster(_) => {}
         }
+    }
+
+    if let Some(selection) = &doc.selection {
+        out.mask_bytes += selection.memory_bytes();
     }
 
     out.history_bytes = doc.history.held_bytes(|tile| seen.count(tile).unwrap_or(0));

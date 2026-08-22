@@ -1,9 +1,11 @@
-use crate::compose::{rgba_unit, StrokeInstance};
+use crate::compose::{brush_params, rgba_unit, StrokeInstance};
 use bytemuck::{Pod, Zeroable};
 use calumma_core::tile::DocRect;
 use calumma_core::transform::bounds_center;
 use calumma_core::vector::items_bounds;
-use calumma_core::{Document, Layer, LayerTransform, VectorItem, VectorPath, VectorShape};
+use calumma_core::{
+    BrushProfile, Document, Layer, LayerTransform, VectorItem, VectorPath, VectorShape,
+};
 
 const SELECTION_COLOR: [f32; 4] = [0.24, 0.78, 0.84, 0.95];
 const SELECTION_WIDTH: f32 = 1.0;
@@ -92,8 +94,7 @@ pub fn push_path_instances(
         out.push(StrokeInstance {
             segment: [a.0, a.1, b.0, b.1],
             color,
-            radius,
-            _pad: [0.0; 3],
+            brush: brush_params(radius, &BrushProfile::HARD),
         });
     };
     match path.points.as_slice() {
@@ -140,16 +141,14 @@ pub fn vector_selection_instances(doc: &Document) -> Vec<StrokeInstance> {
         out.push(StrokeInstance {
             segment: [a.0, a.1, b.0, b.1],
             color: SELECTION_COLOR,
-            radius: SELECTION_WIDTH,
-            _pad: [0.0; 3],
+            brush: brush_params(SELECTION_WIDTH, &BrushProfile::HARD),
         });
     }
     for p in corners {
         out.push(StrokeInstance {
             segment: [p.0, p.1, p.0, p.1],
             color: SELECTION_COLOR,
-            radius: SELECTION_CORNER_RADIUS,
-            _pad: [0.0; 3],
+            brush: brush_params(SELECTION_CORNER_RADIUS, &BrushProfile::HARD),
         });
     }
     out

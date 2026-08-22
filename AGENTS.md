@@ -20,8 +20,8 @@ systems.
 
 **The engine owns all state and all compute. The shell owns nothing but UI knobs.**
 
-Shell knobs only: active tool, colour, brush size, ink opacity, shape fill, panel visibility, open tab
-ids, theme, **language**. Last-used shape and selection tools, tool taxonomy (`is_shape`,
+Shell knobs only: active tool, active brush, colour, brush size, ink opacity, flood tolerance,
+blur strength, shape fill, panel visibility, open tab ids, theme, **language**. Last-used shape and selection tools, tool taxonomy (`is_shape`,
 brush-size, vector-mode visibility), hex RGB, copy/cut bytes, and workspace switch live in
 the engine. Coordinate math, clamping, pixels, camera, history, ops dispatch,
 and board visuals live in Rust/WGSL.
@@ -380,7 +380,12 @@ This is a drawing tool aimed at pro-app workloads (large boards, many layers, lo
 sessions). Prefer speed carefully — measure, then optimise. Not a secrets vault, but also
 not a place to pile micro-opts that muddy the code for single-digit percent gains.
 
-- Live strokes/shapes preview on the GPU; CPU commits on pointer-up into sparse tiles.
+- Live strokes/shapes preview on the GPU; CPU commits on pointer-up into sparse tiles. A
+  brush stroke previews through an offscreen coverage target (`render/src/stroke_coverage.rs`)
+  so its own overlapping segments union rather than compound — the same maximum the CPU
+  accumulates in `core/src/coverage.rs`, so the stroke does not change on pointer-up. The blur
+  brush is the one exception to pointer-up commit: it has no colour to preview, so it paints
+  as the pointer moves.
 - Dirty-flag rendering; idle board submits nothing.
 - Tile pixels are `Arc` COW; history shares unchanged tiles (`Arc::make_mut` on write).
 - Cap history by memory budget; design for documents that outgrow a single bitmap.

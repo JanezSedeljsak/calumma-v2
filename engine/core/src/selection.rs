@@ -1,11 +1,25 @@
+use crate::selection_mask::SelectionMask;
 use crate::shape::{Shape, Tool};
 use crate::tile::DocRect;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum SelectionShape {
-    Rect { start: (f32, f32), end: (f32, f32) },
-    Ellipse { start: (f32, f32), end: (f32, f32) },
-    Lasso { points: Vec<(f32, f32)> },
+    Rect {
+        start: (f32, f32),
+        end: (f32, f32),
+    },
+    Ellipse {
+        start: (f32, f32),
+        end: (f32, f32),
+    },
+    Lasso {
+        points: Vec<(f32, f32)>,
+    },
+    /// What the magic wand's flood fill reached. The first shape whose answer is stored rather
+    /// than derived — see `selection_mask.rs`. Everything downstream (paint clipping, copy,
+    /// cut, delete) goes through `bounds` and `contains`, so nothing else had to change to
+    /// accept one.
+    Mask(SelectionMask),
 }
 
 impl SelectionShape {
@@ -30,6 +44,7 @@ impl SelectionShape {
                 }
                 DocRect::from_floats(min_x, min_y, max_x, max_y)
             }
+            Self::Mask(mask) => mask.bounds(),
         }
     }
 
@@ -56,6 +71,19 @@ impl SelectionShape {
                 shape.coverage(x, y) > 0.5
             }
             Self::Lasso { points } => point_in_polygon(x, y, points),
+            // Callers hand pixel centres (`x + 0.5`), so flooring lands on the pixel that
+            // centre belongs to rather than the one before it at exact integers.
+            Self::Mask(mask) => mask.get(x.floor() as i32, y.floor() as i32),
+        }
+    }
+
+    /// Bytes this shape owns beyond itself. Only a mask has any — the analytic shapes are a
+    /// handful of floats, and a lasso's points are bounded by the stroke buffer.
+    pub fn memory_bytes(&self) -> usize {
+        match self {
+            Self::Mask(mask) => mask.memory_bytes(),
+            Self::Lasso { points } => points.capacity() * std::mem::size_of::<(f32, f32)>(),
+            _ => 0,
         }
     }
 }
@@ -88,6 +116,10 @@ pub struct Selection {
 impl Selection {
     pub fn bounds(&self) -> DocRect {
         self.shape.bounds()
+    }
+
+    pub fn memory_bytes(&self) -> usize {
+        self.shape.memory_bytes()
     }
 
     pub fn contains(&self, x: f32, y: f32) -> bool {

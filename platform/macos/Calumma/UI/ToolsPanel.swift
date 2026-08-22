@@ -57,6 +57,7 @@ struct ToolsPanel: View {
             toolButton(.move) { AppIcon.moveIcon(color: iconColor(.move)) }
             toolButton(.pen) { AppIcon.pen(color: iconColor(.pen)) }
             toolButton(.eraser) { AppIcon.eraser(color: iconColor(.eraser)) }
+            toolButton(.blur) { AppIcon.blur(color: iconColor(.blur)) }
             shapeToolButton
             selectToolButton
             toolButton(.bucket) { AppIcon.bucket(color: iconColor(.bucket)) }
@@ -72,6 +73,7 @@ struct ToolsPanel: View {
         case .pen: return l10n.toolPen
         case .eraser: return l10n.toolEraser
         case .bucket: return l10n.toolBucket
+        case .blur: return l10n.toolBlur
         case .eyedropper: return l10n.toolEyedropper
         case .text: return l10n.toolText
         case .move: return l10n.toolMove
@@ -98,11 +100,21 @@ struct ToolsPanel: View {
                     selectPick(.selectRect)
                     selectPick(.selectEllipse)
                     selectPick(.selectLasso)
+                    selectPick(.magicWand)
                 }
             }
 
             if app.tool == .text {
                 TextOptions()
+            }
+
+            if showsBrush {
+                Self.iconGrid {
+                    brushPick(.pen)
+                    brushPick(.marker)
+                    brushPick(.crayon)
+                    brushPick(.airbrush)
+                }
             }
 
             if showsBrushSize {
@@ -131,6 +143,36 @@ struct ToolsPanel: View {
                         get: { Double(app.inkOpacity) },
                         set: { app.inkOpacity = Float($0) }
                     ), in: Double(Engine.inkOpacityMin)...Double(Engine.inkOpacityMax))
+                    .controlSize(.mini)
+                }
+            }
+
+            if showsBlurStrength {
+                VStack(spacing: 2) {
+                    HStack {
+                        CalmText.muted(l10n.blurStrength)
+                        Spacer()
+                        CalmText.muted("\(Int((app.blurStrength * 100).rounded()))", mono: true)
+                    }
+                    Slider(value: Binding(
+                        get: { Double(app.blurStrength) },
+                        set: { app.blurStrength = Float($0) }
+                    ), in: Double(Engine.blurStrengthMin)...Double(Engine.blurStrengthMax))
+                    .controlSize(.mini)
+                }
+            }
+
+            if showsTolerance {
+                VStack(spacing: 2) {
+                    HStack {
+                        CalmText.muted(l10n.tolerance)
+                        Spacer()
+                        CalmText.muted("\(app.tolerance)", mono: true)
+                    }
+                    Slider(value: Binding(
+                        get: { Double(app.tolerance) },
+                        set: { app.tolerance = UInt8($0.rounded()) }
+                    ), in: Double(Engine.toleranceMin)...Double(Engine.toleranceMax))
                     .controlSize(.mini)
                 }
             }
@@ -171,6 +213,20 @@ struct ToolsPanel: View {
 
     private var showsInkOpacity: Bool {
         app.tool.takesInkOpacity
+    }
+
+    private var showsBlurStrength: Bool {
+        app.tool.takesBlurStrength
+    }
+
+    private var showsTolerance: Bool {
+        app.tool.takesTolerance
+    }
+
+    /// A vector stroke has no pixels to shape, so the picker would be lying about what it
+    /// does — it hides rather than sitting there inert.
+    private var showsBrush: Bool {
+        app.tool.takesBrush && !app.vectorMode
     }
 
     private var aiIsBusy: Bool { app.engine.aiOpBusyLayer != nil }
@@ -215,6 +271,36 @@ struct ToolsPanel: View {
         }
     }
 
+    private func brushPick(_ brush: CalmBrush) -> some View {
+        CalmToolButton(
+            selected: app.brush == brush,
+            action: { app.brush = brush },
+            tooltip: brushName(brush),
+            tooltipEdge: .trailing
+        ) {
+            brushIcon(brush, color: app.brush == brush ? colors.accentTeal : colors.textMuted)
+        }
+    }
+
+    @ViewBuilder
+    private func brushIcon(_ brush: CalmBrush, color: Color) -> some View {
+        switch brush {
+        case .pen: AppIcon.pen(color: color)
+        case .marker: AppIcon.marker(color: color)
+        case .crayon: AppIcon.crayon(color: color)
+        case .airbrush: AppIcon.airbrush(color: color)
+        }
+    }
+
+    private func brushName(_ brush: CalmBrush) -> String {
+        switch brush {
+        case .pen: return l10n.brushPen
+        case .marker: return l10n.brushMarker
+        case .crayon: return l10n.brushCrayon
+        case .airbrush: return l10n.brushAirbrush
+        }
+    }
+
     private func shapePick(_ tool: CalmTool) -> some View {
         CalmToolButton(
             selected: app.tool == tool,
@@ -238,10 +324,12 @@ struct ToolsPanel: View {
         case .pen: AppIcon.pen(color: color)
         case .eraser: AppIcon.eraser(color: color)
         case .bucket: AppIcon.bucket(color: color)
+        case .blur: AppIcon.blur(color: color)
         case .eyedropper: AppIcon.eyedropper(color: color)
         case .text: AppIcon.text(color: color)
         case .move: AppIcon.moveIcon(color: color)
         case .selectRect, .selectEllipse, .selectLasso: AppIcon.selectRect(color: color)
+        case .magicWand: AppIcon.magicWand(color: color)
         }
     }
 
@@ -274,6 +362,7 @@ struct ToolsPanel: View {
         switch tool {
         case .selectEllipse: AppIcon.selectEllipse(color: color)
         case .selectLasso: AppIcon.selectLasso(color: color)
+        case .magicWand: AppIcon.magicWand(color: color)
         default: AppIcon.selectRect(color: color)
         }
     }
@@ -292,6 +381,7 @@ struct ToolsPanel: View {
         case .pen: return l10n.toolPen
         case .eraser: return l10n.toolEraser
         case .bucket: return l10n.toolBucket
+        case .blur: return l10n.toolBlur
         case .line: return l10n.toolLine
         case .rect: return l10n.toolRect
         case .ellipse: return l10n.toolEllipse
@@ -301,6 +391,7 @@ struct ToolsPanel: View {
         case .selectRect: return l10n.toolSelectRect
         case .selectEllipse: return l10n.toolSelectEllipse
         case .selectLasso: return l10n.toolSelectLasso
+        case .magicWand: return l10n.toolMagicWand
         case .eyedropper: return l10n.toolEyedropper
         case .text: return l10n.toolText
         case .move: return l10n.toolMove

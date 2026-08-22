@@ -1,6 +1,6 @@
 use calumma_core::filters::{AdjustmentLut, Adjustments};
 use calumma_core::tile::{TileCoord, TILE_BYTES, TILE_SIZE};
-use calumma_core::{Document, Layer, Selection, SelectionShape, StrokePoint, Tool};
+use calumma_core::{BrushProfile, Document, Layer, Selection, SelectionShape, StrokePoint, Tool};
 use calumma_render::compose::*;
 
 fn opaque_tile() -> Vec<u8> {
@@ -26,15 +26,20 @@ fn rgba_unit_maps_bytes_onto_the_zero_to_one_range() {
 
 #[test]
 fn stroke_instances_is_empty_for_no_points() {
-    assert!(stroke_instances(&[], 2.0, [1.0, 0.0, 0.0, 1.0]).is_empty());
+    assert!(stroke_instances(&[], 2.0, [1.0, 0.0, 0.0, 1.0], &BrushProfile::HARD).is_empty());
 }
 
 #[test]
 fn a_single_point_becomes_one_degenerate_dot_segment() {
-    let out = stroke_instances(&[StrokePoint { x: 3.0, y: 4.0 }], 2.5, [1.0, 0.0, 0.0, 1.0]);
+    let out = stroke_instances(
+        &[StrokePoint { x: 3.0, y: 4.0 }],
+        2.5,
+        [1.0, 0.0, 0.0, 1.0],
+        &BrushProfile::HARD,
+    );
     assert_eq!(out.len(), 1);
     assert_eq!(out[0].segment, [3.0, 4.0, 3.0, 4.0]);
-    assert_eq!(out[0].radius, 2.5);
+    assert_eq!(out[0].brush[0], 2.5);
 }
 
 #[test]
@@ -45,7 +50,7 @@ fn n_points_become_n_minus_one_segments_joined_end_to_end() {
             y: (i * 2) as f32,
         })
         .collect();
-    let out = stroke_instances(&points, 1.0, [0.0, 1.0, 0.0, 1.0]);
+    let out = stroke_instances(&points, 1.0, [0.0, 1.0, 0.0, 1.0], &BrushProfile::HARD);
     assert_eq!(out.len(), 4);
     assert_eq!(out[0].segment, [0.0, 0.0, 1.0, 2.0]);
     assert_eq!(out[3].segment, [3.0, 6.0, 4.0, 8.0]);
@@ -401,9 +406,9 @@ fn text_overlay_draws_a_four_edge_box_and_a_caret_that_blinks() {
     let visible = text_overlay_instances(&doc, 0.0);
     assert_eq!(visible.len(), 5, "four box edges plus a visible caret");
     for edge in &visible[0..4] {
-        assert_eq!(edge.radius, 0.5, "box edges use the hairline width");
+        assert_eq!(edge.brush[0], 0.5, "box edges use the hairline width");
     }
-    assert_eq!(visible[4].radius, 1.0, "the caret is drawn thicker");
+    assert_eq!(visible[4].brush[0], 1.0, "the caret is drawn thicker");
 
     let hidden = text_overlay_instances(&doc, 0.7);
     assert_eq!(hidden.len(), 4, "mid-cycle the caret blinks off");

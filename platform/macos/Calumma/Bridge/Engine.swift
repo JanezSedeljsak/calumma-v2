@@ -53,6 +53,13 @@ struct LayerAdjustments: Equatable {
     }
 }
 
+enum CalmBrush: UInt32, CaseIterable {
+    case pen = 0
+    case marker = 1
+    case crayon = 2
+    case airbrush = 3
+}
+
 enum CalmTool: UInt32 {
     case pen = 0
     case line = 1
@@ -69,12 +76,17 @@ enum CalmTool: UInt32 {
     case pentagon = 13
     case text = 14
     case move = 15
+    case blur = 16
+    case magicWand = 17
 
     var isShape: Bool { calm_tool_is_shape(rawValue) != 0 }
     var isSelection: Bool { calm_tool_is_selection(rawValue) != 0 }
     var takesBrushSize: Bool { calm_tool_takes_brush_size(rawValue) != 0 }
     var takesInkOpacity: Bool { calm_tool_takes_ink_opacity(rawValue) != 0 }
     var showsVectorMode: Bool { calm_tool_shows_vector_mode(rawValue) != 0 }
+    var takesBlurStrength: Bool { calm_tool_takes_blur_strength(rawValue) != 0 }
+    var takesTolerance: Bool { calm_tool_takes_tolerance(rawValue) != 0 }
+    var takesBrush: Bool { calm_tool_takes_brush(rawValue) != 0 }
 }
 
 struct ProjectInfo: Identifiable, Hashable {
@@ -209,6 +221,12 @@ final class Engine: ObservableObject, @unchecked Sendable {
     static var inkOpacityMin: Float { calm_ink_opacity_min() }
     static var inkOpacityMax: Float { calm_ink_opacity_max() }
     static var inkOpacityDefault: Float { calm_ink_opacity_default() }
+    static var blurStrengthMin: Float { calm_blur_strength_min() }
+    static var blurStrengthMax: Float { calm_blur_strength_max() }
+    static var blurStrengthDefault: Float { calm_blur_strength_default() }
+    static var toleranceMin: UInt8 { calm_tolerance_min() }
+    static var toleranceMax: UInt8 { calm_tolerance_max() }
+    static var toleranceDefault: UInt8 { calm_tolerance_default() }
 
     init() {
         ptr = calm_engine_new(nil)
@@ -471,6 +489,21 @@ final class Engine: ObservableObject, @unchecked Sendable {
     func setInkOpacity(_ opacity: Float) {
         guard let ptr else { return }
         _ = calm_engine_set_ink_opacity(ptr, opacity)
+    }
+
+    func setBlurStrength(_ strength: Float) {
+        guard let ptr else { return }
+        _ = calm_engine_set_blur_strength(ptr, strength)
+    }
+
+    func setTolerance(_ tolerance: UInt8) {
+        guard let ptr else { return }
+        _ = calm_engine_set_tolerance(ptr, tolerance)
+    }
+
+    func setBrush(_ brush: CalmBrush) {
+        guard let ptr else { return }
+        _ = calm_engine_set_brush_kind(ptr, brush.rawValue)
     }
 
     func setFill(_ fill: Bool) {

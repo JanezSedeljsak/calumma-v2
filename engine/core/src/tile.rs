@@ -868,6 +868,50 @@ impl TileGrid {
         }
     }
 
+    /// Copy an arbitrary document-space rectangle out into a tightly packed RGBA buffer,
+    /// `rect` wide and transparent wherever the grid has no tile. Row-at-a-time per tile, the
+    /// same way `copy_into_rgba` walks the whole grid — a read-modify-write brush needs its
+    /// neighbourhood in one flat buffer, and doing that with `get_pixel` would be a hash
+    /// lookup per pixel.
+    ///
+    /// Pixels of `rect` that fall outside the document are left transparent rather than
+    /// clamped; the caller decides what a document edge means to it.
+    pub fn copy_rect_rgba(&self, rect: DocRect) -> Vec<u8> {
+        let width = (rect.max_x - rect.min_x + 1).max(0) as usize;
+        let height = (rect.max_y - rect.min_y + 1).max(0) as usize;
+        let mut out = vec![0u8; width * height * CHANNELS];
+        if width == 0 || height == 0 {
+            return out;
+        }
+        let Some(span) = rect.intersect(self.bounds()) else {
+            return out;
+        };
+        let ts = TILE_SIZE as i32;
+        let (tx0, ty0, tx1, ty1) = span.tile_span();
+        for ty in ty0..=ty1 {
+            for tx in tx0..=tx1 {
+                let coord = TileCoord { x: tx, y: ty };
+                let Some(pixels) = self.tiles.get(&coord) else {
+                    continue;
+                };
+                let (ox, oy) = coord.origin();
+                let Some(cell) = span.intersect(DocRect::new(ox, oy, ox + ts - 1, oy + ts - 1))
+                else {
+                    continue;
+                };
+                let run = ((cell.max_x - cell.min_x + 1) as usize) * CHANNELS;
+                for y in cell.min_y..=cell.max_y {
+                    let src = pixel_index((cell.min_x - ox) as usize, (y - oy) as usize);
+                    let dst = (((y - rect.min_y) as usize) * width
+                        + (cell.min_x - rect.min_x) as usize)
+                        * CHANNELS;
+                    out[dst..dst + run].copy_from_slice(&pixels[src..src + run]);
+                }
+            }
+        }
+        out
+    }
+
     pub fn clear(&mut self) {
         self.mark_all_dirty();
         self.tiles.clear();

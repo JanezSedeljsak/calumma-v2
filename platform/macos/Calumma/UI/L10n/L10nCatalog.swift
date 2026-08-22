@@ -173,6 +173,13 @@ struct L10nCatalog: Equatable {
     var toolPen: String { self["toolPen"] }
     var toolEraser: String { self["toolEraser"] }
     var toolBucket: String { self["toolBucket"] }
+    var toolBlur: String { self["toolBlur"] }
+    var toolMagicWand: String { self["toolMagicWand"] }
+    var brush: String { self["brush"] }
+    var brushPen: String { self["brushPen"] }
+    var brushMarker: String { self["brushMarker"] }
+    var brushCrayon: String { self["brushCrayon"] }
+    var brushAirbrush: String { self["brushAirbrush"] }
     var toolEyedropper: String { self["toolEyedropper"] }
     var toolTransform: String { self["toolTransform"] }
     var toolText: String { self["toolText"] }
@@ -200,6 +207,8 @@ struct L10nCatalog: Equatable {
     var toolSelectLasso: String { self["toolSelectLasso"] }
     var brushSize: String { self["brushSize"] }
     var inkOpacity: String { self["inkOpacity"] }
+    var blurStrength: String { self["blurStrength"] }
+    var tolerance: String { self["tolerance"] }
     var color: String { self["color"] }
     var primaryColor: String { self["primaryColor"] }
     var secondaryColor: String { self["secondaryColor"] }

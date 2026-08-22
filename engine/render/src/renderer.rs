@@ -1,10 +1,11 @@
 use crate::compose::{
     composited_tile_payload, layer_highlight_instances, rgba_unit, selection_lasso_points,
-    selection_rect_or_ellipse, stroke_instances, text_overlay_instances, tile_upload_levels,
-    transform_overlay_instances, StrokeInstance,
+    selection_mask_edges, selection_rect_or_ellipse, stroke_instances, text_overlay_instances,
+    tile_upload_levels, transform_overlay_instances, StrokeInstance,
 };
 use crate::framebuffer::{self, PanCache, PanCacheSlot, PxRect};
 use crate::overview::OverviewPass;
+use crate::stroke_coverage::StrokeCoverage;
 use crate::tile_atlas::TileAtlas;
 use crate::vector_draw::{
     item_visible, push_path_instances, shape_instance, vector_placement,
@@ -18,7 +19,7 @@ use calumma_core::limits::{
     TILE_INSTANCE_CAPACITY, VECTOR_SHAPE_INSTANCE_CAPACITY,
 };
 use calumma_core::tile::{DirtyChannel, TileCoord, TileGrid};
-use calumma_core::{BlendMode, Document, Tool, VectorItem};
+use calumma_core::{BlendMode, BrushProfile, Document, Tool, VectorItem};
 use rayon::prelude::*;
 use rustc_hash::FxHashSet;
 use std::collections::HashMap;
@@ -98,19 +99,20 @@ impl Default for LayerXform {
 
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
-struct PreviewUniforms {
-    pan: [f32; 2],
-    zoom: f32,
-    dpr: f32,
-    viewport: [f32; 2],
-    _align_color: [f32; 2],
-    color: [f32; 4],
-    p0: [f32; 2],
-    p1: [f32; 2],
-    half_width: f32,
-    tool: f32,
-    fill: f32,
-    _pad: f32,
+pub(crate) struct PreviewUniforms {
+    pub(crate) pan: [f32; 2],
+    pub(crate) zoom: f32,
+    pub(crate) dpr: f32,
+    pub(crate) viewport: [f32; 2],
+    pub(crate) _align_color: [f32; 2],
+    pub(crate) color: [f32; 4],
+    pub(crate) p0: [f32; 2],
+    pub(crate) p1: [f32; 2],
+    pub(crate) half_width: f32,
+    pub(crate) tool: f32,
+    pub(crate) fill: f32,
+    pub(crate) _pad: f32,
+    pub(crate) stroke_ink: [f32; 4],
 }
 
 /// A tile GPU-resident in the shared atlas: just which array layer holds it. Texture and
@@ -181,6 +183,7 @@ pub struct Renderer {
     solid_pipeline_multiply: wgpu::RenderPipeline,
     solid_pipeline_screen: wgpu::RenderPipeline,
     stroke_pipeline: wgpu::RenderPipeline,
+    stroke_coverage: StrokeCoverage,
     shape_pipeline: wgpu::RenderPipeline,
     vector_shape_pipeline: wgpu::RenderPipeline,
     paper_buf: wgpu::Buffer,
@@ -512,6 +515,18 @@ impl Renderer {
             cache: None,
         });
 
+        let stroke_coverage = StrokeCoverage::new(
+            &device,
+            &shader,
+            &preview_bgl,
+            wgpu::VertexBufferLayout {
+                array_stride: std::mem::size_of::<StrokeInstance>() as u64,
+                step_mode: wgpu::VertexStepMode::Instance,
+                attributes: STROKE_ATTRS,
+            },
+            format,
+        );
+
         let shape_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("shape-preview"),
             layout: Some(&preview_pl),
@@ -601,6 +616,7 @@ impl Renderer {
             solid_pipeline_multiply,
             solid_pipeline_screen,
             stroke_pipeline,
+            stroke_coverage,
             shape_pipeline,
             vector_shape_pipeline,
             paper_buf,
@@ -885,6 +901,7 @@ impl Renderer {
         self.clear_layer_cache();
         self.overview.clear();
         self.pan_cache.invalidate();
+        self.stroke_coverage.release();
         self.frame_dirty = FrameDirty::Content;
     }
 
@@ -1537,6 +1554,7 @@ impl Renderer {
 
         let preview_shape = doc.preview_shape();
         let mut overlay_range = 0u32..0u32;
+        let mut brush_range = 0u32..0u32;
         if !camera_only {
             let ink = doc.ink_rgba();
             let color = [
@@ -1579,6 +1597,7 @@ impl Renderer {
                 tool,
                 fill,
                 _pad: 0.0,
+                stroke_ink: rgba_unit(doc.stroke_ink()),
             };
             self.queue
                 .write_buffer(&self.preview_buf, 0, bytemuck::bytes_of(&preview));
@@ -1589,6 +1608,7 @@ impl Renderer {
             } else {
                 color
             };
+            let mut brush_instances: Vec<StrokeInstance> = Vec::new();
             let mut instances = if self.camera_motion {
                 Vec::new()
             } else {
@@ -1600,8 +1620,20 @@ impl Renderer {
                     doc,
                     self.started.elapsed().as_secs_f32(),
                 ));
-            } else if !doc.stroke_points.is_empty() {
-                instances.extend(stroke_instances(&doc.stroke_points, radius, stroke_color));
+            } else if doc.previews_brush_stroke() {
+                brush_instances = stroke_instances(
+                    &doc.stroke_points,
+                    radius,
+                    stroke_color,
+                    &doc.active_brush_profile(),
+                );
+            } else if !doc.stroke_points.is_empty() && doc.tool.previews_stroke() {
+                instances.extend(stroke_instances(
+                    &doc.stroke_points,
+                    radius,
+                    stroke_color,
+                    &BrushProfile::HARD,
+                ));
             } else if let Some(handles) = doc.transform_handles() {
                 instances.extend(transform_overlay_instances(handles));
                 instances.extend(vector_selection_instances(doc));
@@ -1610,7 +1642,12 @@ impl Renderer {
                     &points,
                     SELECTION_OUTLINE_WIDTH,
                     SELECTION_OUTLINE_COLOR,
+                    &BrushProfile::HARD,
                 ));
+            } else if let Some(edges) =
+                selection_mask_edges(doc, SELECTION_OUTLINE_WIDTH, SELECTION_OUTLINE_COLOR)
+            {
+                instances.extend(edges);
             }
             if let Some((index, corners)) = doc.layer_highlight() {
                 let covered = doc
@@ -1624,6 +1661,13 @@ impl Renderer {
                 }
             }
             overlay_range = overlay_start..instances.len() as u32;
+            let brush_start = instances.len() as u32;
+            instances.append(&mut brush_instances);
+            brush_range = brush_start..instances.len() as u32;
+            if !brush_range.is_empty() {
+                self.stroke_coverage
+                    .ensure(&self.device, self.config.width, self.config.height);
+            }
             let strokes_dirty = need_draw_rebuild || overlay_start < instances.len() as u32;
 
             if strokes_dirty && !instances.is_empty() {
@@ -1694,6 +1738,16 @@ impl Renderer {
             })
         };
 
+        if !brush_range.is_empty() {
+            self.stroke_coverage.accumulate(
+                &mut encoder,
+                &self.preview_bg,
+                &self.stroke_buf,
+                brush_range.clone(),
+                scissor,
+            );
+        }
+
         // One render pass for the whole frame. These four stages used to be four separate
         // passes chained with LoadOp::Load — correct, but every begin/end pair is a real
         // boundary on tile-based GPUs (Apple Silicon among them), forcing a tile-memory
@@ -1737,6 +1791,10 @@ impl Renderer {
                     pass.set_bind_group(0, &self.preview_bg, &[]);
                     pass.set_vertex_buffer(0, self.stroke_buf.slice(..));
                     pass.draw(0..6, overlay_range.clone());
+                }
+
+                if !brush_range.is_empty() {
+                    self.stroke_coverage.composite(&mut pass, &self.preview_bg);
                 }
 
                 if preview_shape.is_some() {
@@ -1850,7 +1908,7 @@ const TILE_INSTANCE_ATTRS: &[wgpu::VertexAttribute] = &[
     },
 ];
 
-const STROKE_ATTRS: &[wgpu::VertexAttribute] = &[
+pub(crate) const STROKE_ATTRS: &[wgpu::VertexAttribute] = &[
     wgpu::VertexAttribute {
         offset: 0,
         shader_location: 0,
@@ -1864,7 +1922,7 @@ const STROKE_ATTRS: &[wgpu::VertexAttribute] = &[
     wgpu::VertexAttribute {
         offset: 32,
         shader_location: 2,
-        format: wgpu::VertexFormat::Float32,
+        format: wgpu::VertexFormat::Float32x4,
     },
 ];
 

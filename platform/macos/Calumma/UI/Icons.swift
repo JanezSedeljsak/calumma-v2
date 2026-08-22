@@ -25,6 +25,26 @@ enum AppIcon {
         SvgIcon(name: "eraser", color: color)
     }
 
+    static func blur(color: Color) -> some View {
+        SvgIcon(name: "blur", color: color)
+    }
+
+    static func magicWand(color: Color) -> some View {
+        SvgIcon(name: "magic-wand", color: color)
+    }
+
+    static func marker(color: Color) -> some View {
+        SvgIcon(name: "marker", color: color)
+    }
+
+    static func crayon(color: Color) -> some View {
+        SvgIcon(name: "crayon", color: color)
+    }
+
+    static func airbrush(color: Color) -> some View {
+        SvgIcon(name: "airbrush", color: color)
+    }
+
     static func fitToView(color: Color) -> some View {
         SvgIcon(name: "fit-to-view", color: color)
     }

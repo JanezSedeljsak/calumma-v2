@@ -41,6 +41,9 @@ final class AppModel: ObservableObject {
     private var editingHSB = false
     @Published var brushSize: Float = 3
     @Published var inkOpacity: Float = Engine.inkOpacityDefault
+    @Published var blurStrength: Float = Engine.blurStrengthDefault
+    @Published var tolerance: UInt8 = Engine.toleranceDefault
+    @Published var brush: CalmBrush = .pen
     @Published var fill = false
     @Published var vectorMode = false
     @Published var layersOpen = true
@@ -516,6 +519,9 @@ final class AppModel: ObservableObject {
         engine.setColor(color)
         engine.setBrush(brushSize)
         engine.setInkOpacity(inkOpacity)
+        engine.setBlurStrength(blurStrength)
+        engine.setTolerance(tolerance)
+        engine.setBrush(brush)
         engine.setFill(fill)
         engine.setVectorMode(vectorMode)
         engine.setDark(theme.isDark)

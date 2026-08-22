@@ -1,6 +1,6 @@
 use crate::selection::Selection;
-use crate::tile::{DocRect, TileGrid};
-use rustc_hash::FxHashSet;
+use crate::selection_mask::SelectionMask;
+use crate::tile::{blend_over, DocRect, TileGrid};
 use std::collections::VecDeque;
 
 fn color_distance(a: [u8; 4], b: [u8; 4]) -> u32 {
@@ -11,6 +11,68 @@ fn color_distance(a: [u8; 4], b: [u8; 4]) -> u32 {
     (dr * dr + dg * dg + db * db + da * da) as u32
 }
 
+/// The traversal itself: which pixels are contiguous with `(start_x, start_y)` and within
+/// `tolerance` of its colour.
+///
+/// The bucket and the magic wand are the same walk with different endings — one paints what it
+/// reached, the other selects it — so they share this rather than each carrying a copy. A wand
+/// that disagreed with the bucket about what "contiguous" or "within tolerance" means would be
+/// a bug report, and two implementations is how that happens.
+///
+/// Tolerance is squared Euclidean distance over all four channels, alpha included: a
+/// transparent region reads as its own colour, which is what makes the wand able to select the
+/// empty space around a sketch.
+///
+/// The two bitmaps double as the visited set this walk used to keep in a hash set — `visited`
+/// marks enqueued, `reached` marks passed the tolerance test — at a bit per pixel rather than
+/// a 64-bit hash entry per pixel, which is what lets the wand flood a whole document without
+/// the bookkeeping outweighing the document.
+pub fn flood_region(
+    tiles: &TileGrid,
+    scope: DocRect,
+    start_x: i32,
+    start_y: i32,
+    selection: Option<&Selection>,
+    tolerance: u8,
+) -> Option<SelectionMask> {
+    if !scope.contains(start_x, start_y) || scope.is_empty() {
+        return None;
+    }
+    let target = tiles.get_pixel(start_x, start_y);
+    let tol2 = (tolerance as u32) * (tolerance as u32) * 4;
+    let origin = (scope.min_x, scope.min_y);
+    let width = (scope.max_x - scope.min_x + 1) as u32;
+    let height = (scope.max_y - scope.min_y + 1) as u32;
+
+    let mut visited = SelectionMask::new(origin, width, height);
+    let mut reached = SelectionMask::new(origin, width, height);
+    let mut queue = VecDeque::new();
+    queue.push_back((start_x, start_y));
+    visited.set(start_x, start_y);
+
+    while let Some((x, y)) = queue.pop_front() {
+        if color_distance(tiles.get_pixel(x, y), target) > tol2 {
+            continue;
+        }
+        reached.set(x, y);
+        for (nx, ny) in [(x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)] {
+            if !scope.contains(nx, ny) || visited.get(nx, ny) {
+                continue;
+            }
+            if let Some(sel) = selection {
+                if !sel.contains(nx as f32 + 0.5, ny as f32 + 0.5) {
+                    continue;
+                }
+            }
+            visited.set(nx, ny);
+            queue.push_back((nx, ny));
+        }
+    }
+    reached.finish()
+}
+
+/// Traverse, then paint what was reached. Returns the pixel count so the caller can tell a
+/// real edit from a click that landed on the fill colour already.
 #[allow(clippy::too_many_arguments)]
 pub fn flood_fill(
     tiles: &mut TileGrid,
@@ -21,41 +83,25 @@ pub fn flood_fill(
     selection: Option<&Selection>,
     tolerance: u8,
 ) -> usize {
-    if !bounds.contains(start_x, start_y) {
-        return 0;
-    }
     if color[3] == 0 {
         return 0;
     }
-    let target = tiles.get_pixel(start_x, start_y);
-    if target == color {
+    if !bounds.contains(start_x, start_y) {
         return 0;
     }
-    let tol2 = (tolerance as u32) * (tolerance as u32) * 4;
-    let mut visited: FxHashSet<(i32, i32)> = FxHashSet::default();
-    let mut queue = VecDeque::new();
-    queue.push_back((start_x, start_y));
-    visited.insert((start_x, start_y));
-    let mut touched = 0usize;
-    while let Some((x, y)) = queue.pop_front() {
-        let current = tiles.get_pixel(x, y);
-        if color_distance(current, target) > tol2 {
-            continue;
-        }
-        tiles.blend_pixel(x, y, color);
-        touched += 1;
-        for (nx, ny) in [(x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)] {
-            if !bounds.contains(nx, ny) || visited.contains(&(nx, ny)) {
-                continue;
-            }
-            if let Some(sel) = selection {
-                if !sel.contains(nx as f32 + 0.5, ny as f32 + 0.5) {
-                    continue;
-                }
-            }
-            visited.insert((nx, ny));
-            queue.push_back((nx, ny));
-        }
+    if tiles.get_pixel(start_x, start_y) == color {
+        return 0;
     }
-    touched
+    let Some(region) = flood_region(tiles, bounds, start_x, start_y, selection, tolerance) else {
+        return 0;
+    };
+    let mut painted = 0usize;
+    tiles.paint_rect(region.bounds(), |x, y, dst| {
+        if !region.get(x, y) {
+            return None;
+        }
+        painted += 1;
+        Some(blend_over(dst, color))
+    });
+    painted
 }

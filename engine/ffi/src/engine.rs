@@ -4,7 +4,7 @@ use anyhow::{anyhow, bail, Context};
 use calumma_core::limits::{AUTOSAVE_INTERVAL_MS, BRUSH_SIZE_MAX, BRUSH_SIZE_MIN, IMPORT_MAX_SIDE};
 use calumma_core::{
     pack_rgba, project_color, unpack_rgba, unpremultiply_rgba, AdjustmentKind, Adjustments,
-    BlendMode, BoardColors, Document, Tool, PROJECT_COLORS,
+    BlendMode, BoardColors, Brush, Document, Tool, PROJECT_COLORS,
 };
 use calumma_io::{encode_psd, encode_svg, ProjectListItem, ProjectStore};
 use calumma_ops::{
@@ -905,6 +905,52 @@ pub unsafe extern "C" fn calm_engine_set_ink_opacity(
             doc.set_ink_opacity(opacity);
         }
         inner.invalidate_renderer();
+        Ok(())
+    })
+}
+
+/// Blur brush strength. Not an ink knob — the blur has no colour — so it is its own setter
+/// rather than another meaning for `set_ink_opacity`.
+#[no_mangle]
+pub unsafe extern "C" fn calm_engine_set_blur_strength(
+    engine: *mut CalmEngine,
+    strength: f32,
+) -> CalmStatus {
+    with_inner(engine, |inner| {
+        if let Some(doc) = &mut inner.doc {
+            doc.set_blur_strength(strength);
+        }
+        Ok(())
+    })
+}
+
+/// Which brush the pen lays ink down with. Size stays `calm_engine_set_brush`; this is the
+/// character of the ink, not how much of it there is.
+#[no_mangle]
+pub unsafe extern "C" fn calm_engine_set_brush_kind(
+    engine: *mut CalmEngine,
+    brush: u32,
+) -> CalmStatus {
+    with_inner(engine, |inner| {
+        let next = Brush::from_u32(brush).with_context(|| format!("unknown brush id {brush}"))?;
+        if let Some(doc) = &mut inner.doc {
+            doc.set_brush(next);
+        }
+        inner.invalidate_renderer();
+        Ok(())
+    })
+}
+
+/// Flood tolerance, shared by the bucket and the magic wand.
+#[no_mangle]
+pub unsafe extern "C" fn calm_engine_set_tolerance(
+    engine: *mut CalmEngine,
+    tolerance: u8,
+) -> CalmStatus {
+    with_inner(engine, |inner| {
+        if let Some(doc) = &mut inner.doc {
+            doc.set_tolerance(tolerance);
+        }
         Ok(())
     })
 }

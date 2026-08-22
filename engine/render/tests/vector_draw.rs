@@ -43,7 +43,7 @@ fn a_path_becomes_one_instance_per_segment() {
     push_path_instances(&path, None, &mut out);
     assert_eq!(out.len(), 2);
     assert_eq!(out[0].segment, [0.0, 0.0, 10.0, 0.0]);
-    assert_eq!(out[0].radius, 2.0, "radius is half the stroke width");
+    assert_eq!(out[0].brush[0], 2.0, "radius is half the stroke width");
 }
 
 #[test]
@@ -133,7 +133,7 @@ fn a_scaled_layer_scales_the_stroke_with_the_geometry() {
         unreachable!()
     };
     push_path_instances(path, vector_placement(&layer), &mut out);
-    assert_eq!(out[0].radius, 4.0);
+    assert_eq!(out[0].brush[0], 4.0);
 }
 
 #[test]

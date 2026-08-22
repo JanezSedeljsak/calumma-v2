@@ -1,12 +1,15 @@
+use crate::brush::{Brush, BrushProfile};
 use crate::camera::Camera;
+use crate::coverage::CoverageGrid;
 use crate::filters::AdjustmentLut;
 use crate::history::{History, TileSnapshot};
 use crate::layer::Layer;
 use crate::limits::{
-    BRUSH_SIZE_DEFAULT, DEFAULT_INK, EFFECT_CHUNK_BYTES, FILL_TOLERANCE_DEFAULT,
-    INK_OPACITY_DEFAULT, INK_OPACITY_MAX, INK_OPACITY_MIN, MAX_CANVAS_SIDE, MIN_CANVAS_SIDE,
-    MIN_STAMP_SPACING, MIN_STROKE_POINT_DISTANCE, PAPER_WHITE, STAMP_COVERAGE_PADDING,
-    STAMP_SPACING_RATIO, STROKE_POINT_CAPACITY,
+    ALPHA_OPAQUE, BLUR_STRENGTH_DEFAULT, BLUR_STRENGTH_MAX, BLUR_STRENGTH_MIN, BRUSH_SIZE_DEFAULT,
+    DEFAULT_INK, EFFECT_CHUNK_BYTES, INK_OPACITY_DEFAULT, INK_OPACITY_MAX, INK_OPACITY_MIN,
+    MAX_CANVAS_SIDE, MIN_CANVAS_SIDE, MIN_STAMP_SPACING, MIN_STROKE_POINT_DISTANCE, PAPER_WHITE,
+    STAMP_COVERAGE_PADDING, STAMP_SPACING_RATIO, STROKE_POINT_CAPACITY, TOLERANCE_DEFAULT,
+    TOLERANCE_MAX, TOLERANCE_MIN,
 };
 use crate::palette::BoardColors;
 use crate::selection::{Selection, SelectionShape};
@@ -325,6 +328,23 @@ pub struct Document {
     pub text_edit: Option<TextEdit>,
     pub(crate) transform_drag: Option<TransformDrag>,
     stroke_before: TileSnapshot,
+    /// How far each pixel the blur brush passes over travels toward its blurred neighbourhood.
+    /// A document-level knob like `brush_size`, not a shell one — see `blur.rs`.
+    pub blur_strength: f32,
+    /// How far a flood may stray from the colour it started on. One knob for the bucket and
+    /// the magic wand both, since they are one traversal.
+    pub tolerance: u8,
+    /// Which brush the pen lays ink down with. A shell knob like the active tool: the shell
+    /// picks it, `brush.rs` owns what it means.
+    pub brush: Brush,
+    /// How many of the current stroke's stamps the blur has already committed. Blur has no ink
+    /// preview, so it paints as the pointer moves; this is what stops each event re-blurring
+    /// the whole stroke from the start.
+    blur_stamped: usize,
+    /// Whether the current blur stroke has actually changed a pixel. A stroke that touched
+    /// nothing — strength at zero, or dragged across empty space — must not leave an undo
+    /// entry behind, and the snapshot alone cannot tell the difference.
+    blur_painted: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -441,6 +461,11 @@ impl Document {
             text_edit: None,
             transform_drag: None,
             stroke_before: TileSnapshot::default(),
+            blur_strength: BLUR_STRENGTH_DEFAULT,
+            tolerance: TOLERANCE_DEFAULT,
+            brush: Brush::default(),
+            blur_stamped: 0,
+            blur_painted: false,
         }
     }
 
@@ -1098,13 +1123,18 @@ impl Document {
             self.commit_fill(dx, dy);
             return;
         }
+        if self.tool == Tool::MagicWand {
+            self.commit_magic_wand(dx, dy);
+            return;
+        }
         if self.tool == Tool::Eyedropper {
             let _ = self.pick_color(dx, dy);
             return;
         }
-        if matches!(self.tool, Tool::Pen | Tool::Eraser | Tool::SelectLasso) {
+        if self.tool.is_stroke() {
             self.begin_stroke();
             self.push_stroke_point(dx, dy);
+            self.blur_pending_stamps();
         } else {
             let shape_tool = match self.tool {
                 Tool::SelectRect => Tool::Rect,
@@ -1133,8 +1163,9 @@ impl Document {
             self.update_move_drag(dx, dy);
             return;
         }
-        if matches!(self.tool, Tool::Pen | Tool::Eraser | Tool::SelectLasso) && self.stroke_active {
+        if self.tool.is_stroke() && self.stroke_active {
             self.push_stroke_point(dx, dy);
+            self.blur_pending_stamps();
         } else if let Some(shape) = &mut self.shape_drag {
             shape.end = (dx, dy);
             shape.half_width = self.brush_size * 0.5;
@@ -1153,7 +1184,7 @@ impl Document {
             self.end_move_drag();
             return;
         }
-        if matches!(self.tool, Tool::Pen | Tool::Eraser | Tool::SelectLasso) {
+        if self.tool.is_stroke() {
             self.push_stroke_point(dx, dy);
             if self.tool == Tool::SelectLasso {
                 self.commit_lasso_selection();
@@ -1181,6 +1212,8 @@ impl Document {
         self.stroke_points.clear();
         self.stroke_straight_anchor = None;
         self.stroke_before.clear();
+        self.blur_stamped = 0;
+        self.blur_painted = false;
     }
 
     fn push_stroke_point(&mut self, x: f32, y: f32) {
@@ -1210,6 +1243,127 @@ impl Document {
         self.stroke_points.push(StrokePoint { x, y });
     }
 
+    pub fn set_blur_strength(&mut self, strength: f32) {
+        self.blur_strength = strength.clamp(BLUR_STRENGTH_MIN, BLUR_STRENGTH_MAX);
+    }
+
+    pub fn set_brush(&mut self, brush: Brush) {
+        self.brush = brush;
+    }
+
+    /// The profile the *current* stroke lays ink down with. Only the pen carries a brush: the
+    /// eraser takes ink away and has no texture to speak of, and a shaped eraser is its own
+    /// feature rather than a side effect of this one.
+    pub fn active_brush_profile(&self) -> BrushProfile {
+        if self.tool == Tool::Pen {
+            self.brush.profile()
+        } else {
+            BrushProfile::HARD
+        }
+    }
+
+    /// The ink a stroke actually lands, with the brush's flow folded into the alpha. The one
+    /// place that happens, so the GPU preview and the committed pixels cannot disagree about
+    /// how translucent a marker is.
+    pub fn stroke_ink(&self) -> [u8; 4] {
+        let mut ink = self.ink_rgba();
+        let flow = self.active_brush_profile().flow;
+        ink[3] = ((ink[3] as f32) * flow).round().clamp(0.0, 255.0) as u8;
+        ink
+    }
+
+    /// Whether the in-progress stroke is ink going onto a raster layer — the case that has to
+    /// preview through the coverage pass so overlapping segments do not compound. A vector pen
+    /// stroke and a lasso are outlines, not ink, and draw straight.
+    pub fn previews_brush_stroke(&self) -> bool {
+        if self.stroke_points.is_empty() {
+            return false;
+        }
+        match self.tool {
+            Tool::Pen => !self.vector_mode,
+            Tool::Eraser => true,
+            _ => false,
+        }
+    }
+
+    pub fn set_tolerance(&mut self, tolerance: u8) {
+        self.tolerance = tolerance.clamp(TOLERANCE_MIN, TOLERANCE_MAX);
+    }
+
+    /// Blur whatever part of the stroke has not been blurred yet, straight into the layer.
+    ///
+    /// Unlike every other stamp tool this runs *during* the drag rather than at pointer-up:
+    /// there is nothing to preview on the GPU, so committing as it goes is what makes the
+    /// brush visible while you use it. `blur_stamped` is the boundary — `stroke_stamps` only
+    /// ever appends as points arrive, so a stamp already applied is never re-applied and the
+    /// spacing phase along the polyline stays the same as the pen's.
+    ///
+    /// The tiles the whole stroke touches accumulate into one `stroke_before` snapshot, so a
+    /// blur is still a single undo step no matter how many pointer events it spanned. Only
+    /// tiles not already in the snapshot are captured — re-snapshotting a tile the stroke has
+    /// already blurred would record the blurred state as the "before".
+    fn blur_pending_stamps(&mut self) {
+        if self.tool != Tool::Blur || !self.stroke_active {
+            return;
+        }
+        if !self.active_layer_accepts_paint() {
+            return;
+        }
+        let radius = self.brush_size * 0.5;
+        let strength = self.blur_strength;
+        if strength <= 0.0 {
+            return;
+        }
+        let all = stroke_stamps(&self.stroke_points, radius);
+        let Some(fresh) = all.get(self.blur_stamped..).filter(|s| !s.is_empty()) else {
+            return;
+        };
+        let stamps: Vec<(f32, f32)> = fresh.iter().map(|p| (p.x, p.y)).collect();
+        self.blur_stamped = all.len();
+
+        let Some(span) = stamps_bounds(fresh, radius).and_then(|r| r.intersect(self.bounds()))
+        else {
+            return;
+        };
+        let mut touched = TileSet::default();
+        tiles_covering(span, &mut touched);
+
+        let active = self.active_layer;
+        let Some(grid) = self.layers.get(active).and_then(Layer::tiles) else {
+            return;
+        };
+        let unseen: Vec<TileCoord> = touched
+            .into_iter()
+            .filter(|c| grid.tile_in_bounds(*c) && !self.stroke_before.contains_key(c))
+            .collect();
+        self.stroke_before.extend(grid.snapshot_tiles(&unseen));
+
+        let selection = self.selection.clone();
+        if let Some(tiles) = self.layers.get_mut(active).and_then(|l| l.tiles_mut()) {
+            let touched =
+                crate::blur::blur_stamps(tiles, &stamps, radius, strength, selection.as_ref());
+            self.blur_painted |= touched > 0;
+        }
+    }
+
+    /// Close out a blur stroke: the pixels are already committed, so all that is left is
+    /// turning the accumulated snapshot into one history entry.
+    fn commit_blur_stroke(&mut self) {
+        self.stroke_active = false;
+        self.stroke_points.clear();
+        self.blur_stamped = 0;
+        let painted = std::mem::take(&mut self.blur_painted);
+        let before = std::mem::take(&mut self.stroke_before);
+        if !painted || before.is_empty() {
+            return;
+        }
+        let Some(layer_id) = self.layers.get(self.active_layer).map(|l| l.id.clone()) else {
+            return;
+        };
+        self.history
+            .push_layer_tiles(layer_id, before, Some(self.active_layer));
+    }
+
     fn commit_stroke(&mut self) {
         if !self.stroke_active {
             return;
@@ -1217,6 +1371,11 @@ impl Document {
         if !self.vector_mode && !self.active_layer_accepts_paint() {
             self.stroke_active = false;
             self.stroke_points.clear();
+            return;
+        }
+        if self.tool == Tool::Blur {
+            self.blur_pending_stamps();
+            self.commit_blur_stroke();
             return;
         }
         self.stroke_active = false;
@@ -1232,20 +1391,36 @@ impl Document {
             return;
         }
         let radius = self.brush_size * 0.5;
-        let color = self.ink_rgba();
         let erasing = self.tool == Tool::Eraser;
+        let profile = self.active_brush_profile();
+        let ink = if erasing {
+            [0, 0, 0, ALPHA_OPAQUE]
+        } else {
+            self.stroke_ink()
+        };
         let active = self.active_layer;
-        let stamps = stroke_stamps(&points, radius);
 
-        let Some(span) = stamps_bounds(&stamps, radius) else {
+        let mut coverage = CoverageGrid::new(self.bounds());
+        match points.len() {
+            0 => return,
+            1 => {
+                let p = (points[0].x, points[0].y);
+                coverage.add_segment(p, p, radius, &profile);
+            }
+            _ => {
+                for pair in points.windows(2) {
+                    coverage.add_segment(
+                        (pair[0].x, pair[0].y),
+                        (pair[1].x, pair[1].y),
+                        radius,
+                        &profile,
+                    );
+                }
+            }
+        }
+        if coverage.is_empty() {
             return;
-        };
-        let Some(span) = span.intersect(self.bounds()) else {
-            return;
-        };
-
-        let mut touched = TileSet::default();
-        tiles_covering(span, &mut touched);
+        }
 
         let Some(layer) = self.layers.get(active) else {
             return;
@@ -1254,8 +1429,8 @@ impl Document {
         let Some(grid) = layer.tiles() else {
             return;
         };
-        let touched: Vec<TileCoord> = touched
-            .into_iter()
+        let touched: Vec<TileCoord> = coverage
+            .tile_coords()
             .filter(|c| grid.tile_in_bounds(*c))
             .collect();
         if touched.is_empty() {
@@ -1265,16 +1440,7 @@ impl Document {
 
         let mut painted = false;
         if let Some(tiles) = self.layers.get_mut(active).and_then(|l| l.tiles_mut()) {
-            for p in &stamps {
-                let touched = if erasing {
-                    tiles.stamp_disc_erase(p.x, p.y, radius)
-                } else {
-                    tiles.stamp_disc(p.x, p.y, radius, color)
-                };
-                if touched > 0 {
-                    painted = true;
-                }
-            }
+            painted = coverage.paint_into(tiles, ink, erasing) > 0;
         }
 
         if !painted {
@@ -1354,6 +1520,35 @@ impl Document {
         self.selection = Some(Selection {
             shape: selection_shape,
         });
+    }
+
+    /// Select by colour: flood from the clicked pixel of the active layer and keep what the
+    /// walk reached.
+    ///
+    /// Scope is the whole document rather than the existing selection's bounds — the wand
+    /// *replaces* the selection, so letting the old one clip the new one would make a second
+    /// click inside a previous wand result unable to grow past it. That is the one place the
+    /// wand deliberately diverges from the bucket, which paints *into* the selection and so
+    /// has to respect it.
+    ///
+    /// Reading the active layer (not the composite) is what makes the wand answer about the
+    /// thing being edited: clicking a sketch's white background selects the background of that
+    /// layer, not of the Paper showing through it.
+    fn commit_magic_wand(&mut self, doc_x: f32, doc_y: f32) {
+        let x = doc_x.floor() as i32;
+        let y = doc_y.floor() as i32;
+        let scope = self.bounds();
+        if !scope.contains(x, y) {
+            return;
+        }
+        let Some(grid) = self.layers.get(self.active_layer).and_then(Layer::tiles) else {
+            return;
+        };
+        let tolerance = self.tolerance;
+        self.selection =
+            crate::fill::flood_region(grid, scope, x, y, None, tolerance).map(|mask| Selection {
+                shape: SelectionShape::Mask(mask),
+            });
     }
 
     fn commit_lasso_selection(&mut self) {
@@ -1444,7 +1639,7 @@ impl Document {
                 y,
                 color,
                 selection.as_ref(),
-                FILL_TOLERANCE_DEFAULT,
+                self.tolerance,
             );
         }
         if touched == 0 {

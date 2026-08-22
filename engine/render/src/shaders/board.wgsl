@@ -394,6 +394,7 @@ struct PreviewUniforms {
     tool: f32,
     fill: f32,
     _pad: f32,
+    stroke_ink: vec4<f32>,
 }
 
 @group(0) @binding(0) var<uniform> pu: PreviewUniforms;
@@ -401,7 +402,7 @@ struct PreviewUniforms {
 struct StrokeIn {
     @location(0) segment: vec4<f32>,
     @location(1) color: vec4<f32>,
-    @location(2) radius: f32,
+    @location(2) brush: vec4<f32>,
 }
 
 struct StrokeOut {
@@ -410,7 +411,55 @@ struct StrokeOut {
     @location(1) color: vec4<f32>,
     @location(2) p0: vec2<f32>,
     @location(3) p1: vec2<f32>,
-    @location(4) radius: f32,
+    @location(4) brush: vec4<f32>,
+}
+
+fn grain_cell(x: i32, y: i32) -> f32 {
+    var h = (bitcast<u32>(x) * 0x27d4eb2du) ^ (bitcast<u32>(y) * 0x165667b1u);
+    h = h ^ (h >> 15u);
+    h = h * 0x2c1b3c6du;
+    h = h ^ (h >> 13u);
+    return f32(h & 0xffffu) / 65535.0;
+}
+
+fn paper_grain(p: vec2<f32>, scale: f32) -> f32 {
+    let g = p / max(scale, 0.25);
+    let cell = floor(g);
+    let f = g - cell;
+    let ease = f * f * (3.0 - 2.0 * f);
+    let ix = i32(cell.x);
+    let iy = i32(cell.y);
+    let top_left = grain_cell(ix, iy);
+    let top_right = grain_cell(ix + 1, iy);
+    let bottom_left = grain_cell(ix, iy + 1);
+    let bottom_right = grain_cell(ix + 1, iy + 1);
+    let top = top_left + (top_right - top_left) * ease.x;
+    let bottom = bottom_left + (bottom_right - bottom_left) * ease.x;
+    return top + (bottom - top) * ease.y;
+}
+
+fn stroke_coverage(brush: vec4<f32>, distance: f32, p: vec2<f32>) -> f32 {
+    let radius = brush.x;
+    let hardness = brush.y;
+    let grain = brush.z;
+    let feather = max(radius * (1.0 - hardness), 1.0);
+    let ramp = clamp((radius + 0.5 - distance) / feather, 0.0, 1.0);
+    var shaped = ramp;
+    if hardness < 1.0 {
+        shaped = ramp * ramp * (3.0 - 2.0 * ramp);
+    }
+    if grain <= 0.0 || shaped <= 0.0 {
+        return shaped;
+    }
+    return shaped * (1.0 - grain * (1.0 - paper_grain(p, brush.w)));
+}
+
+fn stroke_distance(input: StrokeOut) -> f32 {
+    let pa = input.doc - input.p0;
+    let ba = input.p1 - input.p0;
+    let baba = dot(ba, ba);
+    let h = select(0.0, clamp(dot(pa, ba) / baba, 0.0, 1.0), baba > 0.0);
+    return length(pa - ba * h);
 }
 
 @vertex
@@ -425,7 +474,7 @@ fn vs_stroke(input: StrokeIn, @builtin(vertex_index) idx: u32) -> StrokeOut {
     );
     let p0 = input.segment.xy;
     let p1 = input.segment.zw;
-    let pad = vec2<f32>(input.radius + 1.0);
+    let pad = vec2<f32>(input.brush.x + 1.0);
     let lo = min(p0, p1) - pad;
     let hi = max(p0, p1) + pad;
     let doc = mix(lo, hi, corners[idx]);
@@ -441,22 +490,33 @@ fn vs_stroke(input: StrokeIn, @builtin(vertex_index) idx: u32) -> StrokeOut {
     out.color = input.color;
     out.p0 = p0;
     out.p1 = p1;
-    out.radius = input.radius;
+    out.brush = input.brush;
     return out;
 }
 
 @fragment
 fn fs_stroke(input: StrokeOut) -> @location(0) vec4<f32> {
-    let pa = input.doc - input.p0;
-    let ba = input.p1 - input.p0;
-    let baba = dot(ba, ba);
-    let h = select(0.0, clamp(dot(pa, ba) / baba, 0.0, 1.0), baba > 0.0);
-    let d = length(pa - ba * h) - input.radius;
-    let cov = clamp(0.5 - d, 0.0, 1.0);
+    let cov = stroke_coverage(input.brush, stroke_distance(input), input.doc);
     if cov <= 0.0 {
         return vec4<f32>(0.0);
     }
     return vec4<f32>(input.color.rgb, input.color.a * cov);
+}
+
+@fragment
+fn fs_stroke_coverage(input: StrokeOut) -> @location(0) vec4<f32> {
+    return vec4<f32>(stroke_coverage(input.brush, stroke_distance(input), input.doc));
+}
+
+@group(1) @binding(0) var stroke_cov_tex: texture_2d<f32>;
+
+@fragment
+fn fs_stroke_composite(in: VsOut) -> @location(0) vec4<f32> {
+    let cov = textureLoad(stroke_cov_tex, vec2<i32>(in.position.xy), 0).r;
+    if cov <= 0.0 {
+        return vec4<f32>(0.0);
+    }
+    return vec4<f32>(pu.stroke_ink.rgb, pu.stroke_ink.a * cov);
 }
 
 const ARROW_HEAD_RATIO: f32 = 6.0;

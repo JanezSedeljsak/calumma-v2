@@ -20,6 +20,8 @@ pub enum Tool {
     Pentagon = 13,
     Text = 14,
     Move = 15,
+    Blur = 16,
+    MagicWand = 17,
 }
 
 impl Tool {
@@ -37,8 +39,21 @@ impl Tool {
     pub fn is_selection(self) -> bool {
         matches!(
             self,
-            Tool::SelectRect | Tool::SelectEllipse | Tool::SelectLasso
+            Tool::SelectRect | Tool::SelectEllipse | Tool::SelectLasso | Tool::MagicWand
         )
+    }
+
+    /// Whether this tool lays ink down with a brush. Only the pen: the eraser takes ink away
+    /// and the shape tools fill an outline, neither of which has a brush's character.
+    pub fn takes_brush(self) -> bool {
+        matches!(self, Tool::Pen)
+    }
+
+    /// Whether this tool floods from the pixel under the pointer, and so needs a tolerance.
+    /// One knob shared by the bucket and the wand, because they share one traversal — see
+    /// `fill::flood_region`.
+    pub fn takes_tolerance(self) -> bool {
+        matches!(self, Tool::Fill | Tool::MagicWand)
     }
 
     pub fn takes_fill(self) -> bool {
@@ -59,6 +74,30 @@ impl Tool {
                 | Tool::Eraser
                 | Tool::Triangle
                 | Tool::Pentagon
+                | Tool::Blur
+        )
+    }
+
+    /// Whether this tool reads the pixels already on the layer and writes a function of them,
+    /// rather than writing a colour over them. Blur is the first; sharpen and smudge would
+    /// join it. Such a tool has no ink, so it takes neither colour nor ink opacity.
+    pub fn takes_blur_strength(self) -> bool {
+        matches!(self, Tool::Blur)
+    }
+
+    /// Whether an in-progress stroke draws itself on the board as an ink preview. A blur has
+    /// no colour to preview and the GPU does not have the layer's source pixels to hand, so it
+    /// commits into tiles as the pointer moves and the board shows the real result instead of
+    /// a stand-in.
+    pub fn previews_stroke(self) -> bool {
+        matches!(self, Tool::Pen | Tool::Eraser | Tool::SelectLasso)
+    }
+
+    /// Whether a drag with this tool is a freehand stroke rather than a two-point shape drag.
+    pub fn is_stroke(self) -> bool {
+        matches!(
+            self,
+            Tool::Pen | Tool::Eraser | Tool::SelectLasso | Tool::Blur
         )
     }
 
@@ -286,7 +325,9 @@ impl Shape {
             | Tool::Transform
             | Tool::Eyedropper
             | Tool::Text
-            | Tool::Move => f32::MAX,
+            | Tool::Move
+            | Tool::Blur
+            | Tool::MagicWand => f32::MAX,
             Tool::Line => sd_segment(p, self.start, self.end) - self.half_width,
             Tool::Arrow => self.arrow_distance(p) - self.half_width,
             Tool::Rect => {

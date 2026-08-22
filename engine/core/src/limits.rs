@@ -12,6 +12,22 @@ pub const BRUSH_SIZE_MIN: f32 = 1.0;
 pub const BRUSH_SIZE_MAX: f32 = 96.0;
 pub const BRUSH_SIZE_DEFAULT: f32 = 3.0;
 
+/// Blur brush strength: how far each pixel is carried from its own colour toward its blurred
+/// neighbourhood. 0 is a no-op and 1 replaces the pixel outright, so the whole useful range is
+/// on the slider and a light touch stays available — the brush is meant to be built up in
+/// passes, the way a soft round is.
+pub const BLUR_STRENGTH_MIN: f32 = 0.0;
+pub const BLUR_STRENGTH_MAX: f32 = 1.0;
+pub const BLUR_STRENGTH_DEFAULT: f32 = 0.5;
+/// Kernel radius as a fraction of the brush radius. See `blur::blur_radius` for why the smear
+/// deliberately does not reach the brush's own edge.
+pub const BLUR_RADIUS_RATIO: f32 = 0.5;
+/// Box-blur passes stacked to approximate a Gaussian. Three, not two: the window slides, so a
+/// pass costs one add and one subtract per pixel *regardless of radius* — the price of the
+/// third pass is a flat +50% on an already-linear step, not the radius-squared it would be
+/// with a real Gaussian kernel, and two passes still read as a visible triangle.
+pub const BLUR_BOX_PASSES: u32 = 3;
+
 pub const INK_OPACITY_MIN: f32 = 0.0;
 pub const INK_OPACITY_MAX: f32 = 1.0;
 pub const INK_OPACITY_DEFAULT: f32 = 1.0;
@@ -95,7 +111,12 @@ pub const DEFAULT_INK: [u8; 4] = [26, 26, 26, ALPHA_OPAQUE];
 /// growth fill with it and a mismatch would show as a seam.
 pub const PAPER_WHITE: [u8; 4] = [255, 255, 255, ALPHA_OPAQUE];
 
-pub const FILL_TOLERANCE_DEFAULT: u8 = 24;
+/// How close a neighbouring pixel has to be to the one clicked for the flood to keep going.
+/// Compared as squared Euclidean distance over all four channels — see `fill::flood_region`.
+/// Shared by the bucket and the magic wand: they are one traversal, so they are one tolerance.
+pub const TOLERANCE_MIN: u8 = 0;
+pub const TOLERANCE_MAX: u8 = 128;
+pub const TOLERANCE_DEFAULT: u8 = 24;
 
 /// One press of a Filters-menu Increase / Decrease item. Menus are discrete and
 /// adjustments are continuous, so the step is a product constant and lives here — not

@@ -2,6 +2,7 @@ pub mod compose;
 pub mod framebuffer;
 mod overview;
 mod renderer;
+mod stroke_coverage;
 mod tile_atlas;
 pub mod vector_draw;
 

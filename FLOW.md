@@ -101,13 +101,15 @@ while Landing is showing — that screen already *is* the create form.
   Create / delete workspaces live here.
 - **Tools / layers / canvas:** three rounded, bordered islands, full-height, separated by a
   minimal gap and window margin (`space.sm`) — each has its own `islandBorder` stroke.
-- **Tools island** (top to bottom): a 2-column tool grid (Move, Pen, Eraser, Shape, Select, Fill,
-  Eyedropper, Text); a contextual options section below it that changes with the selected
-  tool (shape/selection sub-picker + fill toggle for shape tools, font / size / alignment
-  for Text, brush size for the tools that use one — not Fill, Eyedropper, Text, Move, or the
-  selection tools — and ink opacity for Pen, shapes, and Fill; Eraser stays a full erase);
-  a colour section (two equal quick swatches, a saturation/brightness field, a hue strip, and
-  a hex field); the AI menu pinned at the bottom.
+- **Tools island** (top to bottom): a 2-column tool grid (Move, Pen, Eraser, Blur, Shape,
+  Select, Fill, Eyedropper, Text); a contextual options section below it that changes with the
+  selected tool (shape/selection sub-picker + fill toggle for shape tools, a **brush**
+  sub-picker for the Pen, font / size / alignment for Text, brush size for the tools that use
+  one — not Fill, Eyedropper, Text, Move, or the selection tools — ink opacity for Pen, shapes,
+  and Fill, strength for Blur, and tolerance for Fill and the magic wand; Eraser stays a full
+  erase); a colour section (two equal quick swatches, a
+  saturation/brightness field, a hue strip, and a hex field); the AI menu pinned at the
+  bottom.
 - **Board:** Metal surface clipped as its own island. Desk fill, grid, and the paper border
   come from tokens via `calm_engine_set_board_colors` — in light mode the desk matches the
   island surface; in dark mode the desk is a step darker than the window background so the
@@ -191,6 +193,44 @@ live in `engine/core`; the actual PNG/JPEG/WebP/AVIF **encode** happens in the s
 
 ## Text
 
+- **Brushes** (Pen sub-picker, Pen only). Four ways the pen lays ink down — **Pen**,
+  **Marker**, **Crayon**, **Airbrush** — chosen from a 2×2 grid under the tool. They change
+  the *character* of the ink, not how much of it there is: size and opacity stay their own
+  sliders and keep working across all four. Each brush is an edge falloff, a flow, and an
+  amount of paper grain (`engine/core/src/brush.rs`); Pen is hardness 1 / flow 1 / no grain,
+  which is byte-for-byte the pen that existed before brushes did. Marker and Airbrush lay
+  down less than full ink, so they read as translucent without touching the opacity slider;
+  Crayon bites into its coverage with document-space value noise, so the tooth belongs to the
+  paper and stays put under a stroke instead of sliding along with it. A soft brush's falloff
+  reaches *inward* from the rim, so every brush covers exactly the width the size slider says.
+  **A stroke is one wash, not a chain of dabs.** Coverage accumulates as a *maximum* over the
+  stroke's segments and composites onto the layer exactly once, so passing over a pixel twice
+  within one stroke cannot darken it. This is what makes low opacity usable at all: strokes
+  used to blend each stamp onto the last, so a slow drag compounded its own overlaps into a
+  dark beaded rope that got darker the slower you drew. Drawing over the same place with a
+  *second* stroke still builds up — that is how you deepen a wash. The live preview does the
+  same union on the GPU through an offscreen coverage target, so what you see while dragging
+  is what lands on pointer-up.
+  The brush is Pen-only: the eraser takes ink away and keeps its hard, complete erase (a
+  shaped eraser is its own feature), and vector mode hides the picker, since a resolution-
+  independent path has no raster coverage to shape.
+
+- **Blur tool** (`U`, tools island). Softens the pixels already on the active layer instead
+  of adding colour to them — the first tool that reads the destination and writes a function
+  of it. Size is the usual brush slider; **Strength** is how far each pixel travels toward
+  its blurred neighbourhood (0 is a genuine no-op and leaves no undo entry). The kernel is
+  three sliding box passes stacked as a Gaussian approximation, run over a snapshot of the
+  region so the stamp cannot read pixels it has already written — reading its own output is
+  what turns a blur into a directional smear. It works in premultiplied alpha, so softening
+  the edge of a painted shape against transparency does not pull it toward black.
+  Unlike every other stamp tool, blur commits **as the pointer moves** rather than at
+  pointer-up: there is no colour to preview on the GPU, so the board shows the real result
+  and the tiles it touches accumulate into one snapshot — the whole stroke is still a single
+  `⌘Z`. Dragging back over the same pixels on a later event blurs them further, the way a
+  real brush builds up. It clips to the active selection (like the bucket) and refuses a text
+  layer (like the pen), since `text_layer::resync` would wipe the stroke on the next
+  keystroke.
+
 - **Text tool** (`T`, tools island). Click the board: a new **text layer** opens with the
   caret where you clicked, and glyphs land on the board as you type — no dialog, no commit
   step. Click an existing text layer with the tool, or double-click it in the layers panel
@@ -250,6 +290,18 @@ live in `engine/core`; the actual PNG/JPEG/WebP/AVIF **encode** happens in the s
 - Canvas resize: width/height fields docked at the bottom of the layers panel, commit on
   Enter (`Document::resize`). Top-left anchored; shrinking never discards off-canvas tile
   data, so growing back restores it exactly.
+- **Layer bounds:** X / Y / W / H for the *active* layer (never the hovered one — hover
+  already has the outline), in document pixels, in the same fixed strip above canvas resize.
+  The numbers are `Document::layer_bounds`: tight to painted pixels (`opaque_bounds`), not
+  the tile-granular `content_bounds()` the hover outline draws from, so the readout can read
+  smaller than the box on the board by up to a tile. The transform is baked in, so it is a
+  document-space AABB — a rotated layer's W/H grow as it rotates. Editable, commit on Enter:
+  **position moves** (a `LayerTransform` offset, non-destructive, same as the Move tool) and
+  **size only ever crops** — a number larger than the layer clamps rather than scaling the
+  content up, since there are no pixels to invent; scaling up is `⌘T`. A layer carrying a
+  scale or rotation moves but does not crop. The fields always mirror what the engine took,
+  not what was typed. Values follow selection at pointer-up granularity, not live through a
+  transform drag.
 - **Transform (`⌘T`):** a transient *mode* on the active layer — not a tools-island
   button (Select tools stay for region marquee/lasso; transforming a selection region
   is separate). Shows scale/rotate handles around the *active* layer. Drag a corner to
@@ -278,20 +330,42 @@ live in `engine/core`; the actual PNG/JPEG/WebP/AVIF **encode** happens in the s
 
 ## Selection
 
-Three selection tools share one grid slot on the tools island (`M` cycles to whichever was
-used last), with the specific shape chosen from the options panel below the tool grid:
-rectangle, ellipse, and freehand lasso. A selection is a shape (not a persisted
-document-sized mask) — `engine/core/src/selection.rs`'s `Selection`/`SelectionShape` store
-just the rect/ellipse endpoints or the lasso polygon, and coverage is computed on demand by
-reusing the same coverage math the Rect/Ellipse paint shapes already use. The outline
-renders by reusing the existing shape-preview and stroke-preview GPU pipelines rather than a
-dedicated marching-ants pass — a known simplification: the outline briefly stops rendering
-while a *different* tool's live paint preview is on-screen at the same time, reappearing
-once that drag ends.
+Four selection tools share one grid slot on the tools island (`M` cycles to whichever was
+used last), with the specific one chosen from the options panel below the tool grid:
+rectangle, ellipse, freehand lasso, and **magic wand**. Three of the four are shapes (not
+persisted document-sized masks) — `engine/core/src/selection.rs`'s
+`Selection`/`SelectionShape` store just the rect/ellipse endpoints or the lasso polygon, and
+coverage is computed on demand by reusing the same coverage math the Rect/Ellipse paint
+shapes already use. The outline renders by reusing the existing shape-preview and
+stroke-preview GPU pipelines rather than a dedicated marching-ants pass — a known
+simplification: the outline briefly stops rendering while a *different* tool's live paint
+preview is on-screen at the same time, reappearing once that drag ends.
+
+- **Magic wand** (`W`, in the select flyout). Click a pixel of the **active layer** and the
+  contiguous region within **Tolerance** of its colour becomes the selection. Reading the
+  active layer rather than the composite is deliberate: clicking a sketch's background
+  selects that layer's background, not the Paper showing through it. Alpha counts toward
+  the tolerance, so the empty space around a drawing is selectable like any colour.
+  Tolerance is **one knob shared with the bucket**, because they are one traversal
+  (`fill::flood_region`) — a wand that disagreed with the bucket about what "contiguous"
+  means would be a bug report. Unlike the bucket, the wand ignores any existing selection
+  when it floods: it *replaces* the selection, so letting the old one clip the new one would
+  make a second click unable to grow past the first.
+  This is the one selection whose answer is **stored** rather than derived —
+  `SelectionShape::Mask`, one bit per pixel (8 MiB, not 64, for a full-canvas wand on an
+  8K document), cropped to what the flood actually reached. Because it lives inside
+  `SelectionShape`, paint clipping, copy, cut and delete needed no changes at all: they
+  already go through `bounds()` and `contains()`. Its ants come from a boundary traced once
+  at commit and merged into maximal runs, so the render pass never walks the bitmap however
+  large the selection is. A click that reaches nothing leaves the selection untouched — an
+  empty-but-present selection would silently clip every later stroke to nothing.
+  Not in scope for this pass: global (non-contiguous) select-by-colour, feathering,
+  grow/shrink, and sample-all-layers.
 
 | Shortcut | Action |
 | --- | --- |
-| `M` | Selection tool (rect / ellipse / lasso — remembers the last one used) |
+| `M` | Selection tool (rect / ellipse / lasso / magic wand — remembers the last one used) |
+| `W` | Magic wand directly |
 | `Esc` | Deselect |
 | `⌘C` | Copy — the selection (from the active layer) if one exists, otherwise the whole
   composited canvas. Always PNG on the clipboard. |
@@ -390,6 +464,8 @@ panel toggles are shell knobs.
 | `5` | Pentagon (side count; was `Y`) | — |
 | `T` | Text — click the board to type inline | Yes |
 | `E` | Eraser | Yes |
+| `W` | Magic wand (select by colour) | Yes (Ps Magic Wand) |
+| `U` | Blur | Ps puts Blur on `R`, which is Rectangle here, and `B` stays reserved for the brush family |
 | `M` | Selection (rect / ellipse / lasso — last one used) | Yes (Ps Marquee) |
 | `G` | Fill (bucket) | Yes (Ps Paint Bucket, shared with Gradient) |
 | `I` | Eyedropper (live sample under the cursor into the active primary/secondary swatch; loupe shows colour + hex) | Yes |

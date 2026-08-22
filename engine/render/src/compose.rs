@@ -3,7 +3,7 @@ use bytemuck::{Pod, Zeroable};
 use calumma_core::filters::AdjustmentLut;
 use calumma_core::tile::{TileCoord, TILE_BYTES, TILE_SIZE};
 use calumma_core::{
-    Document, Layer, Selection, SelectionShape, StrokePoint, Tool, TransformHandles,
+    BrushProfile, Document, Layer, Selection, SelectionShape, StrokePoint, Tool, TransformHandles,
 };
 
 const TRANSFORM_OUTLINE_COLOR: [f32; 4] = [0.24, 0.78, 0.84, 0.95];
@@ -23,8 +23,14 @@ const TEXT_CARET_BLINK_SECONDS: f32 = 1.06;
 pub struct StrokeInstance {
     pub segment: [f32; 4],
     pub color: [f32; 4],
-    pub radius: f32,
-    pub _pad: [f32; 3],
+    pub brush: [f32; 4],
+}
+
+/// `(radius, hardness, grain, grain_scale)` as the shader wants it. The brush table lives in
+/// the engine and rides to the GPU as instance data, so `board.wgsl` never keeps a second copy
+/// of it that could drift.
+pub fn brush_params(radius: f32, profile: &BrushProfile) -> [f32; 4] {
+    [radius, profile.hardness, profile.grain, profile.grain_scale]
 }
 
 pub fn rgba_unit(rgba: [u8; 4]) -> [f32; 4] {
@@ -91,8 +97,7 @@ fn dashed_edge(
                     a.1 + uy * end,
                 ],
                 color,
-                radius: width,
-                _pad: [0.0; 3],
+                brush: brush_params(width, &BrushProfile::HARD),
             });
         }
         t += period;
@@ -106,8 +111,7 @@ pub fn transform_overlay_instances(handles: TransformHandles) -> Vec<StrokeInsta
     let outline = |a: (f32, f32), b: (f32, f32)| StrokeInstance {
         segment: [a.0, a.1, b.0, b.1],
         color: TRANSFORM_OUTLINE_COLOR,
-        radius: TRANSFORM_OUTLINE_WIDTH,
-        _pad: [0.0; 3],
+        brush: brush_params(TRANSFORM_OUTLINE_WIDTH, &BrushProfile::HARD),
     };
     for i in 0..4 {
         out.push(outline(corners[i], corners[(i + 1) % 4]));
@@ -121,8 +125,7 @@ pub fn transform_overlay_instances(handles: TransformHandles) -> Vec<StrokeInsta
         out.push(StrokeInstance {
             segment: [p.0, p.1, p.0, p.1],
             color: TRANSFORM_HANDLE_COLOR,
-            radius: TRANSFORM_HANDLE_RADIUS,
-            _pad: [0.0; 3],
+            brush: brush_params(TRANSFORM_HANDLE_RADIUS, &BrushProfile::HARD),
         });
     }
     out
@@ -143,8 +146,7 @@ pub fn text_overlay_instances(doc: &Document, elapsed: f32) -> Vec<StrokeInstanc
         out.push(StrokeInstance {
             segment: [a.0, a.1, b.0, b.1],
             color: TEXT_BOX_COLOR,
-            radius: TEXT_BOX_WIDTH,
-            _pad: [0.0; 3],
+            brush: brush_params(TEXT_BOX_WIDTH, &BrushProfile::HARD),
         });
     }
     let visible = (elapsed / TEXT_CARET_BLINK_SECONDS).fract() < 0.5;
@@ -152,8 +154,7 @@ pub fn text_overlay_instances(doc: &Document, elapsed: f32) -> Vec<StrokeInstanc
         out.push(StrokeInstance {
             segment: [a.0, a.1, b.0, b.1],
             color: rgba_unit(doc.text_caret_color()),
-            radius: TEXT_CARET_WIDTH,
-            _pad: [0.0; 3],
+            brush: brush_params(TEXT_CARET_WIDTH, &BrushProfile::HARD),
         });
     }
     out
@@ -167,7 +168,7 @@ pub fn selection_rect_or_ellipse(doc: &Document) -> Option<([f32; 2], [f32; 2], 
         SelectionShape::Ellipse { start, end } => {
             Some(([start.0, start.1], [end.0, end.1], Tool::Ellipse))
         }
-        SelectionShape::Lasso { .. } => None,
+        SelectionShape::Lasso { .. } | SelectionShape::Mask(_) => None,
     }
 }
 
@@ -185,10 +186,40 @@ pub fn selection_lasso_points(doc: &Document) -> Option<Vec<StrokePoint>> {
     Some(closed)
 }
 
+/// Marching ants for a mask selection: the boundary the mask traced when it was committed,
+/// one stroke instance per run.
+///
+/// The trace itself lives in the engine (`SelectionMask::trace_outline`) and is already
+/// merged into maximal runs, so this is a straight mapping — the render pass never walks the
+/// bitmap, no matter how large the selection is.
+pub fn selection_mask_edges(
+    doc: &Document,
+    width: f32,
+    color: [f32; 4],
+) -> Option<Vec<StrokeInstance>> {
+    let Selection {
+        shape: SelectionShape::Mask(mask),
+    } = doc.selection.as_ref()?
+    else {
+        return None;
+    };
+    Some(
+        mask.outline()
+            .iter()
+            .map(|&segment| StrokeInstance {
+                segment,
+                color,
+                brush: brush_params(width, &BrushProfile::HARD),
+            })
+            .collect(),
+    )
+}
+
 pub fn stroke_instances(
     points: &[StrokePoint],
     radius: f32,
     color: [f32; 4],
+    profile: &BrushProfile,
 ) -> Vec<StrokeInstance> {
     if points.is_empty() {
         return Vec::new();
@@ -196,8 +227,7 @@ pub fn stroke_instances(
     let instance = |a: &StrokePoint, b: &StrokePoint| StrokeInstance {
         segment: [a.x, a.y, b.x, b.y],
         color,
-        radius,
-        _pad: [0.0; 3],
+        brush: brush_params(radius, profile),
     };
     if points.len() == 1 {
         return vec![instance(&points[0], &points[0])];
