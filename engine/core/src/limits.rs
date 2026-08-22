@@ -170,3 +170,17 @@ pub const MAX_CANVAS_SIDE: u32 = 8192;
 /// `RULER_MIN_MAJOR_SPACING_PX`, at any zoom.
 pub const RULER_MIN_MINOR_SPACING_PX: f32 = 8.0;
 pub const RULER_MIN_MAJOR_SPACING_PX: f32 = 56.0;
+
+/// How close, in *screen* pixels, a dragged edge has to come to a guide before it lands on
+/// it. Screen-space so the snap feels the same at every zoom, exactly like the corner-handle
+/// hit radius — converted to document units by the camera in `guide.rs`, never by the shell.
+pub const GUIDE_SNAP_PX: f32 = 6.0;
+/// How close a click has to be to a guide to grab it, in screen pixels. Wider than the line
+/// itself so a one-pixel rule stays catchable.
+pub const GUIDE_PICK_SLACK_PX: f32 = 5.0;
+/// Two guides closer together than this in document pixels are the same guide, so dropping
+/// one on top of another leaves one rather than a stack nothing can pull apart again.
+pub const GUIDE_MIN_SEPARATION: f32 = 0.5;
+/// Ceiling on guides per document. Guides are chrome, not content — a board that wants more
+/// rules than this wants a grid.
+pub const GUIDES_LIMIT: usize = 128;

@@ -1,4 +1,5 @@
 mod adjustments_blob;
+mod guides_blob;
 mod png;
 mod psd;
 mod store;

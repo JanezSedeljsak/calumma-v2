@@ -4,6 +4,7 @@ mod active_renderer;
 mod autosave;
 mod clipboard_ffi;
 mod engine;
+mod guide_ffi;
 mod memory_ffi;
 mod platform;
 mod ruler_ffi;
@@ -13,6 +14,7 @@ mod workspace_ffi;
 
 pub use clipboard_ffi::*;
 pub use engine::*;
+pub use guide_ffi::*;
 pub use memory_ffi::*;
 pub use platform::*;
 pub use ruler_ffi::*;

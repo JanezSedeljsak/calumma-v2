@@ -128,6 +128,10 @@ final class BoardMTKView: MTKView {
     /// and a held Space never gets its key-up, wedging the board in pan mode.
     nonisolated(unsafe) weak var app: AppModel?
     var markedTextValue = ""
+    /// The guide under the pointer, refreshed on every move so `refreshCursor` — which is also
+    /// called from places that have no event to read a position from — can offer a grab without
+    /// asking the engine again.
+    private var hoveredGuideAxis: CalmGuideAxis?
     private var lastDrag: CGPoint?
     private var painting = false
     private var panning = false
@@ -218,11 +222,13 @@ final class BoardMTKView: MTKView {
     }
 
     override func mouseMoved(with event: NSEvent) {
+        updateHoveredGuide(with: event)
         refreshCursor()
         updateEyedropper(with: event)
     }
 
     override func mouseExited(with event: NSEvent) {
+        hoveredGuideAxis = nil
         NSCursor.arrow.set()
         MainActor.assumeIsolated { app?.clearEyedropperLoupe() }
     }
@@ -389,6 +395,19 @@ final class BoardMTKView: MTKView {
         return flags.contains(.option) || flags.contains(.command)
     }
 
+    private func updateHoveredGuide(with event: NSEvent) {
+        guard let coordinator = boardCoordinator,
+              MainActor.assumeIsolated({ app?.tool == .move }),
+              !panning,
+              !spaceHeld
+        else {
+            hoveredGuideAxis = nil
+            return
+        }
+        let point = coordinator.screenPoint(in: self, event: event)
+        hoveredGuideAxis = coordinator.engine.guideAxis(atX: Float(point.x), y: Float(point.y))
+    }
+
     private func updateEyedropper(with event: NSEvent) {
         guard let coordinator = boardCoordinator else { return }
         let eyedropper = MainActor.assumeIsolated { app?.tool == .eyedropper }
@@ -421,7 +440,11 @@ final class BoardMTKView: MTKView {
         } else if MainActor.assumeIsolated({ app?.tool == .text }) {
             cursor = .iBeam
         } else if MainActor.assumeIsolated({ app?.tool == .move }) {
-            cursor = .arrow
+            switch hoveredGuideAxis {
+            case .horizontal: cursor = .resizeUpDown
+            case .vertical: cursor = .resizeLeftRight
+            case nil: cursor = .arrow
+            }
         } else {
             cursor = .crosshair
         }

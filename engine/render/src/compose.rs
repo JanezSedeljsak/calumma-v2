@@ -3,7 +3,8 @@ use bytemuck::{Pod, Zeroable};
 use calumma_core::filters::AdjustmentLut;
 use calumma_core::tile::{TileCoord, TILE_BYTES, TILE_SIZE};
 use calumma_core::{
-    BrushProfile, Document, Layer, Selection, SelectionShape, StrokePoint, Tool, TransformHandles,
+    BrushProfile, Document, GuideAxis, Layer, Selection, SelectionShape, StrokePoint, Tool,
+    TransformHandles,
 };
 
 const TRANSFORM_OUTLINE_COLOR: [f32; 4] = [0.24, 0.78, 0.84, 0.95];
@@ -103,6 +104,44 @@ fn dashed_edge(
         t += period;
     }
     out
+}
+
+/// One guide rule, as the guide pass wants it: a document-space segment plus a colour. Width
+/// is not per-instance because every guide is the same hairline — `board.wgsl`'s
+/// `GUIDE_HALF_WIDTH_PX` owns it, in screen pixels.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq, Pod, Zeroable)]
+pub struct GuideInstance {
+    pub segment: [f32; 4],
+    pub color: [f32; 4],
+}
+
+/// Orange rather than the teal every selection and transform overlay uses, so a rule the board
+/// snaps to never reads as something that is selected.
+const GUIDE_COLOR: [f32; 4] = [0.94, 0.58, 0.29, 0.85];
+const GUIDE_DRAGGED_COLOR: [f32; 4] = [0.94, 0.58, 0.29, 1.0];
+
+/// Guides span the paper and no further: everything the board draws inside a layer is scissored
+/// to it (`Camera::paper_scissor`), and a rule hanging out over the desk would be the only thing
+/// that is not.
+pub fn guide_instances(doc: &Document) -> Vec<GuideInstance> {
+    let dragged = doc.dragged_guide();
+    let (w, h) = (doc.width as f32, doc.height as f32);
+    doc.guides()
+        .iter()
+        .enumerate()
+        .map(|(index, guide)| GuideInstance {
+            segment: match guide.axis {
+                GuideAxis::Horizontal => [0.0, guide.position, w, guide.position],
+                GuideAxis::Vertical => [guide.position, 0.0, guide.position, h],
+            },
+            color: if dragged == Some(index) {
+                GUIDE_DRAGGED_COLOR
+            } else {
+                GUIDE_COLOR
+            },
+        })
+        .collect()
 }
 
 pub fn transform_overlay_instances(handles: TransformHandles) -> Vec<StrokeInstance> {
@@ -221,7 +260,33 @@ pub fn stroke_instances(
     color: [f32; 4],
     profile: &BrushProfile,
 ) -> Vec<StrokeInstance> {
-    if points.is_empty() {
+    stroke_instances_from(points, 0, radius, color, profile)
+}
+
+/// How many instances [`stroke_instances`] emits for this many points: one capsule per pair,
+/// or a single degenerate one for a lone point so a tap still leaves a dot.
+pub fn stroke_segment_count(points: usize) -> usize {
+    match points {
+        0 => 0,
+        1 => 1,
+        n => n - 1,
+    }
+}
+
+/// The tail of [`stroke_instances`] from `first_segment` on, so a live stroke can hand the GPU
+/// only the segments the pointer has travelled since the last frame instead of the whole line
+/// again. Segment `i` is the capsule between points `i` and `i + 1`, which makes the numbering
+/// append-only for any stroke past its first point — the one-point case emits a degenerate
+/// capsule that segment 0 later replaces, so callers restart rather than append across that
+/// boundary.
+pub fn stroke_instances_from(
+    points: &[StrokePoint],
+    first_segment: usize,
+    radius: f32,
+    color: [f32; 4],
+    profile: &BrushProfile,
+) -> Vec<StrokeInstance> {
+    if points.is_empty() || first_segment >= stroke_segment_count(points.len()) {
         return Vec::new();
     }
     let instance = |a: &StrokePoint, b: &StrokePoint| StrokeInstance {
@@ -232,7 +297,11 @@ pub fn stroke_instances(
     if points.len() == 1 {
         return vec![instance(&points[0], &points[0])];
     }
-    points.windows(2).map(|p| instance(&p[0], &p[1])).collect()
+    points
+        .windows(2)
+        .skip(first_segment)
+        .map(|p| instance(&p[0], &p[1]))
+        .collect()
 }
 
 /// Mask / adjustments / opacity baked into a tile before upload. Returns `None` when the

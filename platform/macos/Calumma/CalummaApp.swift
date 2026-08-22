@@ -68,6 +68,8 @@ struct CalummaApp: App {
                     .keyboardShortcut("0", modifiers: [])
                 Button(app.l10n.toggleLayers) { app.layersOpen.toggle() }
                     .keyboardShortcut("l", modifiers: [.command, .option])
+                Button(app.l10n.clearGuides) { app.engine.clearGuides() }
+                    .disabled(app.engine.guideCount == 0)
                 Divider()
                 Button(app.l10n.enterFullScreen) { app.toggleFullScreen() }
                     .keyboardShortcut("f", modifiers: [.control, .command])

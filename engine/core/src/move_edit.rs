@@ -65,7 +65,7 @@ impl Document {
         let Some(layer) = self.layers.get(index) else {
             return false;
         };
-        if layer.is_paper() {
+        if layer.is_paper() || layer.locked {
             return false;
         }
         let Some(raw_bounds) = layer.content_bounds() else {
@@ -88,7 +88,7 @@ impl Document {
         let Some(layer) = self.layers.get_mut(index) else {
             return false;
         };
-        if layer.is_paper() {
+        if layer.is_paper() || layer.locked {
             return false;
         }
         if layer.content_bounds().is_none() {

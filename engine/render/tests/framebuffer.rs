@@ -78,3 +78,64 @@ fn the_source_never_reads_outside_the_reference_rect() {
     assert!(contains(reference, src));
     assert_eq!(area(src), area(dst));
 }
+
+/// The reference pan advances by the *rounded* shift that was actually blitted, so a long pan
+/// made of fractional per-frame deltas never drifts away from where the pixels really are.
+/// Advancing it by the raw camera pan instead would bank the rounding remainder every frame.
+#[test]
+fn chaining_the_reference_by_the_rounded_shift_does_not_accumulate_error() {
+    let dpr = 2.0f32;
+    let per_frame = 0.37f32;
+    let mut camera_pan = 0.0f32;
+    let mut reference_pan = 0.0f32;
+    for _ in 0..10_000 {
+        camera_pan += per_frame;
+        let shift = ((camera_pan - reference_pan) * dpr).round() as i32;
+        reference_pan += shift as f32 / dpr;
+        let residual = (camera_pan - reference_pan).abs();
+        assert!(
+            residual <= 0.5 / dpr + 1e-3,
+            "residual {residual} grew past half a device pixel"
+        );
+    }
+}
+
+/// Why the reference is re-committed every blit frame rather than frozen at the last full
+/// redraw: measured from the previous frame the exposed band stays one frame of travel wide,
+/// measured from a frozen baseline it grows with the whole gesture until the overlap empties.
+#[test]
+fn re_committing_the_reference_keeps_exposed_strips_flat_across_a_gesture() {
+    let scissor: PxRect = (0, 0, 800, 600);
+    let step = 6i32;
+    let frames = 60;
+
+    let chained: u64 = (0..frames)
+        .map(|_| {
+            let (_, dst) = shift_plan(scissor, scissor, step, 0, 800, 600).expect("overlap");
+            exposed_rects(scissor, dst)
+                .iter()
+                .flatten()
+                .map(|r| area(*r))
+                .sum::<u64>()
+        })
+        .sum();
+
+    let frozen: u64 = (1..=frames)
+        .map(
+            |frame| match shift_plan(scissor, scissor, step * frame, 0, 800, 600) {
+                Some((_, dst)) => exposed_rects(scissor, dst)
+                    .iter()
+                    .flatten()
+                    .map(|r| area(*r))
+                    .sum(),
+                None => area(scissor),
+            },
+        )
+        .sum();
+
+    assert_eq!(chained, frames as u64 * step as u64 * 600);
+    assert!(
+        frozen > chained * 20,
+        "frozen baseline should ramp badly: chained {chained}, frozen {frozen}"
+    );
+}

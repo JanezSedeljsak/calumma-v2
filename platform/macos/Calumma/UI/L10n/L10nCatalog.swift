@@ -132,6 +132,7 @@ struct L10nCatalog: Equatable {
     var newProjectMenu: String { self["newProjectMenu"] }
     var fitToView: String { self["fitToView"] }
     var toggleLayers: String { self["toggleLayers"] }
+    var clearGuides: String { self["clearGuides"] }
     var toggleTheme: String { self["toggleTheme"] }
     var layerNamed: String { self["layerNamed"] }
     var paper: String { self["paper"] }
@@ -181,6 +182,9 @@ struct L10nCatalog: Equatable {
     var brushCrayon: String { self["brushCrayon"] }
     var brushAirbrush: String { self["brushAirbrush"] }
     var eraserHardness: String { self["eraserHardness"] }
+    var layerLock: String { self["layerLock"] }
+    var layerUnlock: String { self["layerUnlock"] }
+    var renameLayer: String { self["renameLayer"] }
     var toolEyedropper: String { self["toolEyedropper"] }
     var toolTransform: String { self["toolTransform"] }
     var toolText: String { self["toolText"] }

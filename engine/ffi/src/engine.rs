@@ -1227,6 +1227,111 @@ pub unsafe extern "C" fn calm_engine_move_layer_down(
     })
 }
 
+/// Drag-reorder, stated in the panel's own top-first rows. The engine owns the flip to its
+/// bottom-first stack so the shell never computes a layer index.
+#[no_mangle]
+pub unsafe extern "C" fn calm_engine_move_layer_row(
+    engine: *mut CalmEngine,
+    from_row: u32,
+    to_row: u32,
+) -> CalmStatus {
+    with_inner(engine, |inner| {
+        let doc = inner.doc.as_mut().context("no project is open")?;
+        if !doc.move_layer_row(from_row as usize, to_row as usize) {
+            bail!("row {from_row} cannot move to {to_row}");
+        }
+        inner.dirty_save = true;
+        if let Some(r) = &mut inner.renderer {
+            r.invalidate();
+        }
+        Ok(())
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn calm_engine_set_layer_name(
+    engine: *mut CalmEngine,
+    index: u32,
+    name: *const c_char,
+) -> CalmStatus {
+    if name.is_null() {
+        return CalmStatus::Null;
+    }
+    let Ok(text) = (unsafe { CStr::from_ptr(name) }).to_str() else {
+        return CalmStatus::Error;
+    };
+    with_inner(engine, |inner| {
+        let doc = inner.doc.as_mut().context("no project is open")?;
+        if !doc.set_layer_name(index as usize, text) {
+            bail!("layer {index} cannot be named {text:?}");
+        }
+        inner.dirty_save = true;
+        Ok(())
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn calm_engine_set_layer_locked(
+    engine: *mut CalmEngine,
+    index: u32,
+    locked: u8,
+) -> CalmStatus {
+    with_inner(engine, |inner| {
+        let doc = inner.doc.as_mut().context("no project is open")?;
+        if !doc.set_layer_locked(index as usize, locked != 0) {
+            bail!("layer {index} lock is already {locked}");
+        }
+        inner.dirty_save = true;
+        if let Some(r) = &mut inner.renderer {
+            r.invalidate();
+        }
+        Ok(())
+    })
+}
+
+/// Whether this layer is the board's backing sheet. `Layer::is_paper` is name-matched, so the
+/// shell asking the engine rather than comparing the label it was handed is what keeps the
+/// rule in one place — and the label it was handed is localised.
+#[no_mangle]
+pub unsafe extern "C" fn calm_engine_layer_is_paper(engine: *mut CalmEngine, index: u32) -> c_int {
+    if engine.is_null() {
+        return -1;
+    }
+    match catch_unwind(AssertUnwindSafe(|| {
+        let mutex = unsafe { &*(engine as *const Mutex<Inner>) };
+        let inner = mutex.lock();
+        let doc = inner.doc.as_ref().context("no project is open")?;
+        let layer = doc
+            .layers
+            .get(index as usize)
+            .with_context(|| format!("layer index {index} out of range"))?;
+        Ok::<c_int, anyhow::Error>(if layer.is_paper() { 1 } else { 0 })
+    })) {
+        Ok(Ok(v)) => v,
+        _ => -1,
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn calm_engine_layer_locked(engine: *mut CalmEngine, index: u32) -> c_int {
+    if engine.is_null() {
+        return -1;
+    }
+    match catch_unwind(AssertUnwindSafe(|| {
+        let mutex = unsafe { &*(engine as *const Mutex<Inner>) };
+        let inner = mutex.lock();
+        let doc = inner.doc.as_ref().context("no project is open")?;
+        let layer = doc
+            .layers
+            .get(index as usize)
+            .with_context(|| format!("layer index {index} out of range"))?;
+        Ok::<c_int, anyhow::Error>(if layer.locked { 1 } else { 0 })
+    })) {
+        Ok(Ok(v)) => v,
+        _ => -1,
+    }
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn calm_engine_merge_layer_down(
     engine: *mut CalmEngine,

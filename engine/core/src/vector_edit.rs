@@ -21,6 +21,11 @@ pub struct VectorItemDrag {
     pick: VectorPick,
     start_pointer: (f32, f32),
     start_item: VectorItem,
+    /// The item's document-space box at pointer-down. Moving an item by a document delta moves
+    /// this box by exactly the same delta — `move_item_by` un-rotates the delta only so the
+    /// layer transform can put it back — so the box the guides snap against is this one shifted,
+    /// with no per-frame transform work.
+    start_aabb: Option<(f32, f32, f32, f32)>,
 }
 
 fn layer_pivot(layer: &Layer) -> Option<((f32, f32), LayerTransform)> {
@@ -118,6 +123,9 @@ impl Document {
         let Some(pick) = self.vector_item_at(doc_x, doc_y) else {
             return false;
         };
+        if self.layer_locked(pick.layer) {
+            return false;
+        }
         let Some(item) = self
             .layers
             .get(pick.layer)
@@ -129,10 +137,12 @@ impl Document {
         };
         self.active_layer = pick.layer;
         self.selected_vector = Some(pick);
+        let start_aabb = self.vector_item_doc_aabb(pick);
         self.vector_drag = Some(VectorItemDrag {
             pick,
             start_pointer: (doc_x, doc_y),
             start_item: item,
+            start_aabb,
         });
         true
     }
@@ -141,7 +151,17 @@ impl Document {
         let Some(drag) = self.vector_drag.take() else {
             return false;
         };
-        let doc_delta = (doc_x - drag.start_pointer.0, doc_y - drag.start_pointer.1);
+        let mut doc_delta = (doc_x - drag.start_pointer.0, doc_y - drag.start_pointer.1);
+        if let Some(aabb) = drag.start_aabb {
+            let moved_aabb = (
+                aabb.0 + doc_delta.0,
+                aabb.1 + doc_delta.1,
+                aabb.2 + doc_delta.0,
+                aabb.3 + doc_delta.1,
+            );
+            let (snap_x, snap_y) = self.snap_box_offset(moved_aabb);
+            doc_delta = (doc_delta.0 + snap_x, doc_delta.1 + snap_y);
+        }
         let moved = self.move_item_by(drag.pick, doc_delta, |slot, (dx, dy)| {
             slot.set_translated(&drag.start_item, dx, dy)
         });
@@ -196,6 +216,26 @@ impl Document {
             return Some([(x0, y0), (x1, y0), (x1, y1), (x0, y1)]);
         };
         Some(t.transformed_corners(pivot, bounds))
+    }
+
+    /// One item's box in **document** space — its own bounds carried through the layer
+    /// transform, the same mapping `selected_vector_item_corners` draws the selection box with.
+    fn vector_item_doc_aabb(&self, pick: VectorPick) -> Option<(f32, f32, f32, f32)> {
+        let layer = self.layers.get(pick.layer)?;
+        let bounds = layer.content.items()?.get(pick.item)?.bounds()?;
+        let Some((pivot, t)) = layer_pivot(layer) else {
+            return Some(bounds);
+        };
+        let corners = t.transformed_corners(pivot, bounds);
+        let mut min = corners[0];
+        let mut max = corners[0];
+        for &(x, y) in &corners[1..] {
+            min.0 = min.0.min(x);
+            min.1 = min.1.min(y);
+            max.0 = max.0.max(x);
+            max.1 = max.1.max(y);
+        }
+        Some((min.0, min.1, max.0, max.1))
     }
 
     pub fn vector_item_count(&self, layer_index: usize) -> usize {

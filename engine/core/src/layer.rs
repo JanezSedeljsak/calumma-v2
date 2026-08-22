@@ -117,6 +117,11 @@ pub struct Layer {
     pub blend_mode: BlendMode,
     pub adjustments: Option<Adjustments>,
     pub transform: Option<LayerTransform>,
+    /// Refuses everything that would change this layer's pixels or where they sit — paint,
+    /// fill, clear, transform, move, and being picked by a click on the board. Visibility,
+    /// duplicate and export stay available, and so does delete: a lock guards against the
+    /// stray stroke, not against a deliberate press of the button next to it.
+    pub locked: bool,
     mask: Option<Vec<u8>>,
 }
 
@@ -135,6 +140,7 @@ impl Layer {
             blend_mode: BlendMode::Normal,
             adjustments: None,
             transform: None,
+            locked: false,
             mask: None,
         }
     }
@@ -149,6 +155,7 @@ impl Layer {
             blend_mode: BlendMode::Normal,
             adjustments: None,
             transform: None,
+            locked: false,
             mask: None,
         }
     }
@@ -172,6 +179,7 @@ impl Layer {
             blend_mode: BlendMode::Normal,
             adjustments: None,
             transform: None,
+            locked: false,
             mask: None,
         };
         crate::text_layer::resync(&mut layer);

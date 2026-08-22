@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 enum RulerAxis {
@@ -9,12 +10,19 @@ enum RulerAxis {
 /// (`Engine.rulerTicksX/Y`, adaptive 1/2/5×10ⁿ spacing) — this view only maps each tick's
 /// doc position to a screen offset with the same `doc * zoom + pan` the board itself uses,
 /// and draws it. No spacing math lives here.
+///
+/// It is also where a guide is born: dragging off the strip starts an engine guide drag. The
+/// only thing this view contributes is the offset between its own coordinates and the board's
+/// (`boardPoint`) — where the guide lands, whether it survives the release, and what it snaps
+/// are all decided in `core/src/guide.rs`.
 struct RulerView: View {
     @Environment(\.themeColors) private var colors
     let axis: RulerAxis
     let ticks: [RulerTick]
     let zoom: Float
     let pan: Float
+    let engine: Engine
+    @State private var draggingGuide = false
 
     static let thickness: CGFloat = 20
     private static let majorTickFraction: CGFloat = 0.55
@@ -31,6 +39,55 @@ struct RulerView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(colors.surface)
+        .contentShape(Rectangle())
+        .gesture(guideDrag)
+        .onHover { inside in
+            if inside, !draggingGuide {
+                guideCursor.set()
+            } else if !inside, !draggingGuide {
+                NSCursor.arrow.set()
+            }
+        }
+    }
+
+    private var guideDrag: some Gesture {
+        DragGesture(minimumDistance: 0)
+            .onChanged { value in
+                let point = boardPoint(value.location)
+                if draggingGuide {
+                    engine.updateGuideDrag(x: point.0, y: point.1)
+                } else {
+                    draggingGuide = true
+                    engine.beginGuideDragFromRuler(axis: guideAxis, x: point.0, y: point.1)
+                }
+            }
+            .onEnded { value in
+                guard draggingGuide else { return }
+                draggingGuide = false
+                let point = boardPoint(value.location)
+                engine.endGuideDrag(x: point.0, y: point.1)
+            }
+    }
+
+    private var guideAxis: CalmGuideAxis {
+        axis == .horizontal ? .horizontal : .vertical
+    }
+
+    private var guideCursor: NSCursor {
+        axis == .horizontal ? .resizeUpDown : .resizeLeftRight
+    }
+
+    /// A ruler strip is inset from the board by exactly its own thickness on the axis it sits
+    /// against, and shares the board's other axis one-for-one — so this is the whole coordinate
+    /// bridge. A point still over the strip comes out negative, which is what the engine reads
+    /// as "not on the paper" when the drag ends.
+    private func boardPoint(_ local: CGPoint) -> (Float, Float) {
+        switch axis {
+        case .horizontal:
+            return (Float(local.x), Float(local.y - Self.thickness))
+        case .vertical:
+            return (Float(local.x - Self.thickness), Float(local.y))
+        }
     }
 
     private func draw(

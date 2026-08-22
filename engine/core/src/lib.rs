@@ -6,6 +6,7 @@ pub mod coverage;
 pub mod document;
 pub mod fill;
 pub mod filters;
+pub mod guide;
 pub mod history;
 pub mod layer;
 pub mod limits;
@@ -40,6 +41,7 @@ pub use color::{format_hex_rgb, pack_rgb, pack_rgba, parse_hex_rgb, unpack_rgb, 
 pub use coverage::CoverageGrid;
 pub use document::{stamp_spacing, stroke_stamps, Document, StrokePoint, TransformHandles};
 pub use filters::{AdjustmentKind, Adjustments};
+pub use guide::{Guide, GuideAxis};
 pub use history::History;
 pub use layer::{BlendMode, Layer, LayerContent};
 pub use limits::{

@@ -77,6 +77,10 @@ enum AppIcon {
         SvgIcon(name: open ? "eye-open" : "eye-closed", color: color)
     }
 
+    static func lock(color: Color, closed: Bool) -> some View {
+        SvgIcon(name: closed ? "lock-closed" : "lock-open", color: color)
+    }
+
     static func trash(color: Color) -> some View {
         SvgIcon(name: "trash", color: color)
     }

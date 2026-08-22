@@ -280,9 +280,9 @@ live in `engine/core`; the actual PNG/JPEG/WebP/AVIF **encode** happens in the s
   undo-tracked, matching the rest of the vector path (adding an item isn't either).
 - Add layer: `⌘⇧N` (shell).
 - Clear active layer: `⌘⌫` — clears just the active **selection** instead if one exists.
-- Each layer row keeps only the visibility toggle and a delete button directly visible; every
-  other layer action lives behind a single `…` icon (`AppIcon.more`) that opens a per-layer
-  settings popover (`LayerSettingsCard.swift`): **Copy** (PNG, or SVG if the layer is vector
+- Each layer row keeps the visibility toggle, a **lock** toggle and a delete button directly
+  visible; every other layer action lives behind a single `…` icon (`AppIcon.more`) that opens
+  a per-layer settings popover (`LayerSettingsCard.swift`): **Copy** (PNG, or SVG if the layer is vector
   content), **Duplicate** (cheap, shares tile data via `Arc` until edited), **Merge Down**
   (composites onto the layer below respecting opacity/blend mode/adjustments, then removes
   the source — disabled when the layer below is Paper), **Reset Transform**, an **Opacity**
@@ -293,6 +293,29 @@ live in `engine/core`; the actual PNG/JPEG/WebP/AVIF **encode** happens in the s
   and non-destructive — nothing here is undo-tracked (matches add/remove layer), and there is
   no explicit "bake into pixels" action; `merge_layer_down` and PSD export are the only two
   places any of it gets baked into concrete bytes today.
+- **Drag-reorder:** drag a row onto another row to put it there. Dropping *onto* a row rather
+  than between rows is the whole contract — there is no insertion point to get off by one at
+  either end. Move Up / Move Down stay in the `…` popover as the keyboard-reachable path. The
+  panel draws the stack top-first while the document stores it bottom-first, so the shell
+  hands `calm_engine_move_layer_row` the row it dragged and the row it dropped on and the
+  engine owns the flip — Swift never computes a layer index. Order already persisted via
+  `z_index`, so nothing new is saved.
+- **Rename:** double-click a layer's name for an inline field, or Rename from its context
+  menu. Double-click on a *text* layer still opens the text for editing (that came first), so
+  the context menu is the path for those. `Enter` commits, `Esc` abandons. Names are trimmed
+  and an all-whitespace name is refused. **Paper cannot be renamed, and nothing else can be
+  renamed *to* Paper** — `Layer::is_paper` is name-matched, so merge-down, click-to-pick and
+  the Filters menu all key off that string; letting it move would break all three silently.
+- **Lock** (the padlock beside the eye): refuses everything that would change the layer's
+  pixels or where they sit — paint, fill, clear, transform (`⌘T` and Reset Transform), Move,
+  arrow-key nudge, the bounds strip, and vector item drags. A locked layer is also invisible
+  to click-to-pick, so a lock cannot be stolen by clicking its pixels on the board. Locking
+  the layer you are mid-transform on drops the handles rather than leaving a box that refuses
+  to drag. Visibility, duplicate, export and the opacity/blend/filter sliders still work, and
+  so does **delete** — a lock guards against the stray stroke, not against a deliberate press
+  of the button next to it, which is how Photoshop and Figma behave too. Paper can be locked
+  (it is the layer people paint on by accident most), it just cannot be renamed. Persists in a
+  `locked` column on `layers`.
 - Canvas resize: width/height fields docked at the bottom of the layers panel, commit on
   Enter (`Document::resize`). Top-left anchored; shrinking never discards off-canvas tile
   data, so growing back restores it exactly.

@@ -15,6 +15,10 @@ struct EditorView: View {
     @State private var boundsWidth = 0
     @State private var boundsHeight = 0
     @State private var layerSettingsIndex: Int?
+    @State private var renamingLayer: Int?
+    @State private var renameDraft = ""
+    @State private var dropTargetRow: Int?
+    @State private var draggingRow: Int?
     @State private var aiBlinkOn = false
 
     var body: some View {
@@ -127,7 +131,8 @@ struct EditorView: View {
             axis: .horizontal,
             ticks: app.engine.rulerTicksX(),
             zoom: app.engine.state.zoom,
-            pan: app.engine.state.panX
+            pan: app.engine.state.panX,
+            engine: app.engine
         )
         .overlay(alignment: .bottom) {
             Rectangle().fill(colors.islandBorder).frame(height: 1)
@@ -139,7 +144,8 @@ struct EditorView: View {
             axis: .vertical,
             ticks: app.engine.rulerTicksY(),
             zoom: app.engine.state.zoom,
-            pan: app.engine.state.panY
+            pan: app.engine.state.panY,
+            engine: app.engine
         )
         .overlay(alignment: .trailing) {
             Rectangle().fill(colors.islandBorder).frame(width: 1)
@@ -358,10 +364,30 @@ struct EditorView: View {
         }
     }
 
+    /// Panel rows run top-first while the engine stores the stack bottom-first. The shell only
+    /// ever names rows — `calm_engine_move_layer_row` owns the flip.
+    private func layerDisplayRow(_ index: Int) -> Int {
+        app.engine.layerNames.count - 1 - index
+    }
+
+    private func beginRename(_ index: Int) {
+        renameDraft = app.engine.layerNames[index]
+        renamingLayer = index
+    }
+
+    private func commitRename(_ index: Int) {
+        renamingLayer = nil
+        app.engine.setLayerName(index, name: renameDraft)
+    }
+
     private func layerRow(_ index: Int) -> some View {
         let selected = app.engine.state.activeLayer == UInt32(index)
         let name = app.engine.layerNames[index]
         let visible = index < app.engine.layerVisibles.count ? app.engine.layerVisibles[index] : true
+        let locked = index < app.engine.layerLocked.count ? app.engine.layerLocked[index] : false
+        let isPaper = app.engine.isLayerPaper(index: index)
+        let renameable = !isPaper
+        let row = layerDisplayRow(index)
         return HStack(spacing: Tokens.Space.sm) {
             Button {
                 app.engine.setLayerVisible(index, visible: !visible)
@@ -373,27 +399,48 @@ struct EditorView: View {
             .calmPointer()
 
             Button {
+                app.engine.setLayerLocked(index, locked: !locked)
+            } label: {
+                AppIcon.lock(
+                    color: locked ? colors.accentTeal : colors.textMuted.opacity(0.45),
+                    closed: locked
+                )
+            }
+            .buttonStyle(.plain)
+            .calmTooltip(locked ? l10n.layerUnlock : l10n.layerLock, edge: .leading)
+            .calmPointer()
+
+            Button {
                 app.engine.setActiveLayer(index)
             } label: {
                 HStack(spacing: Tokens.Space.md) {
                     layerThumb(index)
-                    CalmText.body(name, strong: selected)
-                        .opacity(visible ? 1 : 0.45)
+                    if renamingLayer == index {
+                        CalmField(text: $renameDraft)
+                            .onSubmit { commitRename(index) }
+                            .onExitCommand { renamingLayer = nil }
+                    } else {
+                        CalmText.body(name, strong: selected)
+                            .opacity(visible ? 1 : 0.45)
+                    }
                     Spacer()
                     if app.engine.isLayerVector(index: index) {
                         CalmText.muted("\(app.engine.layerItemCount(index: index))", mono: true)
                     }
                 }
                 .padding(Tokens.Space.sm)
-                .calmSurface(hover: selected, radius: Tokens.Radius.sm, bordered: true)
+                .calmSurface(hover: selected || dropTargetRow == row, radius: Tokens.Radius.sm, bordered: true)
             }
             .buttonStyle(.plain)
             .calmPointer()
             .simultaneousGesture(
                 TapGesture(count: 2).onEnded {
-                    guard app.engine.isLayerText(index: index) else { return }
-                    app.selectTool(.text)
-                    app.engine.editTextLayer(index)
+                    if app.engine.isLayerText(index: index) {
+                        app.selectTool(.text)
+                        app.engine.editTextLayer(index)
+                    } else if renameable {
+                        beginRename(index)
+                    }
                 }
             )
             .contextMenu {
@@ -402,6 +449,9 @@ struct EditorView: View {
                         app.selectTool(.text)
                         app.engine.editTextLayer(index)
                     }
+                }
+                if renameable {
+                    Button(l10n.renameLayer) { beginRename(index) }
                 }
             }
 
@@ -422,12 +472,11 @@ struct EditorView: View {
             ) {
                 LayerSettingsCard(
                     index: index,
-                    canMoveUp: index < app.engine.layerNames.count - 1
-                        && app.engine.layerNames[index] != l10n.paper,
+                    canMoveUp: index < app.engine.layerNames.count - 1 && !isPaper,
                     canMoveDown: index > 0
-                        && app.engine.layerNames[index] != l10n.paper
-                        && !(index == 1 && app.engine.layerNames[0] == l10n.paper),
-                    canMergeDown: index > 0 && app.engine.layerNames[index - 1] != l10n.paper
+                        && !isPaper
+                        && !(index == 1 && app.engine.isLayerPaper(index: 0)),
+                    canMergeDown: index > 0 && !app.engine.isLayerPaper(index: index - 1)
                 )
                     .environmentObject(app)
                     .themeColors(colors)
@@ -449,6 +498,53 @@ struct EditorView: View {
         .onHover { hovering in
             app.engine.setHoverLayer(hovering ? index : nil)
             hoveredLayer = hovering ? index : nil
+        }
+        .opacity(draggingRow == row ? 0.4 : 1)
+        .onDrag {
+            draggingRow = row
+            return NSItemProvider(object: String(row) as NSString)
+        }
+        .onDrop(
+            of: [.text],
+            delegate: LayerDropDelegate(
+                row: row,
+                target: $dropTargetRow,
+                dragging: $draggingRow,
+                move: { from, to in app.engine.moveLayerRow(from: from, to: to) }
+            )
+        )
+    }
+
+    /// Dropping *onto* a row means "take the row you are dragging and put it here", which is a
+    /// simpler contract than an insertion point between rows: there is no off-by-one to get
+    /// wrong at either end, and every drop lands somewhere legal or is refused by the engine.
+    private struct LayerDropDelegate: DropDelegate {
+        let row: Int
+        @Binding var target: Int?
+        @Binding var dragging: Int?
+        let move: (Int, Int) -> Void
+
+        func dropEntered(info: DropInfo) {
+            target = row
+        }
+
+        func dropExited(info: DropInfo) {
+            if target == row {
+                target = nil
+            }
+        }
+
+        func dropUpdated(info: DropInfo) -> DropProposal? {
+            DropProposal(operation: .move)
+        }
+
+        func performDrop(info: DropInfo) -> Bool {
+            target = nil
+            guard let from = dragging else { return false }
+            dragging = nil
+            guard from != row else { return false }
+            move(from, row)
+            return true
         }
     }
 

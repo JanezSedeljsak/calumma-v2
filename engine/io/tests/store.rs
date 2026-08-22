@@ -1,6 +1,6 @@
 use calumma_core::layer::BlendMode;
 use calumma_core::tile::TILE_SIZE;
-use calumma_core::{DirtyChannel, Document, LayerTransform};
+use calumma_core::{DirtyChannel, Document, Guide, GuideAxis, LayerTransform};
 use calumma_io::*;
 use rusqlite::{params, Connection};
 use tempfile::tempdir;
@@ -120,6 +120,36 @@ fn imported_image_round_trips() {
     let tiles = loaded.layers[i].tiles().unwrap();
     assert_eq!(tiles.get_pixel(0, 0), [9, 8, 7, 255]);
     assert_eq!(tiles.get_pixel(299, 199), [1, 2, 3, 255]);
+}
+
+/// A lock is worth nothing if it comes off every time the project is reopened — the whole
+/// point is that the layer you protected stays protected. Names have to survive too, or a
+/// rename is a session-long illusion.
+#[test]
+fn layer_lock_and_name_round_trip() {
+    let (_dir, store) = store();
+    let mut doc = store.create("Locked", 64, 64).unwrap();
+    let i = paint_index(&doc);
+    assert!(doc.set_layer_name(i, "Line art"));
+    assert!(doc.set_layer_locked(i, true));
+    store.save(&mut doc).unwrap();
+
+    let loaded = store.open_project(&doc.id).unwrap();
+    let i = loaded
+        .layers
+        .iter()
+        .position(|l| l.name == "Line art")
+        .expect("the renamed layer came back under its own name");
+    assert!(loaded.layers[i].locked, "and still locked");
+
+    let mut unlocked = loaded;
+    assert!(unlocked.set_layer_locked(i, false));
+    store.save(&mut unlocked).unwrap();
+    let reopened = store.open_project(&unlocked.id).unwrap();
+    assert!(
+        !reopened.layers[i].locked,
+        "unlocking persists just as well as locking"
+    );
 }
 
 /// A layer dragged with the Move tool (or scaled/rotated with `⌘T`) lives entirely in
@@ -497,4 +527,66 @@ fn a_painted_tile_is_not_shared_with_the_solid_ones() {
     let grid = reopened.layers[0].tiles().unwrap();
     assert_eq!(grid.get_pixel(5, 5), [1, 2, 3, 255]);
     assert_eq!(grid.get_pixel(300, 300), [255, 255, 255, 255]);
+}
+
+#[test]
+fn guides_round_trip() {
+    let (_dir, store) = store();
+    let mut doc = store.create("Guided", 64, 64).unwrap();
+    doc.add_guide(GuideAxis::Horizontal, 12.5);
+    doc.add_guide(GuideAxis::Vertical, -3.25);
+    store.save(&mut doc).unwrap();
+
+    let loaded = store.open_project(&doc.id).unwrap();
+    assert_eq!(
+        loaded.guides(),
+        [
+            Guide {
+                axis: GuideAxis::Horizontal,
+                position: 12.5
+            },
+            Guide {
+                axis: GuideAxis::Vertical,
+                position: -3.25
+            },
+        ]
+    );
+}
+
+#[test]
+fn clearing_guides_clears_them_on_disk_too() {
+    let (_dir, store) = store();
+    let mut doc = store.create("Guided", 64, 64).unwrap();
+    doc.add_guide(GuideAxis::Horizontal, 8.0);
+    store.save(&mut doc).unwrap();
+    doc.clear_guides();
+    store.save(&mut doc).unwrap();
+    assert!(store.open_project(&doc.id).unwrap().guides().is_empty());
+}
+
+#[test]
+fn adds_guides_column_to_a_database_saved_before_guides_existed() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("pre_guides.sqlite");
+    {
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE projects (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                width INTEGER NOT NULL,
+                height INTEGER NOT NULL,
+                created_at INTEGER NOT NULL,
+                opened_at INTEGER NOT NULL,
+                thumb BLOB,
+                accent INTEGER
+            );",
+        )
+        .unwrap();
+    }
+    let store = ProjectStore::open(&path).unwrap();
+    let mut doc = store.create("PreGuides", 32, 32).unwrap();
+    doc.add_guide(GuideAxis::Vertical, 7.0);
+    store.save(&mut doc).unwrap();
+    assert_eq!(store.open_project(&doc.id).unwrap().guides().len(), 1);
 }

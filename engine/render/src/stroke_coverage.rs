@@ -131,10 +131,13 @@ impl StrokeCoverage {
         }
     }
 
-    pub(crate) fn ensure(&mut self, device: &wgpu::Device, width: u32, height: u32) {
+    /// Makes sure a coverage target of this size exists, reporting whether it had to make a
+    /// new one. A fresh texture has no accumulated coverage in it, so the caller has to start
+    /// the current stroke over rather than appending to pixels that are no longer there.
+    pub(crate) fn ensure(&mut self, device: &wgpu::Device, width: u32, height: u32) -> bool {
         let (width, height) = (width.max(1), height.max(1));
         if self.target.is_some() && self.width == width && self.height == height {
-            return;
+            return false;
         }
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("stroke-coverage"),
@@ -168,6 +171,7 @@ impl StrokeCoverage {
         });
         self.width = width;
         self.height = height;
+        true
     }
 
     pub(crate) fn release(&mut self) {
@@ -176,8 +180,17 @@ impl StrokeCoverage {
         self.height = 0;
     }
 
-    /// Rasterize the stroke's segments into the coverage target, unioned rather than summed.
+    /// Rasterize stroke segments into the coverage target, unioned rather than summed.
     /// Scissored to the paper so a stroke that runs off the board cannot smear into the desk.
+    ///
+    /// `range` is the segments *added since the last call*, not the whole stroke, and `restart`
+    /// says whether the target has to be wiped first. Appending is exact rather than an
+    /// approximation: the blend op is `Max`, which is idempotent and order-independent, so
+    /// unioning segment N into pixels that already hold the union of segments 0..N is the same
+    /// value as unioning 0..N+1 from an empty target. Redrawing the whole stroke every frame —
+    /// which is what this used to do, complete with a full-viewport clear — made a live stroke
+    /// cost O(points) per frame and O(points²) over the gesture, so the brush got heavier the
+    /// longer the line got. Now it costs the segments the pointer actually travelled.
     pub(crate) fn accumulate(
         &self,
         encoder: &mut wgpu::CommandEncoder,
@@ -185,17 +198,27 @@ impl StrokeCoverage {
         instances: &wgpu::Buffer,
         range: std::ops::Range<u32>,
         scissor: Option<PxRect>,
+        restart: bool,
     ) {
         let Some(target) = &self.target else {
             return;
         };
+        if range.is_empty() && !restart {
+            return;
+        }
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("stroke-coverage"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                 view: &target.view,
                 resolve_target: None,
                 ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                    // Only a restart wipes the target. Every other frame loads what the
+                    // previous frames accumulated and unions this frame's segments onto it.
+                    load: if restart {
+                        wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT)
+                    } else {
+                        wgpu::LoadOp::Load
+                    },
                     store: wgpu::StoreOp::Store,
                 },
                 depth_slice: None,
@@ -207,6 +230,9 @@ impl StrokeCoverage {
         });
         if let Some((x, y, w, h)) = scissor {
             pass.set_scissor_rect(x, y, w, h);
+        }
+        if range.is_empty() {
+            return;
         }
         pass.set_pipeline(&self.coverage_pipeline);
         pass.set_bind_group(0, preview_bg, &[]);
@@ -338,6 +364,7 @@ mod tests {
             &buf,
             0..instances.len() as u32,
             None,
+            true,
         );
         let target = h.coverage.target.as_ref().expect("target");
         encoder.copy_texture_to_buffer(

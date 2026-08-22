@@ -2,6 +2,7 @@ use crate::brush::{Brush, BrushProfile};
 use crate::camera::Camera;
 use crate::coverage::CoverageGrid;
 use crate::filters::AdjustmentLut;
+use crate::guide::{Guide, GuideDrag};
 use crate::history::{History, TileSnapshot};
 use crate::layer::Layer;
 use crate::limits::{
@@ -145,6 +146,7 @@ pub(crate) fn layer_alpha_at(layer: &Layer, doc_x: f32, doc_y: f32, doc_w: u32, 
 
 fn layer_pickable_at(layer: &Layer, doc_x: f32, doc_y: f32, doc_w: u32, doc_h: u32) -> bool {
     layer.visible
+        && !layer.locked
         && !layer.is_paper()
         && layer.opacity > 0.0
         && (layer.tiles().is_some() || layer.content.items().is_some())
@@ -300,6 +302,12 @@ pub struct Document {
     pub hover_layer: Option<usize>,
     pub stroke_active: bool,
     pub stroke_points: Vec<StrokePoint>,
+    /// Bumped once per `begin_stroke`, never reused. The renderer accumulates a brush stroke's
+    /// GPU coverage across frames instead of redrawing it from the first point every time, so
+    /// it needs to know when the points it is appending to belong to a *different* stroke than
+    /// the ones already in the coverage target. Point count alone cannot answer that: two
+    /// strokes can pass through the same length between one frame and the next.
+    stroke_generation: u64,
     /// Index into `stroke_points` the current straight segment pivots on, set the moment
     /// Shift is first seen held during a Pen/Eraser stroke and cleared on release — so toggling
     /// Shift mid-stroke straightens only the segment drawn while it was held, matching the
@@ -311,6 +319,11 @@ pub struct Document {
     /// event to arrive first.
     pub shape_drag: Option<Shape>,
     pub selection: Option<Selection>,
+    /// Guides pulled off the rulers, in document pixels. Board furniture rather than content:
+    /// they draw over every layer, they scope nothing, and the only thing they change about an
+    /// edit is where it lands (`snap_doc_point` / `snap_box_offset`).
+    pub(crate) guides: Vec<Guide>,
+    pub(crate) guide_drag: Option<GuideDrag>,
     pub shift_held: bool,
     /// Whether the shape tools and the pen commit as resolution-independent vector items
     /// instead of stamping pixels. A shell knob, like `fill`.
@@ -448,9 +461,12 @@ impl Document {
             hover_layer: None,
             stroke_active: false,
             stroke_points: Vec::with_capacity(STROKE_POINT_CAPACITY),
+            stroke_generation: 0,
             stroke_straight_anchor: None,
             shape_drag: None,
             selection: None,
+            guides: Vec::new(),
+            guide_drag: None,
             shift_held: false,
             vector_mode: false,
             vector_revision: 0,
@@ -511,7 +527,7 @@ impl Document {
     pub fn active_layer_accepts_paint(&self) -> bool {
         self.layers
             .get(self.active_layer)
-            .is_some_and(|layer| layer.tiles().is_some() && !layer.is_text())
+            .is_some_and(|layer| layer.tiles().is_some() && !layer.is_text() && !layer.locked)
     }
 
     pub fn place_image(&mut self, rgba: &[u8], width: u32, height: u32) -> bool {
@@ -678,6 +694,8 @@ impl Document {
     /// and the answer is always current.
     pub fn preview_shape(&self) -> Option<Shape> {
         let mut shape = self.shape_drag?;
+        shape.start = self.snap_doc_point(shape.start);
+        shape.end = self.snap_doc_point(shape.end);
         if self.shift_held && shape.tool.constrains_to_square() {
             shape.end = crate::shape::square_end(shape.start, shape.end);
         }
@@ -686,6 +704,9 @@ impl Document {
 
     pub fn reset_layer_transform(&mut self, index: usize) {
         if let Some(layer) = self.layers.get_mut(index) {
+            if layer.locked {
+                return;
+            }
             layer.transform = None;
         }
     }
@@ -701,7 +722,7 @@ impl Document {
         let Some(layer) = self.layers.get(self.active_layer) else {
             return false;
         };
-        if layer.content.is_text() || layer.content_bounds().is_none() {
+        if layer.content.is_text() || layer.locked || layer.content_bounds().is_none() {
             return false;
         }
         self.transform_active = true;
@@ -894,11 +915,20 @@ impl Document {
         let Some(drag) = self.transform_drag else {
             return;
         };
+        // A scale handle *is* the pointer, so it snaps to a guide directly; a move keeps hold
+        // of the layer wherever it was grabbed and lets the layer's own outline do the landing.
+        let (doc_x, doc_y) = match drag.handle {
+            TransformHandle::Move | TransformHandle::Rotate => (doc_x, doc_y),
+            _ => self.snap_doc_point((doc_x, doc_y)),
+        };
         let mut next = drag.start_transform;
         match drag.handle {
             TransformHandle::Move => {
                 next.offset_x = drag.start_transform.offset_x + (doc_x - drag.start_pointer.0);
                 next.offset_y = drag.start_transform.offset_y + (doc_y - drag.start_pointer.1);
+                let (snap_x, snap_y) = self.snap_box_offset(next.transformed_aabb(drag.raw_bounds));
+                next.offset_x += snap_x;
+                next.offset_y += snap_y;
             }
             TransformHandle::Rotate => {
                 let start_angle = angle_from(drag.pivot, drag.start_pointer);
@@ -961,6 +991,110 @@ impl Document {
         self.move_layer_by(index, -1)
     }
 
+    /// Move a layer to an arbitrary position in the stack, the drag-reorder counterpart to the
+    /// single-step `move_layer_up` / `move_layer_down`. `to` is where the layer ends up in the
+    /// finished stack, not an insertion point measured against the old one.
+    ///
+    /// Paper is pinned: it cannot be dragged, and nothing can be dropped beneath it. It is the
+    /// board's backing sheet rather than a layer in the composition, and a stack with paint
+    /// hidden under it would look like the paint had vanished.
+    pub fn move_layer(&mut self, from: usize, to: usize) -> bool {
+        let count = self.layers.len();
+        if from >= count || to >= count || from == to {
+            return false;
+        }
+        if let Some(paper) = self.layers.iter().position(Layer::is_paper) {
+            if from == paper || to <= paper {
+                return false;
+            }
+        }
+        self.commit_text();
+        let layer = self.layers.remove(from);
+        self.layers.insert(to, layer);
+        let remap = |i: usize| {
+            if i == from {
+                to
+            } else if from < to && i > from && i <= to {
+                i - 1
+            } else if from > to && i >= to && i < from {
+                i + 1
+            } else {
+                i
+            }
+        };
+        self.remap_layer_indices(remap);
+        true
+    }
+
+    /// The same move stated in panel rows. The layers panel draws the stack top-first while
+    /// the document stores it bottom-first, so the two orders are mirror images — the engine
+    /// owns that flip so the shell can hand over the row it dragged and the row it dropped on
+    /// without ever computing a stack index.
+    pub fn move_layer_row(&mut self, from_row: usize, to_row: usize) -> bool {
+        let count = self.layers.len();
+        if from_row >= count || to_row >= count {
+            return false;
+        }
+        self.move_layer(count - 1 - from_row, count - 1 - to_row)
+    }
+
+    /// Rename a layer, or refuse.
+    ///
+    /// Paper is name-matched (`Layer::is_paper`), so its name is load-bearing: merge-down,
+    /// click-to-pick and the Filters menu all key off it. Renaming Paper would quietly break
+    /// all three, and renaming *another* layer to `Paper` would quietly turn it into one — so
+    /// both directions are refused. An all-whitespace name is refused too, since a row with no
+    /// label is unusable.
+    pub fn set_layer_name(&mut self, index: usize, name: &str) -> bool {
+        let trimmed = name.trim();
+        if trimmed.is_empty() || trimmed == crate::names::PAPER {
+            return false;
+        }
+        let Some(layer) = self.layers.get_mut(index) else {
+            return false;
+        };
+        if layer.is_paper() || layer.name == trimmed {
+            return false;
+        }
+        layer.name = trimmed.to_string();
+        true
+    }
+
+    pub fn set_layer_locked(&mut self, index: usize, locked: bool) -> bool {
+        let Some(layer) = self.layers.get_mut(index) else {
+            return false;
+        };
+        if layer.locked == locked {
+            return false;
+        }
+        layer.locked = locked;
+        if locked && self.active_layer == index {
+            self.exit_transform();
+        }
+        true
+    }
+
+    pub fn layer_locked(&self, index: usize) -> bool {
+        self.layers.get(index).is_some_and(|l| l.locked)
+    }
+
+    /// Every index the document keeps into `layers`, moved through one mapping. Any stack
+    /// mutation has to run all of them or something ends up pointing at the wrong layer — a
+    /// stale text-edit index is what made hiding a text layer fail before.
+    fn remap_layer_indices(&mut self, remap: impl Fn(usize) -> usize + Copy) {
+        self.active_layer = remap(self.active_layer);
+        self.hover_layer = self.hover_layer.map(remap);
+        if let Some(drag) = &mut self.transform_drag {
+            drag.layer_index = remap(drag.layer_index);
+        }
+        if let Some(pick) = &mut self.selected_vector {
+            pick.layer = remap(pick.layer);
+        }
+        if let Some(edit) = &mut self.text_edit {
+            edit.layer = remap(edit.layer);
+        }
+    }
+
     fn move_layer_by(&mut self, index: usize, delta: isize) -> bool {
         if index >= self.layers.len() {
             return false;
@@ -977,7 +1111,7 @@ impl Document {
         }
         self.commit_text();
         self.layers.swap(index, other);
-        let remap = |i: usize| {
+        self.remap_layer_indices(|i| {
             if i == index {
                 other
             } else if i == other {
@@ -985,18 +1119,7 @@ impl Document {
             } else {
                 i
             }
-        };
-        self.active_layer = remap(self.active_layer);
-        self.hover_layer = self.hover_layer.map(remap);
-        if let Some(drag) = &mut self.transform_drag {
-            drag.layer_index = remap(drag.layer_index);
-        }
-        if let Some(pick) = &mut self.selected_vector {
-            pick.layer = remap(pick.layer);
-        }
-        if let Some(edit) = &mut self.text_edit {
-            edit.layer = remap(edit.layer);
-        }
+        });
         true
     }
 
@@ -1114,6 +1237,12 @@ impl Document {
         }
         if self.tool == Tool::Move {
             self.commit_text();
+            // A guide sits on top of everything it crosses, so it is what the Move tool grabs
+            // first. Every other tool draws straight through one — a rule you cannot paint
+            // across would be worse than no rule at all.
+            if self.begin_guide_drag(screen_x, screen_y) {
+                return;
+            }
             self.begin_move_at(dx, dy);
             return;
         }
@@ -1171,6 +1300,11 @@ impl Document {
             return true;
         }
         if self.tool == Tool::Move {
+            // A guide is redrawn from scratch every frame, so moving one invalidates no cache —
+            // it is the cheapest kind of overlay frame there is.
+            if self.update_guide_drag(screen_x, screen_y) {
+                return false;
+            }
             self.update_move_drag(dx, dy);
             return true;
         }
@@ -1194,6 +1328,9 @@ impl Document {
             return;
         }
         if self.tool == Tool::Move {
+            if self.end_guide_drag() {
+                return;
+            }
             self.end_move_drag();
             return;
         }
@@ -1223,10 +1360,18 @@ impl Document {
     fn begin_stroke(&mut self) {
         self.stroke_active = true;
         self.stroke_points.clear();
+        self.stroke_generation = self.stroke_generation.wrapping_add(1);
         self.stroke_straight_anchor = None;
         self.stroke_before.clear();
         self.blur_stamped = 0;
         self.blur_painted = false;
+    }
+
+    /// Identifies the stroke `stroke_points` currently belongs to. See the field's own note —
+    /// this exists so the renderer can append to GPU coverage it has already accumulated
+    /// instead of rasterizing the whole stroke again every frame.
+    pub fn stroke_generation(&self) -> u64 {
+        self.stroke_generation
     }
 
     fn push_stroke_point(&mut self, x: f32, y: f32) {
@@ -2115,6 +2260,9 @@ impl Document {
     /// rectangle would have to be resolved in the layer's own frame rather than the
     /// document's; the caller can see that from the bounds it reads back.
     pub fn set_layer_bounds(&mut self, index: usize, x: f32, y: f32, w: f32, h: f32) -> bool {
+        if self.layer_locked(index) {
+            return false;
+        }
         let Some((cur_x, cur_y, cur_x1, cur_y1)) = self.layer_bounds(index) else {
             return false;
         };
@@ -2195,6 +2343,7 @@ impl Document {
             || self.shape_drag.is_some()
             || self.transform_drag.is_some()
             || self.vector_drag.is_some()
+            || self.guide_drag.is_some()
     }
 
     /// Whether an overlay is *animating* and so needs a frame per display refresh even though

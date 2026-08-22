@@ -519,6 +519,65 @@ fn fs_stroke_composite(in: VsOut) -> @location(0) vec4<f32> {
     return vec4<f32>(pu.stroke_ink.rgb, pu.stroke_ink.a * cov);
 }
 
+struct GuideIn {
+    @location(0) segment: vec4<f32>,
+    @location(1) color: vec4<f32>,
+}
+
+struct GuideOut {
+    @builtin(position) position: vec4<f32>,
+    @location(0) color: vec4<f32>,
+    @location(1) p0: vec2<f32>,
+    @location(2) p1: vec2<f32>,
+}
+
+// A guide is chrome, not content: it stays one screen pixel wide at every zoom, the way the
+// ruler ticks it is pulled from do. That is why it gets its own pair of entry points instead of
+// riding the stroke pass — `vs_stroke` measures its brush in document units, so a rule thin
+// enough at 1:1 would smear into a wide gradient once the board is zoomed in.
+const GUIDE_HALF_WIDTH_PX: f32 = 0.5;
+const GUIDE_QUAD_PAD_PX: f32 = 2.0;
+
+@vertex
+fn vs_guide(input: GuideIn, @builtin(vertex_index) idx: u32) -> GuideOut {
+    var corners = array<vec2<f32>, 6>(
+        vec2<f32>(0.0, 0.0),
+        vec2<f32>(1.0, 0.0),
+        vec2<f32>(0.0, 1.0),
+        vec2<f32>(0.0, 1.0),
+        vec2<f32>(1.0, 0.0),
+        vec2<f32>(1.0, 1.0),
+    );
+    let a = input.segment.xy * pu.zoom + pu.pan;
+    let b = input.segment.zw * pu.zoom + pu.pan;
+    let pad = vec2<f32>(GUIDE_HALF_WIDTH_PX + GUIDE_QUAD_PAD_PX);
+    let lo = min(a, b) - pad;
+    let hi = max(a, b) + pad;
+    let screen = mix(lo, hi, corners[idx]);
+    let device = screen * pu.dpr;
+    let ndc = vec2<f32>(
+        (device.x / max(pu.viewport.x, 1.0)) * 2.0 - 1.0,
+        1.0 - (device.y / max(pu.viewport.y, 1.0)) * 2.0,
+    );
+    var out: GuideOut;
+    out.position = vec4<f32>(ndc, 0.0, 1.0);
+    out.color = input.color;
+    out.p0 = a;
+    out.p1 = b;
+    return out;
+}
+
+@fragment
+fn fs_guide(input: GuideOut) -> @location(0) vec4<f32> {
+    let screen = input.position.xy / max(pu.dpr, 1.0);
+    let d = sd_segment_pts(screen, input.p0, input.p1);
+    let cov = clamp(GUIDE_HALF_WIDTH_PX + 0.5 - d, 0.0, 1.0);
+    if cov <= 0.0 {
+        return vec4<f32>(0.0);
+    }
+    return vec4<f32>(input.color.rgb, input.color.a * cov);
+}
+
 const ARROW_HEAD_RATIO: f32 = 6.0;
 const ARROW_HEAD_MIN: f32 = 10.0;
 const ARROW_HEAD_MAX: f32 = 80.0;

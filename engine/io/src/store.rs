@@ -10,6 +10,7 @@ use thiserror::Error;
 use uuid::Uuid;
 
 use crate::adjustments_blob;
+use crate::guides_blob;
 use crate::text_blob;
 use crate::transform_blob;
 use crate::vector_blob;
@@ -134,7 +135,8 @@ impl ProjectStore {
                 created_at INTEGER NOT NULL,
                 opened_at INTEGER NOT NULL,
                 thumb BLOB,
-                accent INTEGER
+                accent INTEGER,
+                guides BLOB
             );
             CREATE TABLE IF NOT EXISTS layers (
                 project_id TEXT NOT NULL,
@@ -150,6 +152,7 @@ impl ProjectStore {
                 adjustments BLOB,
                 text_data BLOB,
                 transform BLOB,
+                locked INTEGER NOT NULL DEFAULT 0,
                 PRIMARY KEY (project_id, layer_id),
                 FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
             );
@@ -182,14 +185,21 @@ impl ProjectStore {
         let mut stmt = self.conn.prepare("PRAGMA table_info(projects)")?;
         let columns = stmt.query_map([], |row| row.get::<_, String>(1))?;
         let mut has_accent = false;
+        let mut has_guides = false;
         for column in columns {
-            if column?.as_str() == "accent" {
-                has_accent = true;
+            match column?.as_str() {
+                "accent" => has_accent = true,
+                "guides" => has_guides = true,
+                _ => {}
             }
         }
         if !has_accent {
             self.conn
                 .execute("ALTER TABLE projects ADD COLUMN accent INTEGER", [])?;
+        }
+        if !has_guides {
+            self.conn
+                .execute("ALTER TABLE projects ADD COLUMN guides BLOB", [])?;
         }
         Ok(())
     }
@@ -204,6 +214,7 @@ impl ProjectStore {
         let mut has_adjustments = false;
         let mut has_text = false;
         let mut has_transform = false;
+        let mut has_locked = false;
         let columns = stmt.query_map([], |row| row.get::<_, String>(1))?;
         for column in columns {
             match column?.as_str() {
@@ -215,6 +226,7 @@ impl ProjectStore {
                 "adjustments" => has_adjustments = true,
                 "text_data" => has_text = true,
                 "transform" => has_transform = true,
+                "locked" => has_locked = true,
                 _ => {}
             }
         }
@@ -256,6 +268,12 @@ impl ProjectStore {
             self.conn
                 .execute("ALTER TABLE layers ADD COLUMN transform BLOB", [])?;
         }
+        if !has_locked {
+            self.conn.execute(
+                "ALTER TABLE layers ADD COLUMN locked INTEGER NOT NULL DEFAULT 0",
+                [],
+            )?;
+        }
         Ok(())
     }
 
@@ -291,7 +309,7 @@ impl ProjectStore {
         let ts = now_secs();
         let mut doc = Document::new(id.clone(), name, width, height);
         self.conn.execute(
-            "INSERT INTO projects (id, name, width, height, created_at, opened_at, thumb, accent) VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL, ?7)",
+            "INSERT INTO projects (id, name, width, height, created_at, opened_at, thumb, accent, guides) VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL, ?7, NULL)",
             params![
                 id,
                 name,
@@ -312,29 +330,36 @@ impl ProjectStore {
             "UPDATE projects SET opened_at = ?1 WHERE id = ?2",
             params![ts, id],
         )?;
-        let (name, width, height, accent): (String, u32, u32, [u8; 3]) = self
-            .conn
-            .query_row(
-                "SELECT name, width, height, accent FROM projects WHERE id = ?1",
-                params![id],
-                |row| {
-                    Ok((
-                        row.get(0)?,
-                        row.get::<_, i64>(1)? as u32,
-                        row.get::<_, i64>(2)? as u32,
-                        accent_or_seed(row.get::<_, Option<i64>>(3)?, id),
-                    ))
-                },
-            )
-            .optional()?
-            .ok_or(StoreError::NotFound)?;
+        let (name, width, height, accent, guides): (String, u32, u32, [u8; 3], Option<Vec<u8>>) =
+            self.conn
+                .query_row(
+                    "SELECT name, width, height, accent, guides FROM projects WHERE id = ?1",
+                    params![id],
+                    |row| {
+                        Ok((
+                            row.get(0)?,
+                            row.get::<_, i64>(1)? as u32,
+                            row.get::<_, i64>(2)? as u32,
+                            accent_or_seed(row.get::<_, Option<i64>>(3)?, id),
+                            row.get::<_, Option<Vec<u8>>>(4)?,
+                        ))
+                    },
+                )
+                .optional()?
+                .ok_or(StoreError::NotFound)?;
 
         let mut doc = Document::new(id.to_string(), name, width, height);
         doc.accent = accent;
+        doc.set_guides(
+            guides
+                .as_deref()
+                .and_then(guides_blob::decode)
+                .unwrap_or_default(),
+        );
         doc.layers.clear();
 
         let mut layer_stmt = self.conn.prepare(
-            "SELECT layer_id, name, visible, mask, content_kind, vector_data, opacity, blend_mode, adjustments, text_data, transform FROM layers WHERE project_id = ?1 ORDER BY z_index ASC",
+            "SELECT layer_id, name, visible, mask, content_kind, vector_data, opacity, blend_mode, adjustments, text_data, transform, locked FROM layers WHERE project_id = ?1 ORDER BY z_index ASC",
         )?;
         let layer_rows = layer_stmt.query_map(params![id], |row| {
             Ok((
@@ -349,6 +374,7 @@ impl ProjectStore {
                 row.get::<_, Option<Vec<u8>>>(8)?,
                 row.get::<_, Option<Vec<u8>>>(9)?,
                 row.get::<_, Option<Vec<u8>>>(10)?,
+                row.get::<_, i64>(11)? != 0,
             ))
         })?;
 
@@ -371,6 +397,7 @@ impl ProjectStore {
                 adjustments,
                 text_data,
                 transform,
+                locked,
             ) = layer_row?;
             let decoded_run = text_data.as_deref().and_then(text_blob::decode);
             let kind = match (content_kind, &decoded_run) {
@@ -401,6 +428,7 @@ impl ProjectStore {
             layer.blend_mode = BlendMode::from_u32(blend_mode).unwrap_or_default();
             layer.adjustments = adjustments.as_deref().and_then(adjustments_blob::decode);
             layer.transform = transform.as_deref().and_then(transform_blob::decode);
+            layer.locked = locked;
             if kind != LayerKind::Vector {
                 layer.set_mask(mask.filter(|m| m.len() == mask_len));
             }
@@ -467,12 +495,13 @@ impl ProjectStore {
     pub fn save(&self, doc: &mut Document) -> Result<(), StoreError> {
         let tx = self.conn.unchecked_transaction()?;
         tx.execute(
-            "UPDATE projects SET name = ?1, width = ?2, height = ?3, accent = ?4 WHERE id = ?5",
+            "UPDATE projects SET name = ?1, width = ?2, height = ?3, accent = ?4, guides = ?5 WHERE id = ?6",
             params![
                 doc.name,
                 doc.width as i64,
                 doc.height as i64,
                 pack_accent(doc.accent),
+                guides_blob::encode(doc.guides()),
                 doc.id
             ],
         )?;
@@ -491,7 +520,7 @@ impl ProjectStore {
 
         {
             let mut upsert_layer = tx.prepare(
-                "INSERT INTO layers (project_id, layer_id, name, visible, z_index, mask, content_kind, vector_data, opacity, blend_mode, adjustments, text_data, transform) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
+                "INSERT INTO layers (project_id, layer_id, name, visible, z_index, mask, content_kind, vector_data, opacity, blend_mode, adjustments, text_data, transform, locked) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
                  ON CONFLICT(project_id, layer_id) DO UPDATE SET
                     name = excluded.name,
                     visible = excluded.visible,
@@ -503,7 +532,8 @@ impl ProjectStore {
                     blend_mode = excluded.blend_mode,
                     adjustments = excluded.adjustments,
                     text_data = excluded.text_data,
-                    transform = excluded.transform",
+                    transform = excluded.transform,
+                    locked = excluded.locked",
             )?;
             let mut upsert_tile = tx.prepare(
                 "INSERT INTO tiles (project_id, layer_id, tx, ty, pixels) VALUES (?1, ?2, ?3, ?4, ?5)
@@ -535,7 +565,8 @@ impl ProjectStore {
                     layer.blend_mode.as_u32() as i64,
                     adjustments,
                     text_data,
-                    transform
+                    transform,
+                    layer.locked as i64
                 ])?;
 
                 // A text layer's tiles are a cache of its run, so the run is all that is

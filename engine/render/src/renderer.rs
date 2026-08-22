@@ -1,9 +1,10 @@
 use crate::compose::{
-    composited_tile_payload, layer_highlight_instances, rgba_unit, selection_lasso_points,
-    selection_mask_edges, selection_rect_or_ellipse, stroke_instances, text_overlay_instances,
-    tile_upload_mips, transform_overlay_instances, StrokeInstance,
+    composited_tile_payload, guide_instances, layer_highlight_instances, rgba_unit,
+    selection_lasso_points, selection_mask_edges, selection_rect_or_ellipse, stroke_instances,
+    text_overlay_instances, tile_upload_mips, transform_overlay_instances, GuideInstance,
+    StrokeInstance,
 };
-use crate::framebuffer::{self, PanCache, PanCacheSlot, PxRect};
+use crate::framebuffer::{self, PanCache, PxRect};
 use crate::overview::OverviewPass;
 use crate::stroke_coverage::StrokeCoverage;
 use crate::tile_atlas::TileAtlas;
@@ -14,9 +15,9 @@ use crate::vector_draw::{
 use bytemuck::{Pod, Zeroable};
 use calumma_core::filters::AdjustmentLut;
 use calumma_core::limits::{
-    CAMERA_MOTION_IDLE_FRAMES, GPU_TILE_RETENTION_MARGIN_TILES, STROKE_INSTANCE_CAPACITY,
-    SURFACE_FRAME_LATENCY, TILE_ATLAS_MAX_CAPACITY, TILE_INSTANCE_CAPACITY,
-    VECTOR_SHAPE_INSTANCE_CAPACITY,
+    CAMERA_MOTION_IDLE_FRAMES, GPU_TILE_RETENTION_MARGIN_TILES, GUIDES_LIMIT,
+    STROKE_INSTANCE_CAPACITY, SURFACE_FRAME_LATENCY, TILE_ATLAS_MAX_CAPACITY,
+    TILE_INSTANCE_CAPACITY, VECTOR_SHAPE_INSTANCE_CAPACITY,
 };
 use calumma_core::tile::{DirtyChannel, TileCoord, TileGrid};
 use calumma_core::{BlendMode, BrushProfile, Document, Tool, VectorItem};
@@ -189,6 +190,7 @@ pub struct Renderer {
     solid_pipeline_multiply: wgpu::RenderPipeline,
     solid_pipeline_screen: wgpu::RenderPipeline,
     stroke_pipeline: wgpu::RenderPipeline,
+    guide_pipeline: wgpu::RenderPipeline,
     stroke_coverage: StrokeCoverage,
     shape_pipeline: wgpu::RenderPipeline,
     vector_shape_pipeline: wgpu::RenderPipeline,
@@ -201,6 +203,8 @@ pub struct Renderer {
     preview_bg: wgpu::BindGroup,
     stroke_buf: wgpu::Buffer,
     stroke_capacity: usize,
+    guide_buf: wgpu::Buffer,
+    guide_scratch: Vec<GuideInstance>,
     vector_shape_buf: wgpu::Buffer,
     vector_shape_capacity: usize,
     tile_instance_buf: wgpu::Buffer,
@@ -520,6 +524,32 @@ impl Renderer {
             cache: None,
         });
 
+        let guide_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("guide"),
+            layout: Some(&preview_pl),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_guide"),
+                compilation_options: Default::default(),
+                buffers: &[Some(wgpu::VertexBufferLayout {
+                    array_stride: std::mem::size_of::<GuideInstance>() as u64,
+                    step_mode: wgpu::VertexStepMode::Instance,
+                    attributes: GUIDE_ATTRS,
+                })],
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_guide"),
+                compilation_options: Default::default(),
+                targets: &[Some(alpha_target(format))],
+            }),
+            primitive: wgpu::PrimitiveState::default(),
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview_mask: None,
+            cache: None,
+        });
+
         let stroke_coverage = StrokeCoverage::new(
             &device,
             &shader,
@@ -589,6 +619,15 @@ impl Renderer {
             mapped_at_creation: false,
         });
 
+        // Guides are capped at `GUIDES_LIMIT`, so this buffer is allocated once at its
+        // worst case and never grows — unlike the stroke buffer, which follows the document.
+        let guide_buf = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("guide-instances"),
+            size: (GUIDES_LIMIT * std::mem::size_of::<GuideInstance>()) as u64,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
         let vector_shape_capacity = VECTOR_SHAPE_INSTANCE_CAPACITY;
         let vector_shape_buf = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("vector-shape-instances"),
@@ -621,6 +660,7 @@ impl Renderer {
             solid_pipeline_multiply,
             solid_pipeline_screen,
             stroke_pipeline,
+            guide_pipeline,
             stroke_coverage,
             shape_pipeline,
             vector_shape_pipeline,
@@ -632,6 +672,8 @@ impl Renderer {
             preview_buf,
             preview_bg,
             stroke_buf,
+            guide_buf,
+            guide_scratch: Vec::new(),
             stroke_capacity,
             vector_shape_buf,
             vector_shape_capacity,
@@ -951,6 +993,23 @@ impl Renderer {
         });
         self.stroke_capacity = next;
         true
+    }
+
+    /// Rebuilds and uploads the guide instances, returning how many there are. Guides are
+    /// their own tiny buffer rather than a slice of the overlay's on purpose: the overlay is
+    /// skipped on a camera-only frame, and a rule that vanished every time the board was
+    /// panned would not be a rule.
+    fn write_guides(&mut self, doc: &Document) -> u32 {
+        let mut guides = std::mem::take(&mut self.guide_scratch);
+        guides.clear();
+        guides.extend(guide_instances(doc));
+        if !guides.is_empty() {
+            self.queue
+                .write_buffer(&self.guide_buf, 0, bytemuck::cast_slice(&guides));
+        }
+        let count = guides.len() as u32;
+        self.guide_scratch = guides;
+        count
     }
 
     fn ensure_vector_shape_capacity(&mut self, count: usize) {
@@ -1393,19 +1452,26 @@ impl Renderer {
         self.pan_cache.commit_reference(pan, zoom, dpr, scissor);
     }
 
-    /// Copies the last full redraw shifted by the pan delta into the `PanCache` working
-    /// texture, then patches the strips the copy could not have populated (`framebuffer::
-    /// exposed_rects`) by replaying `cached_draws` scissored to just those rects. Each strip is
-    /// cleared to transparent first — `LoadOp::Load` preserves the freshly copied region, so
-    /// without an explicit clear a semi-transparent stroke in the strip would blend against
-    /// whatever this texture held two frames ago instead of nothing.
+    /// Copies the previous frame's content shifted by this frame's pan delta into the
+    /// `PanCache` working texture, patches the strips the copy could not have populated
+    /// (`framebuffer::exposed_rects`) by replaying `cached_draws` scissored to just those
+    /// rects, then promotes the result to be the next frame's reference. Each strip is cleared
+    /// to transparent first — `LoadOp::Load` preserves the freshly copied region, so without an
+    /// explicit clear a semi-transparent stroke in the strip would blend against whatever this
+    /// texture held two frames ago instead of nothing.
+    ///
+    /// The promotion at the end is what keeps the strips thin: measured against the previous
+    /// frame the exposed band is one frame's worth of travel, a few pixels on a normal drag.
+    /// Measured against a reference frozen at the last full redraw — the way this used to work
+    /// — it grew with the whole gesture. See `PanCache`'s own note.
     fn patch_pan_cache_working(
         &mut self,
         encoder: &mut wgpu::CommandEncoder,
-        src: PxRect,
-        dst: PxRect,
+        plan: framebuffer::BlitPlan,
+        dpr: f32,
         scissor: PxRect,
     ) {
+        let framebuffer::BlitPlan { src, dst, shift } = plan;
         encoder.copy_texture_to_texture(
             wgpu::TexelCopyTextureInfo {
                 texture: self.pan_cache.reference_texture(),
@@ -1449,15 +1515,19 @@ impl Renderer {
             occlusion_query_set: None,
             ..Default::default()
         });
-        for strip in framebuffer::exposed_rects(scissor, dst)
-            .into_iter()
-            .flatten()
         {
-            pass.set_scissor_rect(strip.0, strip.1, strip.2, strip.3);
-            pass.set_pipeline(self.pan_cache.clear_pipeline());
-            pass.draw(0..3, 0..1);
-            self.draw_cached_content(&mut pass);
+            for strip in framebuffer::exposed_rects(scissor, dst)
+                .into_iter()
+                .flatten()
+            {
+                pass.set_scissor_rect(strip.0, strip.1, strip.2, strip.3);
+                pass.set_pipeline(self.pan_cache.clear_pipeline());
+                pass.draw(0..3, 0..1);
+                self.draw_cached_content(&mut pass);
+            }
         }
+        drop(pass);
+        self.pan_cache.commit_shift(shift, dpr, scissor);
     }
 
     pub fn render(&mut self, doc: &mut Document) {
@@ -1571,55 +1641,59 @@ impl Renderer {
         };
 
         let preview_shape = doc.preview_shape();
+        let ink = doc.ink_rgba();
+        let color = [
+            ink[0] as f32 / 255.0,
+            ink[1] as f32 / 255.0,
+            ink[2] as f32 / 255.0,
+            ink[3] as f32 / 255.0,
+        ];
+        let (p0, p1, tool, half_width, fill, shape_color) = match preview_shape {
+            Some(s) => (
+                [s.start.0, s.start.1],
+                [s.end.0, s.end.1],
+                s.tool as u32 as f32,
+                s.half_width,
+                if s.fill { 1.0 } else { 0.0 },
+                color,
+            ),
+            None => match selection_rect_or_ellipse(doc) {
+                Some((p0, p1, sel_tool)) => (
+                    p0,
+                    p1,
+                    sel_tool as u32 as f32,
+                    SELECTION_OUTLINE_WIDTH,
+                    0.0,
+                    SELECTION_OUTLINE_COLOR,
+                ),
+                None => ([0.0, 0.0], [0.0, 0.0], 0.0, 0.0, 0.0, color),
+            },
+        };
+        // Written every frame, not only on the ones that build an overlay: the guide pass reads
+        // the camera out of this buffer, and guides are board furniture that has to keep up with
+        // a pan the overlay sits out.
+        let preview = PreviewUniforms {
+            pan: [doc.camera.pan_x, doc.camera.pan_y],
+            zoom: doc.camera.zoom,
+            dpr: doc.camera.dpr,
+            viewport,
+            _align_color: [0.0, 0.0],
+            color: shape_color,
+            p0,
+            p1,
+            half_width,
+            tool,
+            fill,
+            _pad: 0.0,
+            stroke_ink: rgba_unit(doc.stroke_ink()),
+        };
+        self.queue
+            .write_buffer(&self.preview_buf, 0, bytemuck::bytes_of(&preview));
+
+        let guide_count = self.write_guides(doc);
         let mut overlay_range = 0u32..0u32;
         let mut brush_range = 0u32..0u32;
         if !camera_only {
-            let ink = doc.ink_rgba();
-            let color = [
-                ink[0] as f32 / 255.0,
-                ink[1] as f32 / 255.0,
-                ink[2] as f32 / 255.0,
-                ink[3] as f32 / 255.0,
-            ];
-            let (p0, p1, tool, half_width, fill, shape_color) = match preview_shape {
-                Some(s) => (
-                    [s.start.0, s.start.1],
-                    [s.end.0, s.end.1],
-                    s.tool as u32 as f32,
-                    s.half_width,
-                    if s.fill { 1.0 } else { 0.0 },
-                    color,
-                ),
-                None => match selection_rect_or_ellipse(doc) {
-                    Some((p0, p1, sel_tool)) => (
-                        p0,
-                        p1,
-                        sel_tool as u32 as f32,
-                        SELECTION_OUTLINE_WIDTH,
-                        0.0,
-                        SELECTION_OUTLINE_COLOR,
-                    ),
-                    None => ([0.0, 0.0], [0.0, 0.0], 0.0, 0.0, 0.0, color),
-                },
-            };
-            let preview = PreviewUniforms {
-                pan: [doc.camera.pan_x, doc.camera.pan_y],
-                zoom: doc.camera.zoom,
-                dpr: doc.camera.dpr,
-                viewport,
-                _align_color: [0.0, 0.0],
-                color: shape_color,
-                p0,
-                p1,
-                half_width,
-                tool,
-                fill,
-                _pad: 0.0,
-                stroke_ink: rgba_unit(doc.stroke_ink()),
-            };
-            self.queue
-                .write_buffer(&self.preview_buf, 0, bytemuck::bytes_of(&preview));
-
             let radius = doc.brush_size * 0.5;
             let stroke_color = if doc.tool == Tool::Eraser {
                 ERASER_PREVIEW_COLOR
@@ -1749,40 +1823,42 @@ impl Renderer {
                 label: Some("frame"),
             });
 
-        // The content pass: either a full redraw of `cached_draws` into the `PanCache`
-        // reference texture, or — on a camera-only frame where `blit_plan` found a usable
-        // overlap — a cheap shift of that reference into the working texture plus a patch of
-        // just the strips the shift exposed. Either way the board pass below only ever draws a
-        // single textured quad for the content, not the tile/vector instance list.
-        let content_slot = if use_overview {
-            None
-        } else {
-            scissor.map(|s| {
-                if reuse_reference {
-                    PanCacheSlot::Reference
-                } else if let Some((src, dst)) = blit_plan {
-                    self.patch_pan_cache_working(&mut encoder, src, dst, s);
-                    PanCacheSlot::Working
-                } else {
-                    self.redraw_pan_cache_reference(
-                        &mut encoder,
-                        pan,
-                        doc.camera.zoom,
-                        doc.camera.dpr,
-                        s,
-                    );
-                    PanCacheSlot::Reference
-                }
-            })
-        };
+        // The content pass, in one of three modes: reuse what the `PanCache` reference already
+        // holds, shift it by this frame's pan and patch the strips that exposes, or redraw the
+        // visible stack into it from scratch. All three leave the frame's content in the
+        // reference texture, so the board pass below only ever draws a single textured quad for
+        // the content, not the tile/vector instance list.
+        let has_content = !use_overview
+            && scissor
+                .map(|s| {
+                    if reuse_reference {
+                        return;
+                    }
+                    if let Some(plan) = blit_plan {
+                        self.patch_pan_cache_working(&mut encoder, plan, doc.camera.dpr, s);
+                    } else {
+                        self.redraw_pan_cache_reference(
+                            &mut encoder,
+                            pan,
+                            doc.camera.zoom,
+                            doc.camera.dpr,
+                            s,
+                        );
+                    }
+                })
+                .is_some();
 
         if !brush_range.is_empty() {
+            // TODO(F4): pass the segments added since the last frame and `restart: false`.
+            // `accumulate` already appends correctly; the renderer still has to track how much
+            // of the stroke is in the target and when the camera/brush invalidates it.
             self.stroke_coverage.accumulate(
                 &mut encoder,
                 &self.preview_bg,
                 &self.stroke_buf,
                 brush_range.clone(),
                 scissor,
+                true,
             );
         }
 
@@ -1818,10 +1894,19 @@ impl Renderer {
 
                 if use_overview {
                     self.overview.draw(&mut pass);
-                } else if let Some(slot) = content_slot {
+                } else if has_content {
                     pass.set_pipeline(self.pan_cache.blit_pipeline());
-                    pass.set_bind_group(0, self.pan_cache.bind_group(slot), &[]);
+                    pass.set_bind_group(0, self.pan_cache.bind_group(), &[]);
                     pass.draw(0..3, 0..1);
+                }
+
+                // Under the transform box and the marching ants, over the artwork: a guide is
+                // something the picture is aligned against, not something drawn on it.
+                if guide_count > 0 {
+                    pass.set_pipeline(&self.guide_pipeline);
+                    pass.set_bind_group(0, &self.preview_bg, &[]);
+                    pass.set_vertex_buffer(0, self.guide_buf.slice(..));
+                    pass.draw(0..6, 0..guide_count);
                 }
 
                 if !overlay_range.is_empty() {
@@ -1966,6 +2051,19 @@ pub(crate) const STROKE_ATTRS: &[wgpu::VertexAttribute] = &[
     wgpu::VertexAttribute {
         offset: 32,
         shader_location: 2,
+        format: wgpu::VertexFormat::Float32x4,
+    },
+];
+
+const GUIDE_ATTRS: &[wgpu::VertexAttribute] = &[
+    wgpu::VertexAttribute {
+        offset: 0,
+        shader_location: 0,
+        format: wgpu::VertexFormat::Float32x4,
+    },
+    wgpu::VertexAttribute {
+        offset: 16,
+        shader_location: 1,
         format: wgpu::VertexFormat::Float32x4,
     },
 ];

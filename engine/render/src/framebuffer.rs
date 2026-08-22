@@ -65,10 +65,14 @@ pub fn exposed_rects(outer: PxRect, inner: PxRect) -> [Option<PxRect>; 4] {
     [top, bottom, left, right]
 }
 
+/// One camera-only frame's shift, in whole device pixels, plus where it reads and lands. The
+/// shift travels with the rects because the caller has to commit it back into the reference
+/// afterwards — see [`PanCache::commit_shift`].
 #[derive(Clone, Copy)]
-pub(crate) enum PanCacheSlot {
-    Reference,
-    Working,
+pub(crate) struct BlitPlan {
+    pub(crate) src: PxRect,
+    pub(crate) dst: PxRect,
+    pub(crate) shift: (i32, i32),
 }
 
 struct Slot {
@@ -124,12 +128,22 @@ fn make_slot(
     }
 }
 
-/// Two fixed-role offscreen colour targets, not a true alternating ping-pong: `reference`
-/// holds the last full content redraw and is only ever replaced by another full redraw;
-/// `working` is rebuilt from `reference` every camera-only frame. Blitting always measures the
-/// pixel shift from the same frozen `reference` pan rather than chaining frame-to-frame, so
-/// per-frame rounding to whole device pixels cannot accumulate into visible drift over a long
-/// pan gesture.
+/// Two offscreen colour targets that alternate roles: `reference` holds the content the last
+/// frame left behind, `working` is where the next shift lands, and the two swap once the shift
+/// is done so the freshest pixels are always the ones the next frame reads from.
+///
+/// Freezing `reference` at the last *full redraw* instead — which is what this used to do —
+/// looks like it avoids rounding drift, and it does, but at a price that only shows up mid
+/// gesture: the shift is then measured from a point that recedes further with every frame, so
+/// the overlap shrinks, the strips `exposed_rects` hands back grow linearly with how far the
+/// camera has travelled since that redraw, and the whole draw list is replayed into an
+/// ever-widening band until the overlap empties and a full redraw restarts the ramp. Pan cost
+/// sawtoothed across a gesture rather than staying flat.
+///
+/// Chaining frame to frame costs nothing in accuracy as long as the reference pan is advanced
+/// by the *rounded* delta that was actually blitted (`commit_shift`) rather than by the raw
+/// camera pan. The reference then describes exactly where the pixels sit, every blit is an
+/// integer-pixel copy, and the error is structurally zero instead of merely bounded.
 pub(crate) struct PanCache {
     bgl: wgpu::BindGroupLayout,
     blit_pipeline: wgpu::RenderPipeline,
@@ -306,12 +320,15 @@ impl PanCache {
         &self.working.as_ref().expect("PanCache not sized").view
     }
 
-    pub(crate) fn bind_group(&self, slot: PanCacheSlot) -> &wgpu::BindGroup {
-        let slot = match slot {
-            PanCacheSlot::Reference => self.reference.as_ref(),
-            PanCacheSlot::Working => self.working.as_ref(),
-        };
-        &slot.expect("PanCache not sized").bind_group
+    /// The texture the board pass samples. Always `reference`: a full redraw writes it
+    /// directly, and a shift writes `working` and then swaps it into place, so whichever
+    /// route the content pass took, the current frame's pixels are here.
+    pub(crate) fn bind_group(&self) -> &wgpu::BindGroup {
+        &self
+            .reference
+            .as_ref()
+            .expect("PanCache not sized")
+            .bind_group
     }
 
     pub(crate) fn blit_pipeline(&self) -> &wgpu::RenderPipeline {
@@ -322,11 +339,29 @@ impl PanCache {
         &self.clear_pipeline
     }
 
-    /// Whether the reference texture already holds exactly this frame's content — same camera,
-    /// same scale, same paper rect. When it does there is nothing to shift and nothing to
-    /// redraw: the board pass samples `reference` directly and the content pass is skipped
-    /// outright. This is what makes an overlay-only frame (a pen stroke's preview, a blinking
-    /// caret) cost one instance-buffer write instead of a full recomposite.
+    /// How far this frame's camera has moved from the reference, rounded to whole device
+    /// pixels. Whole pixels because that is the only shift a `copy_texture_to_texture` can
+    /// express; the sub-pixel remainder is what `commit_shift` deliberately does *not* fold
+    /// into the reference pan.
+    fn shift_px(&self, pan: (f32, f32), dpr: f32) -> (i32, i32) {
+        (
+            ((pan.0 - self.reference_pan.0) * dpr).round() as i32,
+            ((pan.1 - self.reference_pan.1) * dpr).round() as i32,
+        )
+    }
+
+    /// Whether the reference texture already holds this frame's content — same scale, same
+    /// paper rect, and a camera that has not moved by a whole device pixel. When it does there
+    /// is nothing to shift and nothing to redraw: the board pass samples `reference` directly
+    /// and the content pass is skipped outright. This is what makes an overlay-only frame (a
+    /// pen stroke's preview, a blinking caret) cost one instance-buffer write instead of a
+    /// full recomposite.
+    ///
+    /// The camera test is "no whole-pixel shift" rather than exact float equality because
+    /// `commit_shift` leaves the reference pan on a device-pixel grid: after a blit the two
+    /// differ by up to half a pixel, which is a shift the copy could not have expressed
+    /// anyway. Demanding equality there would send every post-blit frame down the blit path
+    /// to perform a zero-distance full-viewport copy.
     pub(crate) fn reference_matches(
         &self,
         pan: (f32, f32),
@@ -335,10 +370,10 @@ impl PanCache {
         scissor: PxRect,
     ) -> bool {
         self.has_reference
-            && self.reference_pan == pan
             && self.reference_zoom == zoom
             && self.reference_dpr == dpr
             && self.reference_scissor == scissor
+            && self.shift_px(pan, dpr) == (0, 0)
     }
 
     /// Shift + destination rect for this frame's blit, in device pixels, or `None` when the
@@ -350,20 +385,39 @@ impl PanCache {
         zoom: f32,
         dpr: f32,
         scissor: PxRect,
-    ) -> Option<(PxRect, PxRect)> {
+    ) -> Option<BlitPlan> {
         if !self.has_reference || zoom != self.reference_zoom || dpr != self.reference_dpr {
             return None;
         }
-        let dx = ((pan.0 - self.reference_pan.0) * dpr).round() as i32;
-        let dy = ((pan.1 - self.reference_pan.1) * dpr).round() as i32;
-        shift_plan(
+        let (dx, dy) = self.shift_px(pan, dpr);
+        let (src, dst) = shift_plan(
             self.reference_scissor,
             scissor,
             dx,
             dy,
             self.width,
             self.height,
-        )
+        )?;
+        Some(BlitPlan {
+            src,
+            dst,
+            shift: (dx, dy),
+        })
+    }
+
+    /// Promotes the just-shifted `working` texture to be the reference the next frame measures
+    /// from, advancing the reference pan by the shift that was *actually* blitted rather than
+    /// by the raw camera pan. Whole device pixels in, whole device pixels out — nothing is left
+    /// over to accumulate, so a pan of any length stays exact without ever re-freezing the
+    /// baseline and paying the widening-strip ramp that costs.
+    pub(crate) fn commit_shift(&mut self, shift: (i32, i32), dpr: f32, scissor: PxRect) {
+        let dpr = if dpr > 0.0 { dpr } else { 1.0 };
+        self.reference_pan = (
+            self.reference_pan.0 + shift.0 as f32 / dpr,
+            self.reference_pan.1 + shift.1 as f32 / dpr,
+        );
+        self.reference_scissor = scissor;
+        std::mem::swap(&mut self.reference, &mut self.working);
     }
 
     pub(crate) fn commit_reference(

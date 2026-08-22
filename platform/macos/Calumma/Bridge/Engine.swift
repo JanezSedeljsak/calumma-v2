@@ -183,6 +183,7 @@ final class Engine: ObservableObject, @unchecked Sendable {
     @Published var layerBlendModes: [CalmBlendMode] = []
     @Published var layerAdjustments: [LayerAdjustments] = []
     @Published var layerIsText: [Bool] = []
+    @Published var layerLocked: [Bool] = []
     /// Mirrors of engine-owned text state. The shell never computes any of this — it shows
     /// what `syncTextState` last read back, so a font substituted or a size clamped by the
     /// engine is what the panel displays.
@@ -210,6 +211,10 @@ final class Engine: ObservableObject, @unchecked Sendable {
     /// The layer an AI op is currently running against, so the layers panel can show it's
     /// busy — `nil` the rest of the time, including right after the op finishes.
     @Published private(set) var aiOpBusyLayer: Int?
+    /// How many guides the open document holds. Only a count, because that is all the chrome
+    /// needs — the guides themselves are drawn by the board, never by SwiftUI. See
+    /// `EngineGuides.swift`.
+    @Published private(set) var guideCount = 0
 
     /// A fit asked for while the window is still growing to its final size lands against
     /// the viewport the board *had*, which is how a freshly opened project ends up
@@ -620,6 +625,30 @@ final class Engine: ObservableObject, @unchecked Sendable {
         render()
     }
 
+    func moveLayerRow(from: Int, to: Int) {
+        guard let ptr, from != to else { return }
+        _ = calm_engine_move_layer_row(ptr, UInt32(from), UInt32(to))
+        syncState()
+        refreshLayers()
+        render()
+    }
+
+    @discardableResult
+    func setLayerName(_ index: Int, name: String) -> Bool {
+        guard let ptr else { return false }
+        let ok = name.withCString { calm_engine_set_layer_name(ptr, UInt32(index), $0) } == CalmStatusOk
+        if ok { refreshLayers() }
+        return ok
+    }
+
+    func setLayerLocked(_ index: Int, locked: Bool) {
+        guard let ptr else { return }
+        _ = calm_engine_set_layer_locked(ptr, UInt32(index), locked ? 1 : 0)
+        syncState()
+        refreshLayers()
+        render()
+    }
+
     func mergeLayerDown(_ index: Int) {
         guard let ptr else { return }
         _ = calm_engine_merge_layer_down(ptr, UInt32(index))
@@ -738,6 +767,7 @@ final class Engine: ObservableObject, @unchecked Sendable {
         syncState()
         layerNames = []
         layerVisibles = []
+        layerLocked = []
         layerOpacities = []
         layerBlendModes = []
         layerAdjustments = []
@@ -1085,6 +1115,17 @@ final class Engine: ObservableObject, @unchecked Sendable {
             lastShapeTool: CalmTool(rawValue: raw.last_shape_tool) ?? .rect,
             lastSelectTool: CalmTool(rawValue: raw.last_select_tool) ?? .selectRect
         )
+        syncGuideCount()
+    }
+
+    /// `guideCount` is `private(set)`, so this is the one place it moves — the guide bridge in
+    /// `EngineGuides.swift` calls it after anything that could add or drop a rule.
+    func syncGuideCount() {
+        guard let ptr else { return }
+        let count = calm_engine_guide_count(ptr)
+        if guideCount != count {
+            guideCount = count
+        }
     }
 
     func refreshLayers() {
@@ -1097,6 +1138,7 @@ final class Engine: ObservableObject, @unchecked Sendable {
         var blendModes: [CalmBlendMode] = []
         var adjustments: [LayerAdjustments] = []
         var isText: [Bool] = []
+        var locked: [Bool] = []
         for i in 0..<state.layerCount {
             if let namePtr = calm_engine_layer_name(ptr, i) {
                 let raw = String(cString: namePtr)
@@ -1114,6 +1156,7 @@ final class Engine: ObservableObject, @unchecked Sendable {
             revisions.append(calm_engine_layer_preview_revision(ptr, i))
             visibles.append(calm_engine_layer_visible(ptr, i) == 1)
             isText.append(calm_engine_layer_is_text(ptr, i) == 1)
+            locked.append(calm_engine_layer_locked(ptr, i) == 1)
             opacities.append(calm_engine_layer_opacity(ptr, i))
             blendModes.append(CalmBlendMode(rawValue: calm_engine_layer_blend_mode(ptr, i)) ?? .normal)
             var raw = CalmAdjustments()
@@ -1134,6 +1177,7 @@ final class Engine: ObservableObject, @unchecked Sendable {
         layerBlendModes = blendModes
         layerAdjustments = adjustments
         layerIsText = isText
+        layerLocked = locked
         rebuildLayerThumbnails(ids: ids, revisions: revisions)
         syncTextState()
     }
@@ -1353,6 +1397,11 @@ final class Engine: ObservableObject, @unchecked Sendable {
     func isLayerVector(index: Int) -> Bool {
         guard let ptr else { return false }
         return calm_engine_layer_is_vector(ptr, UInt32(index)) == 1
+    }
+
+    func isLayerPaper(index: Int) -> Bool {
+        guard let ptr else { return false }
+        return calm_engine_layer_is_paper(ptr, UInt32(index)) == 1
     }
 
     func layerItemCount(index: Int) -> Int {
