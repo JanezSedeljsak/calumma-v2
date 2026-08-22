@@ -49,6 +49,12 @@ impl Tool {
         matches!(self, Tool::Pen)
     }
 
+    /// Whether this tool has an edge worth softening but no brush to carry it. The eraser
+    /// alone: the pen's hardness rides in with its brush, and nothing else strokes a rim.
+    pub fn takes_eraser_hardness(self) -> bool {
+        matches!(self, Tool::Eraser)
+    }
+
     /// Whether this tool floods from the pixel under the pointer, and so needs a tolerance.
     /// One knob shared by the bucket and the wand, because they share one traversal — see
     /// `fill::flood_region`.

@@ -180,6 +180,7 @@ struct L10nCatalog: Equatable {
     var brushMarker: String { self["brushMarker"] }
     var brushCrayon: String { self["brushCrayon"] }
     var brushAirbrush: String { self["brushAirbrush"] }
+    var eraserHardness: String { self["eraserHardness"] }
     var toolEyedropper: String { self["toolEyedropper"] }
     var toolTransform: String { self["toolTransform"] }
     var toolText: String { self["toolText"] }

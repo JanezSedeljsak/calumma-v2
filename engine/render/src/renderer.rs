@@ -1,7 +1,7 @@
 use crate::compose::{
     composited_tile_payload, layer_highlight_instances, rgba_unit, selection_lasso_points,
     selection_mask_edges, selection_rect_or_ellipse, stroke_instances, text_overlay_instances,
-    tile_upload_levels, transform_overlay_instances, StrokeInstance,
+    tile_upload_mips, transform_overlay_instances, StrokeInstance,
 };
 use crate::framebuffer::{self, PanCache, PanCacheSlot, PxRect};
 use crate::overview::OverviewPass;
@@ -15,8 +15,8 @@ use bytemuck::{Pod, Zeroable};
 use calumma_core::filters::AdjustmentLut;
 use calumma_core::limits::{
     CAMERA_MOTION_IDLE_FRAMES, GPU_TILE_RETENTION_MARGIN_TILES, STROKE_INSTANCE_CAPACITY,
-    SURFACE_FRAME_LATENCY, SURFACE_FRAME_LATENCY_MOTION, TILE_ATLAS_MAX_CAPACITY,
-    TILE_INSTANCE_CAPACITY, VECTOR_SHAPE_INSTANCE_CAPACITY,
+    SURFACE_FRAME_LATENCY, TILE_ATLAS_MAX_CAPACITY, TILE_INSTANCE_CAPACITY,
+    VECTOR_SHAPE_INSTANCE_CAPACITY,
 };
 use calumma_core::tile::{DirtyChannel, TileCoord, TileGrid};
 use calumma_core::{BlendMode, BrushProfile, Document, Tool, VectorItem};
@@ -28,6 +28,12 @@ use std::sync::Arc;
 use std::time::Instant;
 
 type TileKey = (u32, i32, i32);
+
+/// One tile's upload, as the parallel bake hands it to the sequential wgpu loop: the baked
+/// base level when the layer needed one (mask, adjustments or opacity), and the mip chain above
+/// it. `None` for the base means nothing was baked, so the upload reads the tile's own `Arc`
+/// and the tile may share an atlas slot with its siblings.
+type TilePayload = (Option<Vec<u8>>, Vec<Vec<u8>>);
 
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
@@ -211,6 +217,7 @@ pub struct Renderer {
     cached_visible_span: Option<(i32, i32, i32, i32)>,
     cached_tile_instances: Vec<TileInstance>,
     cached_strokes: Vec<StrokeInstance>,
+    overlay_scratch: Vec<StrokeInstance>,
     cached_shapes: Vec<VectorShapeInstance>,
     cached_draws: Vec<LayerDraw>,
     overview: OverviewPass,
@@ -269,17 +276,15 @@ impl Renderer {
             .find(|f| f.is_srgb())
             .unwrap_or(caps.formats[0]);
 
+        // `Fifo` is the only mode that paces to the display, and the display link already
+        // drives the frame loop, so there is nothing to gain from tearing. A previous
+        // preference for `Mailbox` was dead code on the only shipping backend — wgpu's Metal
+        // surface reports `Fifo` and `Immediate` and nothing else.
         let present_mode = caps
             .present_modes
             .iter()
             .copied()
-            .find(|m| *m == wgpu::PresentMode::Mailbox)
-            .or_else(|| {
-                caps.present_modes
-                    .iter()
-                    .copied()
-                    .find(|m| *m == wgpu::PresentMode::Fifo)
-            })
+            .find(|m| *m == wgpu::PresentMode::Fifo)
             .unwrap_or(caps.present_modes[0]);
 
         let config = wgpu::SurfaceConfiguration {
@@ -644,6 +649,7 @@ impl Renderer {
             cached_visible_span: None,
             cached_tile_instances: Vec::new(),
             cached_strokes: Vec::new(),
+            overlay_scratch: Vec::new(),
             cached_shapes: Vec::new(),
             cached_draws: Vec::new(),
             overview,
@@ -671,20 +677,9 @@ impl Renderer {
         }
     }
 
-    fn set_frame_latency(&mut self, latency: u32) {
-        if self.config.desired_maximum_frame_latency == latency {
-            return;
-        }
-        self.config.desired_maximum_frame_latency = latency;
-        self.surface.configure(&self.device, &self.config);
-    }
-
     pub fn begin_camera_motion(&mut self) {
         self.motion_idle_frames = 0;
-        if !self.camera_motion {
-            self.camera_motion = true;
-            self.set_frame_latency(SURFACE_FRAME_LATENCY_MOTION);
-        }
+        self.camera_motion = true;
     }
 
     pub fn end_camera_motion(&mut self) {
@@ -694,7 +689,6 @@ impl Renderer {
         self.camera_motion = false;
         self.motion_idle_frames = 0;
         self.cached_tile_draw_count = None;
-        self.set_frame_latency(SURFACE_FRAME_LATENCY);
         // Anything uploaded mid-gesture is still missing its mip chain. Ask for one more
         // content frame so `sync_tiles` can finish those tiles now that there is idle time.
         if !self.base_only_tiles.is_empty() {
@@ -941,9 +935,12 @@ impl Renderer {
         }
     }
 
-    fn ensure_stroke_capacity(&mut self, count: usize) {
+    /// Grows the instance buffer if it has to, reporting whether it did. A reallocation
+    /// discards the contents, so the caller has to rewrite the vector-path prefix it would
+    /// otherwise have left in place.
+    fn ensure_stroke_capacity(&mut self, count: usize) -> bool {
         if count <= self.stroke_capacity {
-            return;
+            return false;
         }
         let next = count.next_power_of_two().max(STROKE_INSTANCE_CAPACITY);
         self.stroke_buf = self.device.create_buffer(&wgpu::BufferDescriptor {
@@ -953,6 +950,7 @@ impl Renderer {
             mapped_at_creation: false,
         });
         self.stroke_capacity = next;
+        true
     }
 
     fn ensure_vector_shape_capacity(&mut self, count: usize) {
@@ -1096,16 +1094,19 @@ impl Renderer {
         // re-deriving it there meant compositing every dirty tile a second time, sequentially,
         // on the frame thread — exactly doubling the cost of the one path that already
         // dominates a heavy frame.
-        let payloads: Vec<Option<(Vec<Vec<u8>>, bool)>> = uploads
+        // The baked base level is only carried when there *was* something to bake. Otherwise it
+        // stays `None` and the upload reads the tile's own `Arc` where it already lives, which
+        // is also what tells the loop below the tile may share an atlas slot with its siblings.
+        let payloads: Vec<Option<TilePayload>> = uploads
             .par_iter()
             .map(|(layer_index, coord, _, skip_mips)| {
                 let layer = doc.layers.get(*layer_index)?;
                 let pixels = layer.tiles()?.get(*coord)?;
                 let lut = luts.get(layer_index).and_then(|l| l.as_ref());
                 let composited = composited_tile_payload(pixels, *coord, layer, lut, doc_width);
-                let baked = composited.is_some();
                 let base: &[u8] = composited.as_deref().unwrap_or(pixels.as_slice());
-                Some((tile_upload_levels(base, *skip_mips), baked))
+                let mips = tile_upload_mips(base, *skip_mips);
+                Some((composited, mips))
             })
             .collect();
 
@@ -1129,14 +1130,15 @@ impl Renderer {
         for ((layer_index, coord, key, skip_mips), payload) in uploads.iter().zip(payloads.iter()) {
             let key = *key;
             let skip_mips = *skip_mips;
-            let Some((levels, baked)) = payload else {
+            let Some((composited, mips)) = payload else {
                 continue;
             };
-            let baked = *baked;
+            let baked = composited.is_some();
             let layer = &doc.layers[*layer_index];
             let Some(pixels) = layer.tiles().and_then(|g| g.get(*coord)) else {
                 continue;
             };
+            let base: &[u8] = composited.as_deref().unwrap_or(pixels.as_slice());
             if !baked {
                 let ptr = Arc::as_ptr(pixels) as usize;
                 if let Some(&array_layer) = shared_gpu.get(&(*layer_index, ptr)) {
@@ -1149,7 +1151,7 @@ impl Renderer {
 
             if let Some(existing) = self.tiles.get(&key) {
                 let slot = existing.array_layer;
-                self.atlas.write(&self.queue, slot, levels);
+                self.atlas.write(&self.queue, slot, base, mips);
                 if !baked {
                     let ptr = Arc::as_ptr(pixels) as usize;
                     shared_gpu.insert((*layer_index, ptr), slot);
@@ -1189,7 +1191,7 @@ impl Renderer {
                     slot
                 }
             };
-            self.atlas.write(&self.queue, array_layer, levels);
+            self.atlas.write(&self.queue, array_layer, base, mips);
             self.tiles.insert(key, GpuTile { array_layer });
             if !baked {
                 let ptr = Arc::as_ptr(pixels) as usize;
@@ -1459,7 +1461,10 @@ impl Renderer {
     }
 
     pub fn render(&mut self, doc: &mut Document) {
-        if self.frame_dirty == FrameDirty::Clean && !doc.has_live_preview() {
+        if self.frame_dirty == FrameDirty::Clean
+            && !doc.has_live_preview()
+            && !doc.has_animated_overlay()
+        {
             return;
         }
 
@@ -1546,7 +1551,20 @@ impl Renderer {
             self.config.height,
         );
         let pan = (doc.camera.pan_x, doc.camera.pan_y);
-        let blit_plan = if !use_overview && camera_only && !need_draw_rebuild {
+        // The pan cache holds this frame's content already when nothing it depends on has
+        // moved: no tile resync, no draw-list rebuild, and the same camera it was captured at.
+        // That is every overlay-only frame — a pen stroke between pointer-down and pointer-up,
+        // a shape being dragged out, a blinking caret — and it means the content pass is
+        // skipped entirely rather than recompositing the visible stack behind an overlay that
+        // is the only thing that changed.
+        let reuse_reference = !use_overview
+            && !need_tile_sync
+            && !need_draw_rebuild
+            && scissor.is_some_and(|s| {
+                self.pan_cache
+                    .reference_matches(pan, doc.camera.zoom, doc.camera.dpr, s)
+            });
+        let blit_plan = if !use_overview && camera_only && !need_draw_rebuild && !reuse_reference {
             scissor.and_then(|s| self.pan_cache.plan(pan, doc.camera.zoom, doc.camera.dpr, s))
         } else {
             None
@@ -1609,12 +1627,19 @@ impl Renderer {
                 color
             };
             let mut brush_instances: Vec<StrokeInstance> = Vec::new();
-            let mut instances = if self.camera_motion {
-                Vec::new()
+            // The stroke buffer is a vector-path prefix (owned by `cached_draws`' ranges)
+            // followed by this frame's overlay. Only the overlay changes on an overlay frame,
+            // so it is built into a reused scratch buffer and written at the prefix's offset —
+            // cloning `cached_strokes` every frame just to rewrite a suffix put a full copy of
+            // every vector path in the document on the hot path.
+            let prefix_len = if self.camera_motion {
+                0
             } else {
-                self.cached_strokes.clone()
+                self.cached_strokes.len()
             };
-            let overlay_start = instances.len() as u32;
+            let mut instances = std::mem::take(&mut self.overlay_scratch);
+            instances.clear();
+            let overlay_start = prefix_len as u32;
             if doc.text_editing() {
                 instances.extend(text_overlay_instances(
                     doc,
@@ -1660,21 +1685,32 @@ impl Renderer {
                     ));
                 }
             }
-            overlay_range = overlay_start..instances.len() as u32;
-            let brush_start = instances.len() as u32;
+            overlay_range = overlay_start..overlay_start + instances.len() as u32;
+            let brush_start = overlay_range.end;
             instances.append(&mut brush_instances);
-            brush_range = brush_start..instances.len() as u32;
+            brush_range = brush_start..prefix_len as u32 + instances.len() as u32;
             if !brush_range.is_empty() {
                 self.stroke_coverage
                     .ensure(&self.device, self.config.width, self.config.height);
             }
-            let strokes_dirty = need_draw_rebuild || overlay_start < instances.len() as u32;
-
-            if strokes_dirty && !instances.is_empty() {
-                self.ensure_stroke_capacity(instances.len());
-                self.queue
-                    .write_buffer(&self.stroke_buf, 0, bytemuck::cast_slice(&instances));
+            let total = prefix_len + instances.len();
+            let grew = self.ensure_stroke_capacity(total);
+            let stride = std::mem::size_of::<StrokeInstance>() as u64;
+            if (grew || need_draw_rebuild) && prefix_len > 0 {
+                self.queue.write_buffer(
+                    &self.stroke_buf,
+                    0,
+                    bytemuck::cast_slice(&self.cached_strokes),
+                );
             }
+            if !instances.is_empty() {
+                self.queue.write_buffer(
+                    &self.stroke_buf,
+                    prefix_len as u64 * stride,
+                    bytemuck::cast_slice(&instances),
+                );
+            }
+            self.overlay_scratch = instances;
             if need_draw_rebuild && !self.cached_shapes.is_empty() {
                 self.ensure_vector_shape_capacity(self.cached_shapes.len());
                 self.queue.write_buffer(
@@ -1722,7 +1758,9 @@ impl Renderer {
             None
         } else {
             scissor.map(|s| {
-                if let Some((src, dst)) = blit_plan {
+                if reuse_reference {
+                    PanCacheSlot::Reference
+                } else if let Some((src, dst)) = blit_plan {
                     self.patch_pan_cache_working(&mut encoder, src, dst, s);
                     PanCacheSlot::Working
                 } else {
@@ -1808,8 +1846,14 @@ impl Renderer {
         self.queue.submit(Some(encoder.finish()));
         self.queue.present(frame);
         self.tick_camera_motion();
-        self.frame_dirty = if doc.has_live_preview() {
-            FrameDirty::Content
+        // A gesture in flight asks for another frame, but only an *overlay* one: the pointer
+        // events that move it already invalidate at the right level — `Content` for anything
+        // that touched tiles, vectors or a transform, `Overlay` for a preview that is drawn on
+        // top of content nobody changed. Pinning `Content` here instead re-synced every tile
+        // and recomposited the whole stack on every frame of every stroke, for a stroke that
+        // lays no pixels down until pointer-up.
+        self.frame_dirty = if doc.has_live_preview() || doc.has_animated_overlay() {
+            FrameDirty::Overlay
         } else {
             FrameDirty::Clean
         };

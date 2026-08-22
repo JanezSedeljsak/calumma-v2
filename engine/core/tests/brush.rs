@@ -176,11 +176,11 @@ fn crayon_grain_is_fixed_to_the_paper() {
     assert!(high - low > 20, "and it actually bites: {low}..{high}");
 }
 
-/// The eraser has no brush of its own — a shaped eraser is its own feature — so it keeps the
-/// hard, complete erase it always had, but it goes through the same coverage path and so stops
-/// compounding at overlaps too.
+/// The eraser carries its own edge, not the pen's brush: picking Airbrush for the pen must
+/// leave the eraser exactly as hard as it was. Grain and flow describe ink going down, and the
+/// eraser is taking it away.
 #[test]
-fn the_eraser_stays_hard_and_complete() {
+fn the_eraser_ignores_the_pens_brush() {
     let mut doc = board();
     {
         let tiles = doc.layers[doc.active_layer].tiles_mut().unwrap();
@@ -256,4 +256,115 @@ fn vector_mode_ignores_the_brush() {
             .is_some_and(|i| !i.is_empty()),
         "it committed a vector item"
     );
+}
+
+/// The point of the knob. At full softness the rim feathers instead of cutting, so an erase
+/// blends into what it is eating away at rather than leaving a stamped-out hole.
+#[test]
+fn a_soft_eraser_feathers_its_rim() {
+    let mut doc = board();
+    {
+        let tiles = doc.layers[doc.active_layer].tiles_mut().unwrap();
+        tiles.fill_uniform(DocRect::new(0, 0, 255, 255), [10, 20, 30, 255]);
+    }
+    doc.tool = Tool::Eraser;
+    doc.set_eraser_hardness(0.0);
+    doc.brush_size = 20.0;
+
+    slow_drag(&mut doc, (60.0, 128.0), (180.0, 128.0), 40);
+
+    let centre = pixel(&doc, 120, 128);
+    let midway = pixel(&doc, 120, 133)[3];
+    let rim = pixel(&doc, 120, 138)[3];
+    assert_eq!(centre, [0, 0, 0, 0], "the middle is erased outright");
+    assert!(
+        midway > 0 && midway < 255,
+        "the rim is partly erased, not cut: {midway}"
+    );
+    assert!(
+        rim > midway,
+        "and it fades back to untouched on the way out: {midway} then {rim}"
+    );
+    assert_eq!(
+        pixel(&doc, 120, 141),
+        [10, 20, 30, 255],
+        "stopping at the same rim a hard eraser would"
+    );
+}
+
+/// A soft erase keeps the colour it is thinning out. Alpha comes down, RGB stays put — tiles
+/// hold straight alpha, so zeroing the channels would turn a half-erased edge black.
+#[test]
+fn a_soft_erase_thins_alpha_without_touching_colour() {
+    let mut doc = board();
+    {
+        let tiles = doc.layers[doc.active_layer].tiles_mut().unwrap();
+        tiles.fill_uniform(DocRect::new(0, 0, 255, 255), [200, 40, 90, 255]);
+    }
+    doc.tool = Tool::Eraser;
+    doc.set_eraser_hardness(0.0);
+    doc.brush_size = 20.0;
+
+    slow_drag(&mut doc, (60.0, 128.0), (180.0, 128.0), 40);
+
+    let edge = pixel(&doc, 120, 134);
+    assert!(edge[3] > 0 && edge[3] < 255, "partly erased: {edge:?}");
+    assert_eq!(
+        [edge[0], edge[1], edge[2]],
+        [200, 40, 90],
+        "and still its own colour"
+    );
+}
+
+/// Coverage maxes within one stroke, so a single pass over the rim can only take it so far.
+/// Going over it again eats further in — which is how a real soft eraser behaves.
+#[test]
+fn a_second_pass_erases_further() {
+    let mut doc = board();
+    {
+        let tiles = doc.layers[doc.active_layer].tiles_mut().unwrap();
+        tiles.fill_uniform(DocRect::new(0, 0, 255, 255), [10, 20, 30, 255]);
+    }
+    doc.tool = Tool::Eraser;
+    doc.set_eraser_hardness(0.0);
+    doc.brush_size = 20.0;
+
+    slow_drag(&mut doc, (60.0, 128.0), (180.0, 128.0), 40);
+    let once = pixel(&doc, 120, 134)[3];
+    slow_drag(&mut doc, (60.0, 128.0), (180.0, 128.0), 40);
+    let twice = pixel(&doc, 120, 134)[3];
+
+    assert!(once > 0, "one pass leaves the rim standing");
+    assert!(
+        twice < once,
+        "a second takes it further: {once} then {twice}"
+    );
+}
+
+/// The default is the eraser Calumma has always had, so no existing file or habit changes.
+#[test]
+fn the_default_eraser_is_the_hard_one() {
+    let mut doc = board();
+    assert_eq!(doc.eraser_hardness, 1.0);
+    {
+        let tiles = doc.layers[doc.active_layer].tiles_mut().unwrap();
+        tiles.fill_uniform(DocRect::new(0, 0, 255, 255), [10, 20, 30, 255]);
+    }
+    doc.tool = Tool::Eraser;
+    doc.brush_size = 20.0;
+
+    slow_drag(&mut doc, (60.0, 128.0), (180.0, 128.0), 40);
+
+    assert_eq!(pixel(&doc, 120, 137), [0, 0, 0, 0], "hard to the rim");
+    assert_eq!(pixel(&doc, 120, 140), [10, 20, 30, 255], "and no further");
+}
+
+/// Out-of-range values clamp rather than producing a rim that erases more than everything.
+#[test]
+fn eraser_hardness_clamps() {
+    let mut doc = board();
+    doc.set_eraser_hardness(-4.0);
+    assert_eq!(doc.eraser_hardness, 0.0);
+    doc.set_eraser_hardness(9.0);
+    assert_eq!(doc.eraser_hardness, 1.0);
 }

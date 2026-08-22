@@ -342,7 +342,15 @@ fn the_board_reports_a_caret_and_a_box_while_editing() {
     let (x0, y0, x1, y1) = doc.text_box().unwrap();
     assert!(x1 > x0 && y1 > y0);
     assert!(ax >= x0 - 1.0 && ax <= x1 + 1.0);
-    assert!(doc.has_live_preview(), "a live caret keeps frames coming");
+    assert!(
+        doc.has_animated_overlay(),
+        "a blinking caret keeps frames coming"
+    );
+    assert!(
+        !doc.has_live_preview(),
+        "but it is an overlay, not a gesture — a caret must not pin the renderer to a full \
+         content resync every frame, nor disable the overview proxy"
+    );
 }
 
 #[test]

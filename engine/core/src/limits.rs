@@ -28,6 +28,14 @@ pub const BLUR_RADIUS_RATIO: f32 = 0.5;
 /// with a real Gaussian kernel, and two passes still read as a visible triangle.
 pub const BLUR_BOX_PASSES: u32 = 3;
 
+/// How sharp the eraser's rim is: 1 is the complete, hard-edged erase Calumma has always
+/// had, 0 feathers all the way to the centre. Its own knob rather than the pen's brush,
+/// because grain and flow have no meaning for taking ink away — only the edge does. Default 1
+/// keeps every existing file and every existing habit intact.
+pub const ERASER_HARDNESS_MIN: f32 = 0.0;
+pub const ERASER_HARDNESS_MAX: f32 = 1.0;
+pub const ERASER_HARDNESS_DEFAULT: f32 = 1.0;
+
 pub const INK_OPACITY_MIN: f32 = 0.0;
 pub const INK_OPACITY_MAX: f32 = 1.0;
 pub const INK_OPACITY_DEFAULT: f32 = 1.0;
@@ -59,6 +67,11 @@ pub const MAX_ZOOM_HARD: f32 = 64.0;
 pub const VIEWPORT_CULL_PADDING_PX: f32 = 1.0;
 
 pub const AUTOSAVE_INTERVAL_MS: u64 = 800;
+/// How many autosave ticks may pass on a busy engine before the save stops yielding to the
+/// render loop and takes the lock outright. At `AUTOSAVE_INTERVAL_MS` a tick, this bounds the
+/// worst case to a few seconds of unsaved work while keeping the common case — a save landing
+/// mid-gesture — off the frame.
+pub const AUTOSAVE_MAX_SKIPPED_TICKS: u32 = 4;
 pub const RECENT_PROJECTS_LIMIT: usize = 32;
 pub const WORKSPACES_LIMIT: usize = 64;
 pub const PROJECT_THUMB_MAX_SIDE: u32 = 1024;
@@ -71,8 +84,17 @@ pub const VECTOR_SHAPE_INSTANCE_CAPACITY: usize = 256;
 /// Unrelated to the atlas's own capacity: this just needs to hold one record per tile drawn
 /// this frame, and grows the same way the stroke/vector-shape instance buffers do.
 pub const TILE_INSTANCE_CAPACITY: usize = 1024;
-pub const SURFACE_FRAME_LATENCY: u32 = 2;
-pub const SURFACE_FRAME_LATENCY_MOTION: u32 = 1;
+/// Swapchain queue depth, fixed for the life of the surface. One, not two: this is an
+/// interactive editor, so a shallower queue is always the right trade — a deeper one only buys
+/// throughput headroom the board does not need, and costs a frame of pen-to-pixel latency.
+///
+/// It used to be raised and lowered around each camera gesture, which meant calling
+/// `Surface::configure` mid-gesture — and wgpu drains the entire GPU queue before it will
+/// reconfigure a surface (`Device::configure_surface` polls with `PollType::wait_indefinitely`).
+/// That put a full pipeline stall on the main thread inside the first `mouseDragged` of every
+/// pan, and another one four idle frames after the last. Whatever the deeper queue was worth,
+/// it did not cover that.
+pub const SURFACE_FRAME_LATENCY: u32 = 1;
 pub const CAMERA_MOTION_IDLE_FRAMES: u32 = 4;
 pub const GPU_TILE_RETENTION_MARGIN_TILES: i32 = 3;
 

@@ -296,13 +296,20 @@ fn tile_mip_chain_has_nine_levels_shrinking_to_one_pixel() {
 #[test]
 fn motion_upload_skips_mip_chain() {
     let base = opaque_tile();
-    let chain = tile_upload_levels(&base, true);
-    assert_eq!(chain.len(), 1);
-    assert_eq!(chain[0].len(), TILE_BYTES);
     assert!(
-        tile_upload_levels(&base, false).len() > 1,
+        tile_upload_mips(&base, true).is_empty(),
+        "motion writes the base level and nothing above it"
+    );
+    assert!(
+        !tile_upload_mips(&base, false).is_empty(),
         "a settled upload still has to carry every level"
     );
+    assert_eq!(
+        tile_mip_chain(&base).len(),
+        tile_upload_mips(&base, false).len() + 1,
+        "the chain is the base level plus the mips, and the base is never copied twice"
+    );
+    assert_eq!(tile_mip_chain(&base)[0].len(), TILE_BYTES);
 }
 
 #[test]

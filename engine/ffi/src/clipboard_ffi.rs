@@ -152,6 +152,11 @@ pub extern "C" fn calm_tool_takes_brush(tool: u32) -> u8 {
 }
 
 #[no_mangle]
+pub extern "C" fn calm_tool_takes_eraser_hardness(tool: u32) -> u8 {
+    Tool::from_u32(tool).is_some_and(Tool::takes_eraser_hardness) as u8
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn calm_parse_hex_rgb(s: *const c_char, out_rgb: *mut u32) -> CalmStatus {
     if s.is_null() || out_rgb.is_null() {
         return CalmStatus::Null;
@@ -209,6 +214,21 @@ pub extern "C" fn calm_blur_strength_max() -> f32 {
 #[no_mangle]
 pub extern "C" fn calm_blur_strength_default() -> f32 {
     calumma_core::limits::BLUR_STRENGTH_DEFAULT
+}
+
+#[no_mangle]
+pub extern "C" fn calm_eraser_hardness_min() -> f32 {
+    calumma_core::limits::ERASER_HARDNESS_MIN
+}
+
+#[no_mangle]
+pub extern "C" fn calm_eraser_hardness_max() -> f32 {
+    calumma_core::limits::ERASER_HARDNESS_MAX
+}
+
+#[no_mangle]
+pub extern "C" fn calm_eraser_hardness_default() -> f32 {
+    calumma_core::limits::ERASER_HARDNESS_DEFAULT
 }
 
 #[no_mangle]

@@ -122,6 +122,7 @@
   "brushMarker": "Marker",
   "brushCrayon": "Crayon",
   "brushAirbrush": "Airbrush",
+  "eraserHardness": "Hardness",
   "toolEyedropper": "Eyedropper",
   "toolTransform": "Transform",
   "toolText": "Text",

@@ -63,16 +63,38 @@ permanent hole showing through as bare paper.
 
 ### What counts as a live preview
 
-`Document::has_live_preview()` means *something is mid-change and needs a frame per display
-refresh*: an active stroke, a shape/vector/transform drag, a selection, a text caret. It pins
-`frame_dirty` to `Content` and forces the overview proxy off, so anything listed there costs a
-full tile resync every frame for as long as it is true.
+Two predicates, because "needs another frame" and "needs another *content* frame" are not the
+same question.
 
-A **hovered layer is deliberately not** in that set. Its outline is a static overlay, and
+`Document::has_live_preview()` means a **gesture** is in flight — the pointer is down and board
+geometry is being dragged out under it: an active stroke, a shape drag, a transform or vector
+drag. It forces the overview proxy off and blocks a shifted pan-cache blit, because neither is
+valid for a frame whose content is moving.
+
+`Document::has_animated_overlay()` means an overlay is animating on the renderer's own clock
+with nothing about the document changing. Only the blinking text caret. It pins `frame_dirty`
+to `Overlay`, not `Content`.
+
+A **hovered layer is deliberately in neither**. Its outline is a static overlay, and
 `calm_engine_set_hover_layer` already calls `invalidate()` on the way in and on the way out,
 which is exactly the one frame it needs. Counting the hover as live made resting the cursor on
 a layer row resync every tile at 120 Hz *and* disable the overview proxy — on precisely the
 documents that are too large to draw the full way.
+
+An **active selection** and **transform mode** are in neither, for the same reason. Both are
+modes you sit in rather than gestures you perform — a marquee lives until ⌘D — and both draw
+static overlays. Counting them as live pinned `Content` at display rate for as long as the mode
+was open: every tile resynced, the draw list rebuilt, the whole visible stack recomposited, the
+overview proxy off. Every FFI entry that touches either (`calm_engine_deselect`,
+`calm_engine_toggle_transform`, `calm_engine_exit_transform`, the pointer commits) already
+calls `Renderer::invalidate`, which is the one frame they need.
+
+Nothing pins `Content` any more. `render()` ends a frame on `Overlay` while a gesture or the
+caret is live and `Clean` otherwise; content invalidation comes from the events that actually
+change content. `calm_engine_pointer_move` asks `Document::pointer_move` which kind it was — a
+pen or a shape drag lays no pixels down until pointer-up, so those frames are overlay-only,
+while the blur brush (which commits mid-drag), a layer move and a transform/vector drag all
+return `true` and invalidate content.
 
 ### Shell `stateDirty` (Swift)
 
@@ -93,10 +115,17 @@ autosave.rs`), not inside `calm_engine_render` — see "Autosave" below.
 `AutosaveThread` (`engine/ffi/src/autosave.rs`) is spawned in `calm_engine_new` and stopped
 (signal + join) in `calm_engine_free`, before the `Inner` mutex is dropped. It wakes every
 `AUTOSAVE_INTERVAL_MS` on a condvar (so `calm_engine_free` doesn't wait out a full interval to
-tear down), locks `Inner` briefly, and calls the same `autosave()` the render path used to call
-inline. Nothing about `autosave()` itself changed — dirty-flag check, stroke-active guard, the
-800 ms throttle — only *what calls it*. This is Phase 0 of `plans/07-display-cache.md`: SQLite
-and the `Inner` mutex no longer compete with `calm_engine_render` for frame budget.
+tear down) and calls the same `autosave()` the render path used to call inline. Nothing about
+`autosave()` itself changed — dirty-flag check, stroke-active guard, the 800 ms throttle — only
+*what calls it*.
+
+Moving the call off the render path was only half of it, and an earlier version of this file
+overstated the result: both threads still contend for the one `Mutex<Inner>`, so a blocking
+lock on the autosave thread only *relocated* the stall — `calm_engine_render` would wait out a
+whole SQLite transaction at an arbitrary point in a frame, with no back-pressure. The tick now
+takes the lock with `try_lock` and skips on contention, forcing the lock only after
+`AUTOSAVE_MAX_SKIPPED_TICKS` consecutive skips so a continuously-drawn document still reaches
+disk. A skipped tick costs 800 ms of staleness; a blocked frame is visible.
 
 ---
 
@@ -217,6 +246,21 @@ Clear colour is black; desk fills the viewport.
 
 ---
 
+## Swapchain queue depth
+
+`SURFACE_FRAME_LATENCY` is 1 and is set once, at surface configuration, for the life of the
+surface. It used to be 2 at rest and 1 during motion, flipped by a `set_frame_latency` helper
+that called `Surface::configure` — and wgpu drains the entire GPU queue before it will
+reconfigure a surface (`Device::configure_surface` polls with `PollType::wait_indefinitely`).
+`begin_camera_motion` is reached from `calm_engine_pan`, which the shell calls synchronously
+from `mouseDragged`, so that put a full pipeline stall on the main thread inside the first drag
+event of every pan gesture, and another one four idle frames after the last. A bursty
+scroll-wheel pan crossed that boundary several times a second.
+
+Motion mode still exists and still does the things worth doing — base-mip-only uploads, skipped
+preview uniform and stroke rebuild on camera-only frames, cached visible tile count. It just no
+longer touches the swapchain.
+
 ## What still costs on a camera-only pan
 
 After Tier A **and** shipped Tier B1/B2 (below):
@@ -244,6 +288,7 @@ phases 0 and 1 of that plan. The rest of Tier B, and Tiers C/D, remain open.
 | # | Change | Effect | Throw away? | Status |
 | --- | --- | --- | --- | --- |
 | B1 | **Framebuffer scroll / ping-pong blit** on camera-only pan: copy previous frame with offset, redraw only exposed strips | Biggest Figma-like win; pan becomes ~2 blits + edge repair | No — additive | **Shipped** — `PanCache`, see above |
+| B1b | **Reuse the `PanCache` reference on an overlay-only frame** — no shift, no redraw, the board pass samples it directly | Brush strokes, shape drags and the caret stop recompositing the visible stack per frame | No — additive | **Shipped** — `reference_matches` / `reuse_reference` |
 | B2 | **Move autosave off render path** — background thread or timer, never inside `calm_engine_render` | Removes mutex + SQLite from frame budget | No | **Shipped** — `engine/ffi/src/autosave.rs` |
 | B3 | **Skip desk clear on camera-only** — `LoadOp::Load` + blit previous colour attachment, or persistent desk texture | Saves full-screen fill | No | Open |
 | B4 | **Lower overview enter to ~32** once prewarm is reliable | More 8K pans hit overview sooner | Slight quality trade at mid zoom | Open |

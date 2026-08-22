@@ -47,6 +47,7 @@ struct EditorView: View {
         .onChange(of: app.blurStrength) { _, _ in app.applyKnobs() }
         .onChange(of: app.tolerance) { _, _ in app.applyKnobs() }
         .onChange(of: app.brush) { _, _ in app.applyKnobs() }
+        .onChange(of: app.eraserHardness) { _, _ in app.applyKnobs() }
         .onChange(of: app.fill) { _, _ in app.applyKnobs() }
         .onChange(of: app.vectorMode) { _, _ in app.applyKnobs() }
         .onChange(of: app.theme) { _, _ in app.applyKnobs() }

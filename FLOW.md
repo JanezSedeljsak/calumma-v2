@@ -211,9 +211,15 @@ live in `engine/core`; the actual PNG/JPEG/WebP/AVIF **encode** happens in the s
   *second* stroke still builds up — that is how you deepen a wash. The live preview does the
   same union on the GPU through an offscreen coverage target, so what you see while dragging
   is what lands on pointer-up.
-  The brush is Pen-only: the eraser takes ink away and keeps its hard, complete erase (a
-  shaped eraser is its own feature), and vector mode hides the picker, since a resolution-
-  independent path has no raster coverage to shape.
+  The brush is Pen-only, and vector mode hides the picker since a resolution-independent path
+  has no raster coverage to shape.
+- **Eraser hardness** (Eraser only). The eraser carries an edge but not a whole brush: grain
+  and flow describe ink going down, and it is taking ink away, so it gets one **Hardness**
+  slider instead of the picker. 100% is the complete, hard-edged erase Calumma has always had
+  and stays the default; lower feathers the rim, thinning alpha and leaving the colour it is
+  eating away at intact rather than cutting a stamped-out hole. Coverage maxes within a
+  stroke, so one soft pass leaves the rim standing and going over it again eats further in —
+  the same build-up the brushes have, which is how a real soft eraser behaves.
 
 - **Blur tool** (`U`, tools island). Softens the pixels already on the active layer instead
   of adding colour to them — the first tool that reads the destination and writes a function

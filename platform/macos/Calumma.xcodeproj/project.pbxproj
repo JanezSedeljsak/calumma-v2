@@ -340,7 +340,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "set -euo pipefail\nexport PATH=\"$HOME/.cargo/bin:/opt/homebrew/bin:/usr/local/bin:$PATH\"\nROOT=\"${SRCROOT}/../..\"\npython3 \"${ROOT}/manage.py\" tokens\nexport CARGO_TARGET_DIR=\"${ROOT}/engine/target\"\nMANIFEST=\"${ROOT}/engine/Cargo.toml\"\nif [ \"${CONFIGURATION}\" = \"Release\" ]; then\n  cargo build --release -p calumma-ffi --manifest-path \"${MANIFEST}\"\nelse\n  cargo build -p calumma-ffi --manifest-path \"${MANIFEST}\"\nfi\n";
+			shellScript = "set -euo pipefail\nexport PATH=\"$HOME/.cargo/bin:/opt/homebrew/bin:/usr/local/bin:$PATH\"\nROOT=\"${SRCROOT}/../..\"\npython3 \"${ROOT}/manage.py\" tokens\nexport CARGO_TARGET_DIR=\"${ROOT}/engine/target\"\nMANIFEST=\"${ROOT}/engine/Cargo.toml\"\n# The engine is always built optimized, in every Xcode configuration. A Debug\n# configuration means \"debuggable shell\", not \"unoptimized engine\": linking a\n# dev-profile engine made the app in front of you an order of magnitude slower than\n# the one you ship, so every interaction judgement made while running from Xcode was\n# made against the wrong binary. Swift still builds -Onone under Debug.\ncargo build --release -p calumma-ffi --manifest-path \"${MANIFEST}\"\n";
 		};
 		E7C363B9FF3CD973E126D068 /* Stamp version from Cargo.toml */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -447,7 +447,7 @@
 					"@executable_path/../Frameworks",
 				);
 				LIBRARY_SEARCH_PATHS = (
-					"$(SRCROOT)/../../engine/target/debug",
+					"$(SRCROOT)/../../engine/target/release",
 				);
 				MARKETING_VERSION = 0.3.0;
 				OTHER_LDFLAGS = (

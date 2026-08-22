@@ -44,6 +44,7 @@ final class AppModel: ObservableObject {
     @Published var blurStrength: Float = Engine.blurStrengthDefault
     @Published var tolerance: UInt8 = Engine.toleranceDefault
     @Published var brush: CalmBrush = .pen
+    @Published var eraserHardness: Float = Engine.eraserHardnessDefault
     @Published var fill = false
     @Published var vectorMode = false
     @Published var layersOpen = true
@@ -522,6 +523,7 @@ final class AppModel: ObservableObject {
         engine.setBlurStrength(blurStrength)
         engine.setTolerance(tolerance)
         engine.setBrush(brush)
+        engine.setEraserHardness(eraserHardness)
         engine.setFill(fill)
         engine.setVectorMode(vectorMode)
         engine.setDark(theme.isDark)

@@ -100,9 +100,17 @@ impl TileAtlas {
 
     /// Writes a whole mip chain for one tile — `levels[0]` is the base 256×256 image, each
     /// entry after it half the size of the one before, as built by `compose::tile_mip_chain`.
-    pub fn write(&self, queue: &wgpu::Queue, slot: u32, levels: &[Vec<u8>]) {
+    /// Base level and mip chain are passed separately because the base is very often the
+    /// tile's own `Arc<Vec<u8>>` — an unmasked, unadjusted, fully opaque layer needs no bake,
+    /// and `queue.write_texture` can read those bytes where they already live. Folding it into
+    /// the level vector meant a 256 KiB allocation and memcpy per tile per upload for pixels
+    /// that were about to be copied again anyway.
+    pub fn write(&self, queue: &wgpu::Queue, slot: u32, base: &[u8], mips: &[Vec<u8>]) {
         let mut side = TILE_SIZE;
-        for (level, data) in levels.iter().enumerate() {
+        for (level, data) in std::iter::once(base)
+            .chain(mips.iter().map(Vec::as_slice))
+            .enumerate()
+        {
             queue.write_texture(
                 wgpu::TexelCopyTextureInfo {
                     texture: &self.texture,

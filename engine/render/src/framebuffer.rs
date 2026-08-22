@@ -322,6 +322,25 @@ impl PanCache {
         &self.clear_pipeline
     }
 
+    /// Whether the reference texture already holds exactly this frame's content — same camera,
+    /// same scale, same paper rect. When it does there is nothing to shift and nothing to
+    /// redraw: the board pass samples `reference` directly and the content pass is skipped
+    /// outright. This is what makes an overlay-only frame (a pen stroke's preview, a blinking
+    /// caret) cost one instance-buffer write instead of a full recomposite.
+    pub(crate) fn reference_matches(
+        &self,
+        pan: (f32, f32),
+        zoom: f32,
+        dpr: f32,
+        scissor: PxRect,
+    ) -> bool {
+        self.has_reference
+            && self.reference_pan == pan
+            && self.reference_zoom == zoom
+            && self.reference_dpr == dpr
+            && self.reference_scissor == scissor
+    }
+
     /// Shift + destination rect for this frame's blit, in device pixels, or `None` when the
     /// camera moved too far (or zoomed/rescaled) for a straight pixel copy to apply — the
     /// caller falls back to a full redraw either way.

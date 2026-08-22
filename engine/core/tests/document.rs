@@ -1068,6 +1068,73 @@ fn hovering_a_layer_outlines_it_without_forcing_a_live_frame() {
 }
 
 #[test]
+fn a_settled_selection_is_a_mode_not_a_live_preview() {
+    let mut doc = Document::new("p".into(), "t", 64, 64);
+    doc.tool = Tool::SelectRect;
+    doc.resize_viewport(64.0, 64.0, 1.0);
+    doc.fit_to_view();
+    let (s0x, s0y) = doc.camera.to_screen(5.0, 5.0);
+    let (s1x, s1y) = doc.camera.to_screen(20.0, 20.0);
+
+    doc.pointer_down(s0x, s0y);
+    doc.pointer_move(s1x, s1y);
+    assert!(
+        doc.has_live_preview(),
+        "dragging the marquee out is a gesture"
+    );
+
+    doc.pointer_up(s1x, s1y);
+    assert!(doc.selection.is_some());
+    assert!(
+        !doc.has_live_preview(),
+        "a settled marquee is a mode you sit in until ⌘D — pinning it live re-synced every \
+         tile and recomposited the whole stack at display rate for as long as it existed"
+    );
+    assert!(!doc.has_animated_overlay());
+}
+
+#[test]
+fn a_pen_stroke_between_events_needs_no_content_rebuild() {
+    let mut doc = Document::new("p".into(), "t", 64, 64);
+    doc.tool = Tool::Pen;
+    doc.resize_viewport(64.0, 64.0, 1.0);
+    doc.fit_to_view();
+    let (s0x, s0y) = doc.camera.to_screen(5.0, 5.0);
+    let (s1x, s1y) = doc.camera.to_screen(20.0, 20.0);
+
+    doc.pointer_down(s0x, s0y);
+    assert!(
+        !doc.pointer_move(s1x, s1y),
+        "a pen lays no pixels down until pointer-up, so every frame in between is overlay-only"
+    );
+    assert_eq!(pixel(&doc, doc.active_layer, 12, 12), [0, 0, 0, 0]);
+}
+
+#[test]
+fn a_blur_stroke_reports_the_pixels_it_lays_down_mid_drag() {
+    let mut doc = Document::new("p".into(), "t", 64, 64);
+    for x in 0..40 {
+        doc.layers[doc.active_layer]
+            .tiles_mut()
+            .unwrap()
+            .set_pixel(x, 10, [255, 0, 0, 255]);
+    }
+    doc.tool = Tool::Blur;
+    doc.brush_size = 16.0;
+    doc.resize_viewport(64.0, 64.0, 1.0);
+    doc.fit_to_view();
+    let (s0x, s0y) = doc.camera.to_screen(5.0, 10.0);
+    let (s1x, s1y) = doc.camera.to_screen(30.0, 10.0);
+
+    doc.pointer_down(s0x, s0y);
+    assert!(
+        doc.pointer_move(s1x, s1y),
+        "blur commits straight into the layer as it drags, so it owes the renderer a content \
+         invalidation the pen does not"
+    );
+}
+
+#[test]
 fn layer_bounds_move_is_free_but_size_only_ever_crops() {
     let mut doc = Document::new("p".into(), "t", 200, 100);
     let grid = doc.layers[1].tiles_mut().unwrap();

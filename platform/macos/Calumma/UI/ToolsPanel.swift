@@ -147,6 +147,21 @@ struct ToolsPanel: View {
                 }
             }
 
+            if showsEraserHardness {
+                VStack(spacing: 2) {
+                    HStack {
+                        CalmText.muted(l10n.eraserHardness)
+                        Spacer()
+                        CalmText.muted("\(Int((app.eraserHardness * 100).rounded()))", mono: true)
+                    }
+                    Slider(value: Binding(
+                        get: { Double(app.eraserHardness) },
+                        set: { app.eraserHardness = Float($0) }
+                    ), in: Double(Engine.eraserHardnessMin)...Double(Engine.eraserHardnessMax))
+                    .controlSize(.mini)
+                }
+            }
+
             if showsBlurStrength {
                 VStack(spacing: 2) {
                     HStack {
@@ -227,6 +242,10 @@ struct ToolsPanel: View {
     /// does — it hides rather than sitting there inert.
     private var showsBrush: Bool {
         app.tool.takesBrush && !app.vectorMode
+    }
+
+    private var showsEraserHardness: Bool {
+        app.tool.takesEraserHardness
     }
 
     private var aiIsBusy: Bool { app.engine.aiOpBusyLayer != nil }

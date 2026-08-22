@@ -87,6 +87,7 @@ enum CalmTool: UInt32 {
     var takesBlurStrength: Bool { calm_tool_takes_blur_strength(rawValue) != 0 }
     var takesTolerance: Bool { calm_tool_takes_tolerance(rawValue) != 0 }
     var takesBrush: Bool { calm_tool_takes_brush(rawValue) != 0 }
+    var takesEraserHardness: Bool { calm_tool_takes_eraser_hardness(rawValue) != 0 }
 }
 
 struct ProjectInfo: Identifiable, Hashable {
@@ -224,6 +225,9 @@ final class Engine: ObservableObject, @unchecked Sendable {
     static var blurStrengthMin: Float { calm_blur_strength_min() }
     static var blurStrengthMax: Float { calm_blur_strength_max() }
     static var blurStrengthDefault: Float { calm_blur_strength_default() }
+    static var eraserHardnessMin: Float { calm_eraser_hardness_min() }
+    static var eraserHardnessMax: Float { calm_eraser_hardness_max() }
+    static var eraserHardnessDefault: Float { calm_eraser_hardness_default() }
     static var toleranceMin: UInt8 { calm_tolerance_min() }
     static var toleranceMax: UInt8 { calm_tolerance_max() }
     static var toleranceDefault: UInt8 { calm_tolerance_default() }
@@ -504,6 +508,11 @@ final class Engine: ObservableObject, @unchecked Sendable {
     func setBrush(_ brush: CalmBrush) {
         guard let ptr else { return }
         _ = calm_engine_set_brush_kind(ptr, brush.rawValue)
+    }
+
+    func setEraserHardness(_ hardness: Float) {
+        guard let ptr else { return }
+        _ = calm_engine_set_eraser_hardness(ptr, hardness)
     }
 
     func setFill(_ fill: Bool) {

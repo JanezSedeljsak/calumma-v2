@@ -291,22 +291,26 @@ pub fn composited_tile_payload(
 /// a pan actually is: minification aliasing from sampling a texture well below its own
 /// resolution with nothing pre-filtered to fall back to.
 pub fn tile_mip_chain(base: &[u8]) -> Vec<Vec<u8>> {
-    tile_upload_levels(base, false)
+    let mut out = vec![base.to_vec()];
+    out.extend(tile_upload_mips(base, false));
+    out
 }
 
-pub fn tile_upload_levels(base: &[u8], motion: bool) -> Vec<Vec<u8>> {
-    let mut out = vec![base.to_vec()];
+/// The mip chain *above* level 0, which the caller already holds. Empty during camera motion,
+/// where the base level is all that gets written.
+pub fn tile_upload_mips(base: &[u8], motion: bool) -> Vec<Vec<u8>> {
     if motion {
-        return out;
+        return Vec::new();
     }
     let levels = tile_mip_levels();
+    let mut out: Vec<Vec<u8>> = Vec::with_capacity(levels as usize - 1);
     let mut side = TILE_SIZE;
     for _ in 1..levels {
-        let prev = out.last().expect("just pushed the base level");
+        let prev: &[u8] = out.last().map_or(base, Vec::as_slice);
         out.push(downsample_box(prev, side));
         side = (side / 2).max(1);
     }
-    debug_assert_eq!(out.len(), levels as usize);
+    debug_assert_eq!(out.len() + 1, levels as usize);
     out
 }
 

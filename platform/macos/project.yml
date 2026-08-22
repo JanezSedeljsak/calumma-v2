@@ -63,7 +63,7 @@ targets:
       configs:
         Debug:
           LIBRARY_SEARCH_PATHS:
-            - $(SRCROOT)/../../engine/target/debug
+            - $(SRCROOT)/../../engine/target/release
         Release:
           LIBRARY_SEARCH_PATHS:
             - $(SRCROOT)/../../engine/target/release
@@ -77,11 +77,12 @@ targets:
           python3 "${ROOT}/manage.py" tokens
           export CARGO_TARGET_DIR="${ROOT}/engine/target"
           MANIFEST="${ROOT}/engine/Cargo.toml"
-          if [ "${CONFIGURATION}" = "Release" ]; then
-            cargo build --release -p calumma-ffi --manifest-path "${MANIFEST}"
-          else
-            cargo build -p calumma-ffi --manifest-path "${MANIFEST}"
-          fi
+          # The engine is always built optimized, in every Xcode configuration. A Debug
+          # configuration means "debuggable shell", not "unoptimized engine": linking a
+          # dev-profile engine made the app in front of you an order of magnitude slower than
+          # the one you ship, so every interaction judgement made while running from Xcode was
+          # made against the wrong binary. Swift still builds -Onone under Debug.
+          cargo build --release -p calumma-ffi --manifest-path "${MANIFEST}"
         basedOnDependencyAnalysis: false
     postCompileScripts:
       - name: Stamp version from Cargo.toml

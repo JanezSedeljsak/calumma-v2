@@ -135,8 +135,10 @@ def cmd_xcodegen(_: argparse.Namespace) -> int:
 
 
 def cmd_dev(_: argparse.Namespace) -> int:
+    # Release, same as `build` and `package`. The engine has one optimized artifact and every
+    # Xcode configuration links it — see `project.yml`'s preBuildScript for why.
     generate_tokens_swift()
-    run(cargo_cmd("build", "-p", PKG_FFI))
+    run(cargo_cmd("build", "--release", "-p", PKG_FFI))
     xcodegen_generate()
     run([BIN_OPEN, str(XCODE_PROJECT)])
     return 0

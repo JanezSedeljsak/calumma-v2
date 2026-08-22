@@ -560,9 +560,13 @@ pub unsafe extern "C" fn calm_engine_pointer_move(
 ) -> CalmStatus {
     with_inner(engine, |inner| {
         if let Some(doc) = &mut inner.doc {
-            doc.pointer_move(x, y);
+            let changed_content = doc.pointer_move(x, y);
             if let Some(r) = &mut inner.renderer {
-                r.invalidate();
+                if changed_content {
+                    r.invalidate();
+                } else {
+                    r.invalidate_overlay();
+                }
             }
         }
         Ok(())
@@ -935,6 +939,22 @@ pub unsafe extern "C" fn calm_engine_set_brush_kind(
         let next = Brush::from_u32(brush).with_context(|| format!("unknown brush id {brush}"))?;
         if let Some(doc) = &mut inner.doc {
             doc.set_brush(next);
+        }
+        inner.invalidate_renderer();
+        Ok(())
+    })
+}
+
+/// How sharp the eraser's rim is. Its own knob rather than the pen's brush — grain and flow
+/// describe ink going down, and this tool takes ink away.
+#[no_mangle]
+pub unsafe extern "C" fn calm_engine_set_eraser_hardness(
+    engine: *mut CalmEngine,
+    hardness: f32,
+) -> CalmStatus {
+    with_inner(engine, |inner| {
+        if let Some(doc) = &mut inner.doc {
+            doc.set_eraser_hardness(hardness);
         }
         inner.invalidate_renderer();
         Ok(())

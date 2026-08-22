@@ -6,8 +6,9 @@ use crate::history::{History, TileSnapshot};
 use crate::layer::Layer;
 use crate::limits::{
     ALPHA_OPAQUE, BLUR_STRENGTH_DEFAULT, BLUR_STRENGTH_MAX, BLUR_STRENGTH_MIN, BRUSH_SIZE_DEFAULT,
-    DEFAULT_INK, EFFECT_CHUNK_BYTES, INK_OPACITY_DEFAULT, INK_OPACITY_MAX, INK_OPACITY_MIN,
-    MAX_CANVAS_SIDE, MIN_CANVAS_SIDE, MIN_STAMP_SPACING, MIN_STROKE_POINT_DISTANCE, PAPER_WHITE,
+    DEFAULT_INK, EFFECT_CHUNK_BYTES, ERASER_HARDNESS_DEFAULT, ERASER_HARDNESS_MAX,
+    ERASER_HARDNESS_MIN, INK_OPACITY_DEFAULT, INK_OPACITY_MAX, INK_OPACITY_MIN, MAX_CANVAS_SIDE,
+    MIN_CANVAS_SIDE, MIN_STAMP_SPACING, MIN_STROKE_POINT_DISTANCE, PAPER_WHITE,
     STAMP_COVERAGE_PADDING, STAMP_SPACING_RATIO, STROKE_POINT_CAPACITY, TOLERANCE_DEFAULT,
     TOLERANCE_MAX, TOLERANCE_MIN,
 };
@@ -15,9 +16,7 @@ use crate::palette::BoardColors;
 use crate::selection::{Selection, SelectionShape};
 use crate::shape::{Shape, Tool};
 use crate::text_edit::TextEdit;
-use crate::tile::{
-    blend_over, blend_with_mode, DirtyChannel, DocRect, TileCoord, TileSet, TILE_SIZE,
-};
+use crate::tile::{blend_over, blend_with_mode, DirtyChannel, DocRect, TileCoord, TileSet};
 use crate::transform::{bounds_center, clipped_pixel_span, LayerTransform};
 use crate::vector;
 use crate::vector_edit::{VectorItemDrag, VectorPick};
@@ -337,6 +336,9 @@ pub struct Document {
     /// Which brush the pen lays ink down with. A shell knob like the active tool: the shell
     /// picks it, `brush.rs` owns what it means.
     pub brush: Brush,
+    /// How sharp the eraser's rim is. The eraser's own knob rather than the pen's brush —
+    /// see `limits::ERASER_HARDNESS_DEFAULT`.
+    pub eraser_hardness: f32,
     /// How many of the current stroke's stamps the blur has already committed. Blur has no ink
     /// preview, so it paints as the pointer moves; this is what stops each event re-blurring
     /// the whole stroke from the start.
@@ -464,6 +466,7 @@ impl Document {
             blur_strength: BLUR_STRENGTH_DEFAULT,
             tolerance: TOLERANCE_DEFAULT,
             brush: Brush::default(),
+            eraser_hardness: ERASER_HARDNESS_DEFAULT,
             blur_stamped: 0,
             blur_painted: false,
         }
@@ -1151,26 +1154,36 @@ impl Document {
         }
     }
 
-    pub fn pointer_move(&mut self, screen_x: f32, screen_y: f32) {
+    /// Returns whether this move changed anything the renderer caches — tile pixels, vector
+    /// items, or a layer transform. `false` means the only thing that moved is the live overlay
+    /// (a pen stroke's preview segments, a shape drag's SDF uniform), which is drawn on top of
+    /// the cached content and costs one instance-buffer write.
+    ///
+    /// That distinction is the whole difference between a brush stroke that recomposites the
+    /// visible stack at display rate and one that does not: a pen lays no pixels down until
+    /// `pointer_up`, so every frame in between is an overlay frame.
+    pub fn pointer_move(&mut self, screen_x: f32, screen_y: f32) -> bool {
         let (dx, dy) = self.camera.to_doc(screen_x, screen_y);
         if self.transform_active {
             if !self.update_vector_item_drag(dx, dy) {
                 self.update_transform_drag(dx, dy);
             }
-            return;
+            return true;
         }
         if self.tool == Tool::Move {
             self.update_move_drag(dx, dy);
-            return;
+            return true;
         }
         if self.tool.is_stroke() && self.stroke_active {
             self.push_stroke_point(dx, dy);
-            self.blur_pending_stamps();
-        } else if let Some(shape) = &mut self.shape_drag {
+            return self.blur_pending_stamps();
+        }
+        if let Some(shape) = &mut self.shape_drag {
             shape.end = (dx, dy);
             shape.half_width = self.brush_size * 0.5;
             shape.fill = self.fill;
         }
+        false
     }
 
     pub fn pointer_up(&mut self, screen_x: f32, screen_y: f32) {
@@ -1251,15 +1264,22 @@ impl Document {
         self.brush = brush;
     }
 
-    /// The profile the *current* stroke lays ink down with. Only the pen carries a brush: the
-    /// eraser takes ink away and has no texture to speak of, and a shaped eraser is its own
-    /// feature rather than a side effect of this one.
+    /// The profile the *current* stroke lays ink down with. The pen carries a whole brush; the
+    /// eraser carries only an edge, since grain and flow describe ink being put down and it is
+    /// taking ink away. Everything else draws hard-edged.
     pub fn active_brush_profile(&self) -> BrushProfile {
-        if self.tool == Tool::Pen {
-            self.brush.profile()
-        } else {
-            BrushProfile::HARD
+        match self.tool {
+            Tool::Pen => self.brush.profile(),
+            Tool::Eraser => BrushProfile {
+                hardness: self.eraser_hardness,
+                ..BrushProfile::HARD
+            },
+            _ => BrushProfile::HARD,
         }
+    }
+
+    pub fn set_eraser_hardness(&mut self, hardness: f32) {
+        self.eraser_hardness = hardness.clamp(ERASER_HARDNESS_MIN, ERASER_HARDNESS_MAX);
     }
 
     /// The ink a stroke actually lands, with the brush's flow folded into the alpha. The one
@@ -1302,35 +1322,35 @@ impl Document {
     /// blur is still a single undo step no matter how many pointer events it spanned. Only
     /// tiles not already in the snapshot are captured — re-snapshotting a tile the stroke has
     /// already blurred would record the blurred state as the "before".
-    fn blur_pending_stamps(&mut self) {
+    fn blur_pending_stamps(&mut self) -> bool {
         if self.tool != Tool::Blur || !self.stroke_active {
-            return;
+            return false;
         }
         if !self.active_layer_accepts_paint() {
-            return;
+            return false;
         }
         let radius = self.brush_size * 0.5;
         let strength = self.blur_strength;
         if strength <= 0.0 {
-            return;
+            return false;
         }
         let all = stroke_stamps(&self.stroke_points, radius);
         let Some(fresh) = all.get(self.blur_stamped..).filter(|s| !s.is_empty()) else {
-            return;
+            return false;
         };
         let stamps: Vec<(f32, f32)> = fresh.iter().map(|p| (p.x, p.y)).collect();
         self.blur_stamped = all.len();
 
         let Some(span) = stamps_bounds(fresh, radius).and_then(|r| r.intersect(self.bounds()))
         else {
-            return;
+            return false;
         };
         let mut touched = TileSet::default();
         tiles_covering(span, &mut touched);
 
         let active = self.active_layer;
         let Some(grid) = self.layers.get(active).and_then(Layer::tiles) else {
-            return;
+            return false;
         };
         let unseen: Vec<TileCoord> = touched
             .into_iter()
@@ -1339,11 +1359,14 @@ impl Document {
         self.stroke_before.extend(grid.snapshot_tiles(&unseen));
 
         let selection = self.selection.clone();
+        let mut painted_now = false;
         if let Some(tiles) = self.layers.get_mut(active).and_then(|l| l.tiles_mut()) {
             let touched =
                 crate::blur::blur_stamps(tiles, &stamps, radius, strength, selection.as_ref());
-            self.blur_painted |= touched > 0;
+            painted_now = touched > 0;
+            self.blur_painted |= painted_now;
         }
+        painted_now
     }
 
     /// Close out a blur stroke: the pixels are already committed, so all that is left is
@@ -2151,24 +2174,35 @@ impl Document {
         Some(t.transformed_corners(pivot, raw_bounds))
     }
 
-    /// Whether something on the board is mid-change and needs a frame per display refresh.
+    /// Whether a *gesture* is in flight: the pointer is down and the board's geometry is being
+    /// dragged out under it. Only these keep the renderer off its caches — the low-resolution
+    /// overview proxy is wrong to show mid-drag, and a shifted pan-cache blit cannot apply to a
+    /// frame whose content is changing.
+    ///
     /// A hovered layer deliberately does not count: its outline is a static overlay that
     /// `set_hover_layer` already invalidates once on the way in and once on the way out.
-    /// Counting it here pinned `frame_dirty` to `Content` for as long as the cursor sat on a
-    /// layer row — re-syncing every tile every frame — and forced the overview proxy off on
-    /// exactly the documents that are too large to draw the full way.
+    ///
+    /// Neither does an **active selection** or **transform mode**, for exactly the same reason.
+    /// Both are modes you sit in rather than gestures you perform — a marquee lives until ⌘D —
+    /// and both draw static overlays. Counting them here pinned `frame_dirty` to `Content` at
+    /// display rate for as long as the mode was open, which re-synced every tile, rebuilt the
+    /// draw list and re-composited the whole visible stack every frame, and disabled the
+    /// overview proxy on exactly the documents too large to draw the full way. Every FFI entry
+    /// that touches either one already calls `Renderer::invalidate`, which is the one frame
+    /// they need.
     pub fn has_live_preview(&self) -> bool {
         self.stroke_active
             || self.shape_drag.is_some()
-            || self.selection.is_some()
-            || self.transform_active
             || self.transform_drag.is_some()
             || self.vector_drag.is_some()
-            || self.text_edit.is_some()
     }
 
-    pub fn tile_size(&self) -> u32 {
-        TILE_SIZE
+    /// Whether an overlay is *animating* and so needs a frame per display refresh even though
+    /// nothing about the document changed. Only the text caret, which blinks off the renderer's
+    /// own clock. This asks for `FrameDirty::Overlay`, not `Content`: the tiles, the draw list
+    /// and the pan cache are all still valid, so the frame is one instance-buffer write.
+    pub fn has_animated_overlay(&self) -> bool {
+        self.text_edit.is_some()
     }
 }
 
