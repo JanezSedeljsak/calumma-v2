@@ -38,6 +38,7 @@ struct WorkspaceExtendOverlay: View {
                             workspaceCard(workspace)
                         }
                     }
+                    .calmScrollBars()
                 }
             }
         }
@@ -108,7 +109,7 @@ struct WorkspaceExtendOverlay: View {
             }
 
             if !projects.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
+                ScrollView(.horizontal) {
                     HStack(spacing: Tokens.Space.sm) {
                         ForEach(projects) { project in
                             Button {
@@ -141,6 +142,7 @@ struct WorkspaceExtendOverlay: View {
                             .calmPointer()
                         }
                     }
+                    .calmScrollBars()
                 }
             }
         }

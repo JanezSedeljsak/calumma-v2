@@ -24,30 +24,35 @@ struct ToolsPanel: View {
 
     var body: some View {
         CalmIsland(padding: Tokens.Space.xs) {
-            VStack(spacing: Tokens.Space.sm) {
-                toolGrid
+            GeometryReader { proxy in
+                ScrollView(.vertical) {
+                    VStack(spacing: Tokens.Space.sm) {
+                        toolGrid
 
-                CalmDivider()
+                        CalmDivider()
 
-                VStack(spacing: Tokens.Space.xs) {
-                    CalmText.label(toolTitle)
-                    toolOptions
+                        VStack(spacing: Tokens.Space.xs) {
+                            CalmText.label(toolTitle)
+                            toolOptions
+                        }
+
+                        Spacer(minLength: Tokens.Space.xs)
+
+                        CalmDivider()
+
+                        VStack(spacing: Tokens.Space.xs) {
+                            CalmText.label(l10n.color)
+                            QuickColorPicker()
+                        }
+
+                        CalmDivider()
+
+                        aiSection
+                    }
+                    .frame(minHeight: proxy.size.height)
+                    .calmScrollBars()
                 }
-
-                Spacer(minLength: Tokens.Space.xs)
-
-                CalmDivider()
-
-                VStack(spacing: Tokens.Space.xs) {
-                    CalmText.label(l10n.color)
-                    QuickColorPicker()
-                }
-
-                CalmDivider()
-
-                aiSection
             }
-            .frame(maxHeight: .infinity, alignment: .top)
         }
         .frame(width: Self.width)
     }

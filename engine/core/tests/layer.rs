@@ -90,3 +90,106 @@ fn content_bounds_spans_every_painted_tile() {
     assert!(min_x <= 10.0 && min_y <= 10.0);
     assert!(max_x >= 600.0 && max_y >= 700.0);
 }
+
+fn text_layer() -> Layer {
+    let mut layer = Layer::new("T", 64, 64);
+    layer.content = LayerContent::Text {
+        run: Box::default(),
+        tiles: TileGrid::new(64, 64),
+    };
+    layer
+}
+
+/// Every content accessor answers `None` for the two variants it is not about, so a caller
+/// that reached for the wrong one gets nothing rather than the wrong thing. This is the
+/// contract `is_raster()` being *false* for text depends on — branch on `tiles().is_none()`
+/// when you mean "has no pixels".
+#[test]
+fn each_content_accessor_is_none_for_the_variants_it_is_not_about() {
+    let raster = Layer::new("R", 64, 64);
+    assert!(raster.content.items().is_none());
+    assert!(raster.content.run().is_none());
+    assert!(raster.tiles().is_some());
+
+    let mut vector = Layer::vector("V", Vec::new());
+    assert!(vector.content.items().is_some());
+    assert!(vector.content.items_mut().is_some());
+    assert!(vector.content.run().is_none());
+    assert!(vector.content.run_mut().is_none());
+    assert!(vector.tiles().is_none());
+
+    let mut text = text_layer();
+    assert!(text.content.run().is_some());
+    assert!(text.content.run_mut().is_some());
+    assert!(text.content.items().is_none());
+    assert!(text.content.items_mut().is_none());
+    assert!(
+        text.tiles().is_some(),
+        "a text layer has pixels, they are just a cache"
+    );
+    assert!(
+        !text.content.is_raster(),
+        "is_raster is false for text, which is why callers ask tiles().is_none()"
+    );
+}
+
+/// `set_run` belongs to a text layer alone: handing one to a raster or vector layer has to be
+/// refused rather than quietly swapping its content out.
+#[test]
+fn set_run_is_refused_by_a_layer_that_holds_no_run() {
+    let mut raster = Layer::new("R", 32, 32);
+    assert!(!raster.set_run(Default::default()));
+    assert!(raster.content.is_raster(), "it is still a raster layer");
+
+    let mut vector = Layer::vector("V", Vec::new());
+    assert!(!vector.set_run(Default::default()));
+    assert!(vector.content.is_vector());
+}
+
+/// A vector layer has no pixels to measure, so its tight bounds fall back to the same
+/// parametric box the hover outline uses — the numbers in the bounds strip still mean
+/// something for a layer of shapes.
+#[test]
+fn a_vector_layers_tight_bounds_fall_back_to_its_parametric_box() {
+    let layer = Layer::vector(
+        "V",
+        vec![VectorItem::Path(VectorPath {
+            points: vec![(10.0, 20.0), (30.0, 40.0)],
+            closed: false,
+            fill: false,
+            color: [0, 0, 0, 255],
+            stroke_width: 2.0,
+        })],
+    );
+    assert_eq!(layer.opaque_pixel_bounds(), layer.content_bounds());
+}
+
+#[test]
+fn an_empty_layer_of_any_kind_has_no_bounds() {
+    assert_eq!(Layer::new("R", 64, 64).content_bounds(), None);
+    assert_eq!(Layer::vector("V", Vec::new()).content_bounds(), None);
+}
+
+/// Blend modes cross the FFI as plain integers, so an unknown value has to come back as
+/// `None` rather than silently landing on Normal.
+#[test]
+fn a_blend_mode_round_trips_through_its_wire_value_and_refuses_anything_else() {
+    for mode in [BlendMode::Normal, BlendMode::Multiply, BlendMode::Screen] {
+        assert_eq!(BlendMode::from_u32(mode.as_u32()), Some(mode));
+    }
+    assert_eq!(BlendMode::from_u32(3), None);
+    assert_eq!(BlendMode::from_u32(u32::MAX), None);
+    assert_eq!(BlendMode::default(), BlendMode::Normal);
+}
+
+/// Paper is name-matched, and merge-down, click-to-pick and the Filters menu all key off
+/// that — so the test is the string, not the position in the stack.
+#[test]
+fn paper_is_recognised_by_its_name() {
+    let mut layer = Layer::new("Paper", 32, 32);
+    assert!(layer.is_paper());
+    layer.name = "paper".to_string();
+    assert!(!layer.is_paper(), "the match is exact, not case-folded");
+    layer.name = "Layer 1".to_string();
+    assert!(!layer.is_paper());
+}

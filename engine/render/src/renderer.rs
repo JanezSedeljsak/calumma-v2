@@ -1735,7 +1735,6 @@ impl Renderer {
                 ));
             } else if let Some(handles) = doc.transform_handles() {
                 instances.extend(transform_overlay_instances(handles));
-                instances.extend(vector_selection_instances(doc));
             } else if let Some(points) = selection_lasso_points(doc) {
                 instances.extend(stroke_instances(
                     &points,
@@ -1748,6 +1747,11 @@ impl Renderer {
             {
                 instances.extend(edges);
             }
+            // Not part of the chain above: a selected item's frame is drawn under the Move
+            // tool too, where none of those branches is the one that ran. It costs nothing
+            // when nothing is selected, and `transform_handles` stands the layer frame down
+            // while it is on screen, so the two can never both draw.
+            instances.extend(vector_selection_instances(doc));
             if let Some((index, corners)) = doc.layer_highlight() {
                 let covered = doc
                     .transform_handles()

@@ -1064,3 +1064,85 @@ fn every_text_layer_toggles_visibility_through_the_ffi() {
         }
     }
 }
+
+/// The File → Export SVG path across the boundary. The markup itself is `engine/io`'s
+/// (`svg_export.rs`); what this pins is that the string survives the trip and that the two
+/// ways of having no document come back as a null pointer rather than a crash.
+#[test]
+fn export_svg_returns_markup_for_an_open_project_and_null_otherwise() {
+    assert!(unsafe { calm_engine_export_svg(ptr::null_mut()) }.is_null());
+
+    let e = TestEngine::new();
+    assert!(
+        unsafe { calm_engine_export_svg(e.ptr) }.is_null(),
+        "nothing open, nothing to export"
+    );
+
+    e.create_project("Export", 64, 48);
+    let raw = unsafe { calm_engine_export_svg(e.ptr) };
+    assert!(!raw.is_null());
+    let svg = unsafe { CStr::from_ptr(raw) }.to_str().unwrap().to_string();
+    unsafe { calm_string_free(raw) };
+
+    assert!(svg.starts_with("<svg"), "{svg:.80}");
+    assert!(svg.contains("width=\"64\""), "{svg:.200}");
+    assert!(svg.contains("height=\"48\""), "{svg:.200}");
+    assert!(svg.trim_end().ends_with("</svg>"));
+}
+
+/// A vector layer has to reach the exported file as geometry rather than a bitmap — the whole
+/// reason items are stored as parameters — and that has to still be true through the FFI.
+#[test]
+fn an_exported_vector_layer_is_still_geometry() {
+    let e = TestEngine::new();
+    e.create_project("Vectors", 64, 64);
+    assert_eq!(calm_engine_set_vector_mode(e.ptr, 1), CalmStatus::Ok);
+    assert_eq!(
+        unsafe { calm_engine_set_tool(e.ptr, Tool::Rect as u32) },
+        CalmStatus::Ok
+    );
+    assert_eq!(unsafe { calm_engine_set_fill(e.ptr, 1) }, CalmStatus::Ok);
+    unsafe {
+        calm_engine_pointer_down(e.ptr, 8.0, 8.0);
+        calm_engine_pointer_move(e.ptr, 40.0, 32.0);
+        calm_engine_pointer_up(e.ptr, 40.0, 32.0);
+    }
+
+    let raw = unsafe { calm_engine_export_svg(e.ptr) };
+    assert!(!raw.is_null());
+    let svg = unsafe { CStr::from_ptr(raw) }.to_str().unwrap().to_string();
+    unsafe { calm_string_free(raw) };
+    assert!(
+        svg.contains("<rect"),
+        "a drawn rect stays a <rect>: {svg:.400}"
+    );
+}
+
+/// `end_camera_motion` tells the renderer a gesture finished so it can stop holding its
+/// caches off. With no renderer attached there is nothing to tell, and that has to be a
+/// success rather than an error — the shell calls it on every gesture end regardless.
+#[test]
+fn ending_camera_motion_is_safe_with_or_without_a_project() {
+    assert_eq!(
+        unsafe { calm_engine_end_camera_motion(ptr::null_mut()) },
+        CalmStatus::Null
+    );
+
+    let e = TestEngine::new();
+    assert_eq!(
+        unsafe { calm_engine_end_camera_motion(e.ptr) },
+        CalmStatus::Ok
+    );
+
+    e.create_project("Motion", 32, 32);
+    assert_eq!(unsafe { calm_engine_pan(e.ptr, 5.0, 5.0) }, CalmStatus::Ok);
+    assert_eq!(
+        unsafe { calm_engine_end_camera_motion(e.ptr) },
+        CalmStatus::Ok
+    );
+    assert_eq!(
+        unsafe { calm_engine_end_camera_motion(e.ptr) },
+        CalmStatus::Ok,
+        "ending a motion that already ended is not an error"
+    );
+}

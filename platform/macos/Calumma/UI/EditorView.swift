@@ -262,8 +262,14 @@ struct EditorView: View {
                                 layerRow(index)
                             }
                         }
+                        .calmScrollBars()
                     }
                     .frame(maxHeight: proxy.size.height * Self.layerListHeightFraction)
+                    .onDrop(of: [.text], isTargeted: nil) { _ in
+                        draggingRow = nil
+                        dropTargetRow = nil
+                        return true
+                    }
                     CalmDivider()
                     Spacer(minLength: 0)
                     CalmDivider()
@@ -272,7 +278,7 @@ struct EditorView: View {
                 .frame(maxHeight: .infinity, alignment: .top)
             }
         }
-        .frame(width: 252)
+        .frame(width: 276)
         .overlay(alignment: .leading) {
             if let hoveredLayer {
                 let name = app.engine.layerNames[hoveredLayer]
@@ -421,7 +427,10 @@ struct EditorView: View {
                             .onExitCommand { renamingLayer = nil }
                     } else {
                         CalmText.body(name, strong: selected)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
                             .opacity(visible ? 1 : 0.45)
+                            .calmTooltip(name, edge: .trailing)
                     }
                     Spacer()
                     if app.engine.isLayerVector(index: index) {
@@ -429,7 +438,12 @@ struct EditorView: View {
                     }
                 }
                 .padding(Tokens.Space.sm)
-                .calmSurface(hover: selected || dropTargetRow == row, radius: Tokens.Radius.sm, bordered: true)
+                .calmSurface(
+                    hover: selected || dropTargetRow == row,
+                    radius: Tokens.Radius.sm,
+                    bordered: true,
+                    focused: selected
+                )
             }
             .buttonStyle(.plain)
             .calmPointer()

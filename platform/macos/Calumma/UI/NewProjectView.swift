@@ -34,7 +34,7 @@ struct NewProjectView: View {
         HStack(alignment: .top, spacing: Tokens.Space.lg) {
             VStack(alignment: .leading, spacing: Tokens.Space.lg) {
                 header
-                ScrollView(.vertical, showsIndicators: false) {
+                ScrollView(.vertical) {
                     VStack(alignment: .leading, spacing: Tokens.Space.lg) {
                         createForm
                         HStack(alignment: .top, spacing: Tokens.Space.lg) {
@@ -43,6 +43,7 @@ struct NewProjectView: View {
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .topLeading)
+                    .calmScrollBars()
                 }
             }
             .frame(maxWidth: .infinity, alignment: .topLeading)

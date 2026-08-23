@@ -236,7 +236,7 @@ pub enum LayerContent {
   `remove_layer` aren't either — structural layer-list/document edits sit
   outside the tile-diff history model on purpose, not as an oversight.
 - **Vector layers** (`core/src/vector.rs`, `core/src/vector_edit.rs`,
-  `render/src/vector_draw.rs`) hold a `Vec<VectorItem>` — a parametric
+  `core/src/vector_svg.rs`, `render/src/vector_draw.rs`) hold a `Vec<VectorItem>` — a parametric
   `Shape` or a freehand `VectorPath` — and are filled by the shape tools and
   the pen while `doc.vector_mode` is on (`calm_engine_set_vector_mode`). Two
   rules keep them honest: **parameters are the storage**, so moving or
@@ -249,12 +249,26 @@ pub enum LayerContent {
     single per-frame draw list built across the *whole* layer stack
     (`Renderer::build_layer_draws`) so a vector layer composites in stack
     order against tile layers instead of always under them.
-  - Individual items are selected and moved inside `⌘T` transform mode *and* with
-    the Move tool (`Document::vector_item_at` / `begin_vector_item_drag`), which outranks
-    the whole-layer Move handle but not the corner/rotate handles. Picking
+  - Individual items are selected, moved and **resized** inside `⌘T` transform mode
+    *and* with the Move tool (`Document::vector_item_at` / `begin_vector_item_drag`),
+    which outranks the whole-layer Move handle. Picking
     treats a closed shape as solid (`VectorItem::pick_distance`) even when it
     is drawn as an outline. Selection is `(layer, item)` and re-validated on
     every read, so layer edits cannot leave it dangling.
+  - **One frame at a time.** A selected item takes the transform frame over: its own
+    corners are drawn and hit-tested, and the layer's corners and rotate handle stand
+    down (`transform_handles` returns `None`, `transform_handle_at` offers only the Move
+    quad) until the selection is dropped. Both frames share `corner_scale` and
+    `compose::box_overlay_instances`, so the layer and an item scale and look alike;
+    the item's frame carries no rotate stalk, because per-item rotation is deferred.
+  - A resize edits the *parameters* — `VectorItem::set_scaled` about the item's
+    `geometry_bounds` centre, re-derived from the pointer-down capture every frame like
+    `set_translated`. `ink_pad` (stroke half-width, plus an arrow's head) is subtracted
+    from both the box and the pointer's reach, because a resize deliberately leaves ink
+    weight alone; that is what lands the dragged corner exactly under the pointer instead
+    of a padding's distance behind it. The layer placement is captured at pointer-down —
+    a vector layer's pivot is its content's centre, so reading it live would let a resize
+    move the mapping it is being measured through.
   - Known gaps: a *rotated* vector layer draws its parametric shapes
     unrotated live (the shader's SDFs are axis-aligned) while flatten/export
     stay correct; a filled closed freehand path has no GPU path at all and
@@ -559,9 +573,9 @@ only as considered features, not by restoring old app code.
 **Shipped from this list:** workspaces (titlebar tabs + extend overlay), Eyedropper
 (`I` / tools island; samples the composited pixel under the cursor into the active ink
 swatch), vector layers (`V` / tool options; items composite in stack order and move
-individually inside `⌘T` and with the Move tool), text layers (`T` / tools island),
+and resize individually inside `⌘T` and with the Move tool), text layers (`T` / tools island),
 Move tool (tools island; pick-and-drag without `⌘T`). See `FLOW.md`.
 
 **Now carrying plans** in `todo.md`: undo for the rest of the document (`01`),
-layer reorder/rename/lock (`03`), per-item vector scale (`04`), brush hardness (`05`),
-canvas rulers (`06`).
+display cache (`07`), Select All / Invert (`08`), shape fill *and* stroke (`09`),
+vector multi-select and align/distribute (`10`).

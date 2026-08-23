@@ -1,5 +1,5 @@
 use crate::png::encode_png_rgba;
-use calumma_core::{vector, BlendMode, Document, Layer};
+use calumma_core::{vector, vector_svg, BlendMode, Document, Layer};
 
 /// Whole-document SVG export.
 ///
@@ -62,11 +62,11 @@ fn group_attrs(layer: &Layer, name: String) -> String {
 
 fn vector_group(items: &[vector::VectorItem], layer: &Layer) -> Option<String> {
     let mut out = String::new();
-    if let Some(group) = vector::svg_transform_attr(items, layer.transform) {
+    if let Some(group) = vector_svg::svg_transform_attr(items, layer.transform) {
         out.push_str(&group);
     }
     for item in items {
-        if let Some(markup) = vector::item_svg(item) {
+        if let Some(markup) = vector_svg::item_svg(item) {
             out.push_str(&markup);
         }
     }

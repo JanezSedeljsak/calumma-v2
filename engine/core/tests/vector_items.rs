@@ -454,3 +454,307 @@ fn the_corner_handles_still_transform_the_whole_layer() {
     assert!(doc.layers[layer].transform.unwrap().scale_x > 1.0);
     assert_eq!(doc.selected_vector_item(), None);
 }
+
+fn item_geometry(doc: &Document, layer: usize, item: usize) -> (f32, f32, f32, f32) {
+    doc.layers[layer].content.items().unwrap()[item]
+        .geometry_bounds()
+        .unwrap()
+}
+
+fn item_corner(doc: &Document, corner: usize) -> (f32, f32) {
+    doc.selected_vector_item_corners().unwrap()[corner]
+}
+
+fn assert_bounds(actual: (f32, f32, f32, f32), expected: (f32, f32, f32, f32)) {
+    for (a, b) in [
+        (actual.0, expected.0),
+        (actual.1, expected.1),
+        (actual.2, expected.2),
+        (actual.3, expected.3),
+    ] {
+        assert!(
+            (a - b).abs() < 0.01,
+            "expected {expected:?}, got {actual:?}"
+        );
+    }
+}
+
+/// A `rect_item` has `half_width` 1, so `Shape::padding` puts its box 2px outside its
+/// endpoints — the pad every resize assertion below has to account for.
+const RECT_PAD: f32 = 2.0;
+
+#[test]
+fn a_corner_handle_resizes_the_item_not_the_layer() {
+    let mut doc = doc_with_viewport();
+    let layer = vector_layer(
+        &mut doc,
+        vec![
+            rect_item((10.0, 10.0), (40.0, 40.0)),
+            rect_item((60.0, 60.0), (90.0, 90.0)),
+        ],
+    );
+    let untouched = item_bounds(&doc, layer, 1);
+    doc.set_active_layer(layer);
+    assert!(doc.enter_transform());
+    assert!(doc.select_vector_item_at(20.0, 20.0));
+
+    let corner = item_corner(&doc, 2);
+    drag(&mut doc, corner, (corner.0 + 20.0, corner.1 + 20.0));
+
+    let resized = item_bounds(&doc, layer, 0);
+    assert_bounds(resized, (-12.0, -12.0, 62.0, 62.0));
+    assert_eq!(
+        item_bounds(&doc, layer, 1),
+        untouched,
+        "the other item in the layer is untouched"
+    );
+    assert!(
+        doc.layers[layer].transform.is_none(),
+        "resizing an item leaves the layer transform alone"
+    );
+}
+
+#[test]
+fn the_item_frame_takes_the_layer_frame_over_while_one_is_selected() {
+    let mut doc = doc_with_viewport();
+    let layer = vector_layer(
+        &mut doc,
+        vec![
+            rect_item((10.0, 10.0), (40.0, 40.0)),
+            rect_item((60.0, 60.0), (90.0, 90.0)),
+        ],
+    );
+    doc.set_active_layer(layer);
+    assert!(doc.enter_transform());
+    assert!(doc.transform_handles().is_some());
+
+    assert!(doc.select_vector_item_at(20.0, 20.0));
+    assert!(
+        doc.transform_handles().is_none(),
+        "the layer's corners stand down so only one frame is ever on screen"
+    );
+    assert!(doc.selected_vector_item_corners().is_some());
+
+    drag(&mut doc, (50.0, 50.0), (50.0, 50.0));
+    assert_eq!(doc.selected_vector_item(), None);
+    assert!(
+        doc.transform_handles().is_some(),
+        "clicking off the item hands the frame back to the layer"
+    );
+}
+
+#[test]
+fn a_layer_corner_is_not_clickable_while_an_item_holds_the_frame() {
+    let mut doc = doc_with_viewport();
+    let layer = vector_layer(
+        &mut doc,
+        vec![
+            rect_item((10.0, 10.0), (40.0, 40.0)),
+            rect_item((60.0, 60.0), (140.0, 140.0)),
+        ],
+    );
+    doc.set_active_layer(layer);
+    assert!(doc.enter_transform());
+    let layer_corner = doc.transform_handles().unwrap().1[0];
+    assert!(doc.select_vector_item_at(100.0, 100.0));
+
+    drag(
+        &mut doc,
+        layer_corner,
+        (layer_corner.0 - 30.0, layer_corner.1 - 30.0),
+    );
+    assert!(
+        doc.layers[layer].transform.is_none(),
+        "the hidden layer corner scales nothing"
+    );
+}
+
+/// Same drag, same item, in two documents — the only difference is Shift. Aspect is read off
+/// the *geometry* box rather than `bounds`, whose constant ink pad would blur the ratio.
+#[test]
+fn shift_frees_the_two_axes_and_the_default_keeps_the_aspect() {
+    let stretch = |shift: bool| {
+        let mut doc = doc_with_viewport();
+        let layer = vector_layer(&mut doc, vec![rect_item((10.0, 10.0), (40.0, 20.0))]);
+        doc.set_active_layer(layer);
+        doc.enter_transform();
+        assert!(doc.select_vector_item_at(25.0, 15.0));
+        doc.set_shift_held(shift);
+        let corner = item_corner(&doc, 2);
+        drag(&mut doc, corner, (corner.0 + 30.0, corner.1 + 5.0));
+        let g = item_geometry(&doc, layer, 0);
+        (g.2 - g.0) / (g.3 - g.1)
+    };
+    assert!(
+        (stretch(false) - 3.0).abs() < 0.01,
+        "the default corner drag holds the 30x10 aspect"
+    );
+    assert!(
+        (stretch(true) - 4.5).abs() < 0.01,
+        "Shift scales the axes independently"
+    );
+}
+
+/// The dragged corner has to land under the pointer, which is only true because the stroke
+/// pad comes off both sides of the ratio. An arrow is the case that proves it: its head pads
+/// the box by 29px here, so ignoring the pad would leave the corner a long way behind.
+#[test]
+fn a_padded_item_resizes_to_exactly_where_the_pointer_is() {
+    let mut doc = doc_with_viewport();
+    let arrow = VectorItem::Shape(VectorShape {
+        shape: Shape {
+            tool: Tool::Arrow,
+            start: (50.0, 50.0),
+            end: (100.0, 80.0),
+            half_width: 4.0,
+            fill: false,
+        },
+        color: [0, 0, 0, 255],
+    });
+    let layer = vector_layer(&mut doc, vec![arrow]);
+    doc.set_active_layer(layer);
+    doc.enter_transform();
+    assert!(doc.select_vector_item_at(75.0, 65.0));
+    doc.set_shift_held(true);
+
+    let corner = item_corner(&doc, 2);
+    let target = (corner.0 + 30.0, corner.1 + 30.0);
+    drag(&mut doc, corner, target);
+
+    let landed = item_bounds(&doc, layer, 0);
+    assert!((landed.2 - target.0).abs() < 0.01, "{landed:?}");
+    assert!((landed.3 - target.1).abs() < 0.01, "{landed:?}");
+}
+
+#[test]
+fn a_resize_leaves_the_ink_width_alone() {
+    let mut doc = doc_with_viewport();
+    let layer = vector_layer(
+        &mut doc,
+        vec![path_item(vec![(20.0, 20.0), (60.0, 20.0), (60.0, 60.0)])],
+    );
+    doc.set_active_layer(layer);
+    doc.enter_transform();
+    assert!(doc.select_vector_item_at(40.0, 20.0));
+
+    let corner = item_corner(&doc, 2);
+    drag(&mut doc, corner, (corner.0 + 40.0, corner.1 + 40.0));
+
+    match &doc.layers[layer].content.items().unwrap()[0] {
+        VectorItem::Path(p) => assert_eq!(p.stroke_width, 4.0),
+        VectorItem::Shape(_) => panic!("expected a path item"),
+    }
+}
+
+#[test]
+fn a_resize_stays_exact_over_many_frames() {
+    let mut doc = doc_with_viewport();
+    let layer = vector_layer(&mut doc, vec![rect_item((10.0, 10.0), (40.0, 40.0))]);
+    doc.set_active_layer(layer);
+    doc.enter_transform();
+    assert!(doc.select_vector_item_at(20.0, 20.0));
+
+    let corner = item_corner(&doc, 2);
+    assert!(doc.begin_vector_item_drag(corner.0, corner.1));
+    for step in 1..=200 {
+        let at = corner.0 + step as f32 * 0.1;
+        doc.update_vector_item_drag(at, at);
+    }
+    doc.end_vector_item_drag();
+
+    assert_bounds(item_bounds(&doc, layer, 0), (-12.0, -12.0, 62.0, 62.0));
+}
+
+#[test]
+fn a_resize_inside_a_scaled_layer_reads_the_pointer_through_the_layer() {
+    let mut doc = doc_with_viewport();
+    let layer = vector_layer(&mut doc, vec![rect_item((10.0, 10.0), (40.0, 40.0))]);
+    doc.layers[layer].transform = Some(LayerTransform {
+        scale_x: 2.0,
+        scale_y: 2.0,
+        ..LayerTransform::default()
+    });
+    doc.set_active_layer(layer);
+    doc.enter_transform();
+    assert!(doc.select_vector_item_at(25.0, 25.0));
+    doc.set_shift_held(true);
+
+    let corner = item_corner(&doc, 2);
+    assert_bounds(
+        (corner.0, corner.1, corner.0, corner.1),
+        (59.0, 59.0, 59.0, 59.0),
+    );
+    drag(&mut doc, corner, (corner.0 + 20.0, corner.1 + 20.0));
+
+    assert_bounds(
+        item_bounds(&doc, layer, 0),
+        (-RECT_PAD, -RECT_PAD, 50.0 + RECT_PAD, 50.0 + RECT_PAD),
+    );
+}
+
+#[test]
+fn the_move_tool_resizes_from_the_same_corners() {
+    let mut doc = doc_with_viewport();
+    let layer = vector_layer(&mut doc, vec![rect_item((10.0, 10.0), (40.0, 40.0))]);
+    doc.set_active_layer(layer);
+    doc.set_tool(Tool::Move);
+    assert!(doc.select_vector_item_at(20.0, 20.0));
+
+    let corner = item_corner(&doc, 2);
+    drag(&mut doc, corner, (corner.0 + 20.0, corner.1 + 20.0));
+    assert_bounds(item_bounds(&doc, layer, 0), (-12.0, -12.0, 62.0, 62.0));
+}
+
+#[test]
+fn a_locked_layer_refuses_a_resize() {
+    let mut doc = doc_with_viewport();
+    let layer = vector_layer(&mut doc, vec![rect_item((10.0, 10.0), (40.0, 40.0))]);
+    doc.set_active_layer(layer);
+    doc.enter_transform();
+    assert!(doc.select_vector_item_at(20.0, 20.0));
+    let corner = item_corner(&doc, 2);
+    let before = item_bounds(&doc, layer, 0);
+
+    doc.set_layer_locked(layer, true);
+    assert!(!doc.begin_vector_item_drag(corner.0, corner.1));
+    assert_eq!(item_bounds(&doc, layer, 0), before);
+}
+
+#[test]
+fn a_corner_handle_outranks_an_item_lying_under_it() {
+    let mut doc = doc_with_viewport();
+    let layer = vector_layer(
+        &mut doc,
+        vec![
+            rect_item((10.0, 10.0), (40.0, 40.0)),
+            rect_item((36.0, 36.0), (90.0, 90.0)),
+        ],
+    );
+    doc.set_active_layer(layer);
+    doc.enter_transform();
+    assert!(doc.select_vector_item_at(15.0, 15.0));
+    let pick = doc.selected_vector_item().unwrap();
+
+    let corner = item_corner(&doc, 2);
+    assert!(doc.begin_vector_item_drag(corner.0, corner.1));
+    assert_eq!(
+        doc.selected_vector_item(),
+        Some(pick),
+        "the handle keeps its own item rather than selecting the one beneath it"
+    );
+}
+
+#[test]
+fn resizing_an_item_bumps_the_revision_so_the_board_rebuilds() {
+    let mut doc = doc_with_viewport();
+    let layer = vector_layer(&mut doc, vec![rect_item((10.0, 10.0), (40.0, 40.0))]);
+    doc.set_active_layer(layer);
+    doc.enter_transform();
+    assert!(doc.select_vector_item_at(20.0, 20.0));
+    let corner = item_corner(&doc, 2);
+    assert!(doc.begin_vector_item_drag(corner.0, corner.1));
+
+    let before = doc.vector_revision();
+    assert!(doc.update_vector_item_drag(corner.0 + 10.0, corner.1 + 10.0));
+    assert_ne!(doc.vector_revision(), before);
+}

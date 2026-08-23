@@ -128,6 +128,33 @@ pub fn bounds_center(bounds: (f32, f32, f32, f32)) -> (f32, f32) {
     ((bounds.0 + bounds.2) * 0.5, (bounds.1 + bounds.3) * 0.5)
 }
 
+/// The scale a corner drag is asking for: how far the pointer now reaches from the pivot over
+/// how far the grabbed corner started from it, both in the box's own space. `signs` is which
+/// corner was grabbed, as `(±1, ±1)`.
+///
+/// `proportional` keeps the two axes locked to one distance ratio so the box holds its aspect;
+/// that is the default a `⌘T` corner and a vector item corner share, and Shift is what
+/// releases it. The result never goes below `MIN_SCALE`, so a corner dragged past the pivot
+/// collapses the box rather than turning it inside out.
+pub fn corner_scale(
+    half: (f32, f32),
+    signs: (f32, f32),
+    reach: (f32, f32),
+    proportional: bool,
+) -> (f32, f32) {
+    let raw = (signs.0 * half.0.max(1e-3), signs.1 * half.1.max(1e-3));
+    if proportional {
+        let raw_dist = (raw.0 * raw.0 + raw.1 * raw.1).sqrt().max(1e-3);
+        let now_dist = (reach.0 * reach.0 + reach.1 * reach.1).sqrt();
+        let s = (now_dist / raw_dist).max(MIN_SCALE);
+        return (s, s);
+    }
+    (
+        (reach.0 / raw.0).abs().max(MIN_SCALE),
+        (reach.1 / raw.1).abs().max(MIN_SCALE),
+    )
+}
+
 pub fn transformed_aabb(
     bounds: (f32, f32, f32, f32),
     transform: Option<LayerTransform>,

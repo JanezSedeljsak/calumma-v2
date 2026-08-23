@@ -202,6 +202,7 @@ private struct FontFamilyPicker: View {
                         .calmPointer()
                     }
                 }
+                .calmScrollBars()
             }
             .frame(height: 280)
             if matches.isEmpty {

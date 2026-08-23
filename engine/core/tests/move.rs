@@ -183,3 +183,167 @@ fn transform_retargets_past_an_invisible_active_layer_to_the_visible_one_below()
         "the hidden layer was never touched"
     );
 }
+
+/// `⌘T` is a *mode*, not a tool that stays selected: asking for it toggles transform and
+/// leaves the previous tool in place, so releasing the mode does not strand the user with no
+/// tool at all.
+#[test]
+fn selecting_transform_toggles_the_mode_and_leaves_the_tool_alone() {
+    let mut doc = doc_with_viewport();
+    doc.add_layer("Ink");
+    let layer = doc.active_layer;
+    paint(
+        &mut doc,
+        layer,
+        DocRect::new(20, 20, 60, 60),
+        [0, 0, 0, 255],
+    );
+    doc.set_tool(Tool::Rect);
+
+    assert!(doc.set_tool(Tool::Transform), "entered transform");
+    assert!(doc.transform_handles().is_some());
+    assert_eq!(doc.tool, Tool::Rect, "the shape tool is still selected");
+
+    assert!(!doc.set_tool(Tool::Transform), "asking again leaves it");
+    assert!(doc.transform_handles().is_none());
+    assert_eq!(doc.tool, Tool::Rect);
+}
+
+#[test]
+fn switching_to_any_other_tool_leaves_transform_mode() {
+    let mut doc = doc_with_viewport();
+    doc.add_layer("Ink");
+    let layer = doc.active_layer;
+    paint(
+        &mut doc,
+        layer,
+        DocRect::new(20, 20, 60, 60),
+        [0, 0, 0, 255],
+    );
+    assert!(doc.set_tool(Tool::Transform));
+    assert!(doc.transform_handles().is_some());
+
+    assert!(doc.set_tool(Tool::Pen));
+    assert!(
+        doc.transform_handles().is_none(),
+        "picking a tool drops the handles"
+    );
+}
+
+/// Paper is the board's backing sheet and a locked layer is guarded on purpose, so neither
+/// answers a Move grab — and an empty layer has no pixels to grab in the first place.
+#[test]
+fn a_move_grab_is_refused_on_paper_a_lock_and_an_empty_layer() {
+    let mut doc = doc_with_viewport();
+    doc.set_tool(Tool::Move);
+    assert!(
+        !doc.begin_move_at(100.0, 100.0),
+        "Paper fills the board but never moves"
+    );
+
+    doc.add_layer("Empty");
+    let empty = doc.active_layer;
+    assert!(!doc.begin_move_at(100.0, 100.0), "nothing painted to grab");
+
+    paint(
+        &mut doc,
+        empty,
+        DocRect::new(20, 20, 60, 60),
+        [0, 0, 0, 255],
+    );
+    assert!(doc.begin_move_at(40.0, 40.0));
+    doc.end_move_drag();
+
+    doc.set_layer_locked(empty, true);
+    assert!(!doc.begin_move_at(40.0, 40.0), "a lock refuses the grab");
+}
+
+/// The same three refusals apply to the keyboard path, which does not go through the pointer
+/// at all — a nudge that quietly moved a locked layer would be the one way around the lock.
+#[test]
+fn a_nudge_is_refused_on_paper_a_lock_and_an_empty_layer() {
+    let mut doc = doc_with_viewport();
+    doc.set_tool(Tool::Move);
+    doc.set_active_layer(0);
+    assert!(!doc.nudge_move_target(1.0, 0.0), "Paper does not nudge");
+
+    doc.add_layer("Empty");
+    let layer = doc.active_layer;
+    assert!(
+        !doc.nudge_move_target(1.0, 0.0),
+        "an unpainted layer has no bounds to move"
+    );
+
+    paint(
+        &mut doc,
+        layer,
+        DocRect::new(20, 20, 60, 60),
+        [0, 0, 0, 255],
+    );
+    assert!(doc.nudge_move_target(1.0, 0.0));
+    let after = doc.layers[layer].transform.unwrap().offset_x;
+
+    doc.set_layer_locked(layer, true);
+    assert!(!doc.nudge_move_target(5.0, 0.0), "a lock refuses the nudge");
+    assert_eq!(doc.layers[layer].transform.unwrap().offset_x, after);
+}
+
+/// A nudge outside Move and outside `⌘T` does nothing at all — arrow keys belong to whatever
+/// else has focus while a paint tool is up.
+#[test]
+fn a_nudge_outside_move_and_transform_does_nothing() {
+    let mut doc = doc_with_viewport();
+    doc.add_layer("Ink");
+    let layer = doc.active_layer;
+    paint(
+        &mut doc,
+        layer,
+        DocRect::new(20, 20, 60, 60),
+        [0, 0, 0, 255],
+    );
+
+    doc.set_tool(Tool::Pen);
+    assert!(!doc.nudge_move_target(1.0, 0.0));
+    assert!(doc.layers[layer].transform.is_none());
+
+    assert!(doc.set_tool(Tool::Transform));
+    assert!(
+        doc.nudge_move_target(1.0, 0.0),
+        "transform mode nudges even though the tool is still the pen"
+    );
+}
+
+/// A selected vector item outranks the layer: the arrow keys move the item, and the layer's
+/// own transform is left exactly where it was.
+#[test]
+fn a_nudge_prefers_the_selected_item_over_its_layer() {
+    let mut doc = doc_with_viewport();
+    let layer = doc.add_vector_layer("V");
+    *doc.layers[layer].content.items_mut().unwrap() = vec![VectorItem::Shape(VectorShape {
+        shape: Shape {
+            tool: Tool::Rect,
+            start: (10.0, 10.0),
+            end: (40.0, 40.0),
+            half_width: 1.0,
+            fill: true,
+        },
+        color: [255, 0, 0, 255],
+    })];
+    doc.set_active_layer(layer);
+    doc.set_tool(Tool::Move);
+    assert!(doc.select_vector_item_at(20.0, 20.0));
+
+    let before = doc.layers[layer].content.items().unwrap()[0]
+        .bounds()
+        .unwrap();
+    assert!(doc.nudge_move_target(3.0, 0.0));
+    let after = doc.layers[layer].content.items().unwrap()[0]
+        .bounds()
+        .unwrap();
+
+    assert!((after.0 - (before.0 + 3.0)).abs() < 0.01);
+    assert!(
+        doc.layers[layer].transform.is_none(),
+        "the layer itself did not move"
+    );
+}

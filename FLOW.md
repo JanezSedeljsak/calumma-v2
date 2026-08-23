@@ -146,7 +146,8 @@ launches.
 | Action | How |
 | --- | --- |
 | Paint / place shape | Click-drag on the board (pointer down → move → up). Engine converts **screen** coords. |
-| Move a layer or vector item | Select **Move** on the tools island, then drag painted pixels or a vector item. Arrow keys nudge the same target. `⌘T` is still scale/rotate. |
+| Move a layer or vector item | Select **Move** on the tools island, then drag painted pixels or a vector item. Arrow keys nudge the same target. `⌘T` is still scale/rotate for a *layer*. |
+| Resize a vector item | Select it (Move or `⌘T`), then drag a corner of its box. Proportional by default, **Shift** frees the two axes — the same polarity as a `⌘T` corner. |
 | Constrain a shape | Hold **Shift** while dragging **Rect** or **Ellipse** (and their marquee twins) for a square or circle. Corner-anchored, and the *longer* side wins, so the shape fills the drag. Press or release Shift mid-drag and the board snaps immediately — the clamp is derived from the raw drag on every frame, not baked in on the last mouse-move. Line, Arrow, Triangle and Pentagon are unconstrained (angle snap and regular-polygon lock are different clamps, not built). |
 | Live preview | GPU stroke/shape while dragging; CPU commit into sparse tiles on pointer-up. |
 | Pan | Scroll wheel / trackpad scroll; **middle-button drag**; Space-drag; or Option/⌘-drag |
@@ -273,11 +274,21 @@ live in `engine/core`; the actual PNG/JPEG/WebP/AVIF **encode** happens in the s
   how many items it holds. Nothing is rasterized: the board evaluates the same
   distance functions the exporter does, so a vector stays sharp at any zoom, exports as real
   SVG primitives (`<rect>`, `<ellipse>`, `<path>`, …) and is stored as parameters.
-- **Moving one item:** inside `⌘T` transform mode, click an item to select it and drag it on
-  its own; the arrow keys nudge it and `⌫` deletes it. The corner and rotate handles still
-  scale and turn the *whole* layer, so both levels stay reachable in one mode. A click on an
-  outlined shape counts anywhere inside it, not only on the outline. Item edits are not
-  undo-tracked, matching the rest of the vector path (adding an item isn't either).
+- **Moving one item:** with the Move tool or inside `⌘T`, click an item to select it and drag
+  it on its own; the arrow keys nudge it and `⌫` deletes it. A click on an outlined shape
+  counts anywhere inside it, not only on the outline. Item edits are not undo-tracked,
+  matching the rest of the vector path (adding an item isn't either).
+- **Resizing one item:** selecting an item puts a box with four corner handles around it, and
+  dragging one resizes *that item* — Figma's rule, and the reason a rectangle you meant to
+  make narrower no longer takes every other shape in the layer with it. Proportional by
+  default, **Shift** frees the two axes. It edits the shape's parameters, so nothing is
+  resampled and the result is as sharp at any size as the original. Stroke weight stays put,
+  the way it does in Figma and Photoshop.
+  There is **no rotate handle on an item** — the board's shape SDFs are axis-aligned, so per-
+  item rotation is deferred rather than half-offered. Rotating still means rotating the layer.
+- **One frame at a time:** while an item is selected, the layer's own `⌘T` corners and rotate
+  handle stand down, so the corners on screen always belong to the thing you last clicked.
+  Clicking off the item drops the selection and hands the frame back to the layer.
 - Add layer: `⌘⇧N` (shell).
 - Clear active layer: `⌘⌫` — clears just the active **selection** instead if one exists.
 - Each layer row keeps the visibility toggle, a **lock** toggle and a delete button directly
@@ -498,13 +509,13 @@ panel toggles are shell knobs.
 | `M` | Selection (rect / ellipse / lasso — last one used) | Yes (Ps Marquee) |
 | `G` | Fill (bucket) | Yes (Ps Paint Bucket, shared with Gradient) |
 | `I` | Eyedropper (live sample under the cursor into the active primary/secondary swatch; loupe shows colour + hex) | Yes |
-| Move tool | Tools island — click a layer's pixels or a vector item to drag it; empty space is a no-op. `⌘T` stays for scale/rotate. `V` stays vector mode. | Ps `V` is Move; that key is already vector mode here |
+| Move tool | Tools island — click a layer's pixels or a vector item to drag it; a selected item's corners resize it. Empty space is a no-op. `⌘T` stays for scale/rotate of the whole layer. `V` stays vector mode. | Ps `V` is Move; that key is already vector mode here |
 | `⌘T` | Transform mode on the active layer (scale/rotate/move); click another layer's pixels to retarget, click empty space or `Esc` to exit | Yes (Ps Free Transform) |
 | `⌥⌘B` `⌥⌘C` `⌥⌘V` `⌥⌘S` `⌥⌘G` | Increase brightness / contrast / vibrance / saturation / gamma on the active layer by one `limits::ADJUSTMENT_NUDGE_STEP` | — (Ps has no per-filter chord) |
 | `⇧⌥⌘` + the same letter | Decrease the same filter by one step | — |
 | `⌃⌘F` | Enter / exit full screen (re-homed from the removed View menu) | macOS standard |
 | `F` | Toggle shape fill | — |
-| `⇧` (held while dragging) | Constrain Rect / Ellipse to a square / circle | Yes (Ps shape constrain) |
+| `⇧` (held while dragging) | Constrain Rect / Ellipse to a square / circle; on a `⌘T` or vector-item corner, free the two axes instead | Yes (Ps shape constrain) |
 | `V` | Toggle vector mode (shapes and the pen commit as editable vector items) | — (Ps has no equivalent; closest is Figma's vector tools) |
 | `←` `→` `↑` `↓` | Nudge the selected vector item, or the active layer when Move / `⌘T` is the current tool | Yes (Ps nudge) |
 | `⌫` / `⌦` | Delete the selected vector item (falls back to the old clear behaviour when none is selected) | Yes |

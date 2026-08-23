@@ -107,6 +107,13 @@ extension View {
     func calmPointer() -> some View {
         modifier(CalmPointerCursor())
     }
+
+    /// Every scrollable area in the app floats its scroll indicator over the content and
+    /// fades it out at rest, regardless of the user's system-wide scroll bar preference —
+    /// place inside a `ScrollView`, on the content it wraps.
+    func calmScrollBars() -> some View {
+        background(CalmScrollBarConfigurator())
+    }
 }
 
 private struct CalmPointerCursor: ViewModifier {
@@ -118,6 +125,24 @@ private struct CalmPointerCursor: ViewModifier {
                 NSCursor.pop()
             }
         }
+    }
+}
+
+private struct CalmScrollBarConfigurator: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        DispatchQueue.main.async { configure(view) }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        configure(nsView)
+    }
+
+    private func configure(_ view: NSView) {
+        guard let scrollView = view.enclosingScrollView else { return }
+        scrollView.scrollerStyle = .overlay
+        scrollView.autohidesScrollers = true
     }
 }
 

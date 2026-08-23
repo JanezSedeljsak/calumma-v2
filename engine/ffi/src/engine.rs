@@ -59,6 +59,7 @@ pub struct CalmLayerInfo {
 }
 
 #[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct CalmRulerTick {
     pub doc: f32,
     pub major: u8,

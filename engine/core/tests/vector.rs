@@ -2,6 +2,7 @@
 //! as opposed to `vector_items.rs`, which drives the same module through `Document`.
 
 use calumma_core::vector::*;
+use calumma_core::vector_svg::*;
 use calumma_core::{LayerTransform, Shape, Tool};
 
 fn rect_shape(start: (f32, f32), end: (f32, f32), fill: bool) -> VectorShape {
@@ -422,4 +423,203 @@ fn tool_makes_vector_covers_the_pen_and_every_shape_but_nothing_else() {
             "{tool:?} should not make vector ink"
         );
     }
+}
+
+#[test]
+fn geometry_bounds_are_the_bare_extent_and_bounds_add_the_ink_pad() {
+    let item = VectorItem::Shape(rect_shape((10.0, 20.0), (50.0, 60.0), true));
+    let geometry = item.geometry_bounds().unwrap();
+    assert_eq!(geometry, (10.0, 20.0, 50.0, 60.0));
+
+    let pad = item.ink_pad();
+    let bounds = item.bounds().unwrap();
+    assert_eq!(
+        bounds,
+        (
+            geometry.0 - pad,
+            geometry.1 - pad,
+            geometry.2 + pad,
+            geometry.3 + pad
+        ),
+        "bounds is geometry grown by exactly one pad on every side"
+    );
+}
+
+#[test]
+fn geometry_bounds_ignore_which_way_a_shape_was_dragged() {
+    let forward = VectorItem::Shape(rect_shape((10.0, 20.0), (50.0, 60.0), true));
+    let backward = VectorItem::Shape(rect_shape((50.0, 60.0), (10.0, 20.0), true));
+    assert_eq!(forward.geometry_bounds(), backward.geometry_bounds());
+}
+
+#[test]
+fn geometry_bounds_are_none_for_a_path_with_no_points() {
+    assert_eq!(
+        VectorItem::Path(open_path(vec![])).geometry_bounds(),
+        None,
+        "nothing to bound, and `bounds` has to agree"
+    );
+    assert_eq!(VectorItem::Path(open_path(vec![])).bounds(), None);
+}
+
+/// An arrow's head hangs off its endpoint, so its pad is much larger than half a stroke —
+/// this is the case that makes the pad worth subtracting from a resize at all.
+#[test]
+fn an_arrows_ink_pad_accounts_for_its_head() {
+    let arrow = VectorItem::Shape(VectorShape {
+        shape: Shape {
+            tool: Tool::Arrow,
+            start: (0.0, 0.0),
+            end: (100.0, 0.0),
+            half_width: 4.0,
+            fill: false,
+        },
+        color: [0, 0, 0, 255],
+    });
+    let line = VectorItem::Shape(VectorShape {
+        shape: Shape {
+            tool: Tool::Line,
+            start: (0.0, 0.0),
+            end: (100.0, 0.0),
+            half_width: 4.0,
+            fill: false,
+        },
+        color: [0, 0, 0, 255],
+    });
+    assert!(
+        arrow.ink_pad() > line.ink_pad() + 10.0,
+        "arrow {} vs line {}",
+        arrow.ink_pad(),
+        line.ink_pad()
+    );
+}
+
+/// A filled closed polygon ends at its points; anything stroked runs half a stroke wider plus
+/// a pixel for the antialiased edge.
+#[test]
+fn only_stroked_geometry_carries_an_ink_pad() {
+    let mut filled = open_path(vec![(0.0, 0.0), (10.0, 0.0), (10.0, 10.0)]);
+    filled.closed = true;
+    filled.fill = true;
+    assert_eq!(VectorItem::Path(filled.clone()).ink_pad(), 0.0);
+
+    let stroked = open_path(vec![(0.0, 0.0), (10.0, 0.0)]);
+    assert_eq!(
+        VectorItem::Path(stroked.clone()).ink_pad(),
+        stroked.stroke_width * 0.5 + 1.0
+    );
+}
+
+#[test]
+fn set_scaled_moves_a_shapes_endpoints_about_the_pivot() {
+    let source = VectorItem::Shape(rect_shape((10.0, 10.0), (30.0, 30.0), true));
+    let mut dst = source.clone();
+    dst.set_scaled(&source, (20.0, 20.0), (2.0, 3.0));
+    assert_eq!(dst.geometry_bounds().unwrap(), (0.0, -10.0, 40.0, 50.0));
+}
+
+/// Scaling a path walks its points and leaves every style field alone — the stroke keeps its
+/// weight, which is what a Figma or Photoshop resize does.
+#[test]
+fn set_scaled_scales_a_path_and_keeps_its_style() {
+    let source = VectorItem::Path(open_path(vec![(0.0, 0.0), (10.0, 0.0), (10.0, 10.0)]));
+    let mut dst = VectorItem::Path(open_path(vec![]));
+    dst.set_scaled(&source, (0.0, 0.0), (2.0, 2.0));
+    match (&dst, &source) {
+        (VectorItem::Path(d), VectorItem::Path(s)) => {
+            assert_eq!(d.points, vec![(0.0, 0.0), (20.0, 0.0), (20.0, 20.0)]);
+            assert_eq!(d.stroke_width, s.stroke_width, "ink keeps its weight");
+            assert_eq!(d.color, s.color);
+            assert_eq!(d.closed, s.closed);
+            assert_eq!(d.fill, s.fill);
+        }
+        _ => panic!("expected two paths"),
+    }
+}
+
+#[test]
+fn set_scaled_by_one_is_the_item_unchanged() {
+    let source = VectorItem::Path(open_path(vec![(3.0, 4.0), (30.0, 40.0)]));
+    let mut dst = source.clone();
+    dst.set_scaled(&source, (11.0, 12.0), (1.0, 1.0));
+    assert_eq!(dst, source);
+}
+
+/// A drag re-derives from the pointer-down capture every frame, so scaling twice from the
+/// same source is the second scale — never the two compounded.
+#[test]
+fn set_scaled_re_derives_rather_than_compounding() {
+    let source = VectorItem::Shape(rect_shape((0.0, 0.0), (10.0, 10.0), true));
+    let mut dst = source.clone();
+    dst.set_scaled(&source, (5.0, 5.0), (2.0, 2.0));
+    dst.set_scaled(&source, (5.0, 5.0), (3.0, 3.0));
+
+    let mut once = source.clone();
+    once.set_scaled(&source, (5.0, 5.0), (3.0, 3.0));
+    assert_eq!(dst, once);
+}
+
+/// The arm that cannot happen from a drag — the slot and its capture are always the same
+/// variant — still has to be total rather than leaving a half-written item behind.
+#[test]
+fn set_scaled_across_two_different_variants_takes_the_source() {
+    let source = VectorItem::Shape(rect_shape((0.0, 0.0), (10.0, 10.0), true));
+    let mut dst = VectorItem::Path(open_path(vec![(99.0, 99.0)]));
+    dst.set_scaled(&source, (5.0, 5.0), (2.0, 2.0));
+    assert_eq!(dst, source);
+}
+
+/// Content dragged entirely off the paper contributes nothing to a flatten, and the walk has
+/// to bail before it indexes a row that is not there.
+#[test]
+fn rasterize_into_rgba_skips_items_that_miss_the_canvas_entirely() {
+    let items = vec![VectorItem::Shape(rect_shape(
+        (500.0, 500.0),
+        (600.0, 600.0),
+        true,
+    ))];
+    let mut buf = vec![0u8; 32 * 32 * 4];
+    rasterize_into_rgba(&items, None, &mut buf, 32, 32);
+    assert!(buf.iter().all(|b| *b == 0), "nothing was painted");
+
+    let off_the_other_way = vec![VectorItem::Shape(rect_shape(
+        (-600.0, -600.0),
+        (-500.0, -500.0),
+        true,
+    ))];
+    rasterize_into_rgba(&off_the_other_way, None, &mut buf, 32, 32);
+    assert!(buf.iter().all(|b| *b == 0));
+}
+
+/// A layer scaled to nothing has no pixels to contribute, and the degenerate transform must
+/// not produce a span the walk then tries to index.
+#[test]
+fn rasterize_into_rgba_survives_a_collapsed_layer_transform() {
+    let items = vec![VectorItem::Shape(rect_shape(
+        (4.0, 4.0),
+        (28.0, 28.0),
+        true,
+    ))];
+    let collapsed = LayerTransform {
+        scale_x: 0.0,
+        scale_y: 0.0,
+        ..LayerTransform::default()
+    };
+    let mut buf = vec![0u8; 32 * 32 * 4];
+    rasterize_into_rgba(&items, Some(collapsed), &mut buf, 32, 32);
+    assert!(
+        buf.iter().all(|b| *b == 0),
+        "a layer scaled to nothing contributes nothing, and indexes nothing"
+    );
+}
+
+/// A fully transparent item is skipped rather than blended, so an alpha-zero colour cannot
+/// darken what is already under it.
+#[test]
+fn rasterize_into_rgba_leaves_the_buffer_alone_for_a_transparent_item() {
+    let mut invisible = rect_shape((4.0, 4.0), (28.0, 28.0), true);
+    invisible.color = [255, 0, 0, 0];
+    let mut buf = vec![7u8; 32 * 32 * 4];
+    rasterize_into_rgba(&[VectorItem::Shape(invisible)], None, &mut buf, 32, 32);
+    assert!(buf.iter().all(|b| *b == 7), "nothing under it changed");
 }

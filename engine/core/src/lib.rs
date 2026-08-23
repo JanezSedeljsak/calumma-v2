@@ -25,6 +25,7 @@ pub mod tile;
 pub mod transform;
 pub mod vector;
 pub mod vector_edit;
+pub mod vector_svg;
 pub mod viewport;
 
 pub use blur::blur_radius;

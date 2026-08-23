@@ -253,3 +253,103 @@ fn vector_selection_instances_draws_four_edges_and_four_corner_dots() {
         );
     }
 }
+
+fn selected_doc() -> Document {
+    let mut doc = Document::new("p".into(), "t", 200, 200);
+    doc.resize_viewport(200.0, 200.0, 1.0);
+    doc.fit_to_view();
+    let index = doc.add_vector_layer("V");
+    *doc.layers[index].content.items_mut().unwrap() = vec![shape_item((10.0, 10.0), (40.0, 40.0))];
+    doc.set_active_layer(index);
+    assert!(doc.select_vector_item_at(20.0, 20.0));
+    doc
+}
+
+/// The item frame is the layer frame minus the rotate stalk — one fewer edge and one fewer
+/// handle — because per-item rotation is not something the board can draw. Offering a handle
+/// that did nothing would be worse than not offering one.
+#[test]
+fn the_item_frame_is_the_layer_frame_without_the_rotate_stalk() {
+    let doc = selected_doc();
+    let item = vector_selection_instances(&doc);
+    let layer = calumma_render::compose::box_overlay_instances(
+        doc.selected_vector_item_corners().unwrap(),
+        Some((0.0, -30.0)),
+    );
+    assert_eq!(item.len(), 8);
+    assert_eq!(layer.len(), 10, "the stalk is one edge and one handle more");
+    assert_eq!(
+        item[..4],
+        layer[..4],
+        "the four box edges are drawn identically at both levels"
+    );
+}
+
+/// Both frames draw the same furniture, so a corner handle looks the same whether it belongs
+/// to a layer or to one item inside it — the box is what changed, not the affordance.
+#[test]
+fn a_corner_handle_looks_the_same_at_both_levels() {
+    let doc = selected_doc();
+    let corners = doc.selected_vector_item_corners().unwrap();
+    let item = vector_selection_instances(&doc);
+    let layer = calumma_render::compose::box_overlay_instances(corners, Some((0.0, -30.0)));
+    for i in 0..4 {
+        assert_eq!(item[4 + i].color, layer[5 + i].color);
+        assert_eq!(item[4 + i].brush, layer[5 + i].brush);
+    }
+}
+
+/// The frame is drawn from the item's own box, so it has to sit exactly on it — a frame that
+/// drifted from the geometry would put the resize handles somewhere the item is not.
+#[test]
+fn the_item_frame_sits_on_the_items_own_bounds() {
+    let doc = selected_doc();
+    let bounds = doc.layers[doc.active_layer].content.items().unwrap()[0]
+        .bounds()
+        .unwrap();
+    let out = vector_selection_instances(&doc);
+    let xs: Vec<f32> = out[4..].iter().map(|d| d.segment[0]).collect();
+    let ys: Vec<f32> = out[4..].iter().map(|d| d.segment[1]).collect();
+    let min_x = xs.iter().cloned().fold(f32::INFINITY, f32::min);
+    let max_x = xs.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+    let min_y = ys.iter().cloned().fold(f32::INFINITY, f32::min);
+    let max_y = ys.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+    assert!((min_x - bounds.0).abs() < 0.01, "{min_x} vs {}", bounds.0);
+    assert!((max_x - bounds.2).abs() < 0.01, "{max_x} vs {}", bounds.2);
+    assert!((min_y - bounds.1).abs() < 0.01);
+    assert!((max_y - bounds.3).abs() < 0.01);
+}
+
+/// Selecting an item is what takes the frame off the layer, so the two can never both be on
+/// screen — the renderer relies on that to draw them from independent branches.
+#[test]
+fn only_one_frame_is_ever_live_at_a_time() {
+    let mut doc = selected_doc();
+    assert!(doc.enter_transform());
+    assert!(!vector_selection_instances(&doc).is_empty());
+    assert!(
+        doc.transform_handles().is_none(),
+        "the item holds the frame"
+    );
+
+    doc.clear_vector_selection();
+    assert!(vector_selection_instances(&doc).is_empty());
+    assert!(
+        doc.transform_handles().is_some(),
+        "dropping the selection hands it back"
+    );
+}
+
+/// A box with no rotate handle draws four edges and four corners and nothing else — the case
+/// the item frame is built from.
+#[test]
+fn a_box_with_no_rotate_handle_draws_only_its_own_corners() {
+    let corners = [(0.0, 0.0), (10.0, 0.0), (10.0, 8.0), (0.0, 8.0)];
+    let out = calumma_render::compose::box_overlay_instances(corners, None);
+    assert_eq!(out.len(), 8);
+    for (i, corner) in corners.iter().enumerate() {
+        let dot = out[4 + i].segment;
+        assert_eq!((dot[0], dot[1]), (corner.0, corner.1));
+        assert_eq!((dot[2], dot[3]), (corner.0, corner.1));
+    }
+}

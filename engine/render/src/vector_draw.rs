@@ -1,4 +1,4 @@
-use crate::compose::{brush_params, rgba_unit, StrokeInstance};
+use crate::compose::{box_overlay_instances, brush_params, rgba_unit, StrokeInstance};
 use bytemuck::{Pod, Zeroable};
 use calumma_core::tile::DocRect;
 use calumma_core::transform::bounds_center;
@@ -6,10 +6,6 @@ use calumma_core::vector::items_bounds;
 use calumma_core::{
     BrushProfile, Document, Layer, LayerTransform, VectorItem, VectorPath, VectorShape,
 };
-
-const SELECTION_COLOR: [f32; 4] = [0.24, 0.78, 0.84, 0.95];
-const SELECTION_WIDTH: f32 = 1.0;
-const SELECTION_CORNER_RADIUS: f32 = 2.5;
 
 /// One parametric vector item, as an instance the board shader re-evaluates per pixel. The
 /// same fields `Shape::distance` takes, so live board and flattened export read one geometry
@@ -128,28 +124,13 @@ pub fn shape_instance(shape: &VectorShape, placement: VectorPlacement) -> Vector
     }
 }
 
-/// The box around the one item being moved. Corner dots mark it as a *thing you grabbed*
-/// rather than the layer-wide transform frame, which draws its own handles.
+/// The frame around the selected item, drawn whenever one is selected — under the Move tool
+/// as well as inside `⌘T`, because its corners are what resizes the item and a handle you
+/// cannot see is a handle you cannot use. No rotate stalk: item rotation is not a thing the
+/// board can draw yet, so the frame does not offer it.
 pub fn vector_selection_instances(doc: &Document) -> Vec<StrokeInstance> {
     let Some(corners) = doc.selected_vector_item_corners() else {
         return Vec::new();
     };
-    let mut out = Vec::with_capacity(8);
-    for i in 0..4 {
-        let a = corners[i];
-        let b = corners[(i + 1) % 4];
-        out.push(StrokeInstance {
-            segment: [a.0, a.1, b.0, b.1],
-            color: SELECTION_COLOR,
-            brush: brush_params(SELECTION_WIDTH, &BrushProfile::HARD),
-        });
-    }
-    for p in corners {
-        out.push(StrokeInstance {
-            segment: [p.0, p.1, p.0, p.1],
-            color: SELECTION_COLOR,
-            brush: brush_params(SELECTION_CORNER_RADIUS, &BrushProfile::HARD),
-        });
-    }
-    out
+    box_overlay_instances(corners, None)
 }

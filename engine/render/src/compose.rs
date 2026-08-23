@@ -146,6 +146,17 @@ pub fn guide_instances(doc: &Document) -> Vec<GuideInstance> {
 
 pub fn transform_overlay_instances(handles: TransformHandles) -> Vec<StrokeInstance> {
     let (_, corners, rotate_handle) = handles;
+    box_overlay_instances(corners, Some(rotate_handle))
+}
+
+/// A frame with a grip at each corner, and the rotate stalk when the thing inside can be
+/// turned. A vector item cannot — the shader's SDFs are axis-aligned — so its frame is this
+/// same furniture minus the stalk, rather than a second kind of box to learn. Only one frame
+/// is ever on screen: selecting an item is what takes it off the layer.
+pub fn box_overlay_instances(
+    corners: [(f32, f32); 4],
+    rotate_handle: Option<(f32, f32)>,
+) -> Vec<StrokeInstance> {
     let mut out = Vec::with_capacity(4 + 1 + 5);
     let outline = |a: (f32, f32), b: (f32, f32)| StrokeInstance {
         segment: [a.0, a.1, b.0, b.1],
@@ -155,12 +166,14 @@ pub fn transform_overlay_instances(handles: TransformHandles) -> Vec<StrokeInsta
     for i in 0..4 {
         out.push(outline(corners[i], corners[(i + 1) % 4]));
     }
-    let top_mid = (
-        (corners[0].0 + corners[1].0) * 0.5,
-        (corners[0].1 + corners[1].1) * 0.5,
-    );
-    out.push(outline(top_mid, rotate_handle));
-    for p in corners.iter().chain(std::iter::once(&rotate_handle)) {
+    if let Some(rotate_handle) = rotate_handle {
+        let top_mid = (
+            (corners[0].0 + corners[1].0) * 0.5,
+            (corners[0].1 + corners[1].1) * 0.5,
+        );
+        out.push(outline(top_mid, rotate_handle));
+    }
+    for p in corners.iter().chain(rotate_handle.iter()) {
         out.push(StrokeInstance {
             segment: [p.0, p.1, p.0, p.1],
             color: TRANSFORM_HANDLE_COLOR,

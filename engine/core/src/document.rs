@@ -18,7 +18,7 @@ use crate::selection::{Selection, SelectionShape};
 use crate::shape::{Shape, Tool};
 use crate::text_edit::TextEdit;
 use crate::tile::{blend_over, blend_with_mode, DirtyChannel, DocRect, TileCoord, TileSet};
-use crate::transform::{bounds_center, clipped_pixel_span, LayerTransform};
+use crate::transform::{bounds_center, clipped_pixel_span, corner_scale, LayerTransform};
 use crate::vector;
 use crate::vector_edit::{VectorItemDrag, VectorPick};
 use calumma_text::TextRun;
@@ -78,7 +78,10 @@ fn apply_mask(rgba: &mut [u8], mask: Option<&[u8]>) {
 
 fn layer_source_pixel(layer: &Layer, doc_x: f32, doc_y: f32) -> [u8; 4] {
     let Some(tiles) = layer.tiles() else {
-        return [0, 0, 0, 0];
+        return match layer.content.items() {
+            Some(items) => vector_source_pixel(items, layer, doc_x, doc_y),
+            None => [0, 0, 0, 0],
+        };
     };
     let (sx, sy) = match layer.transform {
         Some(t) => {
@@ -90,6 +93,41 @@ fn layer_source_pixel(layer: &Layer, doc_x: f32, doc_y: f32) -> [u8; 4] {
         None => (doc_x, doc_y),
     };
     tiles.get_pixel(sx.floor() as i32, sy.floor() as i32)
+}
+
+/// One point of a vector layer, as a colour rather than the alpha `vector_alpha_at` answers
+/// picking with. This is the per-pixel twin of `vector::rasterize_into_rgba`'s inner loop —
+/// same inverse map, same coverage, same `blend_over` — so the zoomed-out overview proxy
+/// shows a layer of shapes exactly as the flatten and the shader do, instead of the empty
+/// board it would get from a layer that has no tiles to sample.
+fn vector_source_pixel(
+    items: &[vector::VectorItem],
+    layer: &Layer,
+    doc_x: f32,
+    doc_y: f32,
+) -> [u8; 4] {
+    let local = match layer
+        .transform
+        .filter(|t| !t.is_identity())
+        .zip(vector::items_bounds(items))
+    {
+        Some((t, raw)) => t.inverse(bounds_center(raw), (doc_x, doc_y)),
+        None => (doc_x, doc_y),
+    };
+    let mut acc = [0u8; 4];
+    for item in items {
+        let coverage = item.coverage(local.0, local.1);
+        if coverage <= 0.0 {
+            continue;
+        }
+        let mut src = item.color();
+        src[3] = ((src[3] as f32) * coverage).round().clamp(0.0, 255.0) as u8;
+        if src[3] == 0 {
+            continue;
+        }
+        acc = blend_over(acc, src);
+    }
+    acc
 }
 
 /// Hit-testing a vector layer evaluates its items' coverage directly rather than sampling
@@ -372,6 +410,30 @@ pub(crate) enum TransformHandle {
     Move,
 }
 
+impl TransformHandle {
+    /// The four scale handles in the order `LayerTransform::transformed_corners` emits them,
+    /// so a corner index and a handle are the same fact read two ways. Both the layer frame
+    /// and a vector item's frame zip against this.
+    pub(crate) const CORNERS: [Self; 4] = [
+        Self::TopLeft,
+        Self::TopRight,
+        Self::BottomRight,
+        Self::BottomLeft,
+    ];
+
+    /// Which way this corner points from the box centre, or `None` for the two handles that
+    /// do not scale anything.
+    pub(crate) fn corner_signs(self) -> Option<(f32, f32)> {
+        Some(match self {
+            Self::TopLeft => (-1.0, -1.0),
+            Self::TopRight => (1.0, -1.0),
+            Self::BottomRight => (1.0, 1.0),
+            Self::BottomLeft => (-1.0, 1.0),
+            Self::Rotate | Self::Move => return None,
+        })
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct TransformDrag {
     pub(crate) layer_index: usize,
@@ -403,11 +465,10 @@ impl TransformDrag {
 
 pub type TransformHandles = (usize, [(f32, f32); 4], (f32, f32));
 
-const HANDLE_HIT_RADIUS_PX: f32 = 10.0;
+pub(crate) const HANDLE_HIT_RADIUS_PX: f32 = 10.0;
 const ROTATE_HANDLE_OFFSET_PX: f32 = 24.0;
-const TRANSFORM_MIN_SCALE_GUARD: f32 = 0.02;
 
-fn point_dist(a: (f32, f32), b: (f32, f32)) -> f32 {
+pub(crate) fn point_dist(a: (f32, f32), b: (f32, f32)) -> f32 {
     ((a.0 - b.0).powi(2) + (a.1 - b.1).powi(2)).sqrt()
 }
 
@@ -760,8 +821,13 @@ impl Document {
         )
     }
 
+    /// The whole-layer transform frame, or `None` when there is nothing to show one for.
+    ///
+    /// A selected vector item takes the frame over: its own corners are drawn and hit-tested
+    /// in place of the layer's, so both cannot be on screen at once. Clicking off the item
+    /// drops the selection and hands the frame back to the layer.
     pub fn transform_handles(&self) -> Option<TransformHandles> {
-        if !self.transform_active {
+        if !self.transform_active || self.selected_vector_item().is_some() {
             return None;
         }
         let index = self.active_layer;
@@ -789,35 +855,34 @@ impl Document {
         let corners = t.transformed_corners(pivot, raw_bounds);
         let zoom = self.camera.zoom.max(1e-6);
         let hit_r = HANDLE_HIT_RADIUS_PX / zoom;
-        let names = [
-            TransformHandle::TopLeft,
-            TransformHandle::TopRight,
-            TransformHandle::BottomRight,
-            TransformHandle::BottomLeft,
-        ];
         let point = (doc_x, doc_y);
-        for (corner, handle) in corners.iter().zip(names) {
-            if point_dist(*corner, point) <= hit_r {
+        // Scale and rotate belong to whatever the frame is around, and while an item is
+        // selected that is the item — so only the Move quad answers here, which is what still
+        // lets a click inside the box drop the item selection and take the layer.
+        if self.selected_vector_item().is_none() {
+            for (corner, handle) in corners.iter().zip(TransformHandle::CORNERS) {
+                if point_dist(*corner, point) <= hit_r {
+                    return Some(TransformDrag {
+                        layer_index: index,
+                        handle,
+                        pivot,
+                        raw_bounds,
+                        start_transform: t,
+                        start_pointer: point,
+                    });
+                }
+            }
+            let rotate_handle = Self::rotate_handle_position(pivot, raw_bounds, t, zoom);
+            if point_dist(rotate_handle, point) <= hit_r {
                 return Some(TransformDrag {
                     layer_index: index,
-                    handle,
+                    handle: TransformHandle::Rotate,
                     pivot,
                     raw_bounds,
                     start_transform: t,
                     start_pointer: point,
                 });
             }
-        }
-        let rotate_handle = Self::rotate_handle_position(pivot, raw_bounds, t, zoom);
-        if point_dist(rotate_handle, point) <= hit_r {
-            return Some(TransformDrag {
-                layer_index: index,
-                handle: TransformHandle::Rotate,
-                pivot,
-                raw_bounds,
-                start_transform: t,
-                start_pointer: point,
-            });
         }
         if point_in_quad(point, corners) {
             return Some(TransformDrag {
@@ -936,28 +1001,17 @@ impl Document {
                 next.rotation = drag.start_transform.rotation + (now_angle - start_angle);
             }
             corner => {
-                let (sign_x, sign_y) = match corner {
-                    TransformHandle::TopLeft => (-1.0, -1.0),
-                    TransformHandle::TopRight => (1.0, -1.0),
-                    TransformHandle::BottomRight => (1.0, 1.0),
-                    TransformHandle::BottomLeft => (-1.0, 1.0),
-                    TransformHandle::Rotate | TransformHandle::Move => unreachable!(),
+                let Some(signs) = corner.corner_signs() else {
+                    return;
                 };
-                let half_w = ((drag.raw_bounds.2 - drag.raw_bounds.0) * 0.5).max(1e-3);
-                let half_h = ((drag.raw_bounds.3 - drag.raw_bounds.1) * 0.5).max(1e-3);
-                let local_now = drag.start_transform.to_local(drag.pivot, (doc_x, doc_y));
-                let raw_x = sign_x * half_w;
-                let raw_y = sign_y * half_h;
-                if self.shift_held {
-                    next.scale_x = (local_now.0 / raw_x).abs().max(TRANSFORM_MIN_SCALE_GUARD);
-                    next.scale_y = (local_now.1 / raw_y).abs().max(TRANSFORM_MIN_SCALE_GUARD);
-                } else {
-                    let raw_dist = point_dist((0.0, 0.0), (raw_x, raw_y)).max(1e-3);
-                    let now_dist = point_dist((0.0, 0.0), local_now);
-                    let s = (now_dist / raw_dist).max(TRANSFORM_MIN_SCALE_GUARD);
-                    next.scale_x = s;
-                    next.scale_y = s;
-                }
+                let half = (
+                    (drag.raw_bounds.2 - drag.raw_bounds.0) * 0.5,
+                    (drag.raw_bounds.3 - drag.raw_bounds.1) * 0.5,
+                );
+                let reach = drag.start_transform.to_local(drag.pivot, (doc_x, doc_y));
+                let (scale_x, scale_y) = corner_scale(half, signs, reach, !self.shift_held);
+                next.scale_x = scale_x;
+                next.scale_y = scale_y;
             }
         }
         let next = next.clamped();
@@ -2063,11 +2117,11 @@ impl Document {
             "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{}\" height=\"{}\" viewBox=\"0 0 {} {}\">",
             self.width, self.height, self.width, self.height
         );
-        if let Some(group) = crate::vector::svg_transform_attr(items, layer.transform) {
+        if let Some(group) = crate::vector_svg::svg_transform_attr(items, layer.transform) {
             svg.push_str(&group);
         }
         for item in items {
-            if let Some(markup) = crate::vector::item_svg(item) {
+            if let Some(markup) = crate::vector_svg::item_svg(item) {
                 svg.push_str(&markup);
             }
         }
