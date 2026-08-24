@@ -13,7 +13,7 @@ Native macOS app: SwiftUI shell, Rust/wgpu engine, SQLite storage.
   <img src="design/example/editor.png" alt="Calumma editor — layers, tools, and canvas" width="720">
 </p>
 
-Read **`AGENTS.md`**, **`FLOW.md`**, and **`design/STYLE.md`**.
+Read **`AGENTS.md`**, **`docs/FLOW.md`**, and **`docs/STYLE.md`**.
 
 ## Quick start
 
@@ -30,8 +30,8 @@ Run the **Calumma** scheme. Landing → create/preset/recent → editor with top
 
 | Path | Role |
 | --- | --- |
-| `design/` | visual tokens, STYLE, SVG icons, README screenshots (`design/example/`) |
-| `FLOW.md` | product flow: screens, shortcuts, import/export |
+| `design/` | visual tokens, SVG icons, README screenshots (`design/example/`) |
+| `docs/` | all prose docs — `FLOW.md`, `STYLE.md`, `ENGINE.md`, `RENDERING.md` |
 | `translations/` | UI locale JSON (`en` today) |
 | `engine/` | Cargo workspace (`Cargo.toml`, rustfmt, clippy) + crates |
 | `engine/core` | document, tiles, camera, history, shapes |

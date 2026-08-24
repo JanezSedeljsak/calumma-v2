@@ -18,5 +18,5 @@ lcov.info
 /dist/
 
 # agent plans
-plans/*
-todo.md
+docs/plans/*
+docs/todo.md

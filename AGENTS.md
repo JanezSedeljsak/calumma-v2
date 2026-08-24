@@ -7,10 +7,10 @@ switch clean-loads the workspace’s active project from SQLite.
 **Ambition:** product depth and scale in the neighbourhood of GIMP, Photoshop, Krita, and
 Figma — multi-layer documents, large canvases, dense interaction. Performance and
 scalability are first-class constraints on every change, not afterthoughts. The chrome
-stays clean and minimalistic (`design/STYLE.md`); complexity lives in the engine, not in
+stays clean and minimalistic (`docs/STYLE.md`); complexity lives in the engine, not in
 cluttered UI.
 
-**Read this file first, then `FLOW.md` and `design/STYLE.md`.** Follow the one rule
+**Read this file first, then `docs/FLOW.md` and `docs/STYLE.md`.** Follow the one rule
 below before inventing architecture. Prefer extending what exists over adding parallel
 systems.
 
@@ -48,7 +48,7 @@ Calumma is a lightning-fast, **flat-hierarchy** engine aimed at 120 Hz. These li
 load-bearing, not backlog: they keep every tile 256 KiB, every vector layer one GPU draw,
 and selection a layer index. Do not add the missing half. A plan that needs one of these
 is the wrong plan. Renderer work that *follows* from them lives in
-`plans/02-strict-scope-optimizations.md`.
+`docs/plans/02-strict-scope-optimizations.md`.
 
 - **Pure RGBA8 only.** Tiles are 256×256×4 bytes, straight 8-bit RGBA — `TILE_BYTES` is
   262144 (256 KiB) and stays that. No CMYK, no 16-bit, no 32-bit HDR, no ICC / display-P3 /
@@ -66,7 +66,7 @@ is the wrong plan. Renderer work that *follows* from them lives in
 - **1:1 vector limit.** `LayerContent::Vector(VectorItem)` — exactly one item, never
   `Vec`. A second shape or stroke is a new layer. Clicking a vector selects the layer;
   there is no `(layer, item)` address. **Multi-select of vector items is permanently
-  cancelled** (`plans/10-multi-select-align.md`). Do not build it.
+  cancelled** (`docs/plans/10-multi-select-align.md`). Do not build it.
 - **Basic vector editing only.** Vectors are drawn, moved, and scaled. No node / point
   editing, no bezier handles, no per-item rotation on the GPU, no boolean ops.
 
@@ -84,8 +84,8 @@ is the wrong plan. Renderer work that *follows* from them lives in
 | `engine/ffi` | C ABI; **only** crate Swift links; platform op vtable |
 | `platform/macos` | SwiftUI landing, tabs, editor chrome, Metal canvas, Vision ops, i18n loader |
 | `translations/` | Locale JSON (`en.json` today). Not code — edit strings here |
-| `design/` | Visual tokens only (`tokens.json`), `STYLE.md`, SVG icons, `icon.png` (app icon master, `./manage.py icon`) |
-| `FLOW.md` | Product flow: screens, canvas, shortcuts, I/O |
+| `design/` | Visual tokens only (`tokens.json`), SVG icons, `icon.png` (app icon master, `./manage.py icon`) |
+| `docs/` | All prose docs: `FLOW.md` (product flow), `STYLE.md` (design system), `ENGINE.md`, `RENDERING.md`, plus the gitignored `todo.md` + `plans/`. Only `README.md`, `AGENTS.md`, `CLAUDE.md` stay at the root |
 | `cli/` | Python helpers + leaf tools (`_helpers.py`, tokens, purity, …). Deps in `requirements.txt` |
 | `manage.py` | Task runner (Python 3.14). Prefer this over Make. |
 
@@ -419,7 +419,7 @@ via `@Environment(\.themeColors)`; copy via `@Environment(\.l10n)`.
    layer hover outline are WGSL. Small chrome *controls* may float over the canvas island
    (the zoom pill sits bottom-trailing inside it); panels stay side-by-side islands.
 
-Details: `design/STYLE.md`.
+Details: `docs/STYLE.md`.
 
 ---
 
@@ -511,7 +511,7 @@ Rules for agents:
 ## Canvas / render
 
 Frame loop, dirty flags, and the pan/zoom performance strategy (GPU tile atlas, overview
-LOD, motion mode) are documented in `engine/render/rendering.md`, not repeated here.
+LOD, motion mode) are documented in `docs/RENDERING.md`, not repeated here.
 
 - Viewport-sized Metal surface; paper positioned by camera matrix in WGSL.
 - Layer pixels, vectors, live previews, and handles are GPU-scissored to the paper
@@ -619,11 +619,11 @@ Pin versions in `[workspace.dependencies]`. Never `*` or bare `^`.
 ## Deliberately deferred
 
 Vector *rotation* on the GPU (see Layers; per-item undo is planned with document
-history, `plans/01-document-undo.md`), BiRefNet / `ort`,
+history, `docs/plans/01-document-undo.md`), BiRefNet / `ort`,
 GenerateTexture model manager, SuggestShape,
 Vectorize (`vtracer`), font embedding in PDF export (the exporter is shipped and layered, but
 text rides as pixels), layered PSD import (import is flattened composite only;
-PSD, SVG *and PDF export* are layered and shipped — see FLOW.md), picking a layer by clicking it outside
+PSD, SVG *and PDF export* are layered and shipped — see `docs/FLOW.md`), picking a layer by clicking it outside
 transform mode as a *modifier* (the Move tool on the tools island is the path; Option-click and ⌘-click are
 both already Pan), text *selection*
 (the Text tool ships with a caret only — no shift-arrow, no styled ranges) — add
@@ -634,9 +634,9 @@ stroke together, workspaces (titlebar tabs + extend overlay), Eyedropper
 (`I` / tools island; samples the composited pixel under the cursor into the active ink
 swatch), vector layers (`V` / tool options; one item per layer, moved and scaled with
 `⌘T` and the Move tool), text layers (`T` / tools island),
-Move tool (tools island; pick-and-drag without `⌘T`). See `FLOW.md`.
+Move tool (tools island; pick-and-drag without `⌘T`). See `docs/FLOW.md`.
 
-**Now carrying plans** in `todo.md`: undo for the rest of the document (`01`),
+**Now carrying plans** in `docs/todo.md`: undo for the rest of the document (`01`),
 display cache (`07`), strict-scope wgpu wins (`02` — SSBO / atlas / uploads), GPU
 adjustment evaluation (`23`, depends on `02`'s `LayerData`). Vector multi-select (`10`)
 is closed by the 1:1 rule — do not build it.

@@ -402,7 +402,7 @@ mod tests {
         );
     }
 
-    /// The free list is a LIFO `Vec<u32>` on purpose (`plans/02`): the slot released last is
+    /// The free list is a LIFO `Vec<u32>` on purpose (`docs/plans/02`): the slot released last is
     /// the slot handed out next, so a steady state of evict-then-upload never fragments.
     #[test]
     fn a_freed_slot_is_the_next_one_handed_out() {

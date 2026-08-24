@@ -2,7 +2,7 @@
 
 Base product documentation: screens, what you can do, navigation, canvas interaction,
 shortcuts, persistence, and import/export. Companion to `AGENTS.md` (architecture) and
-`design/STYLE.md` (look). Platform shells implement chrome and key bindings; the engine
+`docs/STYLE.md` (look). Platform shells implement chrome and key bindings; the engine
 owns the board.
 
 **Design intent:** clean, minimalistic UI — brand, tools, and the paper. No dashboard

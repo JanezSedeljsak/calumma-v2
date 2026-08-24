@@ -187,7 +187,7 @@ struct CalmPlainButton: View {
     var enabled = true
     var accent = false
     /// An explicit color for the few buttons that are neither ordinary nor the accent —
-    /// today just Delete, which is `color.danger` per `STYLE.md`'s hierarchy table.
+    /// today just Delete, which is `color.danger` per `docs/STYLE.md`'s hierarchy table.
     var tint: Color?
     let action: () -> Void
 

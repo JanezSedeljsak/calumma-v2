@@ -1,7 +1,7 @@
-# rendering.md — how the board is drawn
+# RENDERING.md — how the board is drawn
 
-Companion to `AGENTS.md` (architecture) and `FLOW.md` (product flow), living inside the
-crate it documents (see `AGENTS.md`'s "Canvas / render" section). Describes the GPU path,
+Companion to `AGENTS.md` (architecture) and `docs/FLOW.md` (product flow); the crate it
+documents is `engine/render` (see `AGENTS.md`'s "Canvas / render" section). Describes the GPU path,
 dirty flags, and the pan/zoom performance strategy. The engine owns all of this; Swift only
 owns the `MTKView` surface and calls FFI.
 
@@ -165,7 +165,7 @@ Disabled while live-editing (stroke, shape preview, text caret).
 
 ## PanCache (scroll-blit)
 
-Phase 1 of `plans/07-display-cache.md`. `PanCache` (`engine/render/src/framebuffer.rs`) is two
+Phase 1 of `docs/plans/07-display-cache.md`. `PanCache` (`engine/render/src/framebuffer.rs`) is two
 fixed-role offscreen color textures, sized to the viewport — not an alternating ping-pong:
 
 - **`reference`** holds the last full content redraw (every visible tile/vector draw call,
@@ -277,7 +277,7 @@ After Tier A **and** shipped Tier B1/B2 (below):
 
 ## Optimization roadmap
 
-See `plans/07-display-cache.md` for the full Figma-style display-cache plan (todo #7).
+See `docs/plans/07-display-cache.md` for the full Figma-style display-cache plan (todo #7).
 Tier B1 (framebuffer scroll-blit) and B2 (autosave off the render thread) are **shipped** —
 phases 0 and 1 of that plan. The rest of Tier B, and Tiers C/D, remain open.
 
@@ -299,7 +299,7 @@ phases 0 and 1 of that plan. The rest of Tier B, and Tiers C/D, remain open.
 | # | Change | Effect | Throw away? |
 | --- | --- | --- | --- |
 | C1 | **Separate tile path entirely during motion** — never rebuild draw list; only uniforms | Already partial; finish by skipping `visible_needs_gpu_upload` checks on camera-only | No |
-| C2 | **GPU compositing for adjustments** instead of CPU bake per dirty tile — `plans/23-gpu-adjustment-evaluation.md` (LUT + opacity on the `LayerData` SSBO from `plans/02-strict-scope-optimizations.md`) | Slider drag on large docs | CPU path for export stays |
+| C2 | **GPU compositing for adjustments** instead of CPU bake per dirty tile — `docs/plans/23-gpu-adjustment-evaluation.md` (LUT + opacity on the `LayerData` SSBO from `docs/plans/02-strict-scope-optimizations.md`) | Slider drag on large docs | CPU path for export stays |
 | C3 | **Layer flatten cache** — one GPU texture per layer at rest, patch on edit | Fewer instances when many layers | Memory ↑ |
 | C4 | **Display link driven render** — `isPaused = true`, draw only when dirty | No idle 120 Hz wakeups | Requires explicit `setNeedsDisplay` wiring |
 | C5 | **Read zoom pill from atomics** — `flushPendingState` only when chrome visible | Less Swift publish per frame | No |
@@ -334,7 +334,7 @@ Figma's smoothness comes from a **different contract**:
 Calumma is closer to a **pixel editor** (sparse tiles, undo, masks, adjustments). Matching
 Figma on pan is achievable; matching Figma on *everything* without a scene-graph rewrite
 is not. The pragmatic target: **pan/zoom feels like Figma; edit fidelity stays like Krita**.
-Phases 2+ of `plans/07-display-cache.md` (a real chunk pyramid, multi-level LOD) are what
+Phases 2+ of `docs/plans/07-display-cache.md` (a real chunk pyramid, multi-level LOD) are what
 would close the remaining gap.
 
 ---

@@ -1,4 +1,4 @@
-# engine/ — how Calumma's engine is built
+# ENGINE.md — how Calumma's engine is built
 
 The engine is everything Calumma knows how to *do*: the document, the pixels, the camera,
 history, persistence, and the board on screen. The macOS shell owns a window, a Metal layer,
@@ -10,14 +10,14 @@ Read this alongside:
 
 | File | Answers |
 | --- | --- |
-| [`../AGENTS.md`](../AGENTS.md) | The rules a change has to obey (start there). **STRICT SCOPE LIMITATIONS** is load-bearing for this crate. |
-| [`../FLOW.md`](../FLOW.md) | What the product does — screens, tools, shortcuts, I/O |
-| [`render/rendering.md`](render/rendering.md) | The **frame loop**, dirty flags, and the pan/zoom performance strategy in detail |
+| [`AGENTS.md`](../AGENTS.md) | The rules a change has to obey (start there). **STRICT SCOPE LIMITATIONS** is load-bearing for this crate. |
+| [`docs/FLOW.md`](FLOW.md) | What the product does — screens, tools, shortcuts, I/O |
+| [`docs/RENDERING.md`](RENDERING.md) | The **frame loop**, dirty flags, and the pan/zoom performance strategy in detail |
 | this file | How the crates fit together, and how the renderer is built |
 
-`rendering.md` and this file deliberately split: that one is *per-frame mechanics and
+`RENDERING.md` and this file deliberately split: that one is *per-frame mechanics and
 optimization history*, this one is *structure and rationale*. The renderer section below
-covers what the renderer **is**; `rendering.md` covers what it **does each frame**.
+covers what the renderer **is**; `RENDERING.md` covers what it **does each frame**.
 
 ---
 
@@ -461,7 +461,7 @@ skipped entirely and the document is CPU-flattened once into a ≤2048 px textur
 then cost a uniform write. Hysteresis exits at 24. It is disabled while a gesture is live,
 since the proxy cannot show what is being drawn.
 
-Known gap, honestly stated in `rendering.md`: content is composited into `PanCache` from
+Known gap, honestly stated in `RENDERING.md`: content is composited into `PanCache` from
 transparent and blended over the desk afterwards. That is identical for Normal layers, but a
 Multiply/Screen layer that is the *bottom-most visible* layer blends against transparent
 instead of the desk pattern. Paper is the bottom layer in every ordinary document.
@@ -492,7 +492,7 @@ is 1, set once for the life of the surface, because `Surface::configure` drains 
 GPU queue — and that reconfigure used to land inside the first `mouseDragged` of every pan.
 
 For the per-frame ordering, the dirty-flag state machine, and the optimization roadmap, go to
-[`render/rendering.md`](render/rendering.md).
+[`docs/RENDERING.md`](RENDERING.md).
 
 ---
 
