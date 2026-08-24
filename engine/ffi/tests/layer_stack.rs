@@ -444,10 +444,10 @@ fn the_preview_revision_tracks_content_not_frames() {
     unsafe { calm_engine_free(e) };
 }
 
-/// A vector layer has no tile grid to take a revision from, so it reports its item count —
-/// which is what has to move when a shape is added.
+/// A vector layer has no tile grid to take a revision from, so it reports whether it holds
+/// its one item — which is always 1 after a commit, and a second commit is a new layer.
 #[test]
-fn a_vector_layer_reports_its_item_count_as_its_revision() {
+fn a_vector_layer_reports_its_item_as_its_revision() {
     let (_dir, e) = engine_with_layers(0);
     assert_eq!(calm_engine_set_vector_mode(e, 1), CalmStatus::Ok);
     assert_eq!(unsafe { calm_engine_set_tool(e, 2) }, CalmStatus::Ok);
@@ -459,6 +459,7 @@ fn a_vector_layer_reports_its_item_count_as_its_revision() {
     let mut state = unsafe { std::mem::zeroed::<CalmState>() };
     assert_eq!(unsafe { calm_engine_state(e, &mut state) }, CalmStatus::Ok);
     let vector = state.active_layer;
+    let layers_after_first = state.layer_count;
     assert_eq!(calm_engine_layer_is_vector(e, vector), 1);
     assert_eq!(unsafe { calm_engine_layer_preview_revision(e, vector) }, 1);
 
@@ -469,8 +470,18 @@ fn a_vector_layer_reports_its_item_count_as_its_revision() {
     }
     assert_eq!(
         unsafe { calm_engine_layer_preview_revision(e, vector) },
-        2,
-        "a second item is a second revision"
+        1,
+        "the first layer still holds one item"
+    );
+    assert_eq!(unsafe { calm_engine_state(e, &mut state) }, CalmStatus::Ok);
+    assert_eq!(
+        state.layer_count,
+        layers_after_first + 1,
+        "a second shape is a second layer"
+    );
+    assert_eq!(
+        unsafe { calm_engine_layer_preview_revision(e, state.active_layer) },
+        1
     );
     unsafe { calm_engine_free(e) };
 }

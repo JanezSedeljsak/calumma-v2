@@ -859,7 +859,7 @@ pub unsafe extern "C" fn calm_engine_sample_color(
         let doc = inner.doc.as_ref().context("no project is open")?;
         let (dx, dy) = doc.camera.to_doc(x, y);
         let Some(color) = doc.sample_color(dx, dy) else {
-            bail!("no opaque colour under the cursor");
+            bail!("no opaque color under the cursor");
         };
         unsafe {
             *out_rgba = pack_rgba(color);
@@ -882,7 +882,7 @@ pub unsafe extern "C" fn calm_engine_pick_color(
         let doc = inner.doc.as_mut().context("no project is open")?;
         let (dx, dy) = doc.camera.to_doc(x, y);
         let Some(color) = doc.pick_color(dx, dy) else {
-            bail!("no opaque colour under the cursor");
+            bail!("no opaque color under the cursor");
         };
         unsafe {
             *out_rgba = pack_rgba(color);
@@ -915,7 +915,7 @@ pub unsafe extern "C" fn calm_engine_set_ink_opacity(
     })
 }
 
-/// Blur brush strength. Not an ink knob — the blur has no colour — so it is its own setter
+/// Blur brush strength. Not an ink knob — the blur has no color — so it is its own setter
 /// rather than another meaning for `set_ink_opacity`.
 #[no_mangle]
 pub unsafe extern "C" fn calm_engine_set_blur_strength(
@@ -972,6 +972,21 @@ pub unsafe extern "C" fn calm_engine_set_tolerance(
     with_inner(engine, |inner| {
         if let Some(doc) = &mut inner.doc {
             doc.set_tolerance(tolerance);
+        }
+        Ok(())
+    })
+}
+
+/// The eyedropper's sample area, as a radius in document pixels — pixels within
+/// `radius + 0.5` of the clicked centre are averaged.
+#[no_mangle]
+pub unsafe extern "C" fn calm_engine_set_eyedropper_radius(
+    engine: *mut CalmEngine,
+    radius: u32,
+) -> CalmStatus {
+    with_inner(engine, |inner| {
+        if let Some(doc) = &mut inner.doc {
+            doc.set_eyedropper_radius(radius);
         }
         Ok(())
     })
@@ -1784,9 +1799,9 @@ pub unsafe extern "C" fn calm_engine_layer_preview_revision(
         let layer = inner.doc.as_ref()?.layers.get(index as usize)?;
         match layer.tiles() {
             Some(grid) => Some(grid.content_revision()),
-            // A vector layer's thumbnail is a flat swatch of its first item's colour, so its
-            // item count is all the shell has to notice a change in.
-            None => Some(layer.content.items().map_or(0, |i| i.len() as u64)),
+            // A vector layer's thumbnail is a flat swatch of its item's color, so presence
+            // of that item is all the shell has to notice a change in.
+            None => Some(u64::from(layer.content.item().is_some())),
         }
     }))
     .ok()
@@ -1825,19 +1840,16 @@ pub unsafe extern "C" fn calm_engine_layer_thumbnail(
         // edit; nothing here has to know when that was.
         let (w, h, rgba) = if let Some(tiles) = layer.tiles_mut() {
             tiles.preview().scaled(max_side.max(1))
-        } else if let Some(items) = layer.content.items() {
+        } else if let Some(item) = layer.content.item() {
             let side = max_side.clamp(1, 64);
-            let color = items
-                .first()
-                .map(|item| item.color())
-                .unwrap_or([255, 255, 255, 255]);
+            let color = item.color();
             let mut rgba = vec![0u8; (side * side * 4) as usize];
             for px in rgba.chunks_exact_mut(4) {
                 px.copy_from_slice(&color);
             }
             (side, side, rgba)
         } else {
-            bail!("no project is open and no accent colour to fall back on");
+            bail!("no project is open and no accent color to fall back on");
         };
         let mut boxed = rgba.into_boxed_slice();
         let ptr = boxed.as_mut_ptr();

@@ -65,12 +65,16 @@ pub fn apply_output(
             Ok(())
         }
         OpOutput::Paths(paths) => {
-            let layer = Layer::vector(
-                calumma_core::names::numbered_vector_layer(doc.layers.len() + 1),
-                paths.into_iter().map(VectorItem::Path).collect(),
-            );
-            doc.layers.push(layer);
-            doc.active_layer = doc.layers.len() - 1;
+            for path in paths {
+                let layer = Layer::vector(
+                    calumma_core::names::numbered_vector_layer(doc.layers.len() + 1),
+                    VectorItem::Path(path),
+                );
+                doc.layers.push(layer);
+            }
+            if !doc.layers.is_empty() {
+                doc.active_layer = doc.layers.len() - 1;
+            }
             Ok(())
         }
     }

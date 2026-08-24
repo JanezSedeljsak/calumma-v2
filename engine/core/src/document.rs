@@ -6,9 +6,10 @@ use crate::guide::{Guide, GuideDrag};
 use crate::history::{History, TileSnapshot};
 use crate::layer::Layer;
 use crate::limits::{
-    ALPHA_OPAQUE, BLUR_STRENGTH_DEFAULT, BLUR_STRENGTH_MAX, BLUR_STRENGTH_MIN, BRUSH_SIZE_DEFAULT,
-    DEFAULT_INK, EFFECT_CHUNK_BYTES, ERASER_HARDNESS_DEFAULT, ERASER_HARDNESS_MAX,
-    ERASER_HARDNESS_MIN, INK_OPACITY_DEFAULT, INK_OPACITY_MAX, INK_OPACITY_MIN, MAX_CANVAS_SIDE,
+    ALPHA_MAX, ALPHA_OPAQUE, BLUR_STRENGTH_DEFAULT, BLUR_STRENGTH_MAX, BLUR_STRENGTH_MIN,
+    BRUSH_SIZE_DEFAULT, DEFAULT_INK, EFFECT_CHUNK_BYTES, ERASER_HARDNESS_DEFAULT,
+    ERASER_HARDNESS_MAX, ERASER_HARDNESS_MIN, EYEDROPPER_RADIUS_DEFAULT, EYEDROPPER_RADIUS_MAX,
+    EYEDROPPER_RADIUS_MIN, INK_OPACITY_DEFAULT, INK_OPACITY_MAX, INK_OPACITY_MIN, MAX_CANVAS_SIDE,
     MIN_CANVAS_SIDE, MIN_STAMP_SPACING, MIN_STROKE_POINT_DISTANCE, PAPER_WHITE,
     STAMP_COVERAGE_PADDING, STAMP_SPACING_RATIO, STROKE_POINT_CAPACITY, TOLERANCE_DEFAULT,
     TOLERANCE_MAX, TOLERANCE_MIN,
@@ -78,8 +79,8 @@ fn apply_mask(rgba: &mut [u8], mask: Option<&[u8]>) {
 
 fn layer_source_pixel(layer: &Layer, doc_x: f32, doc_y: f32) -> [u8; 4] {
     let Some(tiles) = layer.tiles() else {
-        return match layer.content.items() {
-            Some(items) => vector_source_pixel(items, layer, doc_x, doc_y),
+        return match layer.content.item() {
+            Some(item) => vector_source_pixel(item, layer, doc_x, doc_y),
             None => [0, 0, 0, 0],
         };
     };
@@ -95,13 +96,13 @@ fn layer_source_pixel(layer: &Layer, doc_x: f32, doc_y: f32) -> [u8; 4] {
     tiles.get_pixel(sx.floor() as i32, sy.floor() as i32)
 }
 
-/// One point of a vector layer, as a colour rather than the alpha `vector_alpha_at` answers
+/// One point of a vector layer, as a color rather than the alpha `vector_alpha_at` answers
 /// picking with. This is the per-pixel twin of `vector::rasterize_into_rgba`'s inner loop —
 /// same inverse map, same coverage, same `blend_over` — so the zoomed-out overview proxy
 /// shows a layer of shapes exactly as the flatten and the shader do, instead of the empty
 /// board it would get from a layer that has no tiles to sample.
 fn vector_source_pixel(
-    items: &[vector::VectorItem],
+    item: &vector::VectorItem,
     layer: &Layer,
     doc_x: f32,
     doc_y: f32,
@@ -109,52 +110,41 @@ fn vector_source_pixel(
     let local = match layer
         .transform
         .filter(|t| !t.is_identity())
-        .zip(vector::items_bounds(items))
+        .zip(item.bounds())
     {
         Some((t, raw)) => t.inverse(bounds_center(raw), (doc_x, doc_y)),
         None => (doc_x, doc_y),
     };
-    let mut acc = [0u8; 4];
-    for item in items {
-        let coverage = item.coverage(local.0, local.1);
-        if coverage <= 0.0 {
-            continue;
-        }
-        let mut src = item.color();
-        src[3] = ((src[3] as f32) * coverage).round().clamp(0.0, 255.0) as u8;
-        if src[3] == 0 {
-            continue;
-        }
-        acc = blend_over(acc, src);
+    let coverage = item.coverage(local.0, local.1);
+    if coverage <= 0.0 {
+        return [0, 0, 0, 0];
     }
-    acc
+    let mut src = item.color();
+    src[3] = ((src[3] as f32) * coverage).round().clamp(0.0, 255.0) as u8;
+    src
 }
 
 /// Hit-testing a vector layer evaluates its items' coverage directly rather than sampling
 /// pixels — there are no pixels to sample. The point is inverse-mapped through the layer
 /// transform first, exactly as the rasterizer and the shader both do.
-fn vector_alpha_at(items: &[vector::VectorItem], layer: &Layer, doc_x: f32, doc_y: f32) -> u8 {
+fn vector_alpha_at(item: &vector::VectorItem, layer: &Layer, doc_x: f32, doc_y: f32) -> u8 {
     let local = match layer
         .transform
         .filter(|t| !t.is_identity())
-        .zip(vector::items_bounds(items))
+        .zip(item.bounds())
     {
         Some((t, raw)) => t.inverse(bounds_center(raw), (doc_x, doc_y)),
         None => (doc_x, doc_y),
     };
-    let mut acc = 0.0f32;
-    for item in items {
-        let coverage = item.coverage(local.0, local.1) * (item.color()[3] as f32 / 255.0);
-        acc = acc.max(coverage);
-    }
-    (acc * 255.0).round().clamp(0.0, 255.0) as u8
+    let coverage = item.coverage(local.0, local.1) * (item.color()[3] as f32 / 255.0);
+    (coverage * 255.0).round().clamp(0.0, 255.0) as u8
 }
 
 /// Alpha alone, for hit-testing. Adjustments never touch alpha, so picking skips the
-/// colour work `layer_composited_pixel` does — an HSL round trip per layer per click.
+/// color work `layer_composited_pixel` does — an HSL round trip per layer per click.
 pub(crate) fn layer_alpha_at(layer: &Layer, doc_x: f32, doc_y: f32, doc_w: u32, doc_h: u32) -> u8 {
-    let alpha = match layer.content.items() {
-        Some(items) => vector_alpha_at(items, layer, doc_x, doc_y),
+    let alpha = match layer.content.item() {
+        Some(item) => vector_alpha_at(item, layer, doc_x, doc_y),
         None => layer_source_pixel(layer, doc_x, doc_y)[3],
     };
     if alpha == 0 {
@@ -187,7 +177,7 @@ fn layer_pickable_at(layer: &Layer, doc_x: f32, doc_y: f32, doc_w: u32, doc_h: u
         && !layer.locked
         && !layer.is_paper()
         && layer.opacity > 0.0
-        && (layer.tiles().is_some() || layer.content.items().is_some())
+        && (layer.tiles().is_some() || layer.content.item().is_some())
         && layer_alpha_at(layer, doc_x, doc_y, doc_w, doc_h) != 0
 }
 
@@ -232,8 +222,8 @@ fn layer_composited_pixel(
 }
 
 fn copy_layer_into_rgba(layer: &Layer, buf: &mut [u8], w: u32, h: u32) {
-    if let Some(items) = layer.content.items() {
-        vector::rasterize_into_rgba(items, layer.transform, buf, w, h);
+    if let Some(item) = layer.content.item() {
+        vector::rasterize_into_rgba(item, layer.transform, buf, w, h);
         return;
     }
     let Some(tiles) = layer.tiles() else {
@@ -331,7 +321,7 @@ pub struct Document {
     pub history: History,
     pub tool: Tool,
     pub color: [u8; 4],
-    /// The outline colour the shape tools use, independent of `color` so a rectangle can be
+    /// The outline color the shape tools use, independent of `color` so a rectangle can be
     /// white with a black border. A shell knob like `color` and `fill`.
     pub stroke_color: [u8; 4],
     pub brush_size: f32,
@@ -387,9 +377,12 @@ pub struct Document {
     /// How far each pixel the blur brush passes over travels toward its blurred neighbourhood.
     /// A document-level knob like `brush_size`, not a shell one — see `blur.rs`.
     pub blur_strength: f32,
-    /// How far a flood may stray from the colour it started on. One knob for the bucket and
+    /// How far a flood may stray from the color it started on. One knob for the bucket and
     /// the magic wand both, since they are one traversal.
     pub tolerance: u8,
+    /// Radius of the disc the eyedropper averages over — see
+    /// `limits::EYEDROPPER_RADIUS_DEFAULT`.
+    pub eyedropper_radius: u32,
     /// Which brush the pen lays ink down with. A shell knob like the active tool: the shell
     /// picks it, `brush.rs` owns what it means.
     pub brush: Brush,
@@ -502,7 +495,7 @@ fn point_in_quad(p: (f32, f32), quad: [(f32, f32); 4]) -> bool {
     true
 }
 
-/// A colour with the ink-opacity slider folded into its alpha. The one place that happens,
+/// A color with the ink-opacity slider folded into its alpha. The one place that happens,
 /// so a fill and its stroke cannot disagree about how translucent the shape is.
 fn glazed(color: [u8; 4], opacity: f32) -> [u8; 4] {
     let mut rgba = color;
@@ -558,6 +551,7 @@ impl Document {
             stroke_before: TileSnapshot::default(),
             blur_strength: BLUR_STRENGTH_DEFAULT,
             tolerance: TOLERANCE_DEFAULT,
+            eyedropper_radius: EYEDROPPER_RADIUS_DEFAULT,
             brush: Brush::default(),
             eraser_hardness: ERASER_HARDNESS_DEFAULT,
             blur_stamped: 0,
@@ -711,39 +705,16 @@ impl Document {
         true
     }
 
-    pub fn add_vector_layer(&mut self, name: impl Into<String>) -> usize {
-        self.layers.push(Layer::vector(name, Vec::new()));
+    pub fn add_vector_layer(&mut self, name: impl Into<String>, item: vector::VectorItem) -> usize {
+        self.layers.push(Layer::vector(name, item));
         self.active_layer = self.layers.len() - 1;
+        self.bump_vector_revision();
         self.active_layer
     }
 
-    /// Where a vector shape or path lands: the active layer if it is already a vector layer,
-    /// otherwise a fresh vector layer above the stack, which then becomes active so the next
-    /// item joins it. That is what lets a freehand drawing accumulate as many paths in one
-    /// layer instead of one layer per stroke.
-    fn vector_target_layer(&mut self) -> usize {
-        if self
-            .layers
-            .get(self.active_layer)
-            .is_some_and(|l| l.content.is_vector())
-        {
-            return self.active_layer;
-        }
-        let n = self.layers.iter().filter(|l| l.content.is_vector()).count() + 1;
-        self.add_vector_layer(crate::names::numbered_vector_layer(n))
-    }
-
     fn push_vector_item(&mut self, item: vector::VectorItem) {
-        let index = self.vector_target_layer();
-        let Some(items) = self
-            .layers
-            .get_mut(index)
-            .and_then(|l| l.content.items_mut())
-        else {
-            return;
-        };
-        items.push(item);
-        self.vector_revision = self.vector_revision.wrapping_add(1);
+        let n = self.layers.iter().filter(|l| l.content.is_vector()).count() + 1;
+        self.add_vector_layer(crate::names::numbered_vector_layer(n), item);
     }
 
     /// Vector layers have no tile cache to diff, so nothing about them is incremental: a
@@ -963,9 +934,9 @@ impl Document {
     /// Clicking the active layer's own pixels always keeps it, so a transform target is
     /// never lost to a layer that merely overlaps it.
     ///
-    /// A vector item under the cursor outranks the whole-layer Move handle — a layer that is
-    /// a *list* of items is moved one item at a time by default, and the corner and rotate
-    /// handles (checked first) are still how the whole layer is scaled or turned.
+    /// A vector item under the cursor outranks the whole-layer Move handle — the layer is
+    /// the item, so a click on it starts an item drag, and the corner and rotate handles
+    /// (checked first) are still how the whole layer is scaled or turned.
     fn transform_pointer_down(&mut self, doc_x: f32, doc_y: f32) {
         let handle = self.transform_handle_at(doc_x, doc_y);
         if let Some(drag) = handle.filter(|d| d.handle != TransformHandle::Move) {
@@ -1202,7 +1173,7 @@ impl Document {
         }
         self.commit_text();
         self.rasterize_text_layer(index - 1);
-        if self.layers[index].tiles().is_none() && self.layers[index].content.items().is_none() {
+        if self.layers[index].tiles().is_none() && self.layers[index].content.item().is_none() {
             return false;
         }
         if self.layers[index - 1].tiles().is_none() {
@@ -1528,6 +1499,10 @@ impl Document {
         self.tolerance = tolerance.clamp(TOLERANCE_MIN, TOLERANCE_MAX);
     }
 
+    pub fn set_eyedropper_radius(&mut self, radius: u32) {
+        self.eyedropper_radius = radius.clamp(EYEDROPPER_RADIUS_MIN, EYEDROPPER_RADIUS_MAX);
+    }
+
     /// Blur whatever part of the stroke has not been blurred yet, straight into the layer.
     ///
     /// Unlike every other stamp tool this runs *during* the drag rather than at pointer-up:
@@ -1767,7 +1742,7 @@ impl Document {
         });
     }
 
-    /// Select by colour: flood from the clicked pixel of the active layer and keep what the
+    /// Select by color: flood from the clicked pixel of the active layer and keep what the
     /// walk reached.
     ///
     /// Scope is the whole document rather than the existing selection's bounds — the wand
@@ -1810,7 +1785,7 @@ impl Document {
         });
     }
 
-    /// The one place the ink colour changes, so a text layer being typed into recolours with
+    /// The one place the ink color changes, so a text layer being typed into recolors with
     /// it instead of the shell having to know that text is special.
     pub fn set_color(&mut self, color: [u8; 4]) {
         self.color = color;
@@ -1825,13 +1800,13 @@ impl Document {
         glazed(self.color, self.ink_opacity)
     }
 
-    /// The outline colour a shape lands, glazed by the same ink opacity the fill is — one
+    /// The outline color a shape lands, glazed by the same ink opacity the fill is — one
     /// slider governs how translucent the whole shape is, as it does in Figma.
     pub fn shape_stroke_rgba(&self) -> [u8; 4] {
         glazed(self.stroke_color, self.ink_opacity)
     }
 
-    /// The two colours a shape commits with: `(fill, outline)`. Line and Arrow have no
+    /// The two colors a shape commits with: `(fill, outline)`. Line and Arrow have no
     /// interior, so their outline is the ink swatch — the stroke swatch belongs to the tools
     /// that enclose an area. Resolving that here is what lets everything downstream — the
     /// rasterizer, the SVG writer, the shader — read one `stroke_color` with no tool test.
@@ -1914,7 +1889,7 @@ impl Document {
             if !layer.visible {
                 continue;
             }
-            if layer.tiles().is_none() && layer.content.items().is_none() {
+            if layer.tiles().is_none() && layer.content.item().is_none() {
                 continue;
             }
             layer_buf.fill(0);
@@ -1942,7 +1917,10 @@ impl Document {
         (w, h, out)
     }
 
-    pub fn sample_color(&self, doc_x: f32, doc_y: f32) -> Option<[u8; 4]> {
+    /// One document pixel of the visible composite, as the eyedropper sees it. Vector layers
+    /// are not sampled — they have no tiles, and this is the twin of what the board shows
+    /// through the tile path.
+    fn sampled_pixel(&self, doc_x: f32, doc_y: f32) -> Option<[u8; 4]> {
         let ix = doc_x.floor() as i32;
         let iy = doc_y.floor() as i32;
         if ix < 0 || iy < 0 || (ix as u32) >= self.width || (iy as u32) >= self.height {
@@ -1966,6 +1944,63 @@ impl Document {
         }
     }
 
+    /// The eyedropper's color: the mean of the disc of radius `r + 0.5` around the clicked
+    /// pixel, so the default `r = 1` is the 3×3 every image editor offers.
+    ///
+    /// Averaged in **premultiplied** space, for the same reason `blur.rs` works there — tiles
+    /// hold straight alpha, so a plain mean would pull the sample toward whatever color sits
+    /// in the fully transparent pixels beside a painted edge. Weighting each sample by its own
+    /// alpha is what makes picking on the boundary of a stroke return the stroke's color
+    /// rather than a color that is nowhere on the board.
+    ///
+    /// Pixels off the paper are skipped rather than counted as transparent, so a sample near
+    /// the edge is not darkened by the void outside it. A radius of 0 short-circuits to the
+    /// single pixel, byte-for-byte what this returned before the average existed.
+    pub fn sample_color(&self, doc_x: f32, doc_y: f32) -> Option<[u8; 4]> {
+        let radius = self.eyedropper_radius as i32;
+        if radius == 0 {
+            return self.sampled_pixel(doc_x, doc_y);
+        }
+        let cx = doc_x.floor() as i32;
+        let cy = doc_y.floor() as i32;
+        let (mut sum_r, mut sum_g, mut sum_b, mut sum_a) = (0u32, 0u32, 0u32, 0u32);
+        let mut count = 0u32;
+        for y in (cy - radius)..=(cy + radius) {
+            for x in (cx - radius)..=(cx + radius) {
+                if x < 0 || y < 0 || (x as u32) >= self.width || (y as u32) >= self.height {
+                    continue;
+                }
+                if !Self::eyedropper_covers(x - cx, y - cy, radius) {
+                    continue;
+                }
+                count += 1;
+                let Some(px) = self.sampled_pixel(x as f32 + 0.5, y as f32 + 0.5) else {
+                    continue;
+                };
+                let a = px[3] as u32;
+                sum_r += px[0] as u32 * a;
+                sum_g += px[1] as u32 * a;
+                sum_b += px[2] as u32 * a;
+                sum_a += a;
+            }
+        }
+        if count == 0 || sum_a == 0 {
+            return None;
+        }
+        let unpremultiply = |sum: u32| ((sum + sum_a / 2) / sum_a).min(ALPHA_MAX) as u8;
+        Some([
+            unpremultiply(sum_r),
+            unpremultiply(sum_g),
+            unpremultiply(sum_b),
+            ((sum_a + count / 2) / count).min(ALPHA_MAX) as u8,
+        ])
+    }
+
+    fn eyedropper_covers(dx: i32, dy: i32, radius: i32) -> bool {
+        let r = radius as f32 + 0.5;
+        (dx * dx + dy * dy) as f32 <= r * r
+    }
+
     /// The layers a composite has to sample, each with the box it can possibly paint into.
     /// Hoisting this out of the per-pixel loop is what keeps a whole-document flatten from
     /// scaling with the layers that are hidden, empty, or nowhere near the pixel being asked
@@ -1974,7 +2009,7 @@ impl Document {
         self.layers
             .iter()
             .filter(|l| l.visible)
-            .filter(|l| l.tiles().is_some() || l.content.items().is_some())
+            .filter(|l| l.tiles().is_some() || l.content.item().is_some())
             .filter_map(|l| {
                 let raw = l.content_bounds()?;
                 let t = l.transform.unwrap_or_default();
@@ -2128,7 +2163,7 @@ impl Document {
 
     pub fn layer_rgba(&self, index: usize) -> Option<(u32, u32, Vec<u8>)> {
         let layer = self.layers.get(index)?;
-        if layer.tiles().is_none() && layer.content.items().is_none() {
+        if layer.tiles().is_none() && layer.content.item().is_none() {
             return None;
         }
         let w = self.width.max(1);
@@ -2146,18 +2181,16 @@ impl Document {
 
     pub fn layer_svg(&self, index: usize) -> Option<String> {
         let layer = self.layers.get(index)?;
-        let items = layer.content.items()?;
+        let item = layer.content.item()?;
         let mut svg = format!(
             "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{}\" height=\"{}\" viewBox=\"0 0 {} {}\">",
             self.width, self.height, self.width, self.height
         );
-        if let Some(group) = crate::vector_svg::svg_transform_attr(items, layer.transform) {
+        if let Some(group) = crate::vector_svg::svg_transform_attr(item, layer.transform) {
             svg.push_str(&group);
         }
-        for item in items {
-            if let Some(markup) = crate::vector_svg::item_svg(item) {
-                svg.push_str(&markup);
-            }
+        if let Some(markup) = crate::vector_svg::item_svg(item) {
+            svg.push_str(&markup);
         }
         if layer.transform.is_some_and(|t| !t.is_identity()) {
             svg.push_str("</g>");

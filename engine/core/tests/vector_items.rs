@@ -50,10 +50,8 @@ fn filled_rect_path(x0: f32, y0: f32, x1: f32, y1: f32) -> VectorItem {
     })
 }
 
-fn vector_layer(doc: &mut Document, items: Vec<VectorItem>) -> usize {
-    let index = doc.add_vector_layer("V");
-    *doc.layers[index].content.items_mut().unwrap() = items;
-    index
+fn vector_layer(doc: &mut Document, item: VectorItem) -> usize {
+    doc.add_vector_layer("V", item)
 }
 
 fn paint(doc: &mut Document, index: usize, rect: DocRect, rgba: [u8; 4]) {
@@ -71,22 +69,20 @@ fn drag(doc: &mut Document, from: (f32, f32), to: (f32, f32)) {
     doc.pointer_up(up.0, up.1);
 }
 
-fn item_bounds(doc: &Document, layer: usize, item: usize) -> (f32, f32, f32, f32) {
-    doc.layers[layer].content.items().unwrap()[item]
-        .bounds()
-        .unwrap()
+fn item_bounds(doc: &Document, layer: usize) -> (f32, f32, f32, f32) {
+    doc.layers[layer].content.item().unwrap().bounds().unwrap()
 }
 
 #[test]
-fn drawing_twice_in_vector_mode_fills_one_layer_with_two_items() {
+fn drawing_twice_in_vector_mode_makes_two_layers() {
     let mut doc = doc_with_viewport();
     doc.set_vector_mode(true);
     doc.tool = Tool::Rect;
     let before = doc.layers.len();
     drag(&mut doc, (10.0, 10.0), (40.0, 40.0));
     drag(&mut doc, (60.0, 60.0), (90.0, 90.0));
-    assert_eq!(doc.layers.len(), before + 1);
-    assert_eq!(doc.vector_item_count(doc.active_layer), 2);
+    assert_eq!(doc.layers.len(), before + 2);
+    assert_eq!(doc.vector_item_count(doc.active_layer), 1);
 }
 
 #[test]
@@ -98,7 +94,7 @@ fn vector_item_stores_ink_opacity() {
     doc.color = [10, 20, 30, 255];
     doc.set_ink_opacity(0.5);
     drag(&mut doc, (10.0, 10.0), (40.0, 40.0));
-    let item = &doc.layers[doc.active_layer].content.items().unwrap()[0];
+    let item = &doc.layers[doc.active_layer].content.item().unwrap();
     match item {
         VectorItem::Shape(shape) => assert_eq!(shape.color, [10, 20, 30, 128]),
         VectorItem::Path(_) => panic!("expected a shape item"),
@@ -108,20 +104,15 @@ fn vector_item_stores_ink_opacity() {
 #[test]
 fn picking_finds_the_item_under_the_point() {
     let mut doc = doc_with_viewport();
-    let layer = vector_layer(
-        &mut doc,
-        vec![
-            rect_item((10.0, 10.0), (40.0, 40.0)),
-            rect_item((60.0, 60.0), (90.0, 90.0)),
-        ],
-    );
+    let a = vector_layer(&mut doc, rect_item((10.0, 10.0), (40.0, 40.0)));
+    let b = vector_layer(&mut doc, rect_item((60.0, 60.0), (90.0, 90.0)));
     assert_eq!(
         doc.vector_item_at(20.0, 20.0),
-        Some(VectorPick { layer, item: 0 })
+        Some(VectorPick { layer: a })
     );
     assert_eq!(
         doc.vector_item_at(75.0, 75.0),
-        Some(VectorPick { layer, item: 1 })
+        Some(VectorPick { layer: b })
     );
     assert_eq!(doc.vector_item_at(150.0, 150.0), None);
 }
@@ -129,23 +120,18 @@ fn picking_finds_the_item_under_the_point() {
 #[test]
 fn picking_prefers_the_item_drawn_last() {
     let mut doc = doc_with_viewport();
-    let layer = vector_layer(
-        &mut doc,
-        vec![
-            rect_item((10.0, 10.0), (60.0, 60.0)),
-            rect_item((20.0, 20.0), (50.0, 50.0)),
-        ],
-    );
+    let _under = vector_layer(&mut doc, rect_item((10.0, 10.0), (60.0, 60.0)));
+    let top = vector_layer(&mut doc, rect_item((20.0, 20.0), (50.0, 50.0)));
     assert_eq!(
         doc.vector_item_at(30.0, 30.0),
-        Some(VectorPick { layer, item: 1 })
+        Some(VectorPick { layer: top })
     );
 }
 
 #[test]
 fn a_hairline_path_is_pickable_next_to_it_not_only_on_it() {
     let mut doc = doc_with_viewport();
-    vector_layer(&mut doc, vec![path_item(vec![(20.0, 20.0), (80.0, 20.0)])]);
+    vector_layer(&mut doc, path_item(vec![(20.0, 20.0), (80.0, 20.0)]));
     assert!(doc.vector_item_at(50.0, 24.0).is_some());
     assert!(doc.vector_item_at(50.0, 60.0).is_none());
 }
@@ -165,10 +151,10 @@ fn an_outlined_shape_is_picked_from_the_inside_too() {
         color: [255, 0, 0, 255],
         stroke_color: [255, 0, 0, 255],
     });
-    let layer = vector_layer(&mut doc, vec![hollow]);
+    let layer = vector_layer(&mut doc, hollow);
     assert_eq!(
         doc.vector_item_at(35.0, 35.0),
-        Some(VectorPick { layer, item: 0 }),
+        Some(VectorPick { layer }),
         "a click in the middle of an outlined rect grabs the rect"
     );
     assert_eq!(doc.vector_item_at(90.0, 35.0), None);
@@ -179,7 +165,7 @@ fn a_line_has_no_inside_to_pick() {
     let mut doc = doc_with_viewport();
     vector_layer(
         &mut doc,
-        vec![VectorItem::Shape(VectorShape {
+        VectorItem::Shape(VectorShape {
             shape: Shape {
                 tool: Tool::Line,
                 start: (10.0, 10.0),
@@ -190,7 +176,7 @@ fn a_line_has_no_inside_to_pick() {
             },
             color: [0, 0, 0, 255],
             stroke_color: [0, 0, 0, 255],
-        })],
+        }),
     );
     assert!(doc.vector_item_at(50.0, 50.0).is_some());
     assert!(doc.vector_item_at(80.0, 20.0).is_none());
@@ -199,7 +185,7 @@ fn a_line_has_no_inside_to_pick() {
 #[test]
 fn an_invisible_layer_is_not_pickable() {
     let mut doc = doc_with_viewport();
-    let layer = vector_layer(&mut doc, vec![rect_item((10.0, 10.0), (40.0, 40.0))]);
+    let layer = vector_layer(&mut doc, rect_item((10.0, 10.0), (40.0, 40.0)));
     doc.layers[layer].visible = false;
     assert_eq!(doc.vector_item_at(20.0, 20.0), None);
 }
@@ -216,14 +202,11 @@ fn picking_skips_a_hidden_raster_layer_above() {
         [0, 0, 0, 255],
     );
     doc.set_layer_visible(blocker, false);
-    let svg = vector_layer(&mut doc, vec![filled_rect_path(10.0, 10.0, 50.0, 50.0)]);
+    let svg = vector_layer(&mut doc, filled_rect_path(10.0, 10.0, 50.0, 50.0));
     doc.set_tool(Tool::Move);
     assert_eq!(
         doc.vector_item_at(30.0, 30.0),
-        Some(VectorPick {
-            layer: svg,
-            item: 0
-        })
+        Some(VectorPick { layer: svg })
     );
     assert!(doc.begin_move_at(30.0, 30.0));
 }
@@ -231,7 +214,7 @@ fn picking_skips_a_hidden_raster_layer_above() {
 #[test]
 fn picking_respects_visible_raster_ink_above() {
     let mut doc = doc_with_viewport();
-    let _svg = vector_layer(&mut doc, vec![filled_rect_path(10.0, 10.0, 50.0, 50.0)]);
+    let _svg = vector_layer(&mut doc, filled_rect_path(10.0, 10.0, 50.0, 50.0));
     doc.add_layer("Cover");
     let cover = doc.active_layer;
     paint(
@@ -246,7 +229,7 @@ fn picking_respects_visible_raster_ink_above() {
 #[test]
 fn move_tool_can_grab_a_visible_vector_layer_as_a_whole() {
     let mut doc = doc_with_viewport();
-    let layer = vector_layer(&mut doc, vec![filled_rect_path(10.0, 10.0, 50.0, 50.0)]);
+    let layer = vector_layer(&mut doc, filled_rect_path(10.0, 10.0, 50.0, 50.0));
     doc.set_tool(Tool::Move);
     assert_eq!(doc.layer_at(30.0, 30.0), Some(layer));
     assert!(doc.begin_move_at(30.0, 30.0));
@@ -255,43 +238,35 @@ fn move_tool_can_grab_a_visible_vector_layer_as_a_whole() {
 #[test]
 fn dragging_an_item_moves_only_that_item() {
     let mut doc = doc_with_viewport();
-    let layer = vector_layer(
-        &mut doc,
-        vec![
-            rect_item((10.0, 10.0), (40.0, 40.0)),
-            rect_item((60.0, 60.0), (90.0, 90.0)),
-        ],
-    );
-    let untouched = item_bounds(&doc, layer, 1);
-    let before = item_bounds(&doc, layer, 0);
-    doc.set_active_layer(layer);
+    let a = vector_layer(&mut doc, rect_item((10.0, 10.0), (40.0, 40.0)));
+    let b = vector_layer(&mut doc, rect_item((60.0, 60.0), (90.0, 90.0)));
+    let untouched = item_bounds(&doc, b);
+    let before = item_bounds(&doc, a);
+    doc.set_active_layer(a);
     assert!(doc.enter_transform());
     drag(&mut doc, (20.0, 20.0), (35.0, 45.0));
 
-    let moved = item_bounds(&doc, layer, 0);
+    let moved = item_bounds(&doc, a);
     assert!((moved.0 - (before.0 + 15.0)).abs() < 0.01);
     assert!((moved.1 - (before.1 + 25.0)).abs() < 0.01);
-    assert_eq!(item_bounds(&doc, layer, 1), untouched);
+    assert_eq!(item_bounds(&doc, b), untouched);
 }
 
 #[test]
 fn a_drag_selects_the_item_it_grabbed() {
     let mut doc = doc_with_viewport();
-    let layer = vector_layer(&mut doc, vec![rect_item((10.0, 10.0), (40.0, 40.0))]);
+    let layer = vector_layer(&mut doc, rect_item((10.0, 10.0), (40.0, 40.0)));
     doc.set_active_layer(layer);
     doc.enter_transform();
     drag(&mut doc, (20.0, 20.0), (25.0, 25.0));
-    assert_eq!(
-        doc.selected_vector_item(),
-        Some(VectorPick { layer, item: 0 })
-    );
+    assert_eq!(doc.selected_vector_item(), Some(VectorPick { layer }));
     assert!(!doc.is_dragging_vector_item());
 }
 
 #[test]
 fn clicking_empty_space_drops_the_selection() {
     let mut doc = doc_with_viewport();
-    let layer = vector_layer(&mut doc, vec![rect_item((10.0, 10.0), (40.0, 40.0))]);
+    let layer = vector_layer(&mut doc, rect_item((10.0, 10.0), (40.0, 40.0)));
     doc.set_active_layer(layer);
     doc.enter_transform();
     assert!(doc.select_vector_item_at(20.0, 20.0));
@@ -302,7 +277,7 @@ fn clicking_empty_space_drops_the_selection() {
 #[test]
 fn a_drag_inside_a_moved_layer_follows_the_pointer() {
     let mut doc = doc_with_viewport();
-    let layer = vector_layer(&mut doc, vec![rect_item((10.0, 10.0), (40.0, 40.0))]);
+    let layer = vector_layer(&mut doc, rect_item((10.0, 10.0), (40.0, 40.0)));
     doc.layers[layer].transform = Some(LayerTransform {
         offset_x: 50.0,
         offset_y: 0.0,
@@ -310,16 +285,16 @@ fn a_drag_inside_a_moved_layer_follows_the_pointer() {
     });
     doc.set_active_layer(layer);
     doc.enter_transform();
-    let before = item_bounds(&doc, layer, 0);
+    let before = item_bounds(&doc, layer);
     drag(&mut doc, (75.0, 25.0), (85.0, 25.0));
-    let moved = item_bounds(&doc, layer, 0);
+    let moved = item_bounds(&doc, layer);
     assert!((moved.0 - (before.0 + 10.0)).abs() < 0.01);
 }
 
 #[test]
 fn a_drag_inside_a_scaled_layer_moves_by_the_layer_scale() {
     let mut doc = doc_with_viewport();
-    let layer = vector_layer(&mut doc, vec![rect_item((10.0, 10.0), (40.0, 40.0))]);
+    let layer = vector_layer(&mut doc, rect_item((10.0, 10.0), (40.0, 40.0)));
     doc.layers[layer].transform = Some(LayerTransform {
         scale_x: 2.0,
         scale_y: 2.0,
@@ -327,22 +302,22 @@ fn a_drag_inside_a_scaled_layer_moves_by_the_layer_scale() {
     });
     doc.set_active_layer(layer);
     doc.enter_transform();
-    let before = item_bounds(&doc, layer, 0);
+    let before = item_bounds(&doc, layer);
     doc.begin_vector_item_drag(25.0, 25.0);
     doc.update_vector_item_drag(45.0, 25.0);
-    let after = item_bounds(&doc, layer, 0);
+    let after = item_bounds(&doc, layer);
     assert!((after.0 - (before.0 + 10.0)).abs() < 0.01);
 }
 
 #[test]
 fn nudging_moves_the_selection_by_the_core_step() {
     let mut doc = doc_with_viewport();
-    let layer = vector_layer(&mut doc, vec![rect_item((10.0, 10.0), (40.0, 40.0))]);
+    let layer = vector_layer(&mut doc, rect_item((10.0, 10.0), (40.0, 40.0)));
     doc.set_active_layer(layer);
     assert!(doc.select_vector_item_at(20.0, 20.0));
-    let before = item_bounds(&doc, layer, 0);
+    let before = item_bounds(&doc, layer);
     assert!(doc.nudge_selected_vector_item(3.0, -2.0));
-    let after = item_bounds(&doc, layer, 0);
+    let after = item_bounds(&doc, layer);
     assert!((after.0 - (before.0 + 3.0)).abs() < 0.01);
     assert!((after.1 - (before.1 - 2.0)).abs() < 0.01);
 }
@@ -350,18 +325,13 @@ fn nudging_moves_the_selection_by_the_core_step() {
 #[test]
 fn deleting_removes_only_the_selected_item() {
     let mut doc = doc_with_viewport();
-    let layer = vector_layer(
-        &mut doc,
-        vec![
-            rect_item((10.0, 10.0), (40.0, 40.0)),
-            rect_item((60.0, 60.0), (90.0, 90.0)),
-        ],
-    );
-    doc.set_active_layer(layer);
+    let a = vector_layer(&mut doc, rect_item((10.0, 10.0), (40.0, 40.0)));
+    let _b = vector_layer(&mut doc, rect_item((60.0, 60.0), (90.0, 90.0)));
+    doc.set_active_layer(a);
     assert!(doc.select_vector_item_at(20.0, 20.0));
     assert!(doc.delete_selected_vector_item());
-    assert_eq!(doc.vector_item_count(layer), 1);
     assert_eq!(doc.selected_vector_item(), None);
+    assert_eq!(doc.vector_item_at(20.0, 20.0), None);
     assert!(doc.vector_item_at(75.0, 75.0).is_some());
 }
 
@@ -370,8 +340,8 @@ fn deleting_removes_only_the_selected_item() {
 #[test]
 fn a_selected_item_always_lives_in_the_active_layer() {
     let mut doc = doc_with_viewport();
-    let first = vector_layer(&mut doc, vec![rect_item((10.0, 10.0), (40.0, 40.0))]);
-    let second = vector_layer(&mut doc, vec![rect_item((60.0, 60.0), (90.0, 90.0))]);
+    let first = vector_layer(&mut doc, rect_item((10.0, 10.0), (40.0, 40.0)));
+    let second = vector_layer(&mut doc, rect_item((60.0, 60.0), (90.0, 90.0)));
     doc.set_active_layer(second);
 
     assert!(doc.select_vector_item_at(20.0, 20.0));
@@ -395,17 +365,17 @@ fn a_drag_stays_exact_over_many_frames() {
     let mut doc = doc_with_viewport();
     let layer = vector_layer(
         &mut doc,
-        vec![path_item(vec![(10.0, 10.0), (20.0, 10.0), (20.0, 20.0)])],
+        path_item(vec![(10.0, 10.0), (20.0, 10.0), (20.0, 20.0)]),
     );
     doc.set_active_layer(layer);
     doc.enter_transform();
-    let before = item_bounds(&doc, layer, 0);
+    let before = item_bounds(&doc, layer);
     assert!(doc.begin_vector_item_drag(15.0, 10.0));
     for step in 1..=200 {
         doc.update_vector_item_drag(15.0 + step as f32 * 0.1, 10.0);
     }
     doc.end_vector_item_drag();
-    let after = item_bounds(&doc, layer, 0);
+    let after = item_bounds(&doc, layer);
     assert!(
         (after.0 - (before.0 + 20.0)).abs() < 1e-3,
         "200 frames of dragging land exactly where one 20px move would"
@@ -415,7 +385,7 @@ fn a_drag_stays_exact_over_many_frames() {
 #[test]
 fn a_selection_does_not_survive_its_layer() {
     let mut doc = doc_with_viewport();
-    let layer = vector_layer(&mut doc, vec![rect_item((10.0, 10.0), (40.0, 40.0))]);
+    let layer = vector_layer(&mut doc, rect_item((10.0, 10.0), (40.0, 40.0)));
     doc.set_active_layer(layer);
     assert!(doc.select_vector_item_at(20.0, 20.0));
     doc.remove_layer(layer);
@@ -426,7 +396,7 @@ fn a_selection_does_not_survive_its_layer() {
 #[test]
 fn moving_an_item_bumps_the_revision_so_the_board_rebuilds() {
     let mut doc = doc_with_viewport();
-    let layer = vector_layer(&mut doc, vec![rect_item((10.0, 10.0), (40.0, 40.0))]);
+    let layer = vector_layer(&mut doc, rect_item((10.0, 10.0), (40.0, 40.0)));
     doc.set_active_layer(layer);
     doc.select_vector_item_at(20.0, 20.0);
     let before = doc.vector_revision();
@@ -437,7 +407,7 @@ fn moving_an_item_bumps_the_revision_so_the_board_rebuilds() {
 #[test]
 fn the_selection_box_follows_the_layer_transform() {
     let mut doc = doc_with_viewport();
-    let layer = vector_layer(&mut doc, vec![rect_item((10.0, 10.0), (40.0, 40.0))]);
+    let layer = vector_layer(&mut doc, rect_item((10.0, 10.0), (40.0, 40.0)));
     doc.set_active_layer(layer);
     assert!(doc.select_vector_item_at(20.0, 20.0));
     let plain = doc.selected_vector_item_corners().unwrap();
@@ -455,7 +425,7 @@ fn the_selection_box_follows_the_layer_transform() {
 #[test]
 fn the_corner_handles_still_transform_the_whole_layer() {
     let mut doc = doc_with_viewport();
-    let layer = vector_layer(&mut doc, vec![rect_item((10.0, 10.0), (40.0, 40.0))]);
+    let layer = vector_layer(&mut doc, rect_item((10.0, 10.0), (40.0, 40.0)));
     doc.set_active_layer(layer);
     assert!(doc.enter_transform());
     let (_, corners, _) = doc.transform_handles().unwrap();
@@ -465,8 +435,11 @@ fn the_corner_handles_still_transform_the_whole_layer() {
     assert_eq!(doc.selected_vector_item(), None);
 }
 
-fn item_geometry(doc: &Document, layer: usize, item: usize) -> (f32, f32, f32, f32) {
-    doc.layers[layer].content.items().unwrap()[item]
+fn item_geometry(doc: &Document, layer: usize) -> (f32, f32, f32, f32) {
+    doc.layers[layer]
+        .content
+        .item()
+        .unwrap()
         .geometry_bounds()
         .unwrap()
 }
@@ -508,14 +481,9 @@ fn dragged_rect_bounds() -> (f32, f32, f32, f32) {
 #[test]
 fn a_corner_handle_resizes_the_item_not_the_layer() {
     let mut doc = doc_with_viewport();
-    let layer = vector_layer(
-        &mut doc,
-        vec![
-            rect_item((10.0, 10.0), (40.0, 40.0)),
-            rect_item((60.0, 60.0), (90.0, 90.0)),
-        ],
-    );
-    let untouched = item_bounds(&doc, layer, 1);
+    let layer = vector_layer(&mut doc, rect_item((10.0, 10.0), (40.0, 40.0)));
+    let other = vector_layer(&mut doc, rect_item((60.0, 60.0), (90.0, 90.0)));
+    let untouched = item_bounds(&doc, other);
     doc.set_active_layer(layer);
     assert!(doc.enter_transform());
     assert!(doc.select_vector_item_at(20.0, 20.0));
@@ -523,12 +491,12 @@ fn a_corner_handle_resizes_the_item_not_the_layer() {
     let corner = item_corner(&doc, 2);
     drag(&mut doc, corner, (corner.0 + 20.0, corner.1 + 20.0));
 
-    let resized = item_bounds(&doc, layer, 0);
+    let resized = item_bounds(&doc, layer);
     assert_bounds(resized, dragged_rect_bounds());
     assert_eq!(
-        item_bounds(&doc, layer, 1),
+        item_bounds(&doc, other),
         untouched,
-        "the other item in the layer is untouched"
+        "the other layer is untouched"
     );
     assert!(
         doc.layers[layer].transform.is_none(),
@@ -539,13 +507,7 @@ fn a_corner_handle_resizes_the_item_not_the_layer() {
 #[test]
 fn the_item_frame_takes_the_layer_frame_over_while_one_is_selected() {
     let mut doc = doc_with_viewport();
-    let layer = vector_layer(
-        &mut doc,
-        vec![
-            rect_item((10.0, 10.0), (40.0, 40.0)),
-            rect_item((60.0, 60.0), (90.0, 90.0)),
-        ],
-    );
+    let layer = vector_layer(&mut doc, rect_item((10.0, 10.0), (40.0, 40.0)));
     doc.set_active_layer(layer);
     assert!(doc.enter_transform());
     assert!(doc.transform_handles().is_some());
@@ -557,24 +519,18 @@ fn the_item_frame_takes_the_layer_frame_over_while_one_is_selected() {
     );
     assert!(doc.selected_vector_item_corners().is_some());
 
-    drag(&mut doc, (50.0, 50.0), (50.0, 50.0));
+    doc.clear_vector_selection();
     assert_eq!(doc.selected_vector_item(), None);
     assert!(
         doc.transform_handles().is_some(),
-        "clicking off the item hands the frame back to the layer"
+        "dropping the selection hands the frame back to the layer"
     );
 }
 
 #[test]
 fn a_layer_corner_is_not_clickable_while_an_item_holds_the_frame() {
     let mut doc = doc_with_viewport();
-    let layer = vector_layer(
-        &mut doc,
-        vec![
-            rect_item((10.0, 10.0), (40.0, 40.0)),
-            rect_item((60.0, 60.0), (140.0, 140.0)),
-        ],
-    );
+    let layer = vector_layer(&mut doc, rect_item((60.0, 60.0), (140.0, 140.0)));
     doc.set_active_layer(layer);
     assert!(doc.enter_transform());
     let layer_corner = doc.transform_handles().unwrap().1[0];
@@ -597,14 +553,14 @@ fn a_layer_corner_is_not_clickable_while_an_item_holds_the_frame() {
 fn shift_frees_the_two_axes_and_the_default_keeps_the_aspect() {
     let stretch = |shift: bool| {
         let mut doc = doc_with_viewport();
-        let layer = vector_layer(&mut doc, vec![rect_item((10.0, 10.0), (40.0, 20.0))]);
+        let layer = vector_layer(&mut doc, rect_item((10.0, 10.0), (40.0, 20.0)));
         doc.set_active_layer(layer);
         doc.enter_transform();
         assert!(doc.select_vector_item_at(25.0, 15.0));
         doc.set_shift_held(shift);
         let corner = item_corner(&doc, 2);
         drag(&mut doc, corner, (corner.0 + 30.0, corner.1 + 5.0));
-        let g = item_geometry(&doc, layer, 0);
+        let g = item_geometry(&doc, layer);
         (g.2 - g.0) / (g.3 - g.1)
     };
     assert!(
@@ -635,7 +591,7 @@ fn a_padded_item_resizes_to_exactly_where_the_pointer_is() {
         color: [0, 0, 0, 255],
         stroke_color: [0, 0, 0, 255],
     });
-    let layer = vector_layer(&mut doc, vec![arrow]);
+    let layer = vector_layer(&mut doc, arrow);
     doc.set_active_layer(layer);
     doc.enter_transform();
     assert!(doc.select_vector_item_at(75.0, 65.0));
@@ -645,7 +601,7 @@ fn a_padded_item_resizes_to_exactly_where_the_pointer_is() {
     let target = (corner.0 + 30.0, corner.1 + 30.0);
     drag(&mut doc, corner, target);
 
-    let landed = item_bounds(&doc, layer, 0);
+    let landed = item_bounds(&doc, layer);
     assert!((landed.2 - target.0).abs() < 0.01, "{landed:?}");
     assert!((landed.3 - target.1).abs() < 0.01, "{landed:?}");
 }
@@ -655,7 +611,7 @@ fn a_resize_leaves_the_ink_width_alone() {
     let mut doc = doc_with_viewport();
     let layer = vector_layer(
         &mut doc,
-        vec![path_item(vec![(20.0, 20.0), (60.0, 20.0), (60.0, 60.0)])],
+        path_item(vec![(20.0, 20.0), (60.0, 20.0), (60.0, 60.0)]),
     );
     doc.set_active_layer(layer);
     doc.enter_transform();
@@ -664,7 +620,7 @@ fn a_resize_leaves_the_ink_width_alone() {
     let corner = item_corner(&doc, 2);
     drag(&mut doc, corner, (corner.0 + 40.0, corner.1 + 40.0));
 
-    match &doc.layers[layer].content.items().unwrap()[0] {
+    match &doc.layers[layer].content.item().unwrap() {
         VectorItem::Path(p) => assert_eq!(p.stroke_width, 4.0),
         VectorItem::Shape(_) => panic!("expected a path item"),
     }
@@ -673,7 +629,7 @@ fn a_resize_leaves_the_ink_width_alone() {
 #[test]
 fn a_resize_stays_exact_over_many_frames() {
     let mut doc = doc_with_viewport();
-    let layer = vector_layer(&mut doc, vec![rect_item((10.0, 10.0), (40.0, 40.0))]);
+    let layer = vector_layer(&mut doc, rect_item((10.0, 10.0), (40.0, 40.0)));
     doc.set_active_layer(layer);
     doc.enter_transform();
     assert!(doc.select_vector_item_at(20.0, 20.0));
@@ -686,13 +642,13 @@ fn a_resize_stays_exact_over_many_frames() {
     }
     doc.end_vector_item_drag();
 
-    assert_bounds(item_bounds(&doc, layer, 0), dragged_rect_bounds());
+    assert_bounds(item_bounds(&doc, layer), dragged_rect_bounds());
 }
 
 #[test]
 fn a_resize_inside_a_scaled_layer_reads_the_pointer_through_the_layer() {
     let mut doc = doc_with_viewport();
-    let layer = vector_layer(&mut doc, vec![rect_item((10.0, 10.0), (40.0, 40.0))]);
+    let layer = vector_layer(&mut doc, rect_item((10.0, 10.0), (40.0, 40.0)));
     doc.layers[layer].transform = Some(LayerTransform {
         scale_x: 2.0,
         scale_y: 2.0,
@@ -712,7 +668,7 @@ fn a_resize_inside_a_scaled_layer_reads_the_pointer_through_the_layer() {
     drag(&mut doc, corner, (corner.0 + 20.0, corner.1 + 20.0));
 
     assert_bounds(
-        item_bounds(&doc, layer, 0),
+        item_bounds(&doc, layer),
         (-RECT_PAD, -RECT_PAD, 50.0 + RECT_PAD, 50.0 + RECT_PAD),
     );
 }
@@ -720,42 +676,37 @@ fn a_resize_inside_a_scaled_layer_reads_the_pointer_through_the_layer() {
 #[test]
 fn the_move_tool_resizes_from_the_same_corners() {
     let mut doc = doc_with_viewport();
-    let layer = vector_layer(&mut doc, vec![rect_item((10.0, 10.0), (40.0, 40.0))]);
+    let layer = vector_layer(&mut doc, rect_item((10.0, 10.0), (40.0, 40.0)));
     doc.set_active_layer(layer);
     doc.set_tool(Tool::Move);
     assert!(doc.select_vector_item_at(20.0, 20.0));
 
     let corner = item_corner(&doc, 2);
     drag(&mut doc, corner, (corner.0 + 20.0, corner.1 + 20.0));
-    assert_bounds(item_bounds(&doc, layer, 0), dragged_rect_bounds());
+    assert_bounds(item_bounds(&doc, layer), dragged_rect_bounds());
 }
 
 #[test]
 fn a_locked_layer_refuses_a_resize() {
     let mut doc = doc_with_viewport();
-    let layer = vector_layer(&mut doc, vec![rect_item((10.0, 10.0), (40.0, 40.0))]);
+    let layer = vector_layer(&mut doc, rect_item((10.0, 10.0), (40.0, 40.0)));
     doc.set_active_layer(layer);
     doc.enter_transform();
     assert!(doc.select_vector_item_at(20.0, 20.0));
     let corner = item_corner(&doc, 2);
-    let before = item_bounds(&doc, layer, 0);
+    let before = item_bounds(&doc, layer);
 
     doc.set_layer_locked(layer, true);
     assert!(!doc.begin_vector_item_drag(corner.0, corner.1));
-    assert_eq!(item_bounds(&doc, layer, 0), before);
+    assert_eq!(item_bounds(&doc, layer), before);
 }
 
 #[test]
 fn a_corner_handle_outranks_an_item_lying_under_it() {
     let mut doc = doc_with_viewport();
-    let layer = vector_layer(
-        &mut doc,
-        vec![
-            rect_item((10.0, 10.0), (40.0, 40.0)),
-            rect_item((36.0, 36.0), (90.0, 90.0)),
-        ],
-    );
-    doc.set_active_layer(layer);
+    let under = vector_layer(&mut doc, rect_item((10.0, 10.0), (40.0, 40.0)));
+    let _over = vector_layer(&mut doc, rect_item((36.0, 36.0), (90.0, 90.0)));
+    doc.set_active_layer(under);
     doc.enter_transform();
     assert!(doc.select_vector_item_at(15.0, 15.0));
     let pick = doc.selected_vector_item().unwrap();
@@ -772,7 +723,7 @@ fn a_corner_handle_outranks_an_item_lying_under_it() {
 #[test]
 fn resizing_an_item_bumps_the_revision_so_the_board_rebuilds() {
     let mut doc = doc_with_viewport();
-    let layer = vector_layer(&mut doc, vec![rect_item((10.0, 10.0), (40.0, 40.0))]);
+    let layer = vector_layer(&mut doc, rect_item((10.0, 10.0), (40.0, 40.0)));
     doc.set_active_layer(layer);
     doc.enter_transform();
     assert!(doc.select_vector_item_at(20.0, 20.0));

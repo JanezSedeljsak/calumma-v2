@@ -141,31 +141,16 @@ fn closed_unfilled_path_closes_the_last_segment_back_to_the_first() {
 }
 
 #[test]
-fn items_bounds_is_none_for_no_items() {
-    assert_eq!(items_bounds(&[]), None);
-}
-
-#[test]
-fn items_bounds_skips_items_that_have_no_bounds_of_their_own() {
+fn a_path_without_points_has_no_bounds() {
     let boundless = VectorItem::Path(open_path(vec![]));
-    let real = VectorItem::Shape(rect_shape((0.0, 0.0), (10.0, 10.0), true));
-    let (x0, y0, x1, y1) = items_bounds(&[boundless, real]).unwrap();
-    assert!(x0 <= 0.0 && y0 <= 0.0 && x1 >= 10.0 && y1 >= 10.0);
-}
-
-#[test]
-fn transformed_bounds_is_none_without_items() {
-    assert_eq!(transformed_bounds(&[], None), None);
+    assert_eq!(boundless.bounds(), None);
+    assert_eq!(transformed_bounds(&boundless, None), None);
 }
 
 #[test]
 fn transformed_bounds_matches_the_untransformed_bounds_with_no_transform() {
-    let items = [VectorItem::Shape(rect_shape(
-        (0.0, 0.0),
-        (10.0, 10.0),
-        true,
-    ))];
-    assert_eq!(transformed_bounds(&items, None), items_bounds(&items),);
+    let item = VectorItem::Shape(rect_shape((0.0, 0.0), (10.0, 10.0), true));
+    assert_eq!(transformed_bounds(&item, None), item.bounds());
 }
 
 #[test]
@@ -188,21 +173,17 @@ fn draws_on_gpu_is_false_only_for_a_closed_filled_path() {
 }
 
 #[test]
-fn rasterize_into_rgba_does_nothing_without_items() {
+fn rasterize_into_rgba_does_nothing_without_bounds() {
     let mut buf = vec![0u8; 20 * 20 * 4];
-    rasterize_into_rgba(&[], None, &mut buf, 20, 20);
+    rasterize_into_rgba(&VectorItem::Path(open_path(vec![])), None, &mut buf, 20, 20);
     assert!(buf.iter().all(|&b| b == 0));
 }
 
 #[test]
 fn rasterize_into_rgba_paints_the_shapes_footprint() {
-    let items = [VectorItem::Shape(rect_shape(
-        (5.0, 5.0),
-        (15.0, 15.0),
-        true,
-    ))];
+    let item = VectorItem::Shape(rect_shape((5.0, 5.0), (15.0, 15.0), true));
     let mut buf = vec![0u8; 20 * 20 * 4];
-    rasterize_into_rgba(&items, None, &mut buf, 20, 20);
+    rasterize_into_rgba(&item, None, &mut buf, 20, 20);
     let center = ((10 * 20 + 10) * 4) as usize;
     assert_eq!(&buf[center..center + 4], &[10, 20, 30, 255]);
     let outside = ((20 + 1) * 4) as usize;
@@ -211,17 +192,13 @@ fn rasterize_into_rgba_paints_the_shapes_footprint() {
 
 #[test]
 fn rasterize_into_rgba_applies_the_layer_transform() {
-    let items = [VectorItem::Shape(rect_shape(
-        (5.0, 5.0),
-        (15.0, 15.0),
-        true,
-    ))];
+    let item = VectorItem::Shape(rect_shape((5.0, 5.0), (15.0, 15.0), true));
     let transform = LayerTransform {
         offset_x: 10.0,
         ..LayerTransform::default()
     };
     let mut buf = vec![0u8; 40 * 20 * 4];
-    rasterize_into_rgba(&items, Some(transform), &mut buf, 40, 20);
+    rasterize_into_rgba(&item, Some(transform), &mut buf, 40, 20);
     let shifted = ((10 * 40 + 20) * 4) as usize; // (20, 10): inside the shifted [15,25) span
     assert_eq!(&buf[shifted..shifted + 4], &[10, 20, 30, 255]);
     let original = ((10 * 40 + 10) * 4) as usize; // (10, 10): no longer covered
@@ -359,23 +336,15 @@ fn item_svg_is_none_for_a_tool_with_no_svg_primitive() {
 
 #[test]
 fn svg_transform_attr_is_none_without_a_transform() {
-    let items = [VectorItem::Shape(rect_shape(
-        (0.0, 0.0),
-        (10.0, 10.0),
-        true,
-    ))];
-    assert_eq!(svg_transform_attr(&items, None), None);
+    let item = VectorItem::Shape(rect_shape((0.0, 0.0), (10.0, 10.0), true));
+    assert_eq!(svg_transform_attr(&item, None), None);
 }
 
 #[test]
 fn svg_transform_attr_is_none_for_an_identity_transform() {
-    let items = [VectorItem::Shape(rect_shape(
-        (0.0, 0.0),
-        (10.0, 10.0),
-        true,
-    ))];
+    let item = VectorItem::Shape(rect_shape((0.0, 0.0), (10.0, 10.0), true));
     assert_eq!(
-        svg_transform_attr(&items, Some(LayerTransform::default())),
+        svg_transform_attr(&item, Some(LayerTransform::default())),
         None
     );
 }
@@ -386,23 +355,22 @@ fn svg_transform_attr_is_none_without_items_to_pivot_around() {
         offset_x: 5.0,
         ..LayerTransform::default()
     };
-    assert_eq!(svg_transform_attr(&[], Some(transform)), None);
+    assert_eq!(
+        svg_transform_attr(&VectorItem::Path(open_path(vec![])), Some(transform)),
+        None
+    );
 }
 
 #[test]
 fn svg_transform_attr_emits_a_group_carrying_offset_and_rotation() {
-    let items = [VectorItem::Shape(rect_shape(
-        (0.0, 0.0),
-        (10.0, 10.0),
-        true,
-    ))];
+    let item = VectorItem::Shape(rect_shape((0.0, 0.0), (10.0, 10.0), true));
     let transform = LayerTransform {
         offset_x: 5.0,
         offset_y: 0.0,
         rotation: std::f32::consts::FRAC_PI_2,
         ..LayerTransform::default()
     };
-    let attr = svg_transform_attr(&items, Some(transform)).unwrap();
+    let attr = svg_transform_attr(&item, Some(transform)).unwrap();
     assert!(attr.starts_with("<g transform=\"translate(5 0)"));
     assert!(attr.contains("rotate(90)"));
 }
@@ -591,20 +559,12 @@ fn set_scaled_across_two_different_variants_takes_the_source() {
 /// to bail before it indexes a row that is not there.
 #[test]
 fn rasterize_into_rgba_skips_items_that_miss_the_canvas_entirely() {
-    let items = vec![VectorItem::Shape(rect_shape(
-        (500.0, 500.0),
-        (600.0, 600.0),
-        true,
-    ))];
+    let item = VectorItem::Shape(rect_shape((500.0, 500.0), (600.0, 600.0), true));
     let mut buf = vec![0u8; 32 * 32 * 4];
-    rasterize_into_rgba(&items, None, &mut buf, 32, 32);
+    rasterize_into_rgba(&item, None, &mut buf, 32, 32);
     assert!(buf.iter().all(|b| *b == 0), "nothing was painted");
 
-    let off_the_other_way = vec![VectorItem::Shape(rect_shape(
-        (-600.0, -600.0),
-        (-500.0, -500.0),
-        true,
-    ))];
+    let off_the_other_way = VectorItem::Shape(rect_shape((-600.0, -600.0), (-500.0, -500.0), true));
     rasterize_into_rgba(&off_the_other_way, None, &mut buf, 32, 32);
     assert!(buf.iter().all(|b| *b == 0));
 }
@@ -613,32 +573,28 @@ fn rasterize_into_rgba_skips_items_that_miss_the_canvas_entirely() {
 /// not produce a span the walk then tries to index.
 #[test]
 fn rasterize_into_rgba_survives_a_collapsed_layer_transform() {
-    let items = vec![VectorItem::Shape(rect_shape(
-        (4.0, 4.0),
-        (28.0, 28.0),
-        true,
-    ))];
+    let item = VectorItem::Shape(rect_shape((4.0, 4.0), (28.0, 28.0), true));
     let collapsed = LayerTransform {
         scale_x: 0.0,
         scale_y: 0.0,
         ..LayerTransform::default()
     };
     let mut buf = vec![0u8; 32 * 32 * 4];
-    rasterize_into_rgba(&items, Some(collapsed), &mut buf, 32, 32);
+    rasterize_into_rgba(&item, Some(collapsed), &mut buf, 32, 32);
     assert!(
         buf.iter().all(|b| *b == 0),
         "a layer scaled to nothing contributes nothing, and indexes nothing"
     );
 }
 
-/// A fully transparent item is skipped rather than blended, so an alpha-zero colour cannot
+/// A fully transparent item is skipped rather than blended, so an alpha-zero color cannot
 /// darken what is already under it.
 #[test]
 fn rasterize_into_rgba_leaves_the_buffer_alone_for_a_transparent_item() {
     let mut invisible = rect_shape((4.0, 4.0), (28.0, 28.0), true);
     invisible.color = [255, 0, 0, 0];
     let mut buf = vec![7u8; 32 * 32 * 4];
-    rasterize_into_rgba(&[VectorItem::Shape(invisible)], None, &mut buf, 32, 32);
+    rasterize_into_rgba(&VectorItem::Shape(invisible), None, &mut buf, 32, 32);
     assert!(buf.iter().all(|b| *b == 7), "nothing under it changed");
 }
 
@@ -679,7 +635,7 @@ fn a_bordered_shape_paints_the_fill_under_the_stroke() {
 }
 
 #[test]
-fn a_stroked_path_samples_its_stroke_colour_not_its_fill_colour() {
+fn a_stroked_path_samples_its_stroke_color_not_its_fill_color() {
     let mut path = open_path(vec![(0.0, 0.0), (20.0, 0.0)]);
     path.stroke_color = [9, 9, 9, 255];
     let [fill, stroke] = VectorItem::Path(path).samples(10.0, 0.0);

@@ -183,7 +183,7 @@ fn a_neutral_adjustment_lut_is_treated_as_no_adjustment_at_all() {
 }
 
 #[test]
-fn layer_opacity_scales_alpha_and_leaves_colour_untouched() {
+fn layer_opacity_scales_alpha_and_leaves_color_untouched() {
     let mut layer = paint_layer();
     layer.opacity = 0.5;
     let out = composited_tile_payload(&opaque_tile(), TileCoord { x: 0, y: 0 }, &layer, None, 64)
@@ -245,7 +245,7 @@ fn mask_lookups_outside_the_document_are_skipped_rather_than_wrapping() {
 }
 
 #[test]
-fn adjustments_rewrite_colour_but_never_alpha() {
+fn adjustments_rewrite_color_but_never_alpha() {
     let layer = paint_layer();
     let lut = AdjustmentLut::new(&Adjustments {
         brightness: -1.0,
@@ -313,7 +313,7 @@ fn motion_upload_skips_mip_chain() {
 }
 
 #[test]
-fn downsampling_a_flat_colour_tile_keeps_the_colour_at_every_level() {
+fn downsampling_a_flat_color_tile_keeps_the_color_at_every_level() {
     let mut base = vec![0u8; TILE_BYTES];
     for px in base.chunks_exact_mut(4) {
         px.copy_from_slice(&[10, 20, 30, 255]);
@@ -321,7 +321,7 @@ fn downsampling_a_flat_colour_tile_keeps_the_colour_at_every_level() {
     for level in tile_mip_chain(&base) {
         assert!(
             level.chunks_exact(4).all(|px| px == [10, 20, 30, 255]),
-            "a uniform tile should downsample to the same uniform colour"
+            "a uniform tile should downsample to the same uniform color"
         );
     }
 }
@@ -335,7 +335,7 @@ fn a_fully_transparent_tile_downsamples_to_fully_transparent() {
 }
 
 #[test]
-fn transparent_pixels_do_not_bleed_colour_into_an_opaque_neighbour() {
+fn transparent_pixels_do_not_bleed_color_into_an_opaque_neighbour() {
     // A vertical seam one pixel off the middle of a 2x2 downsample block, so the two source
     // texels that feed one destination pixel land on opposite sides of it: one fully
     // transparent, one opaque red.
@@ -357,7 +357,7 @@ fn transparent_pixels_do_not_bleed_colour_into_an_opaque_neighbour() {
     assert_eq!(
         &px[0..3],
         &[255, 0, 0],
-        "colour must come only from the opaque tap, not diluted by an invisible neighbour"
+        "color must come only from the opaque tap, not diluted by an invisible neighbour"
     );
     assert!(
         (110..145).contains(&px[3]),

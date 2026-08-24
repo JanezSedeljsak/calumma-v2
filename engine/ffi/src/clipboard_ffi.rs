@@ -152,6 +152,11 @@ pub extern "C" fn calm_tool_takes_tolerance(tool: u32) -> u8 {
 }
 
 #[no_mangle]
+pub extern "C" fn calm_tool_takes_eyedropper_radius(tool: u32) -> u8 {
+    Tool::from_u32(tool).is_some_and(Tool::takes_eyedropper_radius) as u8
+}
+
+#[no_mangle]
 pub extern "C" fn calm_tool_takes_brush(tool: u32) -> u8 {
     Tool::from_u32(tool).is_some_and(Tool::takes_brush) as u8
 }
@@ -249,6 +254,21 @@ pub extern "C" fn calm_tolerance_max() -> u8 {
 #[no_mangle]
 pub extern "C" fn calm_tolerance_default() -> u8 {
     calumma_core::limits::TOLERANCE_DEFAULT
+}
+
+#[no_mangle]
+pub extern "C" fn calm_eyedropper_radius_min() -> u32 {
+    calumma_core::limits::EYEDROPPER_RADIUS_MIN
+}
+
+#[no_mangle]
+pub extern "C" fn calm_eyedropper_radius_max() -> u32 {
+    calumma_core::limits::EYEDROPPER_RADIUS_MAX
+}
+
+#[no_mangle]
+pub extern "C" fn calm_eyedropper_radius_default() -> u32 {
+    calumma_core::limits::EYEDROPPER_RADIUS_DEFAULT
 }
 
 #[no_mangle]

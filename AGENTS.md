@@ -20,9 +20,9 @@ systems.
 
 **The engine owns all state and all compute. The shell owns nothing but UI knobs.**
 
-Shell knobs only: active tool, active brush, colour, brush size, ink opacity, flood tolerance,
-blur strength, shape fill, shape stroke and its colour, panel visibility, open tab ids, theme,
-**language**. Last-used shape and selection tools, tool taxonomy (`is_shape`,
+Shell knobs only: active tool, active brush, color, brush size, ink opacity, flood tolerance,
+blur strength, eyedropper sample size, shape fill, shape stroke and its color, panel visibility,
+open tab ids, theme, **language**. Last-used shape and selection tools, tool taxonomy (`is_shape`,
 brush-size, vector-mode visibility), hex RGB, copy/cut bytes, and workspace switch live in
 the engine. Coordinate math, clamping, pixels, camera, history, ops dispatch,
 and board visuals live in Rust/WGSL.
@@ -31,14 +31,37 @@ If you are about to do pan/zoom arithmetic, tile math, or layer-stack mutation i
 stop. Call an FFI method instead and keep the logic in `engine/`.
 
 This extends to product rules, not just math. Zoom steps, the log zoom curve, fit padding,
-the project-colour palette and which colour a new project gets, import limits, lossy export
+the project-color palette and which color a new project gets, import limits, lossy export
 quality — all core constants and core functions, reached over FFI. Swift renders what the
 engine reports (`CalmState.zoom_unit`, `CalmState.accent`, `CalmState.last_shape_tool`,
 `CalmState.is_fit`, `calm_palette_color`) and never recomputes it — the zoom pill's Fit
 button lights up on `is_fit` rather than on Swift comparing a zoom against a fit zoom.
 Theme **values** are the exception that proves the rule: they come from `design/tokens.json`
-and are pushed *into* the engine (`calm_engine_set_board_colors`) so no colour is ever
+and are pushed *into* the engine (`calm_engine_set_board_colors`) so no color is ever
 hardcoded in Rust or WGSL.
+
+---
+
+## STRICT SCOPE LIMITATIONS (Do Not Build)
+
+Calumma is a lightning-fast, **flat-hierarchy** engine. These limits are load-bearing, not
+backlog: they keep every tile 256 KB, every vector layer one GPU draw, and selection a
+layer index. Do not add the missing half. A plan that needs one of these is the wrong plan.
+
+- **Pure RGBA only.** Tiles are 256×256×4 bytes, straight 8-bit RGBA — `TILE_BYTES` is
+  262144 and stays that. No CMYK, no 16-bit, no 32-bit HDR, no ICC / display-P3 /
+  color-profile conversion in the engine. Color in is color stored. Convert at the
+  shell boundary on import if an OS decoder hands you something else, then forget it.
+- **No layer hierarchies.** The stack is a flat `Vec<Layer>`. No groups, no folders, no
+  clipping trees, no non-destructive **adjustment layers** (a layer that reads the
+  backdrop). Per-layer opacity, blend mode, mask, transform, and the existing
+  `Layer.adjustments` slot are the filter model; they do not grow a graph.
+- **Strict 1:1 vector layers.** `LayerContent::Vector(VectorItem)` — exactly one item,
+  never `Vec`. A second shape or stroke is a new layer. Clicking a vector selects the
+  layer; there is no `(layer, item)` address.
+- **Basic vector editing only.** Vectors are drawn, moved, and scaled. No node / point
+  editing, no bezier handles, no per-item rotation on the GPU, no boolean ops, no
+  multi-select / align / distribute of items inside a layer (there is only one item).
 
 ---
 
@@ -83,7 +106,7 @@ Swift shell  ← ffi only (via Calumma.h)
    or tool discriminant in Rust (`engine/core/src/shape.rs`). Build validates shaders via
    naga in `build.rs`.
 3. **Change chrome in Swift** using shared components in `UI/Components.swift` and tokens
-   from `Tokens.generated.swift`. Do not sprinkle one-off fonts/colours/padding.
+   from `Tokens.generated.swift`. Do not sprinkle one-off fonts/colors/padding.
 4. **After `design/tokens.json` edits:** `./manage.py tokens`.
 5. **After Rust engine edits that affect the app:** `./manage.py test` (and rebuild ffi /
    open Xcode via `./manage.py dev` when touching the shell).
@@ -104,7 +127,7 @@ The test is topical, not numeric: if you can name two things a file does, that i
 | Split when | Example |
 | --- | --- |
 | Two concerns share a file | `camera.rs` (zoom / pan / fit) vs `viewport.rs` (culling, device size, projection) |
-| A type's helpers outgrow it | `palette.rs` holds project colours + `BoardColors`, not `document.rs` |
+| A type's helpers outgrow it | `palette.rs` holds project colors + `BoardColors`, not `document.rs` |
 | A view file mixes screens | `ProjectSettingsCard.swift`, `PasteArtworkIsland.swift`, `WindowChrome.swift` split out of the screens that use them |
 
 Rust: prefer a new module in the same crate over a new crate; `impl` blocks may live in a
@@ -129,10 +152,10 @@ have to be read together.
   the image with the pixels in the first paint layer. Decode is ImageIO in the shell; the
   engine takes **premultiplied** RGBA over FFI and unpremultiplies in Rust
   (`calm_project_create_from_image`). Cap is `limits::IMPORT_MAX_SIDE`.
-- Every project carries an **accent colour** (`Document.accent`, `projects.accent` in SQLite).
+- Every project carries an **accent color** (`Document.accent`, `projects.accent` in SQLite).
   Core picks one from `palette::PROJECT_COLORS` at create time; the shell shows it on
   landing recents and project thumbs. Workspaces also carry an accent for their titlebar
-  chip. Rename / recolour projects via `calm_project_rename` / `calm_project_set_accent`;
+  chip. Rename / recolor projects via `calm_project_rename` / `calm_project_set_accent`;
   workspaces via `calm_workspace_rename` / `calm_workspace_set_accent`. The palette itself
   is document data served from core (`calm_palette_color`), not a theme token.
 - Editor: **titlebar workspace tabs** (right of traffic lights). Switch = save/close current
@@ -148,7 +171,7 @@ have to be read together.
 ```rust
 pub enum LayerContent {
     Raster(TileGrid),           // sparse 256×256 RGBA tiles
-    Vector(Vec<VectorItem>),    // parametric shapes + freehand paths, movable one by one
+    Vector(VectorItem),         // exactly one parametric shape or freehand path
     Text { run, tiles },        // editable run + a tile cache rebuilt from it
 }
 ```
@@ -238,44 +261,31 @@ pub enum LayerContent {
   `remove_layer` aren't either — structural layer-list/document edits sit
   outside the tile-diff history model on purpose, not as an oversight.
 - **Vector layers** (`core/src/vector.rs`, `core/src/vector_edit.rs`,
-  `core/src/vector_svg.rs`, `render/src/vector_draw.rs`) hold a `Vec<VectorItem>` — a parametric
-  `Shape` or a freehand `VectorPath` — and are filled by the shape tools and
-  the pen while `doc.vector_mode` is on (`calm_engine_set_vector_mode`). Two
-  rules keep them honest: **parameters are the storage**, so moving or
-  scaling an item edits the parameters and never resamples pixels; and the
-  **board and the exporter evaluate the same distance functions**
-  (`Shape::distance` in Rust, `shape_distance` in `board.wgsl`), so live view
-  and flatten agree.
-  - Live drawing is instanced: one `VectorShapeInstance` per parametric shape
-    (`vs_vector_shape`) and stroke segments per path, both replayed from a
-    single per-frame draw list built across the *whole* layer stack
-    (`Renderer::build_layer_draws`) so a vector layer composites in stack
-    order against tile layers instead of always under them.
-  - Individual items are selected, moved and **resized** inside `⌘T` transform mode
-    *and* with the Move tool (`Document::vector_item_at` / `begin_vector_item_drag`),
-    which outranks the whole-layer Move handle. Picking
-    treats a closed shape as solid (`VectorItem::pick_distance`) even when it
-    is drawn as an outline. Selection is `(layer, item)` and re-validated on
-    every read, so layer edits cannot leave it dangling.
-  - **One frame at a time.** A selected item takes the transform frame over: its own
-    corners are drawn and hit-tested, and the layer's corners and rotate handle stand
-    down (`transform_handles` returns `None`, `transform_handle_at` offers only the Move
-    quad) until the selection is dropped. Both frames share `corner_scale` and
-    `compose::box_overlay_instances`, so the layer and an item scale and look alike;
-    the item's frame carries no rotate stalk, because per-item rotation is deferred.
-  - A resize edits the *parameters* — `VectorItem::set_scaled` about the item's
-    `geometry_bounds` centre, re-derived from the pointer-down capture every frame like
-    `set_translated`. `ink_pad` (stroke half-width, plus an arrow's head) is subtracted
-    from both the box and the pointer's reach, because a resize deliberately leaves ink
-    weight alone; that is what lands the dragged corner exactly under the pointer instead
-    of a padding's distance behind it. The layer placement is captured at pointer-down —
-    a vector layer's pivot is its content's centre, so reading it live would let a resize
-    move the mapping it is being measured through.
-  - Known gaps: a *rotated* vector layer draws its parametric shapes
+  `core/src/vector_svg.rs`, `render/src/vector_draw.rs`) hold **exactly one**
+  `VectorItem` — a parametric `Shape` or a freehand `VectorPath`. A second
+  shape is a new layer (`Document::push_vector_item`). Two rules keep them
+  honest: **parameters are the storage**, so moving or scaling edits the
+  parameters and never resamples pixels; and the **board and the exporter
+  evaluate the same distance functions** (`Shape::distance` in Rust,
+  `shape_distance` in `board.wgsl`), so live view and flatten agree.
+  - Live drawing is one GPU draw per vector layer: a `VectorShapeInstance`
+    (`vs_vector_shape`) or a run of stroke segments, inserted into the
+    per-frame draw list (`Renderer::build_layer_draws`) in stack order
+    against tile layers. There is nothing to coalesce inside the layer.
+  - Clicking a vector selects **the layer** (`Document::vector_item_at`).
+    Move and `⌘T` then move / scale that layer's one item
+    (`begin_vector_item_drag`). Picking treats a closed shape as solid
+    (`VectorItem::pick_distance`) even when it is drawn as an outline.
+  - A resize edits the *parameters* — `VectorItem::set_scaled` about the
+    item's `geometry_bounds` centre, re-derived from the pointer-down
+    capture every frame like `set_translated`. `ink_pad` (stroke half-width,
+    plus an arrow's head) is subtracted from both the box and the pointer's
+    reach, because a resize deliberately leaves ink weight alone.
+  - Known gaps: a *rotated* vector layer draws its parametric shape
     unrotated live (the shader's SDFs are axis-aligned) while flatten/export
     stay correct; a filled closed freehand path has no GPU path at all and
     appears only once flattened; and item edits are not undo-tracked, the
-    same as adding an item or any other structural layer edit.
+    same as adding a layer or any other structural edit.
 - `Document.selection: Option<Selection>` (`engine/core/src/selection.rs`) is a **document**-
   level concept, not a layer or a mask — a rect/ellipse/lasso shape (parameters only, not a
   persisted `width×height` buffer) that scopes copy/cut/clear to a region instead of a whole
@@ -290,7 +300,7 @@ pub enum LayerContent {
   `Shape::region_distance` is the one SDF evaluation; `fill_distance` and `stroke_distance`
   are the two parts taken off it, either of which may be `None`. Painting a shape means
   blending both samples in order — `ink_sample` on the CPU, `shape_ink` in `board.wgsl`,
-  which composite to the same result. Colours never live on `Shape` (it also answers where a
+  which composite to the same result. colors never live on `Shape` (it also answers where a
   *selection* rectangle is): they come from `VectorShape`/`VectorPath`, or from
   `Document::shape_paint` for a raster commit.
 
@@ -377,10 +387,10 @@ word order can change per language. Do not use Swift `String(format:)` / `%@` fo
 ## Styling
 
 Visual tokens live in `design/tokens.json` → `./manage.py tokens` → `Tokens.*` (radius,
-space, type, window, colour, presets). Engine name constants live in `calumma_core::names`.
+space, type, window, color, presets). Engine name constants live in `calumma_core::names`.
 CLI paths/binaries live in `cli/constants.py`.
 
-Compose `CalmText`, `CalmField`, `CalmRow`, `calmSurface()`, `CalmChip`, etc. Theme colours
+Compose `CalmText`, `CalmField`, `CalmRow`, `calmSurface()`, `CalmChip`, etc. Theme colors
 via `@Environment(\.themeColors)`; copy via `@Environment(\.l10n)`.
 
 1. Islands (`CalmIsland`) carry a thin `Tokens.Light/Dark.islandBorder` stroke. Text/number
@@ -391,9 +401,9 @@ via `@Environment(\.themeColors)`; copy via `@Environment(\.l10n)`.
    sit apart with a minimal gap and window margin (`Tokens.Space.sm`), not flush.
 3. Custom Canvas/`AppIcon` drawings only — no icon packs / SF Symbols as product icons.
 4. Light and dark from tokens; push desk / grid / paper-border into the engine via
-   `calm_engine_set_board_colors`. Never hardcode a colour in `.rs` or `.wgsl`.
+   `calm_engine_set_board_colors`. Never hardcode a color in `.rs` or `.wgsl`.
 5. Filled controls; hover = luminance shift.
-6. Inline colour picker (`QuickColorPicker`) — overlapping swatches, HSB field, hue, hex.
+6. Inline color picker (`QuickColorPicker`) — overlapping swatches, HSB field, hue, hex.
 7. Nothing **drawn on the board** may be a SwiftUI view — paper, strokes, grid, and the
    layer hover outline are WGSL. Small chrome *controls* may float over the canvas island
    (the zoom pill sits bottom-trailing inside it); panels stay side-by-side islands.
@@ -412,7 +422,7 @@ not a place to pile micro-opts that muddy the code for single-digit percent gain
   brush stroke previews through an offscreen coverage target (`render/src/stroke_coverage.rs`)
   so its own overlapping segments union rather than compound — the same maximum the CPU
   accumulates in `core/src/coverage.rs`, so the stroke does not change on pointer-up. The blur
-  brush is the one exception to pointer-up commit: it has no colour to preview, so it paints
+  brush is the one exception to pointer-up commit: it has no color to preview, so it paints
   as the pointer moves.
 - Dirty-flag rendering; idle board submits nothing.
 - Tile pixels are `Arc` COW; history shares unchanged tiles (`Arc::make_mut` on write).
@@ -587,9 +597,10 @@ only as considered features, not by restoring old app code.
 **Shipped from this list:** Select All / Invert Selection (`⌘A` / `⌘⇧I`), shape fill *and*
 stroke together, workspaces (titlebar tabs + extend overlay), Eyedropper
 (`I` / tools island; samples the composited pixel under the cursor into the active ink
-swatch), vector layers (`V` / tool options; items composite in stack order and move
-and resize individually inside `⌘T` and with the Move tool), text layers (`T` / tools island),
+swatch), vector layers (`V` / tool options; one item per layer, moved and scaled with
+`⌘T` and the Move tool), text layers (`T` / tools island),
 Move tool (tools island; pick-and-drag without `⌘T`). See `FLOW.md`.
 
 **Now carrying plans** in `todo.md`: undo for the rest of the document (`01`),
-display cache (`07`), vector multi-select and align/distribute (`10`).
+display cache (`07`), strict-scope renderer wins (`02`). Vector multi-select (`10`)
+is closed by the 1:1 rule — do not build it.

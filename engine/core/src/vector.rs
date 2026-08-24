@@ -36,7 +36,7 @@ pub enum VectorItem {
 }
 
 impl VectorItem {
-    /// The item's fill colour — what a swatch of it would show. The stroke has its own
+    /// The item's fill color — what a swatch of it would show. The stroke has its own
     /// (`stroke_color`); painting the item goes through [`samples`](Self::samples), which
     /// reads both.
     pub fn color(&self) -> [u8; 4] {
@@ -107,8 +107,8 @@ impl VectorItem {
     }
 
     /// The item's paint at a point, fill first then stroke, each as a straight-alpha source
-    /// colour ready to blend over what is already there. Two entries rather than one because
-    /// the two parts have their own colours — this is the CPU twin of `board.wgsl`'s
+    /// color ready to blend over what is already there. Two entries rather than one because
+    /// the two parts have their own colors — this is the CPU twin of `board.wgsl`'s
     /// `shape_ink`, and the reason a flattened export shows the same border a live board does.
     pub fn samples(&self, x: f32, y: f32) -> [Option<[u8; 4]>; 2] {
         match self {
@@ -257,27 +257,11 @@ fn path_stroke_distance(path: &VectorPath, x: f32, y: f32) -> Option<f32> {
     Some(d - path.stroke_width * 0.5)
 }
 
-pub fn items_bounds(items: &[VectorItem]) -> Option<(f32, f32, f32, f32)> {
-    let mut acc: Option<(f32, f32, f32, f32)> = None;
-    for item in items {
-        let Some(b) = item.bounds() else {
-            continue;
-        };
-        acc = Some(match acc {
-            None => b,
-            Some(a) => (a.0.min(b.0), a.1.min(b.1), a.2.max(b.2), a.3.max(b.3)),
-        });
-    }
-    acc
-}
-
-/// The four corners of `items_bounds` after `transform`, used to find the document-space
-/// region a transformed vector layer can touch.
 pub fn transformed_bounds(
-    items: &[VectorItem],
+    item: &VectorItem,
     transform: Option<LayerTransform>,
 ) -> Option<(f32, f32, f32, f32)> {
-    let raw = items_bounds(items)?;
+    let raw = item.bounds()?;
     Some(crate::transform::transformed_aabb(raw, transform))
 }
 
@@ -303,18 +287,18 @@ pub fn draws_on_gpu(item: &VectorItem) -> bool {
 /// smaller bitmap. That is the whole point of keeping the parameters: scaling a vector up
 /// costs sharpness nothing.
 pub fn rasterize_into_rgba(
-    items: &[VectorItem],
+    item: &VectorItem,
     transform: Option<LayerTransform>,
     buf: &mut [u8],
     width: u32,
     height: u32,
 ) {
-    let Some(raw) = items_bounds(items) else {
+    let Some(raw) = item.bounds() else {
         return;
     };
     let transform = transform.filter(|t| !t.is_identity());
     let pivot = crate::transform::bounds_center(raw);
-    let Some(aabb) = transformed_bounds(items, transform) else {
+    let Some(aabb) = transformed_bounds(item, transform) else {
         return;
     };
     let Some((x0, y0, x1, y1)) = crate::transform::clipped_pixel_span(aabb, width, height) else {
@@ -336,12 +320,10 @@ pub fn rasterize_into_rgba(
                     None => (x as f32 + 0.5, y as f32 + 0.5),
                 };
                 let i = x * 4;
-                for item in items {
-                    for src in item.samples(lx, ly).into_iter().flatten() {
-                        let dst = [row[i], row[i + 1], row[i + 2], row[i + 3]];
-                        let out = crate::tile::blend_over(dst, src);
-                        row[i..i + 4].copy_from_slice(&out);
-                    }
+                for src in item.samples(lx, ly).into_iter().flatten() {
+                    let dst = [row[i], row[i + 1], row[i + 2], row[i + 3]];
+                    let out = crate::tile::blend_over(dst, src);
+                    row[i..i + 4].copy_from_slice(&out);
                 }
             }
         });

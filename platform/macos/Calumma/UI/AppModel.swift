@@ -31,7 +31,7 @@ final class AppModel: ObservableObject {
             }
         }
     }
-    /// The shape tools' outline colour, edited through the same picker as the ink but stored
+    /// The shape tools' outline color, edited through the same picker as the ink but stored
     /// apart from it — a rectangle can be white with a black border.
     @Published var strokeColor: Color = .black {
         didSet {
@@ -51,6 +51,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var eyedropperLoupe: EyedropperLoupe?
     private var editingHSB = false
     @Published var brushSize: Float = 3
+    @Published var eyedropperRadius: UInt32 = Engine.eyedropperRadiusDefault
     @Published var inkOpacity: Float = Engine.inkOpacityDefault
     @Published var blurStrength: Float = Engine.blurStrengthDefault
     @Published var tolerance: UInt8 = Engine.toleranceDefault
@@ -551,6 +552,7 @@ final class AppModel: ObservableObject {
         engine.setTool(tool)
         engine.setColor(color)
         engine.setBrush(brushSize)
+        engine.setEyedropperRadius(eyedropperRadius)
         engine.setInkOpacity(inkOpacity)
         engine.setBlurStrength(blurStrength)
         engine.setTolerance(tolerance)

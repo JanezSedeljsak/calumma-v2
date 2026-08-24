@@ -113,7 +113,7 @@ fn a_run_is_empty_only_when_it_has_neither_text_nor_composition() {
 }
 
 #[test]
-fn at_carries_the_origin_and_colour_and_defaults_the_rest() {
+fn at_carries_the_origin_and_color_and_defaults_the_rest() {
     let r = TextRun::at((12.0, -4.0), [1, 2, 3, 4]);
     assert_eq!(r.origin, (12.0, -4.0));
     assert_eq!(r.color, [1, 2, 3, 4]);

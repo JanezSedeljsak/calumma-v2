@@ -205,7 +205,7 @@ fn blur_clips_to_the_active_selection() {
 }
 
 /// Tiles hold straight alpha, so the kernel has to premultiply before it averages. Blurring a
-/// painted shape against transparency in straight space drags the edge toward whatever colour
+/// painted shape against transparency in straight space drags the edge toward whatever color
 /// the fully transparent pixels happen to carry — black, here, which shows as a dark halo.
 #[test]
 fn blurring_against_transparency_leaves_no_dark_halo() {
@@ -226,6 +226,6 @@ fn blurring_against_transparency_leaves_no_dark_halo() {
     assert!(edge[3] < 255, "alpha did soften at the edge");
     assert!(
         edge[0] > 200 && edge[1] > 200 && edge[2] > 200,
-        "but the colour stayed white instead of being pulled toward black: {edge:?}"
+        "but the color stayed white instead of being pulled toward black: {edge:?}"
     );
 }

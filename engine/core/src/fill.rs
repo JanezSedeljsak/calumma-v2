@@ -12,7 +12,7 @@ fn color_distance(a: [u8; 4], b: [u8; 4]) -> u32 {
 }
 
 /// The traversal itself: which pixels are contiguous with `(start_x, start_y)` and within
-/// `tolerance` of its colour.
+/// `tolerance` of its color.
 ///
 /// The bucket and the magic wand are the same walk with different endings — one paints what it
 /// reached, the other selects it — so they share this rather than each carrying a copy. A wand
@@ -20,7 +20,7 @@ fn color_distance(a: [u8; 4], b: [u8; 4]) -> u32 {
 /// a bug report, and two implementations is how that happens.
 ///
 /// Tolerance is squared Euclidean distance over all four channels, alpha included: a
-/// transparent region reads as its own colour, which is what makes the wand able to select the
+/// transparent region reads as its own color, which is what makes the wand able to select the
 /// empty space around a sketch.
 ///
 /// The two bitmaps double as the visited set this walk used to keep in a hash set — `visited`
@@ -72,7 +72,7 @@ pub fn flood_region(
 }
 
 /// Traverse, then paint what was reached. Returns the pixel count so the caller can tell a
-/// real edit from a click that landed on the fill colour already.
+/// real edit from a click that landed on the fill color already.
 #[allow(clippy::too_many_arguments)]
 pub fn flood_fill(
     tiles: &mut TileGrid,

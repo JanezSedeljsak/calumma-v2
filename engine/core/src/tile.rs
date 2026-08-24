@@ -196,7 +196,7 @@ fn uniform_tile(rgba: [u8; 4]) -> Vec<u8> {
     rgba.repeat(TILE_SIZE as usize * TILE_SIZE as usize)
 }
 
-/// The one colour a tile is painted in, or `None` the moment a second one turns up. A mixed
+/// The one color a tile is painted in, or `None` the moment a second one turns up. A mixed
 /// tile — every tile with actual drawing in it — bails within the first few pixels, so asking
 /// this of every tile on load costs nothing worth measuring, while the tiles it *does* answer
 /// for are exactly the ones worth sharing.
@@ -460,7 +460,7 @@ impl TileGrid {
     }
 
     /// Adopt a buffer that already exists instead of copying pixels into a fresh one. The
-    /// loader uses this to give every solid-colour tile in a project the *same* allocation,
+    /// loader uses this to give every solid-color tile in a project the *same* allocation,
     /// which is what keeps a reopened document as cheap as a freshly created one.
     pub fn insert_shared(&mut self, coord: TileCoord, pixels: Arc<Vec<u8>>) -> bool {
         if !self.tile_in_bounds(coord) || pixels.len() != TILE_BYTES {
@@ -579,7 +579,7 @@ impl TileGrid {
         tiles_touched
     }
 
-    /// Fill a region with one colour, sharing a **single** allocation across every tile the
+    /// Fill a region with one color, sharing a **single** allocation across every tile the
     /// region covers whole. Tiles are copy-on-write `Arc`s, so the first stroke on any of them
     /// forks its own copy and nothing downstream can tell the difference — the sharing shows
     /// up only in memory, where a 4096×4096 white Paper layer costs one 256 KB tile instead of

@@ -2,6 +2,30 @@ use calumma_core::layer::*;
 use calumma_core::tile::*;
 use calumma_core::vector::{VectorItem, VectorPath};
 
+fn unbound_item() -> VectorItem {
+    VectorItem::Path(VectorPath {
+        points: vec![],
+        closed: false,
+        fill: false,
+        stroke: true,
+        color: [0, 0, 0, 255],
+        stroke_color: [0, 0, 0, 255],
+        stroke_width: 1.0,
+    })
+}
+
+fn stroked_path() -> VectorItem {
+    VectorItem::Path(VectorPath {
+        points: vec![(10.0, 20.0), (30.0, 40.0)],
+        closed: false,
+        fill: false,
+        stroke: true,
+        color: [0, 0, 0, 255],
+        stroke_color: [0, 0, 0, 255],
+        stroke_width: 2.0,
+    })
+}
+
 #[test]
 fn new_layer_is_raster() {
     let layer = Layer::new("L", 64, 64);
@@ -11,18 +35,7 @@ fn new_layer_is_raster() {
 
 #[test]
 fn vector_layer_reports_path_bounds() {
-    let layer = Layer::vector(
-        "V",
-        vec![VectorItem::Path(VectorPath {
-            points: vec![(10.0, 20.0), (30.0, 40.0)],
-            closed: false,
-            fill: false,
-            stroke: true,
-            color: [0, 0, 0, 255],
-            stroke_color: [0, 0, 0, 255],
-            stroke_width: 2.0,
-        })],
-    );
+    let layer = Layer::vector("V", stroked_path());
     assert!(layer.content.is_vector());
     // A stroked path covers half its width on every side, plus a pixel of antialiasing.
     assert_eq!(layer.content_bounds(), Some((8.0, 18.0, 32.0, 42.0)));
@@ -30,7 +43,7 @@ fn vector_layer_reports_path_bounds() {
 
 #[test]
 fn vector_layer_tile_access_is_none_not_panic() {
-    let mut layer = Layer::vector("V", Vec::new());
+    let mut layer = Layer::vector("V", unbound_item());
     assert!(layer.tiles().is_none());
     assert!(layer.tiles_mut().is_none());
     assert!(layer.dirty_tiles(DirtyChannel::Render).is_none());
@@ -109,13 +122,13 @@ fn text_layer() -> Layer {
 #[test]
 fn each_content_accessor_is_none_for_the_variants_it_is_not_about() {
     let raster = Layer::new("R", 64, 64);
-    assert!(raster.content.items().is_none());
+    assert!(raster.content.item().is_none());
     assert!(raster.content.run().is_none());
     assert!(raster.tiles().is_some());
 
-    let mut vector = Layer::vector("V", Vec::new());
-    assert!(vector.content.items().is_some());
-    assert!(vector.content.items_mut().is_some());
+    let mut vector = Layer::vector("V", unbound_item());
+    assert!(vector.content.item().is_some());
+    assert!(vector.content.item_mut().is_some());
     assert!(vector.content.run().is_none());
     assert!(vector.content.run_mut().is_none());
     assert!(vector.tiles().is_none());
@@ -123,8 +136,8 @@ fn each_content_accessor_is_none_for_the_variants_it_is_not_about() {
     let mut text = text_layer();
     assert!(text.content.run().is_some());
     assert!(text.content.run_mut().is_some());
-    assert!(text.content.items().is_none());
-    assert!(text.content.items_mut().is_none());
+    assert!(text.content.item().is_none());
+    assert!(text.content.item_mut().is_none());
     assert!(
         text.tiles().is_some(),
         "a text layer has pixels, they are just a cache"
@@ -143,7 +156,7 @@ fn set_run_is_refused_by_a_layer_that_holds_no_run() {
     assert!(!raster.set_run(Default::default()));
     assert!(raster.content.is_raster(), "it is still a raster layer");
 
-    let mut vector = Layer::vector("V", Vec::new());
+    let mut vector = Layer::vector("V", unbound_item());
     assert!(!vector.set_run(Default::default()));
     assert!(vector.content.is_vector());
 }
@@ -153,25 +166,14 @@ fn set_run_is_refused_by_a_layer_that_holds_no_run() {
 /// something for a layer of shapes.
 #[test]
 fn a_vector_layers_tight_bounds_fall_back_to_its_parametric_box() {
-    let layer = Layer::vector(
-        "V",
-        vec![VectorItem::Path(VectorPath {
-            points: vec![(10.0, 20.0), (30.0, 40.0)],
-            closed: false,
-            fill: false,
-            stroke: true,
-            color: [0, 0, 0, 255],
-            stroke_color: [0, 0, 0, 255],
-            stroke_width: 2.0,
-        })],
-    );
+    let layer = Layer::vector("V", stroked_path());
     assert_eq!(layer.opaque_pixel_bounds(), layer.content_bounds());
 }
 
 #[test]
 fn an_empty_layer_of_any_kind_has_no_bounds() {
     assert_eq!(Layer::new("R", 64, 64).content_bounds(), None);
-    assert_eq!(Layer::vector("V", Vec::new()).content_bounds(), None);
+    assert_eq!(Layer::vector("V", unbound_item()).content_bounds(), None);
 }
 
 /// Blend modes cross the FFI as plain integers, so an unknown value has to come back as

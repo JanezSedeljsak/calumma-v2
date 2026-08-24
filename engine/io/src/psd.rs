@@ -108,7 +108,7 @@ pub fn encode(doc: &Document) -> Vec<u8> {
         .par_iter()
         .enumerate()
         .filter_map(|(index, layer)| {
-            if layer.tiles().is_none() && layer.content.items().is_none() {
+            if layer.tiles().is_none() && layer.content.item().is_none() {
                 return None;
             }
             let (w, h, rgba) = doc.layer_rgba(index)?;
@@ -229,19 +229,21 @@ mod tests {
         let flat = encode(&doc);
         let flat_layers = read_u16(&flat, 42);
 
-        let index = doc.add_vector_layer("Shapes");
-        *doc.layers[index].content.items_mut().unwrap() = vec![VectorItem::Shape(VectorShape {
-            shape: Shape {
-                tool: Tool::Rect,
-                start: (4.0, 4.0),
-                end: (20.0, 20.0),
-                half_width: 1.0,
-                fill: true,
-                stroke: false,
-            },
-            color: [255, 0, 0, 255],
-            stroke_color: [255, 0, 0, 255],
-        })];
+        doc.add_vector_layer(
+            "Shapes",
+            VectorItem::Shape(VectorShape {
+                shape: Shape {
+                    tool: Tool::Rect,
+                    start: (4.0, 4.0),
+                    end: (20.0, 20.0),
+                    half_width: 1.0,
+                    fill: true,
+                    stroke: false,
+                },
+                color: [255, 0, 0, 255],
+                stroke_color: [255, 0, 0, 255],
+            }),
+        );
         let bytes = encode(&doc);
         assert_eq!(read_u16(&bytes, 42), flat_layers + 1);
         assert!(bytes.len() > flat.len());

@@ -196,7 +196,7 @@ fn unpremultiply_restores_straight_alpha() {
     let mut rgba = vec![
         128, 64, 32, 128, // half-transparent grey
         10, 20, 30, 255, // opaque stays untouched
-        9, 9, 9, 0, // fully transparent clears colour
+        9, 9, 9, 0, // fully transparent clears color
     ];
     unpremultiply_rgba(&mut rgba);
     assert_eq!(&rgba[0..4], &[255, 128, 64, 128]);

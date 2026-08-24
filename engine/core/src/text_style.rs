@@ -76,8 +76,8 @@ impl Document {
         self.with_run(|run, _| run.align = align);
     }
 
-    /// Called whenever the ink colour changes: a text layer being typed into recolours live,
-    /// exactly like re-picking a colour with a text object selected in Photoshop.
+    /// Called whenever the ink color changes: a text layer being typed into recolors live,
+    /// exactly like re-picking a color with a text object selected in Photoshop.
     pub fn apply_ink_to_text(&mut self) {
         let color = self.color;
         self.text_style.color = color;

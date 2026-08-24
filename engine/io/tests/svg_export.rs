@@ -48,13 +48,11 @@ fn rect(start: (f32, f32), end: (f32, f32), color: [u8; 4]) -> VectorItem {
     })
 }
 
-fn vector_layer(doc: &mut Document, items: Vec<VectorItem>) -> usize {
-    let index = doc.add_vector_layer("Shapes");
-    *doc.layers[index].content.items_mut().unwrap() = items;
-    index
+fn vector_layer(doc: &mut Document, item: VectorItem) -> usize {
+    doc.add_vector_layer("Shapes", item)
 }
 
-/// Ten by ten of *varying* pixels: a layer painted in one flat colour leaves as a `<rect>`
+/// Ten by ten of *varying* pixels: a layer painted in one flat color leaves as a `<rect>`
 /// instead (see `a_flat_fill_is_a_rect_not_a_bitmap`), so a bitmap test needs ink that a
 /// rectangle cannot stand in for.
 fn painted_layer(doc: &mut Document, color: [u8; 4]) -> usize {
@@ -155,10 +153,7 @@ fn the_document_svg_carries_the_board_size() {
 #[test]
 fn a_vector_layer_stays_geometry() {
     let mut doc = doc();
-    vector_layer(
-        &mut doc,
-        vec![rect((8.0, 8.0), (40.0, 24.0), [255, 0, 0, 255])],
-    );
+    vector_layer(&mut doc, rect((8.0, 8.0), (40.0, 24.0), [255, 0, 0, 255]));
     let svg = encode_svg(&doc);
     assert!(
         svg.contains("<rect x=\"8\" y=\"8\" width=\"32\" height=\"16\""),
@@ -173,7 +168,7 @@ fn a_vector_layer_stays_geometry() {
 
 /// Paper is a document-sized field of solid white, and a flood fill makes more of them.
 /// Embedding those as base64 would dwarf the rest of the file, so a layer painted in exactly
-/// one colour leaves as a rectangle.
+/// one color leaves as a rectangle.
 #[test]
 fn a_flat_fill_is_a_rect_not_a_bitmap() {
     let mut doc = doc();
@@ -268,10 +263,7 @@ fn a_layer_name_cannot_break_the_markup() {
 fn a_mixed_document_keeps_both_halves() {
     let mut doc = doc();
     painted_layer(&mut doc, [0, 255, 0, 255]);
-    vector_layer(
-        &mut doc,
-        vec![rect((2.0, 2.0), (20.0, 20.0), [0, 0, 255, 255])],
-    );
+    vector_layer(&mut doc, rect((2.0, 2.0), (20.0, 20.0), [0, 0, 255, 255]));
     let svg = encode_svg(&doc);
     assert!(svg.contains("<rect "), "vector layer stays vector");
     assert!(

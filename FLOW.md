@@ -93,7 +93,7 @@ while Landing is showing — that screen already *is* the create form.
 ```
 
 - **Workspace tabs:** one shared titlebar capsule (tabs + `+` + extend); switch = save →
-  open that workspace’s active project. Accent dot opens rename / recolour for the
+  open that workspace’s active project. Accent dot opens rename / recolor for the
   **workspace**. Open tab order is persisted across launches.
 - **+:** new project into the active workspace.
 - **Extend:** scrollable overlay of **open** workspace tabs with cached project thumbnails
@@ -107,9 +107,10 @@ while Landing is showing — that screen already *is* the create form.
   the shape tools that enclose an area — Rect, Ellipse, Triangle, Pentagon; Line and Arrow are
   outlines with nothing inside them and offer neither — a **brush**
   sub-picker for the Pen, font / size / alignment for Text, brush size for the tools that use
-  one — not Fill, Eyedropper, Text, Move, or the selection tools — ink opacity for Pen, shapes,
+  one — not Fill, Eyedropper, Text, Move, or the selection tools — sample size for the
+  Eyedropper (a circle under the cursor shows the area) — ink opacity for Pen, shapes,
   and Fill, strength for Blur, and tolerance for Fill and the magic wand; Eraser stays a full
-  erase); a colour section (two equal quick swatches — plus a third **stroke** swatch while a
+  erase); a color section (two equal quick swatches — plus a third **stroke** swatch while a
   fill-capable shape tool is active — a saturation/brightness field, a hue strip, and a hex
   field, all three editing whichever swatch is ringed); the AI menu pinned at the bottom.
 - **Board:** Metal surface clipped as its own island. Desk fill, grid, and the paper border
@@ -133,9 +134,9 @@ while Landing is showing — that screen already *is* the create form.
 - **Fit** fills the canvas island rather than leaving a wide margin — opening a project or
   pressing `0` puts the paper edge-to-edge in the viewport.
 
-### Projects and workspaces: colour and name
+### Projects and workspaces: color and name
 
-New projects get a random colour from the core palette (`palette::PROJECT_COLORS`), stored
+New projects get a random color from the core palette (`palette::PROJECT_COLORS`), stored
 on the project row. It appears as the recents thumbnail tint (and as the artwork preview when
 a cached thumb exists). Workspaces carry their own accent on the titlebar chip; the chip’s
 dot opens a card with the workspace name and palette. Open workspace tabs persist across
@@ -151,7 +152,7 @@ launches.
 | Move a layer or vector item | Select **Move** on the tools island, then drag painted pixels or a vector item. Arrow keys nudge the same target. `⌘T` is still scale/rotate for a *layer*. |
 | Resize a vector item | Select it (Move or `⌘T`), then drag a corner of its box. Proportional by default, **Shift** frees the two axes — the same polarity as a `⌘T` corner. |
 | Constrain a shape | Hold **Shift** while dragging **Rect** or **Ellipse** (and their marquee twins) for a square or circle. Corner-anchored, and the *longer* side wins, so the shape fills the drag. Press or release Shift mid-drag and the board snaps immediately — the clamp is derived from the raw drag on every frame, not baked in on the last mouse-move. Line, Arrow, Triangle and Pentagon are unconstrained (angle snap and regular-polygon lock are different clamps, not built). |
-| Live preview | GPU stroke/shape while dragging; CPU commit into sparse tiles on pointer-up. A shape previews its fill *and* its border in their own colours, because `board.wgsl`'s `shape_ink` composites the same two parts, in the same order, that the commit does. |
+| Live preview | GPU stroke/shape while dragging; CPU commit into sparse tiles on pointer-up. A shape previews its fill *and* its border in their own colors, because `board.wgsl`'s `shape_ink` composites the same two parts, in the same order, that the commit does. |
 | Pan | Scroll wheel / trackpad scroll; **middle-button drag**; Space-drag; or Option/⌘-drag |
 | Zoom | Pinch; ⌘ + scroll; Option + scroll; or ⌘`=` / ⌘`-` |
 | Fit to view | `0`, the zoom pill, or Board menu — fills the canvas island. The pill's Fit button reads as *on* (accent) while the board is already fitted and *off* (muted) once you pan or zoom away, the same way a selected tool reads. |
@@ -219,13 +220,13 @@ live in `engine/core`; the actual PNG/JPEG/WebP/AVIF **encode** happens in the s
 - **Eraser hardness** (Eraser only). The eraser carries an edge but not a whole brush: grain
   and flow describe ink going down, and it is taking ink away, so it gets one **Hardness**
   slider instead of the picker. 100% is the complete, hard-edged erase Calumma has always had
-  and stays the default; lower feathers the rim, thinning alpha and leaving the colour it is
+  and stays the default; lower feathers the rim, thinning alpha and leaving the color it is
   eating away at intact rather than cutting a stamped-out hole. Coverage maxes within a
   stroke, so one soft pass leaves the rim standing and going over it again eats further in —
   the same build-up the brushes have, which is how a real soft eraser behaves.
 
 - **Blur tool** (`U`, tools island). Softens the pixels already on the active layer instead
-  of adding colour to them — the first tool that reads the destination and writes a function
+  of adding color to them — the first tool that reads the destination and writes a function
   of it. Size is the usual brush slider; **Strength** is how far each pixel travels toward
   its blurred neighbourhood (0 is a genuine no-op and leaves no undo entry). The kernel is
   three sliding box passes stacked as a Gaussian approximation, run over a snapshot of the
@@ -233,7 +234,7 @@ live in `engine/core`; the actual PNG/JPEG/WebP/AVIF **encode** happens in the s
   what turns a blur into a directional smear. It works in premultiplied alpha, so softening
   the edge of a painted shape against transparency does not pull it toward black.
   Unlike every other stamp tool, blur commits **as the pointer moves** rather than at
-  pointer-up: there is no colour to preview on the GPU, so the board shows the real result
+  pointer-up: there is no color to preview on the GPU, so the board shows the real result
   and the tiles it touches accumulate into one snapshot — the whole stroke is still a single
   `⌘Z`. Dragging back over the same pixels on a later event blurs them further, the way a
   real brush builds up. It clips to the active selection (like the bucket) and refuses a text
@@ -251,7 +252,7 @@ live in `engine/core`; the actual PNG/JPEG/WebP/AVIF **encode** happens in the s
 - Options while the tool is active: **font** (a searchable list of every installed system
   family, each row previewed in its own face), **size**, **line height**, **bold**,
   **italic**, **alignment**. Bold and italic are offered only for families that really ship
-  that cut — the engine reports which faces it loaded. Changing the ink colour recolours the
+  that cut — the engine reports which faces it loaded. Changing the ink color recolors the
   run you are typing. The style you last used carries to the next text layer.
 - All keyboard input goes through `NSTextInputClient`, so dead keys, the accent popover, the
   emoji picker and IME compositions all work; a composition in progress is drawn at the
@@ -269,33 +270,30 @@ live in `engine/core`; the actual PNG/JPEG/WebP/AVIF **encode** happens in the s
 
 - Raster layers (sparse 256×256 tiles); optional non-destructive mask.
 - **Text layers** carry an editable run plus a tile cache rebuilt from it (see Text above).
-- **Vector layers** carry a *list* of items — one per shape drawn or stroke pen-drawn with
-  **vector mode** on (`V`, or the toggle under the tool options). Items land in the active
-  layer when it is already a vector layer, otherwise a new one is created and becomes active,
-  so a drawing accumulates in one layer instead of one layer per shape. The layer row shows
-  how many items it holds. Nothing is rasterized: the board evaluates the same
+- **Vector layers** carry **exactly one** item — one shape drawn or one stroke pen-drawn with
+  **vector mode** on (`V`, or the toggle under the tool options). Each commit is a new layer;
+  clicking a vector selects that layer. Nothing is rasterized: the board evaluates the same
   distance functions the exporter does, so a vector stays sharp at any zoom, exports as real
   SVG primitives (`<rect>`, `<ellipse>`, `<path>`, …) and is stored as parameters.
-- **Fill and stroke together.** A shape carries an independent fill colour and outline
-  colour, either of which may be off and both of which may be on — a white rectangle with a
+- **Fill and stroke together.** A shape carries an independent fill color and outline
+  color, either of which may be off and both of which may be on — a white rectangle with a
   black 2px border is one shape, not two. `Shape` keeps the two as flags (`fill`, `stroke`)
   over one region SDF, so the interior and the annulus come off a single distance evaluation
-  per pixel; the colours live on whatever is painting (`VectorShape.color` /
+  per pixel; the colors live on whatever is painting (`VectorShape.color` /
   `stroke_color`, or the document's ink and stroke swatches for a raster commit). Stroke
   width shares the brush-size slider. Line and Arrow have no interior, so they ignore both
-  flags and keep the one ink colour they always had — resolved once in
+  flags and keep the one ink color they always had — resolved once in
   `Document::shape_paint`, so nothing downstream has to re-ask which tool it is dealing with.
   SVG export now writes real `fill` *and* `stroke`/`stroke-width` attributes rather than one
   or the other, which is a closer match to the format than the either/or it replaced.
-  A shape saved before this carries its one colour into whichever half it was being used as
+  A shape saved before this carries its one color into whichever half it was being used as
   (`vector_blob` v3; v1 and v2 blobs still load).
-- **Moving one item:** with the Move tool or inside `⌘T`, click an item to select it and drag
-  it on its own; the arrow keys nudge it and `⌫` deletes it. A click on an outlined shape
+- **Moving a vector:** with the Move tool or inside `⌘T`, click a vector to select its layer
+  and drag it; the arrow keys nudge it and `⌫` deletes the layer. A click on an outlined shape
   counts anywhere inside it, not only on the outline. Item edits are not undo-tracked,
-  matching the rest of the vector path (adding an item isn't either).
-- **Resizing one item:** selecting an item puts a box with four corner handles around it, and
-  dragging one resizes *that item* — Figma's rule, and the reason a rectangle you meant to
-  make narrower no longer takes every other shape in the layer with it. Proportional by
+  matching the rest of the vector path (adding a vector layer isn't either).
+- **Resizing a vector:** selecting it puts a box with four corner handles around it, and
+  dragging one resizes *that item* — the layer's one shape. Proportional by
   default, **Shift** frees the two axes. It edits the shape's parameters, so nothing is
   resampled and the result is as sharp at any size as the original. Stroke weight stays put,
   the way it does in Figma and Photoshop.
@@ -397,10 +395,10 @@ simplification: the outline briefly stops rendering while a *different* tool's l
 preview is on-screen at the same time, reappearing once that drag ends.
 
 - **Magic wand** (`W`, in the select flyout). Click a pixel of the **active layer** and the
-  contiguous region within **Tolerance** of its colour becomes the selection. Reading the
+  contiguous region within **Tolerance** of its color becomes the selection. Reading the
   active layer rather than the composite is deliberate: clicking a sketch's background
   selects that layer's background, not the Paper showing through it. Alpha counts toward
-  the tolerance, so the empty space around a drawing is selectable like any colour.
+  the tolerance, so the empty space around a drawing is selectable like any color.
   Tolerance is **one knob shared with the bucket**, because they are one traversal
   (`fill::flood_region`) — a wand that disagreed with the bucket about what "contiguous"
   means would be a bug report. Unlike the bucket, the wand ignores any existing selection
@@ -414,7 +412,7 @@ preview is on-screen at the same time, reappearing once that drag ends.
   at commit and merged into maximal runs, so the render pass never walks the bitmap however
   large the selection is. A click that reaches nothing leaves the selection untouched — an
   empty-but-present selection would silently clip every later stroke to nothing.
-  Not in scope for this pass: global (non-contiguous) select-by-colour, feathering,
+  Not in scope for this pass: global (non-contiguous) select-by-color, feathering,
   grow/shrink, and sample-all-layers.
 
 | Shortcut | Action |
@@ -457,7 +455,7 @@ ImageIO can only *read* PSD, not write it; RAW/uncompressed channel data, not Pa
 vector layer reaches the PSD rasterized, because this writer emits raster channels only and
 losing the artwork would be worse. SVG (`engine/io/src/svg.rs`) keeps a vector layer as real
 `<rect>` / `<ellipse>` / `<path>` geometry and gives every other layer an embedded PNG
-`<image>`, cropped to its ink; a layer painted in a single colour (Paper, a flood fill) becomes
+`<image>`, cropped to its ink; a layer painted in a single color (Paper, a flood fill) becomes
 a `<rect>` instead, so a flat page costs bytes rather than megabytes of base64. Layer opacity
 and blend mode ride along as `opacity` / `mix-blend-mode`; masks and adjustments are baked into
 the pixels, as everywhere else. Text exports as pixels, not `<text>` — the font it needs is not
@@ -511,8 +509,8 @@ panel toggles are shell knobs.
 | `⌘⇧Z` | Redo (Edit menu) | Yes (Ps redo varies by platform; we use ⌘⇧Z) |
 | `⌘,` | Settings (theme / language) | macOS prefs |
 | `⌘⌥L` | Toggle layers panel | Close to Ps panels |
-| `0` | Fit to view — the zoom pill's Fit button carries the accent colour while the board
-  is already fitted (`CalmState.is_fit`, answered by `Camera::is_fit`) and the muted colour
+| `0` | Fit to view — the zoom pill's Fit button carries the accent color while the board
+  is already fitted (`CalmState.is_fit`, answered by `Camera::is_fit`) and the muted color
   otherwise, the same on/off reading a selected tool has | Ps `⌘0` is fit; bare `0` is our fit today |
 
 ### Tools and brush
@@ -528,11 +526,11 @@ panel toggles are shell knobs.
 | `5` | Pentagon (side count; was `Y`) | — |
 | `T` | Text — click the board to type inline | Yes |
 | `E` | Eraser | Yes |
-| `W` | Magic wand (select by colour) | Yes (Ps Magic Wand) |
+| `W` | Magic wand (select by color) | Yes (Ps Magic Wand) |
 | `U` | Blur | Ps puts Blur on `R`, which is Rectangle here, and `B` stays reserved for the brush family |
 | `M` | Selection (rect / ellipse / lasso — last one used) | Yes (Ps Marquee) |
 | `G` | Fill (bucket) | Yes (Ps Paint Bucket, shared with Gradient) |
-| `I` | Eyedropper (live sample under the cursor into the active primary/secondary swatch; loupe shows colour + hex) | Yes |
+| `I` | Eyedropper (live sample under the cursor into the active primary/secondary swatch; loupe shows color + hex; a circle shows the sample area) | Yes |
 | Move tool | Tools island — click a layer's pixels or a vector item to drag it; a selected item's corners resize it. Empty space is a no-op. `⌘T` stays for scale/rotate of the whole layer. `V` stays vector mode. | Ps `V` is Move; that key is already vector mode here |
 | `⌘T` | Transform mode on the active layer (scale/rotate/move); click another layer's pixels to retarget, click empty space or `Esc` to exit | Yes (Ps Free Transform) |
 | `⌥⌘B` `⌥⌘C` `⌥⌘V` `⌥⌘S` `⌥⌘G` | Increase brightness / contrast / vibrance / saturation / gamma on the active layer by one `limits::ADJUSTMENT_NUDGE_STEP` | — (Ps has no per-filter chord) |
@@ -541,10 +539,10 @@ panel toggles are shell knobs.
 | `F` | Toggle shape fill | — |
 | `S` | Toggle shape stroke — independent of fill, so a shape can carry both | — (Figma has both by default) |
 | `⇧` (held while dragging) | Constrain Rect / Ellipse to a square / circle; on a `⌘T` or vector-item corner, free the two axes instead | Yes (Ps shape constrain) |
-| `V` | Toggle vector mode (shapes and the pen commit as editable vector items) | — (Ps has no equivalent; closest is Figma's vector tools) |
+| `V` | Toggle vector mode (shapes and the pen each commit as their own vector layer) | — (Ps has no equivalent; closest is Figma's vector tools) |
 | `←` `→` `↑` `↓` | Nudge the selected vector item, or the active layer when Move / `⌘T` is the current tool | Yes (Ps nudge) |
 | `⌫` / `⌦` | Delete the selected vector item (falls back to the old clear behaviour when none is selected) | Yes |
-| `[` / `]` | Brush smaller / larger | Yes |
+| `[` / `]` | Brush smaller / larger; with the Eyedropper, sample size | Yes |
 
 ### Layers / view
 

@@ -25,7 +25,7 @@ pub struct BrushProfile {
     /// Below that, the falloff reaches `radius * (1 - hardness)` back in from the edge, so a
     /// soft brush covers the same width as a hard one and the size slider keeps its meaning.
     pub hardness: f32,
-    /// Ink laid down by one pass, as a fraction of the chosen colour's alpha. What makes a
+    /// Ink laid down by one pass, as a fraction of the chosen color's alpha. What makes a
     /// marker translucent and an airbrush a whisper without touching the opacity slider.
     pub flow: f32,
     /// How deeply the paper's tooth bites into coverage. Zero for the smooth brushes.
@@ -79,7 +79,7 @@ impl Brush {
 
 /// Ink at one pixel, given its distance from the stroke's centre line.
 ///
-/// The result is *coverage*, not colour: a stroke accumulates the maximum coverage any part
+/// The result is *coverage*, not color: a stroke accumulates the maximum coverage any part
 /// of it reaches at each pixel and is composited once, so passing over a pixel twice within
 /// one stroke cannot darken it. That is the whole reason a low-opacity stroke reads as one
 /// even wash instead of a string of overlapping blobs.

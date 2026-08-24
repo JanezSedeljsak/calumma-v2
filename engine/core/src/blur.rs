@@ -1,5 +1,5 @@
 //! The blur brush's kernel — the first tool that *reads* the destination and writes a
-//! function of it, rather than writing a colour over it.
+//! function of it, rather than writing a color over it.
 //!
 //! Two things make this different from every other stamp:
 //!
@@ -10,7 +10,7 @@
 //!    snapshot.
 //! 2. **Alpha.** Tiles hold straight (unpremultiplied) alpha — `blend_over` weights each
 //!    channel by alpha, which only makes sense if the stored channels are not already
-//!    weighted. Averaging straight colour would pull the edge of a painted region toward
+//!    weighted. Averaging straight color would pull the edge of a painted region toward
 //!    whatever garbage sits in the fully transparent pixels around it, so the kernel works in
 //!    premultiplied space and converts back on the way out.
 

@@ -166,7 +166,7 @@ Disabled while live-editing (stroke, shape preview, text caret).
 ## PanCache (scroll-blit)
 
 Phase 1 of `plans/07-display-cache.md`. `PanCache` (`engine/render/src/framebuffer.rs`) is two
-fixed-role offscreen colour textures, sized to the viewport — not an alternating ping-pong:
+fixed-role offscreen color textures, sized to the viewport — not an alternating ping-pong:
 
 - **`reference`** holds the last full content redraw (every visible tile/vector draw call,
   scissored to the paper rect) and the exact pan/zoom/dpr/scissor it was drawn at. It is only
@@ -242,7 +242,7 @@ Two passes now, both inside the same `wgpu::CommandEncoder`:
 4. **Overlays** — live stroke, selection, transform handles, text caret (skipped on
    camera-only frames)
 
-Clear colour is black; desk fills the viewport.
+Clear color is black; desk fills the viewport.
 
 ---
 
@@ -290,7 +290,7 @@ phases 0 and 1 of that plan. The rest of Tier B, and Tiers C/D, remain open.
 | B1 | **Framebuffer scroll / ping-pong blit** on camera-only pan: copy previous frame with offset, redraw only exposed strips | Biggest Figma-like win; pan becomes ~2 blits + edge repair | No — additive | **Shipped** — `PanCache`, see above |
 | B1b | **Reuse the `PanCache` reference on an overlay-only frame** — no shift, no redraw, the board pass samples it directly | Brush strokes, shape drags and the caret stop recompositing the visible stack per frame | No — additive | **Shipped** — `reference_matches` / `reuse_reference` |
 | B2 | **Move autosave off render path** — background thread or timer, never inside `calm_engine_render` | Removes mutex + SQLite from frame budget | No | **Shipped** — `engine/ffi/src/autosave.rs` |
-| B3 | **Skip desk clear on camera-only** — `LoadOp::Load` + blit previous colour attachment, or persistent desk texture | Saves full-screen fill | No | Open |
+| B3 | **Skip desk clear on camera-only** — `LoadOp::Load` + blit previous color attachment, or persistent desk texture | Saves full-screen fill | No | Open |
 | B4 | **Lower overview enter to ~32** once prewarm is reliable | More 8K pans hit overview sooner | Slight quality trade at mid zoom | Open |
 | B5 | **R8 or RGB10A2 desk** if banding acceptable | Less memory bandwidth on fill | Minor visual | Open |
 
@@ -299,7 +299,7 @@ phases 0 and 1 of that plan. The rest of Tier B, and Tiers C/D, remain open.
 | # | Change | Effect | Throw away? |
 | --- | --- | --- | --- |
 | C1 | **Separate tile path entirely during motion** — never rebuild draw list; only uniforms | Already partial; finish by skipping `visible_needs_gpu_upload` checks on camera-only | No |
-| C2 | **GPU compositing for adjustments** instead of CPU bake per dirty tile | Slider drag on large docs | CPU path for export stays |
+| C2 | **GPU compositing for adjustments** instead of CPU bake per dirty tile — `plans/23-gpu-adjustment-evaluation.md` | Slider drag on large docs | CPU path for export stays |
 | C3 | **Layer flatten cache** — one GPU texture per layer at rest, patch on edit | Fewer instances when many layers | Memory ↑ |
 | C4 | **Display link driven render** — `isPaused = true`, draw only when dirty | No idle 120 Hz wakeups | Requires explicit `setNeedsDisplay` wiring |
 | C5 | **Read zoom pill from atomics** — `flushPendingState` only when chrome visible | Less Swift publish per frame | No |

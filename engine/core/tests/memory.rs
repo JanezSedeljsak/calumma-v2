@@ -18,7 +18,7 @@ fn a_uniform_fill_shares_one_allocation_across_every_whole_tile() {
     let other = grid.get(TileCoord { x: 3, y: 5 }).unwrap();
     assert!(
         std::sync::Arc::ptr_eq(first, other),
-        "whole tiles of one colour share their pixels"
+        "whole tiles of one color share their pixels"
     );
     assert_eq!(grid.get_pixel(900, 900), [255, 255, 255, 255]);
 }
@@ -102,12 +102,9 @@ fn history_only_charges_for_what_it_alone_holds() {
 #[test]
 fn masks_and_vectors_are_counted_where_they_live() {
     let mut doc = doc();
-    let index = doc.add_vector_layer("V");
-    doc.layers[index]
-        .content
-        .items_mut()
-        .unwrap()
-        .push(VectorItem::Path(VectorPath {
+    doc.add_vector_layer(
+        "V",
+        VectorItem::Path(VectorPath {
             points: vec![(0.0, 0.0); 100],
             closed: false,
             fill: false,
@@ -115,7 +112,8 @@ fn masks_and_vectors_are_counted_where_they_live() {
             stroke: true,
             stroke_color: [0, 0, 0, 255],
             stroke_width: 2.0,
-        }));
+        }),
+    );
     doc.layers[0].set_mask(Some(vec![255; (SIDE * SIDE) as usize]));
 
     let report = document_memory(&doc);

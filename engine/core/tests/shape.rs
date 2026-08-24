@@ -188,6 +188,9 @@ fn the_tool_taxonomy_says_which_knobs_a_tool_carries() {
     assert!(Tool::Blur.takes_blur_strength());
     assert!(!Tool::Pen.takes_blur_strength());
 
+    assert!(Tool::Eyedropper.takes_eyedropper_radius());
+    assert!(!Tool::Pen.takes_eyedropper_radius());
+
     assert!(Tool::Pen.previews_stroke() && Tool::SelectLasso.previews_stroke());
     assert!(
         !Tool::Blur.previews_stroke(),
@@ -198,8 +201,8 @@ fn the_tool_taxonomy_says_which_knobs_a_tool_carries() {
     assert!(!Tool::Rect.is_stroke());
 }
 
-/// Blur reads pixels rather than laying colour down, so it takes neither ink opacity nor a
-/// colour — but it does take a size, like every other dragged tool.
+/// Blur reads pixels rather than laying color down, so it takes neither ink opacity nor a
+/// color — but it does take a size, like every other dragged tool.
 #[test]
 fn a_tool_that_reads_pixels_takes_a_size_but_no_ink() {
     assert!(Tool::Blur.takes_brush_size());

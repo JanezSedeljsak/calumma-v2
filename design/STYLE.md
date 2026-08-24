@@ -15,7 +15,7 @@ bits use `{0}`, `{1}`, … filled by `l10n.formatKey(...)`. Visual tokens stay i
 
 1. **Islands and two kinds of control carry a thin border.** Every `CalmIsland` (tools,
    canvas, layers, Paste Artwork, the zoom pill) is stroked with `color.islandBorder` —
-   a subtle, low-alpha tint of the theme's edge colour, not a hard line.
+   a subtle, low-alpha tint of the theme's edge color, not a hard line.
 
    **Text/number inputs and list rows** also carry a border, at `color.controlBorder`:
    a separate, stronger token, because `islandBorder` is tuned for a large rounded
@@ -32,7 +32,7 @@ bits use `{0}`, `{1}`, … filled by `l10n.formatKey(...)`. Visual tokens stay i
    generalised — "borders on everything" is the outcome this rule exists to prevent.
 
    Also allowed: a **section separator inside an island** (`CalmDivider`, used by the
-   tools panel to split tools / tool options / colour / AI): a 1px `color.islandBorder`
+   tools panel to split tools / tool options / color / AI): a 1px `color.islandBorder`
    rule. It separates *stacked sections of one island*, which contrast alone cannot do —
    it is not an outline around a control.
 2. **Corner radius.** Controls use `radius.sm` / `radius.md`. Islands use `radius.island`
@@ -43,18 +43,18 @@ bits use `{0}`, `{1}`, … filled by `l10n.formatKey(...)`. Visual tokens stay i
    against each other. Prefer one radius family; do not mix pill and sharp.
 3. **Custom SVG icons only.** Ship icons from `design/icons/`. No icon packs.
    SF Symbols are not the product icon set (system chrome may still use them).
-4. **Light and dark.** Every colour has a light and dark value in tokens. The
+4. **Light and dark.** Every color has a light and dark value in tokens. The
    shell toggles theme; the engine receives dark-paper via FFI.
 5. **Filled controls.** Inputs, buttons, and cards are solid surfaces. Hover and
    active states shift luminance, not outline weight.
-6. **Inline colour picker.** `QuickColorPicker` is the only colour control: two equal
+6. **Inline color picker.** `QuickColorPicker` is the only color control: two equal
    quick swatches side by side, a saturation/brightness gradient field, a hue slider, and
    a hex field. Both edit the *active* quick swatch. Hue/saturation/brightness are held as
-   model state (`AppModel.hsb`), not re-derived from the RGB colour on every read —
+   model state (`AppModel.hsb`), not re-derived from the RGB color on every read —
    deriving loses the hue as soon as saturation or brightness hits zero, which makes a
    gradient field jump under the cursor.
 7. **Canvas stays Rust.** Anything *drawn on the board* (paper, strokes, shapes, desk grid,
-   layer hover outline) is WGSL — the shell never paints board content. Board colours are
+   layer hover outline) is WGSL — the shell never paints board content. Board colors are
    pushed from tokens into the engine, never hardcoded in the shader. Small chrome controls
    may float over the canvas island (zoom pill, bottom-trailing); panels do not.
 
@@ -81,7 +81,7 @@ Desk, desk grid, and paper border are the only tokens the engine consumes. They 
 shell → `calm_engine_set_board_colors` → `PaperUniforms` → `board.wgsl`. Changing the board
 look is a `tokens.json` edit, never a shader edit.
 
-Project accent colours are **not** in this table — they are document data owned by
+Project accent colors are **not** in this table — they are document data owned by
 `calumma_core::palette`, served to the shell through `calm_palette_color`.
 
 ## Type
@@ -108,7 +108,7 @@ the gradient brightens, no outline.
 Project tabs sit in a **compact window titlebar** (right of the traffic lights) inside one
 shared capsule with the `+` / extend controls. Selected tab is a soft highlight clipped to
 that capsule — not a second nested pill. Each tab carries its workspace accent dot;
-clicking the dot opens the rename / recolour card. Top padding is tight (`space.xs`) so the
+clicking the dot opens the rename / recolor card. Top padding is tight (`space.xs`) so the
 board starts close under the titlebar.
 
 Tools, canvas, and layers are three **rounded, bordered islands**, full-height, separated

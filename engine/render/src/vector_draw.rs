@@ -2,15 +2,13 @@ use crate::compose::{box_overlay_instances, brush_params, rgba_unit, StrokeInsta
 use bytemuck::{Pod, Zeroable};
 use calumma_core::tile::DocRect;
 use calumma_core::transform::bounds_center;
-use calumma_core::vector::items_bounds;
 use calumma_core::{
     BrushProfile, Document, Layer, LayerTransform, VectorItem, VectorPath, VectorShape,
 };
 
 /// One parametric vector item, as an instance the board shader re-evaluates per pixel. The
 /// same fields `Shape::distance` takes, so live board and flattened export read one geometry
-/// definition — and one instance per item means a layer of shapes is a single draw call
-/// rather than a uniform rewrite and a render pass each.
+/// definition — one instance, one draw.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, Pod, Zeroable)]
 pub struct VectorShapeInstance {
@@ -31,7 +29,7 @@ pub type VectorPlacement = Option<((f32, f32), LayerTransform)>;
 
 pub fn vector_placement(layer: &Layer) -> VectorPlacement {
     let t = layer.transform.filter(|t| !t.is_identity())?;
-    let raw = items_bounds(layer.content.items()?)?;
+    let raw = layer.content.item()?.bounds()?;
     Some((bounds_center(raw), t))
 }
 

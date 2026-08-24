@@ -80,7 +80,7 @@ struct QuickColorPicker: View {
     }
 
     /// The two ink swatches, plus the stroke swatch for the tools that enclose an area. All
-    /// three point the field, hue slider and hex box at a different colour — the picker only
+    /// three point the field, hue slider and hex box at a different color — the picker only
     /// ever edits one thing, and the ring says which.
     private var swatches: some View {
         HStack(spacing: Tokens.Space.xs) {

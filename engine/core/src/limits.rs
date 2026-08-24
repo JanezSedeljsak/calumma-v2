@@ -12,7 +12,7 @@ pub const BRUSH_SIZE_MIN: f32 = 1.0;
 pub const BRUSH_SIZE_MAX: f32 = 96.0;
 pub const BRUSH_SIZE_DEFAULT: f32 = 3.0;
 
-/// Blur brush strength: how far each pixel is carried from its own colour toward its blurred
+/// Blur brush strength: how far each pixel is carried from its own color toward its blurred
 /// neighbourhood. 0 is a no-op and 1 replaces the pixel outright, so the whole useful range is
 /// on the slider and a light touch stays available — the brush is meant to be built up in
 /// passes, the way a soft round is.
@@ -135,9 +135,18 @@ pub const ALPHA_MAX: u32 = u8::MAX as u32;
 pub const ALPHA_ROUND_BIAS: u32 = ALPHA_MAX / 2;
 
 pub const DEFAULT_INK: [u8; 4] = [26, 26, 26, ALPHA_OPAQUE];
-/// The colour Paper is created with. One constant, because both project creation and canvas
+/// The color Paper is created with. One constant, because both project creation and canvas
 /// growth fill with it and a mismatch would show as a seam.
 pub const PAPER_WHITE: [u8; 4] = [255, 255, 255, ALPHA_OPAQUE];
+
+/// The eyedropper's sample area, as a radius in document pixels around the clicked pixel —
+/// pixels whose centre is within `radius + 0.5` of the clicked centre are averaged, so 0 is
+/// a single pixel and the default 1 is the 3×3 disc every image editor offers. Averaging is
+/// the useful default because a single pixel off an antialiased edge or a grainy brush is
+/// almost never the color the eye reads there.
+pub const EYEDROPPER_RADIUS_MIN: u32 = 0;
+pub const EYEDROPPER_RADIUS_MAX: u32 = 15;
+pub const EYEDROPPER_RADIUS_DEFAULT: u32 = 1;
 
 /// How close a neighbouring pixel has to be to the one clicked for the flood to keep going.
 /// Compared as squared Euclidean distance over all four channels — see `fill::flood_region`.

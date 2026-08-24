@@ -87,6 +87,7 @@ enum CalmTool: UInt32 {
     var showsVectorMode: Bool { calm_tool_shows_vector_mode(rawValue) != 0 }
     var takesBlurStrength: Bool { calm_tool_takes_blur_strength(rawValue) != 0 }
     var takesTolerance: Bool { calm_tool_takes_tolerance(rawValue) != 0 }
+    var takesEyedropperRadius: Bool { calm_tool_takes_eyedropper_radius(rawValue) != 0 }
     var takesBrush: Bool { calm_tool_takes_brush(rawValue) != 0 }
     var takesEraserHardness: Bool { calm_tool_takes_eraser_hardness(rawValue) != 0 }
 }
@@ -240,6 +241,9 @@ final class Engine: ObservableObject, @unchecked Sendable {
     static var toleranceMin: UInt8 { calm_tolerance_min() }
     static var toleranceMax: UInt8 { calm_tolerance_max() }
     static var toleranceDefault: UInt8 { calm_tolerance_default() }
+    static var eyedropperRadiusMin: UInt32 { calm_eyedropper_radius_min() }
+    static var eyedropperRadiusMax: UInt32 { calm_eyedropper_radius_max() }
+    static var eyedropperRadiusDefault: UInt32 { calm_eyedropper_radius_default() }
 
     init() {
         ptr = calm_engine_new(nil)
@@ -523,6 +527,11 @@ final class Engine: ObservableObject, @unchecked Sendable {
     func setTolerance(_ tolerance: UInt8) {
         guard let ptr else { return }
         _ = calm_engine_set_tolerance(ptr, tolerance)
+    }
+
+    func setEyedropperRadius(_ radius: UInt32) {
+        guard let ptr else { return }
+        _ = calm_engine_set_eyedropper_radius(ptr, radius)
     }
 
     func setBrush(_ brush: CalmBrush) {

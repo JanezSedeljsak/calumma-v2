@@ -60,7 +60,7 @@ fn a_zero_cap_still_produces_at_least_one_pixel() {
 }
 
 #[test]
-fn an_overview_of_the_default_board_is_the_paper_colour() {
+fn an_overview_of_the_default_board_is_the_paper_color() {
     let (w, h, rgba) = doc(64, 64).composite_overview(8);
     for y in 0..h {
         for x in 0..w {
@@ -146,19 +146,21 @@ fn an_overview_honours_layer_opacity_and_blend_mode() {
 fn an_overview_includes_a_vector_layer() {
     let mut d = doc(64, 64);
     d.remove_layer(0);
-    let layer = d.add_vector_layer("V");
-    *d.layers[layer].content.items_mut().unwrap() = vec![VectorItem::Shape(VectorShape {
-        shape: Shape {
-            tool: Tool::Rect,
-            start: (0.0, 0.0),
-            end: (63.0, 63.0),
-            half_width: 1.0,
-            fill: true,
-            stroke: false,
-        },
-        color: [0, 200, 0, 255],
-        stroke_color: [0, 200, 0, 255],
-    })];
+    d.add_vector_layer(
+        "V",
+        VectorItem::Shape(VectorShape {
+            shape: Shape {
+                tool: Tool::Rect,
+                start: (0.0, 0.0),
+                end: (63.0, 63.0),
+                half_width: 1.0,
+                fill: true,
+                stroke: false,
+            },
+            color: [0, 200, 0, 255],
+            stroke_color: [0, 200, 0, 255],
+        }),
+    );
 
     let (w, _, rgba) = d.composite_overview(8);
     let px = pixel(&rgba, w, 4, 4);
@@ -225,19 +227,21 @@ fn a_mixed_document_reads_the_same_through_the_overview_and_the_flatten() {
     let ink = d.active_layer;
     paint(&mut d, ink, DocRect::new(4, 4, 30, 30), [200, 30, 40, 255]);
 
-    let shapes = d.add_vector_layer("V");
-    *d.layers[shapes].content.items_mut().unwrap() = vec![VectorItem::Shape(VectorShape {
-        shape: Shape {
-            tool: Tool::Rect,
-            start: (20.0, 20.0),
-            end: (58.0, 58.0),
-            half_width: 1.0,
-            fill: true,
-            stroke: false,
-        },
-        color: [0, 90, 220, 255],
-        stroke_color: [0, 90, 220, 255],
-    })];
+    d.add_vector_layer(
+        "V",
+        VectorItem::Shape(VectorShape {
+            shape: Shape {
+                tool: Tool::Rect,
+                start: (20.0, 20.0),
+                end: (58.0, 58.0),
+                half_width: 1.0,
+                fill: true,
+                stroke: false,
+            },
+            color: [0, 90, 220, 255],
+            stroke_color: [0, 90, 220, 255],
+        }),
+    );
 
     let (w, h, overview) = d.composite_overview(64);
     let (fw, fh, full) = d.composite_rgba();
@@ -261,6 +265,6 @@ fn a_mixed_document_reads_the_same_through_the_overview_and_the_flatten() {
     assert_eq!(
         pixel(&overview, w, 40, 50),
         [0, 90, 220, 255],
-        "and the shape really is the colour it was drawn in"
+        "and the shape really is the color it was drawn in"
     );
 }

@@ -119,8 +119,22 @@ extension AppModel {
         case "s": stroke.toggle()
         case "v": vectorMode.toggle()
         case "0": engine.fit()
-        case "[": brushSize = max(1, brushSize - 1)
-        case "]": brushSize = min(96, brushSize + 1)
+        case "[":
+            if tool.takesEyedropperRadius {
+                if eyedropperRadius > Engine.eyedropperRadiusMin {
+                    eyedropperRadius -= 1
+                }
+            } else {
+                brushSize = max(1, brushSize - 1)
+            }
+        case "]":
+            if tool.takesEyedropperRadius {
+                if eyedropperRadius < Engine.eyedropperRadiusMax {
+                    eyedropperRadius += 1
+                }
+            } else {
+                brushSize = min(96, brushSize + 1)
+            }
         default: return false
         }
         return true

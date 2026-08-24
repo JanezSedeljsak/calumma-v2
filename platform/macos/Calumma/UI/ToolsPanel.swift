@@ -86,133 +86,176 @@ struct ToolsPanel: View {
         }
     }
 
-    @ViewBuilder
     private var toolOptions: some View {
         VStack(spacing: Tokens.Space.sm) {
-            if app.tool.isShape {
-                Self.iconGrid {
-                    shapePick(.line)
-                    shapePick(.rect)
-                    shapePick(.ellipse)
-                    shapePick(.arrow)
-                    shapePick(.triangle)
-                    shapePick(.pentagon)
-                }
-            }
+            pickerOptions
+            sliderOptions
+            toggleOptions
+        }
+    }
 
-            if app.tool.isSelection {
-                Self.iconGrid {
-                    selectPick(.selectRect)
-                    selectPick(.selectEllipse)
-                    selectPick(.selectLasso)
-                    selectPick(.magicWand)
-                }
+    @ViewBuilder
+    private var pickerOptions: some View {
+        if app.tool.isShape {
+            Self.iconGrid {
+                shapePick(.line)
+                shapePick(.rect)
+                shapePick(.ellipse)
+                shapePick(.arrow)
+                shapePick(.triangle)
+                shapePick(.pentagon)
             }
-
-            if app.tool == .text {
-                TextOptions()
+        }
+        if app.tool.isSelection {
+            Self.iconGrid {
+                selectPick(.selectRect)
+                selectPick(.selectEllipse)
+                selectPick(.selectLasso)
+                selectPick(.magicWand)
             }
-
-            if showsBrush {
-                Self.iconGrid {
-                    brushPick(.pen)
-                    brushPick(.marker)
-                    brushPick(.crayon)
-                    brushPick(.airbrush)
-                }
+        }
+        if app.tool == .text {
+            TextOptions()
+        }
+        if showsBrush {
+            Self.iconGrid {
+                brushPick(.pen)
+                brushPick(.marker)
+                brushPick(.crayon)
+                brushPick(.airbrush)
             }
+        }
+    }
 
-            if showsBrushSize {
-                VStack(spacing: 2) {
-                    HStack {
-                        CalmText.muted(l10n.brushSize)
-                        Spacer()
-                        CalmText.muted("\(Int(app.brushSize))", mono: true)
-                    }
-                    Slider(value: Binding(
-                        get: { Double(app.brushSize) },
-                        set: { app.brushSize = Float($0) }
-                    ), in: 1...96)
+    @ViewBuilder
+    private var sliderOptions: some View {
+        if showsBrushSize {
+            optionSlider(
+                label: l10n.brushSize,
+                valueText: "\(Int(app.brushSize))",
+                value: Binding(
+                    get: { Double(app.brushSize) },
+                    set: { app.brushSize = Float($0) }
+                ),
+                range: 1...96
+            )
+        }
+        if showsInkOpacity {
+            optionSlider(
+                label: l10n.inkOpacity,
+                valueText: "\(Int((app.inkOpacity * 100).rounded()))",
+                value: Binding(
+                    get: { Double(app.inkOpacity) },
+                    set: { app.inkOpacity = Float($0) }
+                ),
+                range: Double(Engine.inkOpacityMin)...Double(Engine.inkOpacityMax)
+            )
+        }
+        if showsEraserHardness {
+            optionSlider(
+                label: l10n.eraserHardness,
+                valueText: "\(Int((app.eraserHardness * 100).rounded()))",
+                value: Binding(
+                    get: { Double(app.eraserHardness) },
+                    set: { app.eraserHardness = Float($0) }
+                ),
+                range: Double(Engine.eraserHardnessMin)...Double(Engine.eraserHardnessMax)
+            )
+        }
+        if showsBlurStrength {
+            optionSlider(
+                label: l10n.blurStrength,
+                valueText: "\(Int((app.blurStrength * 100).rounded()))",
+                value: Binding(
+                    get: { Double(app.blurStrength) },
+                    set: { app.blurStrength = Float($0) }
+                ),
+                range: Double(Engine.blurStrengthMin)...Double(Engine.blurStrengthMax)
+            )
+        }
+        if showsTolerance {
+            optionSlider(
+                label: l10n.tolerance,
+                valueText: "\(app.tolerance)",
+                value: Binding(
+                    get: { Double(app.tolerance) },
+                    set: { app.tolerance = UInt8($0.rounded()) }
+                ),
+                range: Double(Engine.toleranceMin)...Double(Engine.toleranceMax)
+            )
+        }
+        if showsEyedropperRadius {
+            eyedropperRadiusSlider
+        }
+    }
+
+    private var eyedropperSampleSide: Int {
+        Int(app.eyedropperRadius) * 2 + 1
+    }
+
+    private var eyedropperRadiusSlider: some View {
+        VStack(spacing: 2) {
+            optionSlider(
+                label: l10n.sampleSize,
+                valueText: "\(eyedropperSampleSide)×\(eyedropperSampleSide)",
+                value: Binding(
+                    get: { Double(app.eyedropperRadius) },
+                    set: { app.eyedropperRadius = UInt32($0.rounded()) }
+                ),
+                range: Double(Engine.eyedropperRadiusMin)...Double(Engine.eyedropperRadiusMax),
+                step: 1
+            )
+            eyedropperRadiusPreview
+        }
+    }
+
+    @ViewBuilder
+    private var toggleOptions: some View {
+        if app.tool.takesFill {
+            paintToggle(l10n.fill, isOn: $app.fill)
+            paintToggle(l10n.stroke, isOn: $app.stroke)
+        }
+        if showsVectorMode {
+            HStack {
+                CalmText.muted(l10n.vectorMode)
+                Spacer()
+                Toggle("", isOn: $app.vectorMode)
+                    .toggleStyle(.switch)
                     .controlSize(.mini)
-                }
+                    .labelsHidden()
             }
+            .help(l10n.vectorModeHint)
+        }
+    }
 
-            if showsInkOpacity {
-                VStack(spacing: 2) {
-                    HStack {
-                        CalmText.muted(l10n.inkOpacity)
-                        Spacer()
-                        CalmText.muted("\(Int((app.inkOpacity * 100).rounded()))", mono: true)
-                    }
-                    Slider(value: Binding(
-                        get: { Double(app.inkOpacity) },
-                        set: { app.inkOpacity = Float($0) }
-                    ), in: Double(Engine.inkOpacityMin)...Double(Engine.inkOpacityMax))
-                    .controlSize(.mini)
-                }
+    private func optionSlider(
+        label: String,
+        valueText: String,
+        value: Binding<Double>,
+        range: ClosedRange<Double>,
+        step: Double? = nil
+    ) -> some View {
+        VStack(spacing: 2) {
+            HStack {
+                CalmText.muted(label)
+                Spacer()
+                CalmText.muted(valueText, mono: true)
             }
+            slider(value: value, range: range, step: step)
+                .controlSize(.mini)
+        }
+    }
 
-            if showsEraserHardness {
-                VStack(spacing: 2) {
-                    HStack {
-                        CalmText.muted(l10n.eraserHardness)
-                        Spacer()
-                        CalmText.muted("\(Int((app.eraserHardness * 100).rounded()))", mono: true)
-                    }
-                    Slider(value: Binding(
-                        get: { Double(app.eraserHardness) },
-                        set: { app.eraserHardness = Float($0) }
-                    ), in: Double(Engine.eraserHardnessMin)...Double(Engine.eraserHardnessMax))
-                    .controlSize(.mini)
-                }
-            }
-
-            if showsBlurStrength {
-                VStack(spacing: 2) {
-                    HStack {
-                        CalmText.muted(l10n.blurStrength)
-                        Spacer()
-                        CalmText.muted("\(Int((app.blurStrength * 100).rounded()))", mono: true)
-                    }
-                    Slider(value: Binding(
-                        get: { Double(app.blurStrength) },
-                        set: { app.blurStrength = Float($0) }
-                    ), in: Double(Engine.blurStrengthMin)...Double(Engine.blurStrengthMax))
-                    .controlSize(.mini)
-                }
-            }
-
-            if showsTolerance {
-                VStack(spacing: 2) {
-                    HStack {
-                        CalmText.muted(l10n.tolerance)
-                        Spacer()
-                        CalmText.muted("\(app.tolerance)", mono: true)
-                    }
-                    Slider(value: Binding(
-                        get: { Double(app.tolerance) },
-                        set: { app.tolerance = UInt8($0.rounded()) }
-                    ), in: Double(Engine.toleranceMin)...Double(Engine.toleranceMax))
-                    .controlSize(.mini)
-                }
-            }
-
-            if app.tool.takesFill {
-                paintToggle(l10n.fill, isOn: $app.fill)
-                paintToggle(l10n.stroke, isOn: $app.stroke)
-            }
-
-            if showsVectorMode {
-                HStack {
-                    CalmText.muted(l10n.vectorMode)
-                    Spacer()
-                    Toggle("", isOn: $app.vectorMode)
-                        .toggleStyle(.switch)
-                        .controlSize(.mini)
-                        .labelsHidden()
-                }
-                .help(l10n.vectorModeHint)
-            }
+    @ViewBuilder
+    private func slider(
+        value: Binding<Double>,
+        range: ClosedRange<Double>,
+        step: Double?
+    ) -> some View {
+        if let step {
+            Slider(value: value, in: range, step: step)
+        } else {
+            Slider(value: value, in: range)
         }
     }
 
@@ -248,6 +291,23 @@ struct ToolsPanel: View {
 
     private var showsTolerance: Bool {
         app.tool.takesTolerance
+    }
+
+    private var showsEyedropperRadius: Bool {
+        app.tool.takesEyedropperRadius
+    }
+
+    private var eyedropperRadiusPreview: some View {
+        let maxRadius = CGFloat(max(Engine.eyedropperRadiusMax, 1))
+        let t = CGFloat(app.eyedropperRadius) / maxRadius
+        let diameter = 8 + t * 20
+        return Circle()
+            .fill(app.color.opacity(0.35))
+            .overlay {
+                Circle().strokeBorder(colors.textMuted, lineWidth: 1)
+            }
+            .frame(width: diameter, height: diameter)
+            .frame(height: 28)
     }
 
     /// A vector stroke has no pixels to shape, so the picker would be lying about what it

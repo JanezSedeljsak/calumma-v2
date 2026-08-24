@@ -56,6 +56,9 @@ fn continuous_knobs_clamp_rather_than_failing() {
         for value in [0u8, 24, 128, 255] {
             assert_eq!(calm_engine_set_tolerance(e, value), CalmStatus::Ok);
         }
+        for value in [0u32, 1, 15, 99] {
+            assert_eq!(calm_engine_set_eyedropper_radius(e, value), CalmStatus::Ok);
+        }
         calm_engine_free(e);
     }
 }
@@ -68,6 +71,7 @@ fn knob_setters_no_op_with_no_project_open() {
     unsafe {
         assert_eq!(calm_engine_set_blur_strength(e, 0.5), CalmStatus::Ok);
         assert_eq!(calm_engine_set_tolerance(e, 40), CalmStatus::Ok);
+        assert_eq!(calm_engine_set_eyedropper_radius(e, 3), CalmStatus::Ok);
         assert_eq!(calm_engine_set_eraser_hardness(e, 0.5), CalmStatus::Ok);
         assert_ne!(
             calm_engine_set_brush_kind(e, 99),
@@ -84,6 +88,7 @@ fn knob_setters_reject_a_null_engine() {
     unsafe {
         assert_eq!(calm_engine_set_blur_strength(e, 0.5), CalmStatus::Null);
         assert_eq!(calm_engine_set_tolerance(e, 10), CalmStatus::Null);
+        assert_eq!(calm_engine_set_eyedropper_radius(e, 2), CalmStatus::Null);
         assert_eq!(calm_engine_set_brush_kind(e, 0), CalmStatus::Null);
         assert_eq!(calm_engine_set_eraser_hardness(e, 0.5), CalmStatus::Null);
     }
@@ -128,6 +133,14 @@ fn limit_accessors_bracket_their_defaults() {
     );
     assert!(min < max, "tolerance: min below max");
     assert!((min..=max).contains(&default));
+
+    let (min, max, default) = (
+        calm_eyedropper_radius_min(),
+        calm_eyedropper_radius_max(),
+        calm_eyedropper_radius_default(),
+    );
+    assert!(min < max, "eyedropper radius: min below max");
+    assert!((min..=max).contains(&default));
 }
 
 /// Which controls a tool shows is a product rule, so the shell asks rather than deciding. Each
@@ -135,7 +148,7 @@ fn limit_accessors_bracket_their_defaults() {
 /// one answer would show every control on every tool, or none of them anywhere.
 #[test]
 fn tool_predicates_answer_per_tool() {
-    let cases: [(&str, extern "C" fn(u32) -> u8, Tool, Tool); 5] = [
+    let cases: [(&str, extern "C" fn(u32) -> u8, Tool, Tool); 6] = [
         ("brush", calm_tool_takes_brush, Tool::Pen, Tool::Eraser),
         (
             "eraser hardness",
@@ -153,6 +166,12 @@ fn tool_predicates_answer_per_tool() {
             "tolerance",
             calm_tool_takes_tolerance,
             Tool::Fill,
+            Tool::Pen,
+        ),
+        (
+            "eyedropper radius",
+            calm_tool_takes_eyedropper_radius,
+            Tool::Eyedropper,
             Tool::Pen,
         ),
         (
@@ -190,7 +209,7 @@ fn the_magic_wand_is_remembered_as_the_last_select_tool() {
     }
 }
 
-/// Blur is a stamping tool, so it takes a size; it has no ink, so it takes neither colour
+/// Blur is a stamping tool, so it takes a size; it has no ink, so it takes neither color
 /// opacity nor a brush. Getting this pair wrong is what puts a meaningless slider on a panel.
 #[test]
 fn blur_takes_a_size_but_no_ink() {

@@ -106,7 +106,7 @@ fn dashed_edge(
     out
 }
 
-/// One guide rule, as the guide pass wants it: a document-space segment plus a colour. Width
+/// One guide rule, as the guide pass wants it: a document-space segment plus a color. Width
 /// is not per-instance because every guide is the same hairline — `board.wgsl`'s
 /// `GUIDE_HALF_WIDTH_PX` owns it, in screen pixels.
 #[repr(C)]
@@ -397,8 +397,8 @@ pub fn tile_upload_mips(base: &[u8], motion: bool) -> Vec<Vec<u8>> {
 }
 
 /// One 2×2 box-filter pass, straight (non-premultiplied) alpha in and out. Averaging straight
-/// RGB directly would let a fully transparent neighbour's colour bleed into a translucent or
-/// opaque one — invisible pixels are not "no colour", they are colour nobody sees yet — so each
+/// RGB directly would let a fully transparent neighbour's color bleed into a translucent or
+/// opaque one — invisible pixels are not "no color", they are color nobody sees yet — so each
 /// tap is weighted by its own alpha (premultiplied) before averaging, and the result is
 /// unpremultiplied back out. This is the same reason blending happens in premultiplied space
 /// everywhere else in this renderer.

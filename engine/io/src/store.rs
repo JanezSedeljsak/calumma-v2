@@ -87,9 +87,9 @@ impl<'a> LayerColumns<'a> {
                 text_data: None,
                 mask: layer.mask(),
             },
-            LayerContent::Vector(paths) => Self {
+            LayerContent::Vector(item) => Self {
                 content_kind: 1,
-                vector_data: Some(vector_blob::encode(paths)),
+                vector_data: Some(vector_blob::encode(item)),
                 text_data: None,
                 mask: None,
             },
@@ -407,13 +407,32 @@ impl ProjectStore {
             };
             let mut layer = match kind {
                 LayerKind::Vector => {
-                    let paths = vector_data
+                    let items = vector_data
                         .as_deref()
                         .and_then(vector_blob::decode)
                         .unwrap_or_default();
-                    let mut layer = Layer::vector(name, paths);
-                    layer.id = layer_id.clone();
-                    layer
+                    if items.is_empty() {
+                        continue;
+                    }
+                    let mut first = true;
+                    for item in items {
+                        let mut layer = Layer::vector(name.clone(), item);
+                        layer.id = if first {
+                            first = false;
+                            layer_id.clone()
+                        } else {
+                            Uuid::new_v4().to_string()
+                        };
+                        layer.visible = visible;
+                        layer.opacity = opacity.clamp(0.0, 1.0);
+                        layer.blend_mode = BlendMode::from_u32(blend_mode).unwrap_or_default();
+                        layer.adjustments =
+                            adjustments.as_deref().and_then(adjustments_blob::decode);
+                        layer.transform = transform.as_deref().and_then(transform_blob::decode);
+                        layer.locked = locked;
+                        doc.layers.push(layer);
+                    }
+                    continue;
                 }
                 LayerKind::Text => {
                     let run = decoded_run.unwrap_or_default();

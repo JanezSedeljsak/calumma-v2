@@ -1,6 +1,19 @@
 use calumma_core::history::*;
 use calumma_core::layer::*;
 use calumma_core::tile::*;
+use calumma_core::vector::{VectorItem, VectorPath};
+
+fn empty_path() -> VectorItem {
+    VectorItem::Path(VectorPath {
+        points: vec![],
+        closed: false,
+        fill: false,
+        stroke: true,
+        color: [0, 0, 0, 255],
+        stroke_color: [0, 0, 0, 255],
+        stroke_width: 1.0,
+    })
+}
 
 fn undo(history: &mut History, layer: &mut Layer) -> bool {
     let mut active = 0;
@@ -221,7 +234,7 @@ fn a_tile_diff_against_a_layer_with_no_pixels_is_skipped() {
         .set_pixel(3, 3, [255, 0, 0, 255]);
     history.push_layer_tiles(raster.id.clone(), before, Some(0));
 
-    let mut vector = Layer::vector("V", Vec::new());
+    let mut vector = Layer::vector("V", empty_path());
     vector.id = raster.id.clone();
     let mut layers = vec![vector];
     let mut active = 0;

@@ -128,7 +128,7 @@ fn make_slot(
     }
 }
 
-/// Two offscreen colour targets that alternate roles: `reference` holds the content the last
+/// Two offscreen color targets that alternate roles: `reference` holds the content the last
 /// frame left behind, `working` is where the next shift lands, and the two swap once the shift
 /// is done so the freshest pixels are always the ones the next frame reads from.
 ///

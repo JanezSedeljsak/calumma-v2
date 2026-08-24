@@ -291,6 +291,7 @@ fn composite_rgba_blends_visible_layers_and_skips_hidden() {
 #[test]
 fn sample_color_matches_composite_at_a_point() {
     let mut doc = Document::new("p".into(), "t", 4, 4);
+    doc.eyedropper_radius = 0;
     doc.layers[1]
         .tiles_mut()
         .unwrap()
@@ -304,6 +305,7 @@ fn sample_color_matches_composite_at_a_point() {
 #[test]
 fn pick_color_sets_ink_and_skips_transparent() {
     let mut doc = Document::new("p".into(), "t", 4, 4);
+    doc.eyedropper_radius = 0;
     doc.layers[0].clear();
     doc.layers[1].clear();
     assert_eq!(doc.sample_color(1.5, 1.5), None);
@@ -322,6 +324,7 @@ fn pick_color_sets_ink_and_skips_transparent() {
 #[test]
 fn eyedropper_tool_picks_on_pointer_down() {
     let mut doc = Document::new("p".into(), "t", 32, 32);
+    doc.eyedropper_radius = 0;
     doc.resize_viewport(32.0, 32.0, 1.0);
     doc.fit_to_view();
     doc.layers[1]
@@ -332,6 +335,72 @@ fn eyedropper_tool_picks_on_pointer_down() {
     let (sx, sy) = doc.camera.to_screen(8.5, 8.5);
     doc.pointer_down(sx, sy);
     assert_eq!(doc.color, [70, 80, 90, 255]);
+}
+
+#[test]
+fn eyedropper_radius_zero_reads_only_the_clicked_pixel() {
+    let mut doc = Document::new("p".into(), "t", 8, 8);
+    doc.eyedropper_radius = 0;
+    let tiles = doc.layers[doc.active_layer].tiles_mut().unwrap();
+    tiles.set_pixel(4, 4, [0, 0, 255, 255]);
+    for (x, y) in [
+        (3, 3),
+        (3, 4),
+        (3, 5),
+        (4, 3),
+        (4, 5),
+        (5, 3),
+        (5, 4),
+        (5, 5),
+    ] {
+        tiles.set_pixel(x, y, [255, 0, 0, 255]);
+    }
+    assert_eq!(doc.sample_color(4.5, 4.5), Some([0, 0, 255, 255]));
+}
+
+#[test]
+fn eyedropper_radius_one_averages_the_3x3() {
+    let mut doc = Document::new("p".into(), "t", 8, 8);
+    doc.set_eyedropper_radius(1);
+    let tiles = doc.layers[doc.active_layer].tiles_mut().unwrap();
+    for y in 3..=5 {
+        for x in 3..=5 {
+            tiles.set_pixel(x, y, [255, 0, 0, 255]);
+        }
+    }
+    assert_eq!(doc.sample_color(4.5, 4.5), Some([255, 0, 0, 255]));
+}
+
+#[test]
+fn eyedropper_samples_a_disc_not_a_square() {
+    let mut doc = Document::new("p".into(), "t", 8, 8);
+    doc.set_eyedropper_radius(2);
+    let tiles = doc.layers[doc.active_layer].tiles_mut().unwrap();
+    for y in 2..=6 {
+        for x in 2..=6 {
+            tiles.set_pixel(x, y, [255, 0, 0, 255]);
+        }
+    }
+    for (x, y) in [(2, 2), (2, 6), (6, 2), (6, 6)] {
+        tiles.set_pixel(x, y, [0, 255, 0, 255]);
+    }
+    assert_eq!(
+        doc.sample_color(4.5, 4.5),
+        Some([255, 0, 0, 255]),
+        "the 5x5 corners sit outside a radius-2 disc"
+    );
+}
+
+#[test]
+fn set_eyedropper_radius_clamps_to_the_product_range() {
+    let mut doc = Document::new("p".into(), "t", 8, 8);
+    doc.set_eyedropper_radius(999);
+    assert_eq!(
+        doc.eyedropper_radius,
+        calumma_core::limits::EYEDROPPER_RADIUS_MAX
+    );
+    doc.set_eyedropper_radius(0);
+    assert_eq!(doc.eyedropper_radius, 0);
 }
 
 #[test]
@@ -865,6 +934,7 @@ fn triangle_and_pentagon_commit_pixels_to_the_active_layer() {
 #[test]
 fn eyedropper_reads_through_layer_opacity_and_blend_mode() {
     let mut doc = Document::new("p".into(), "t", 8, 8);
+    doc.eyedropper_radius = 0;
     let active = doc.active_layer;
     doc.layers[active]
         .tiles_mut()
@@ -892,6 +962,7 @@ fn eyedropper_reads_through_layer_opacity_and_blend_mode() {
 #[test]
 fn sample_color_ignores_hidden_layers() {
     let mut doc = Document::new("p".into(), "t", 8, 8);
+    doc.eyedropper_radius = 0;
     let active = doc.active_layer;
     doc.layers[active]
         .tiles_mut()
@@ -1210,7 +1281,7 @@ fn shape_doc() -> Document {
 }
 
 #[test]
-fn a_shape_commits_its_fill_and_its_border_in_their_own_colours() {
+fn a_shape_commits_its_fill_and_its_border_in_their_own_colors() {
     let mut doc = shape_doc();
     doc.fill = true;
     doc.stroke = true;
@@ -1255,16 +1326,14 @@ fn a_line_stays_on_the_ink_swatch_whatever_the_stroke_swatch_says() {
 }
 
 #[test]
-fn a_vector_shape_carries_both_colours_into_the_item() {
+fn a_vector_shape_carries_both_colors_into_the_item() {
     let mut doc = shape_doc();
     doc.vector_mode = true;
     doc.fill = true;
     doc.stroke = true;
-    let layer = doc.add_vector_layer("V");
-    doc.set_active_layer(layer);
     drag_rect(&mut doc, (20.0, 20.0), (60.0, 60.0));
-    let items = doc.layers[layer].content.items().unwrap();
-    let VectorItem::Shape(shape) = &items[0] else {
+    let item = doc.layers[doc.active_layer].content.item().unwrap();
+    let VectorItem::Shape(shape) = item else {
         panic!("expected a parametric shape");
     };
     assert_eq!(shape.color, [255, 255, 255, 255]);

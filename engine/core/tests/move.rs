@@ -90,22 +90,24 @@ fn move_tool_skips_paper() {
 #[test]
 fn move_tool_drags_a_vector_item() {
     let mut doc = doc_with_viewport();
-    let index = doc.add_vector_layer("V");
-    *doc.layers[index].content.items_mut().unwrap() = vec![VectorItem::Shape(VectorShape {
-        shape: Shape {
-            tool: Tool::Rect,
-            start: (20.0, 20.0),
-            end: (60.0, 60.0),
-            half_width: 1.0,
-            fill: true,
-            stroke: false,
-        },
-        color: [255, 0, 0, 255],
-        stroke_color: [255, 0, 0, 255],
-    })];
+    let index = doc.add_vector_layer(
+        "V",
+        VectorItem::Shape(VectorShape {
+            shape: Shape {
+                tool: Tool::Rect,
+                start: (20.0, 20.0),
+                end: (60.0, 60.0),
+                half_width: 1.0,
+                fill: true,
+                stroke: false,
+            },
+            color: [255, 0, 0, 255],
+            stroke_color: [255, 0, 0, 255],
+        }),
+    );
     doc.set_tool(Tool::Move);
     drag(&mut doc, (40.0, 40.0), (55.0, 40.0));
-    let item = &doc.layers[index].content.items().unwrap()[0];
+    let item = doc.layers[index].content.item().unwrap();
     let VectorItem::Shape(shape) = item else {
         panic!("expected shape");
     };
@@ -320,30 +322,28 @@ fn a_nudge_outside_move_and_transform_does_nothing() {
 #[test]
 fn a_nudge_prefers_the_selected_item_over_its_layer() {
     let mut doc = doc_with_viewport();
-    let layer = doc.add_vector_layer("V");
-    *doc.layers[layer].content.items_mut().unwrap() = vec![VectorItem::Shape(VectorShape {
-        shape: Shape {
-            tool: Tool::Rect,
-            start: (10.0, 10.0),
-            end: (40.0, 40.0),
-            half_width: 1.0,
-            fill: true,
-            stroke: false,
-        },
-        color: [255, 0, 0, 255],
-        stroke_color: [255, 0, 0, 255],
-    })];
+    let layer = doc.add_vector_layer(
+        "V",
+        VectorItem::Shape(VectorShape {
+            shape: Shape {
+                tool: Tool::Rect,
+                start: (10.0, 10.0),
+                end: (40.0, 40.0),
+                half_width: 1.0,
+                fill: true,
+                stroke: false,
+            },
+            color: [255, 0, 0, 255],
+            stroke_color: [255, 0, 0, 255],
+        }),
+    );
     doc.set_active_layer(layer);
     doc.set_tool(Tool::Move);
     assert!(doc.select_vector_item_at(20.0, 20.0));
 
-    let before = doc.layers[layer].content.items().unwrap()[0]
-        .bounds()
-        .unwrap();
+    let before = doc.layers[layer].content.item().unwrap().bounds().unwrap();
     assert!(doc.nudge_move_target(3.0, 0.0));
-    let after = doc.layers[layer].content.items().unwrap()[0]
-        .bounds()
-        .unwrap();
+    let after = doc.layers[layer].content.item().unwrap().bounds().unwrap();
 
     assert!((after.0 - (before.0 + 3.0)).abs() < 0.01);
     assert!(

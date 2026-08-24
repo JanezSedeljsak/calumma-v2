@@ -22,6 +22,31 @@ struct EditorView: View {
     @State private var aiBlinkOn = false
 
     var body: some View {
+        editorLayout
+            .background(ShortcutCatcher(app: app))
+            .sheet(isPresented: $app.newProjectOpen) {
+                NewProjectView(isLanding: false)
+                    .frame(
+                        width: Tokens.Window.newProjectWidth,
+                        height: Tokens.Window.newProjectHeight
+                    )
+                    .environmentObject(app)
+                    .themeColors(colors)
+                    .l10n(l10n)
+            }
+            .calmToast(app.toast)
+            .onChange(of: app.engine.aiOpBusyLayer, initial: true) { _, busyLayer in
+                if busyLayer != nil {
+                    withAnimation(.easeInOut(duration: 0.55).repeatForever(autoreverses: true)) {
+                        aiBlinkOn = true
+                    }
+                } else {
+                    aiBlinkOn = false
+                }
+            }
+    }
+
+    private var editorLayout: some View {
         HStack(alignment: .top, spacing: Tokens.Space.sm) {
             ToolsPanel()
                 .frame(maxHeight: .infinity)
@@ -42,39 +67,26 @@ struct EditorView: View {
         .calmScreen()
         .toolbar { editorToolbar }
         .onAppear { app.applyKnobs() }
-        .onChange(of: app.tool) { _, _ in
-            app.applyKnobs()
-        }
-        .onChange(of: app.color) { _, _ in app.applyKnobs() }
-        .onChange(of: app.brushSize) { _, _ in app.applyKnobs() }
-        .onChange(of: app.inkOpacity) { _, _ in app.applyKnobs() }
-        .onChange(of: app.blurStrength) { _, _ in app.applyKnobs() }
-        .onChange(of: app.tolerance) { _, _ in app.applyKnobs() }
-        .onChange(of: app.brush) { _, _ in app.applyKnobs() }
-        .onChange(of: app.eraserHardness) { _, _ in app.applyKnobs() }
-        .onChange(of: app.fill) { _, _ in app.applyKnobs() }
-        .onChange(of: app.stroke) { _, _ in app.applyKnobs() }
-        .onChange(of: app.strokeColor) { _, _ in app.applyKnobs() }
-        .onChange(of: app.vectorMode) { _, _ in app.applyKnobs() }
-        .onChange(of: app.theme) { _, _ in app.applyKnobs() }
-        .background(ShortcutCatcher(app: app))
-        .sheet(isPresented: $app.newProjectOpen) {
-            NewProjectView(isLanding: false)
-                .frame(width: Tokens.Window.newProjectWidth, height: Tokens.Window.newProjectHeight)
-                .environmentObject(app)
-                .themeColors(colors)
-                .l10n(l10n)
-        }
-        .calmToast(app.toast)
-        .onChange(of: app.engine.aiOpBusyLayer, initial: true) { _, busyLayer in
-            if busyLayer != nil {
-                withAnimation(.easeInOut(duration: 0.55).repeatForever(autoreverses: true)) {
-                    aiBlinkOn = true
-                }
-            } else {
-                aiBlinkOn = false
-            }
-        }
+        .onChange(of: editorKnobs) { _, _ in app.applyKnobs() }
+    }
+
+    private var editorKnobs: EditorKnobs {
+        EditorKnobs(
+            tool: app.tool.rawValue,
+            color: app.color.hexRGB,
+            brushSize: app.brushSize,
+            eyedropperRadius: app.eyedropperRadius,
+            inkOpacity: app.inkOpacity,
+            blurStrength: app.blurStrength,
+            tolerance: app.tolerance,
+            brush: app.brush.rawValue,
+            eraserHardness: app.eraserHardness,
+            fill: app.fill,
+            stroke: app.stroke,
+            strokeColor: app.strokeColor.hexRGB,
+            vectorMode: app.vectorMode,
+            theme: app.theme.rawValue
+        )
     }
 
     private var canvasIsland: some View {
@@ -157,26 +169,40 @@ struct EditorView: View {
     @ViewBuilder
     private var eyedropperLoupeOverlay: some View {
         if app.tool == .eyedropper, let loupe = app.eyedropperLoupe {
-            HStack(spacing: Tokens.Space.xs) {
+            let sampleSide = max(
+                CGFloat(app.eyedropperRadius * 2 + 1) * CGFloat(app.engine.state.zoom),
+                1
+            )
+            ZStack(alignment: .topLeading) {
                 Circle()
-                    .fill(loupe.color)
-                    .frame(width: 18, height: 18)
-                    .overlay(
-                        Circle().strokeBorder(colors.islandBorder, lineWidth: 1)
-                    )
-                CalmText.muted("#\(loupe.hex)", mono: true)
+                    .strokeBorder(colors.surface, lineWidth: 2)
+                    .overlay {
+                        Circle().strokeBorder(colors.text, lineWidth: 1)
+                    }
+                    .frame(width: sampleSide, height: sampleSide)
+                    .offset(x: loupe.x - sampleSide / 2, y: loupe.y - sampleSide / 2)
+                HStack(spacing: Tokens.Space.xs) {
+                    Circle()
+                        .fill(loupe.color)
+                        .frame(width: 18, height: 18)
+                        .overlay(
+                            Circle().strokeBorder(colors.islandBorder, lineWidth: 1)
+                        )
+                    CalmText.muted("#\(loupe.hex)", mono: true)
+                }
+                .padding(.horizontal, Tokens.Space.sm)
+                .padding(.vertical, Tokens.Space.xs)
+                .background(
+                    colors.surfaceHover,
+                    in: RoundedRectangle(cornerRadius: Tokens.Radius.sm, style: .continuous)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: Tokens.Radius.sm, style: .continuous)
+                        .strokeBorder(colors.islandBorder, lineWidth: 1)
+                )
+                .offset(x: loupe.x + Tokens.Space.md, y: loupe.y + Tokens.Space.md)
             }
-            .padding(.horizontal, Tokens.Space.sm)
-            .padding(.vertical, Tokens.Space.xs)
-            .background(
-                colors.surfaceHover,
-                in: RoundedRectangle(cornerRadius: Tokens.Radius.sm, style: .continuous)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: Tokens.Radius.sm, style: .continuous)
-                    .strokeBorder(colors.islandBorder, lineWidth: 1)
-            )
-            .offset(x: loupe.x + Tokens.Space.md, y: loupe.y + Tokens.Space.md)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .allowsHitTesting(false)
         }
     }
@@ -629,4 +655,21 @@ private struct LayerHoverCard: View {
             in: RoundedRectangle(cornerRadius: Tokens.Radius.sm, style: .continuous)
         )
     }
+}
+
+private struct EditorKnobs: Equatable {
+    var tool: UInt32
+    var color: String
+    var brushSize: Float
+    var eyedropperRadius: UInt32
+    var inkOpacity: Float
+    var blurStrength: Float
+    var tolerance: UInt8
+    var brush: UInt32
+    var eraserHardness: Float
+    var fill: Bool
+    var stroke: Bool
+    var strokeColor: String
+    var vectorMode: Bool
+    var theme: String
 }

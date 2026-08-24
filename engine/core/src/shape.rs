@@ -64,7 +64,7 @@ impl Tool {
 
     /// Whether this tool encloses an area, and so can carry a fill and an outline
     /// independently. Line and Arrow are outlines with nothing inside them, so their ink is
-    /// the one colour they have always had.
+    /// the one color they have always had.
     pub fn takes_fill(self) -> bool {
         matches!(
             self,
@@ -88,14 +88,21 @@ impl Tool {
     }
 
     /// Whether this tool reads the pixels already on the layer and writes a function of them,
-    /// rather than writing a colour over them. Blur is the first; sharpen and smudge would
-    /// join it. Such a tool has no ink, so it takes neither colour nor ink opacity.
+    /// rather than writing a color over them. Blur is the first; sharpen and smudge would
+    /// join it. Such a tool has no ink, so it takes neither color nor ink opacity.
     pub fn takes_blur_strength(self) -> bool {
         matches!(self, Tool::Blur)
     }
 
+    /// Whether this tool reads a color off the board, and so needs a sample area. A single
+    /// pixel off an antialiased edge or a grainy brush is rarely the color the eye reads
+    /// there, which is why the default averages — see `limits::EYEDROPPER_RADIUS_DEFAULT`.
+    pub fn takes_eyedropper_radius(self) -> bool {
+        matches!(self, Tool::Eyedropper)
+    }
+
     /// Whether an in-progress stroke draws itself on the board as an ink preview. A blur has
-    /// no colour to preview and the GPU does not have the layer's source pixels to hand, so it
+    /// no color to preview and the GPU does not have the layer's source pixels to hand, so it
     /// commits into tiles as the pointer moves and the board shows the real result instead of
     /// a stand-in.
     pub fn previews_stroke(self) -> bool {
@@ -157,8 +164,8 @@ const MAX_HEAD: f32 = 80.0;
 /// between toggles — neither. Line and Arrow ignore both and are always stroked, because an
 /// outline is all they are.
 ///
-/// Geometry only, no colours: the same struct answers where a *selection* rectangle is
-/// (`selection.rs`), and it is what `board.wgsl` mirrors per pixel. Which colour goes on
+/// Geometry only, no colors: the same struct answers where a *selection* rectangle is
+/// (`selection.rs`), and it is what `board.wgsl` mirrors per pixel. Which color goes on
 /// the fill and which on the stroke is the painter's business — `VectorShape` for a vector
 /// item, the document's ink for a raster commit.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -431,7 +438,7 @@ pub fn distance_coverage(distance: f32) -> f32 {
     (0.5 - distance).clamp(0.0, 1.0)
 }
 
-/// One part of a shape's paint as a straight-alpha source colour, or `None` where it lays
+/// One part of a shape's paint as a straight-alpha source color, or `None` where it lays
 /// nothing down. `distance` is `None` when the part is switched off entirely, which is what
 /// lets a caller ask for fill and stroke in one expression and blend whatever comes back.
 pub fn ink_sample(distance: Option<f32>, color: [u8; 4]) -> Option<[u8; 4]> {

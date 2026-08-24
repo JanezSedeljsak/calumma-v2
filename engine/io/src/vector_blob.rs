@@ -3,9 +3,9 @@ use calumma_core::{Shape, Tool, VectorItem, VectorPath, VectorShape};
 /// v1 stored a flat list of polyline paths, before shapes were kept as parameters. v2 adds
 /// a per-item tag so a rect can round-trip as a rect instead of being flattened into four
 /// points on the way to disk — which would have thrown away exactly the thing that makes it
-/// a vector. v3 splits the single colour and `fill` flag into an independent fill and
+/// a vector. v3 splits the single color and `fill` flag into an independent fill and
 /// stroke, so a shape can carry both at once. Older blobs still decode: v1 items come back
-/// as `Path`s, and a v2 item's one colour becomes whichever of the two it was being used
+/// as `Path`s, and a v2 item's one color becomes whichever of the two it was being used
 /// as — see `legacy_paint`.
 const VERSION_PATHS_ONLY: u32 = 1;
 const VERSION_ONE_COLOR: u32 = 2;
@@ -14,8 +14,8 @@ const VERSION: u32 = 3;
 const TAG_PATH: u8 = 0;
 const TAG_SHAPE: u8 = 1;
 
-/// A pre-v3 item had one colour and a `fill` flag deciding what it painted. Filled means the
-/// colour was the fill and there was no outline; unfilled means it was the outline.
+/// A pre-v3 item had one color and a `fill` flag deciding what it painted. Filled means the
+/// color was the fill and there was no outline; unfilled means it was the outline.
 fn legacy_paint(fill: bool, color: [u8; 4]) -> ([u8; 4], bool, [u8; 4]) {
     if fill {
         (color, false, color)
@@ -147,7 +147,11 @@ fn decode_shape(r: &mut Reader, version: u32) -> Option<VectorShape> {
     })
 }
 
-pub fn encode(items: &[VectorItem]) -> Vec<u8> {
+pub fn encode(item: &VectorItem) -> Vec<u8> {
+    encode_all(std::slice::from_ref(item))
+}
+
+pub(crate) fn encode_all(items: &[VectorItem]) -> Vec<u8> {
     let mut out = Vec::new();
     out.extend_from_slice(&VERSION.to_le_bytes());
     out.extend_from_slice(&(items.len() as u32).to_le_bytes());
@@ -217,7 +221,7 @@ mod tests {
         })
     }
 
-    /// A path written the way v1 and v2 wrote one: one colour, no stroke fields.
+    /// A path written the way v1 and v2 wrote one: one color, no stroke fields.
     fn encode_legacy_path(out: &mut Vec<u8>, path: &VectorPath) {
         out.extend_from_slice(&(path.points.len() as u32).to_le_bytes());
         for &p in &path.points {
@@ -241,19 +245,19 @@ mod tests {
     #[test]
     fn round_trips_paths_and_shapes_together() {
         let items = vec![sample_path(), sample_shape(), sample_path()];
-        assert_eq!(decode(&encode(&items)).unwrap(), items);
+        assert_eq!(decode(&encode_all(&items)).unwrap(), items);
     }
 
     #[test]
     fn a_shape_survives_as_a_shape_not_a_polyline() {
         let items = vec![sample_shape()];
-        let decoded = decode(&encode(&items)).unwrap();
+        let decoded = decode(&encode_all(&items)).unwrap();
         assert!(matches!(decoded[0], VectorItem::Shape(_)));
     }
 
     #[test]
     fn empty_round_trips() {
-        assert_eq!(decode(&encode(&items_none())).unwrap(), Vec::new());
+        assert_eq!(decode(&encode_all(&items_none())).unwrap(), Vec::new());
     }
 
     fn items_none() -> Vec<VectorItem> {
@@ -276,7 +280,7 @@ mod tests {
     }
 
     #[test]
-    fn a_v2_filled_shape_keeps_its_colour_as_the_fill_and_gains_no_outline() {
+    fn a_v2_filled_shape_keeps_its_color_as_the_fill_and_gains_no_outline() {
         let mut legacy = Vec::new();
         legacy.extend_from_slice(&VERSION_ONE_COLOR.to_le_bytes());
         legacy.extend_from_slice(&1u32.to_le_bytes());
@@ -291,7 +295,7 @@ mod tests {
     }
 
     #[test]
-    fn a_v2_outlined_shape_comes_back_as_a_stroke_in_the_same_colour() {
+    fn a_v2_outlined_shape_comes_back_as_a_stroke_in_the_same_color() {
         let mut legacy = Vec::new();
         legacy.extend_from_slice(&VERSION_ONE_COLOR.to_le_bytes());
         legacy.extend_from_slice(&1u32.to_le_bytes());
@@ -308,7 +312,7 @@ mod tests {
 
     #[test]
     fn a_truncated_blob_is_rejected_not_panicked_on() {
-        let bytes = encode(&[sample_path(), sample_shape()]);
+        let bytes = encode_all(&[sample_path(), sample_shape()]);
         for cut in 1..bytes.len() {
             let _ = decode(&bytes[..cut]);
         }

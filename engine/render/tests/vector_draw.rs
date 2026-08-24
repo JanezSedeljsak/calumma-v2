@@ -30,8 +30,8 @@ fn path_item(points: Vec<(f32, f32)>, closed: bool, fill: bool) -> VectorItem {
     })
 }
 
-fn layer_with(items: Vec<VectorItem>, transform: Option<LayerTransform>) -> Layer {
-    let mut layer = Layer::vector("V", items);
+fn layer_with(item: VectorItem, transform: Option<LayerTransform>) -> Layer {
+    let mut layer = Layer::vector("V", item);
     layer.transform = transform;
     layer
 }
@@ -87,45 +87,43 @@ fn a_filled_closed_path_is_left_to_the_rasterizer() {
 
 #[test]
 fn a_layer_offset_moves_both_the_points_and_the_shape_parameters() {
-    let items = vec![
-        shape_item((10.0, 10.0), (40.0, 40.0)),
-        path_item(vec![(0.0, 0.0), (10.0, 0.0)], false, false),
-    ];
-    let layer = layer_with(
-        items.clone(),
-        Some(LayerTransform {
-            offset_x: 100.0,
-            offset_y: 0.0,
-            ..LayerTransform::default()
-        }),
-    );
-    let placement = vector_placement(&layer);
+    let offset = Some(LayerTransform {
+        offset_x: 100.0,
+        offset_y: 0.0,
+        ..LayerTransform::default()
+    });
+    let shape = shape_item((10.0, 10.0), (40.0, 40.0));
+    let placement = vector_placement(&layer_with(shape.clone(), offset));
     assert!(placement.is_some(), "a moved layer needs a placement");
-
-    let VectorItem::Shape(shape) = &items[0] else {
+    let VectorItem::Shape(s) = &shape else {
         unreachable!()
     };
-    assert_eq!(shape_instance(shape, placement).p0, [110.0, 10.0]);
+    assert_eq!(shape_instance(s, placement).p0, [110.0, 10.0]);
 
+    let path = path_item(vec![(0.0, 0.0), (10.0, 0.0)], false, false);
     let mut out = Vec::new();
-    let VectorItem::Path(path) = &items[1] else {
+    let VectorItem::Path(p) = &path else {
         unreachable!()
     };
-    push_path_instances(path, placement, &mut out);
+    push_path_instances(
+        p,
+        vector_placement(&layer_with(path.clone(), offset)),
+        &mut out,
+    );
     assert_eq!(out[0].segment, [100.0, 0.0, 110.0, 0.0]);
 }
 
 #[test]
 fn an_untransformed_layer_needs_no_placement() {
-    let layer = layer_with(vec![shape_item((10.0, 10.0), (40.0, 40.0))], None);
+    let layer = layer_with(shape_item((10.0, 10.0), (40.0, 40.0)), None);
     assert!(vector_placement(&layer).is_none());
 }
 
 #[test]
 fn a_scaled_layer_scales_the_stroke_with_the_geometry() {
-    let items = vec![path_item(vec![(0.0, 0.0), (10.0, 0.0)], false, false)];
+    let item = path_item(vec![(0.0, 0.0), (10.0, 0.0)], false, false);
     let layer = layer_with(
-        items.clone(),
+        item.clone(),
         Some(LayerTransform {
             scale_x: 2.0,
             scale_y: 2.0,
@@ -133,7 +131,7 @@ fn a_scaled_layer_scales_the_stroke_with_the_geometry() {
         }),
     );
     let mut out = Vec::new();
-    let VectorItem::Path(path) = &items[0] else {
+    let VectorItem::Path(path) = &item else {
         unreachable!()
     };
     push_path_instances(path, vector_placement(&layer), &mut out);
@@ -153,7 +151,7 @@ fn items_off_screen_are_culled_before_they_reach_the_gpu() {
 fn culling_asks_where_the_layer_transform_put_the_item() {
     let item = shape_item((5000.0, 5000.0), (5040.0, 5040.0));
     let layer = layer_with(
-        vec![item.clone()],
+        item.clone(),
         Some(LayerTransform {
             offset_x: -4900.0,
             offset_y: -4900.0,
@@ -190,7 +188,15 @@ fn vector_placement_is_none_for_a_non_vector_layer_even_with_a_transform() {
 #[test]
 fn vector_placement_is_none_for_an_empty_transformed_layer() {
     let layer = layer_with(
-        vec![],
+        VectorItem::Path(VectorPath {
+            points: vec![],
+            closed: false,
+            fill: false,
+            stroke: true,
+            color: [0, 0, 0, 255],
+            stroke_color: [0, 0, 0, 255],
+            stroke_width: 1.0,
+        }),
         Some(LayerTransform {
             offset_x: 5.0,
             ..LayerTransform::default()
@@ -246,8 +252,7 @@ fn vector_selection_instances_draws_four_edges_and_four_corner_dots() {
     let mut doc = Document::new("p".into(), "t", 200, 200);
     doc.resize_viewport(200.0, 200.0, 1.0);
     doc.fit_to_view();
-    let index = doc.add_vector_layer("V");
-    *doc.layers[index].content.items_mut().unwrap() = vec![shape_item((10.0, 10.0), (40.0, 40.0))];
+    let index = doc.add_vector_layer("V", shape_item((10.0, 10.0), (40.0, 40.0)));
     doc.set_active_layer(index);
     assert!(doc.select_vector_item_at(20.0, 20.0));
 
@@ -266,8 +271,7 @@ fn selected_doc() -> Document {
     let mut doc = Document::new("p".into(), "t", 200, 200);
     doc.resize_viewport(200.0, 200.0, 1.0);
     doc.fit_to_view();
-    let index = doc.add_vector_layer("V");
-    *doc.layers[index].content.items_mut().unwrap() = vec![shape_item((10.0, 10.0), (40.0, 40.0))];
+    let index = doc.add_vector_layer("V", shape_item((10.0, 10.0), (40.0, 40.0)));
     doc.set_active_layer(index);
     assert!(doc.select_vector_item_at(20.0, 20.0));
     doc
@@ -312,7 +316,10 @@ fn a_corner_handle_looks_the_same_at_both_levels() {
 #[test]
 fn the_item_frame_sits_on_the_items_own_bounds() {
     let doc = selected_doc();
-    let bounds = doc.layers[doc.active_layer].content.items().unwrap()[0]
+    let bounds = doc.layers[doc.active_layer]
+        .content
+        .item()
+        .unwrap()
         .bounds()
         .unwrap();
     let out = vector_selection_instances(&doc);

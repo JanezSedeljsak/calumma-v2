@@ -3,11 +3,11 @@
 //! edited, this side answers what it looks like written down.
 use crate::shape::{Shape, Tool};
 use crate::transform::{bounds_center, LayerTransform};
-use crate::vector::{items_bounds, VectorItem};
+use crate::vector::VectorItem;
 
 /// Fill and stroke as the two independent SVG attributes they natively are, which is a
 /// closer match to the format than the either/or this used to emit. A part that is switched
-/// off is `fill="none"` / no stroke attributes at all, so the file never carries a colour
+/// off is `fill="none"` / no stroke attributes at all, so the file never carries a color
 /// for something the board does not draw.
 fn svg_paint(fill: Option<[u8; 4]>, stroke: Option<([u8; 4], f32)>) -> String {
     let mut out = match fill {
@@ -101,12 +101,9 @@ pub fn item_svg(item: &VectorItem) -> Option<String> {
 /// A layer transform exported as an SVG `<g transform=...>` rather than baked into every
 /// coordinate — an SVG group carries translate/rotate/scale natively, so the exported file
 /// stays as editable as the layer is.
-pub fn svg_transform_attr(
-    items: &[VectorItem],
-    transform: Option<LayerTransform>,
-) -> Option<String> {
+pub fn svg_transform_attr(item: &VectorItem, transform: Option<LayerTransform>) -> Option<String> {
     let t = transform.filter(|t| !t.is_identity())?;
-    let pivot = bounds_center(items_bounds(items)?);
+    let pivot = bounds_center(item.bounds()?);
     let degrees = t.rotation.to_degrees();
     Some(format!(
         "<g transform=\"translate({} {}) translate({} {}) rotate({}) scale({} {}) translate({} {})\">",

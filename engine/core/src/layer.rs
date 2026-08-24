@@ -2,7 +2,7 @@ use crate::filters::Adjustments;
 use crate::limits::PAPER_WHITE;
 use crate::tile::{DirtyChannel, DocRect, TileGrid, TileMap, TileSet, TILE_SIZE};
 use crate::transform::LayerTransform;
-use crate::vector::{items_bounds, VectorItem};
+use crate::vector::VectorItem;
 use calumma_text::TextRun;
 use std::sync::Arc;
 use uuid::Uuid;
@@ -36,7 +36,7 @@ impl BlendMode {
 #[derive(Clone, Debug, PartialEq)]
 pub enum LayerContent {
     Raster(TileGrid),
-    Vector(Vec<VectorItem>),
+    Vector(VectorItem),
     Text { run: Box<TextRun>, tiles: TileGrid },
 }
 
@@ -78,16 +78,16 @@ impl LayerContent {
         }
     }
 
-    pub fn items(&self) -> Option<&[VectorItem]> {
+    pub fn item(&self) -> Option<&VectorItem> {
         match self {
-            Self::Vector(items) => Some(items.as_slice()),
+            Self::Vector(item) => Some(item),
             Self::Raster(_) | Self::Text { .. } => None,
         }
     }
 
-    pub fn items_mut(&mut self) -> Option<&mut Vec<VectorItem>> {
+    pub fn item_mut(&mut self) -> Option<&mut VectorItem> {
         match self {
-            Self::Vector(items) => Some(items),
+            Self::Vector(item) => Some(item),
             Self::Raster(_) | Self::Text { .. } => None,
         }
     }
@@ -145,12 +145,12 @@ impl Layer {
         }
     }
 
-    pub fn vector(name: impl Into<String>, items: Vec<VectorItem>) -> Self {
+    pub fn vector(name: impl Into<String>, item: VectorItem) -> Self {
         Self {
             id: Uuid::new_v4().to_string(),
             name: name.into(),
             visible: true,
-            content: LayerContent::Vector(items),
+            content: LayerContent::Vector(item),
             opacity: 1.0,
             blend_mode: BlendMode::Normal,
             adjustments: None,
@@ -311,7 +311,7 @@ impl Layer {
                     r.max_y.min(tiles.height as i32) as f32,
                 ))
             }
-            LayerContent::Vector(items) => items_bounds(items),
+            LayerContent::Vector(item) => item.bounds(),
         }
     }
 

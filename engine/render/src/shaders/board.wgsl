@@ -371,7 +371,7 @@ fn shape_region(tool: u32, p0: vec2<f32>, p1: vec2<f32>, half_width: f32, p: vec
     }
 }
 
-// Straight-alpha `over`. A shape with both a fill and a stroke is two colours in one
+// Straight-alpha `over`. A shape with both a fill and a stroke is two colors in one
 // fragment and the alpha blend state can only take one, so the two are composited here — in
 // the same order, and to the same result, as the CPU commit's `blend_over` pair.
 fn ink_over(bottom: vec4<f32>, top: vec4<f32>) -> vec4<f32> {

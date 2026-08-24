@@ -29,8 +29,8 @@ pub extern "C" fn calm_engine_layer_is_vector(engine: *mut CalmEngine, index: u3
     })
 }
 
-/// How many items a vector layer holds, so the layers panel can say what a layer *is* rather
-/// than only what it is called.
+/// Whether this vector layer holds its one item, so the layers panel can say what a layer
+/// *is* rather than only what it is called. Always 0 or 1.
 #[no_mangle]
 pub extern "C" fn calm_engine_layer_item_count(engine: *mut CalmEngine, index: u32) -> u32 {
     read_doc(engine, 0, |doc| {
@@ -44,8 +44,7 @@ pub extern "C" fn calm_engine_layer_item_count(engine: *mut CalmEngine, index: u
 #[no_mangle]
 pub extern "C" fn calm_engine_selected_vector_item(engine: *mut CalmEngine) -> c_int {
     read_doc(engine, -1, |doc| {
-        doc.selected_vector_item()
-            .map_or(-1, |pick| pick.item as c_int)
+        doc.selected_vector_item().map_or(-1, |_| 0)
     })
 }
 

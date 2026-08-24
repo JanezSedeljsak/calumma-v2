@@ -80,7 +80,7 @@ fn shape_distance_rect_inside_negative_when_filled_path() {
 fn vector_layer_content_and_bounds() {
     let layer = Layer::vector(
         names::numbered_vector_layer(1),
-        vec![VectorItem::Path(VectorPath {
+        VectorItem::Path(VectorPath {
             points: vec![(0.0, 0.0), (8.0, 0.0), (8.0, 6.0)],
             closed: true,
             fill: true,
@@ -88,7 +88,7 @@ fn vector_layer_content_and_bounds() {
             color: [0, 0, 0, 255],
             stroke_color: [0, 0, 0, 255],
             stroke_width: 1.0,
-        })],
+        }),
     );
     assert!(matches!(layer.content, LayerContent::Vector(_)));
     assert_eq!(layer.content_bounds(), Some((0.0, 0.0, 8.0, 6.0)));
@@ -158,6 +158,8 @@ fn tool_helpers() {
     assert_eq!(Tool::from_u32(99), None);
     assert!(Tool::Pen.takes_brush_size());
     assert!(!Tool::Move.takes_brush_size());
+    assert!(Tool::Eyedropper.takes_eyedropper_radius());
+    assert!(!Tool::Move.takes_eyedropper_radius());
     assert!(Tool::Pen.shows_vector_mode());
     assert!(!Tool::Move.shows_vector_mode());
     assert!(!Tool::Text.takes_brush_size());

@@ -204,7 +204,7 @@ fn deselect_ends_the_session() {
 }
 
 #[test]
-fn ink_colour_recolours_the_live_run() {
+fn ink_color_recolors_the_live_run() {
     let mut doc = board();
     click(&mut doc, 100.0, 100.0);
     doc.text_insert("A");

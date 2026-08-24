@@ -9,7 +9,7 @@ fn store() -> (tempfile::TempDir, ProjectStore) {
 }
 
 #[test]
-fn rename_recolour_and_touch_workspace() {
+fn rename_recolor_and_touch_workspace() {
     let (_dir, store) = store();
     let ws = store.create_workspace("Desk", Some([1, 2, 3])).unwrap();
     assert_eq!(ws.accent, [1, 2, 3]);

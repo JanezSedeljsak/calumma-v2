@@ -55,6 +55,12 @@ impl VectorEngine {
             .expect("a vector layer should exist")
     }
 
+    fn vector_layer_count(&self) -> usize {
+        (0..16)
+            .filter(|i| calm_engine_layer_is_vector(self.ptr, *i) == 1)
+            .count()
+    }
+
     fn item_count(&self) -> u32 {
         calm_engine_layer_item_count(self.ptr, self.vector_layer())
     }
@@ -79,11 +85,12 @@ fn vector_mode_is_a_knob_the_shell_can_read_back() {
 }
 
 #[test]
-fn shapes_drawn_in_vector_mode_pile_up_in_one_layer() {
+fn shapes_drawn_in_vector_mode_each_make_a_layer() {
     let engine = VectorEngine::new();
     engine.drag((40.0, 40.0), (120.0, 120.0));
     engine.drag((200.0, 200.0), (300.0, 300.0));
-    assert_eq!(engine.item_count(), 2);
+    assert_eq!(engine.vector_layer_count(), 2);
+    assert_eq!(engine.item_count(), 1);
     assert_eq!(
         calm_engine_layer_is_vector(engine.ptr, 0),
         0,
@@ -109,7 +116,11 @@ fn an_item_is_selected_and_moved_by_dragging_it_in_transform_mode() {
     );
     engine.drag((80.0, 80.0), (100.0, 90.0));
     assert_eq!(engine.selected(), 0);
-    assert_eq!(engine.item_count(), 2, "moving an item adds nothing");
+    assert_eq!(
+        engine.vector_layer_count(),
+        2,
+        "moving an item adds nothing"
+    );
 
     assert_eq!(
         calm_engine_nudge_selected_vector_item(engine.ptr, 4.0, -3.0),
@@ -119,7 +130,7 @@ fn an_item_is_selected_and_moved_by_dragging_it_in_transform_mode() {
         calm_engine_delete_selected_vector_item(engine.ptr),
         CalmStatus::Ok
     );
-    assert_eq!(engine.item_count(), 1);
+    assert_eq!(engine.vector_layer_count(), 1);
     assert_eq!(engine.selected(), -1);
 }
 

@@ -36,9 +36,10 @@ debug = "line-tables-only"
 split-debuginfo = "unpacked"
 # The engine is per-pixel scalar loops end to end (tile compositing, mip downsampling, blur,
 # flood fill). At opt-level 0 those run an order of magnitude slower than shipped code, which
-# makes every interactive measurement taken against a dev build meaningless. 2 keeps the
-# compile fast enough to iterate on while leaving the loops vectorizable.
-opt-level = 2
+# makes every interactive measurement taken against a dev build meaningless. 3 matches
+# release's auto-vec and unroll so `cargo test` / a plain `cargo build` are not a different
+# engine; the extra codegen versus 2 is cheap next to linking.
+opt-level = 3
 
 [profile.dev.package."*"]
 # Dependencies change rarely and are recompiled almost never, so there is no iteration cost to
@@ -47,13 +48,15 @@ opt-level = 2
 opt-level = 3
 
 [profile.test]
-opt-level = 2
+opt-level = 3
 
 [profile.release]
-lto = true
+opt-level = 3
+lto = "fat"
 # One codegen unit lets LLVM inline across the whole crate, which is what the tile/pixel
 # helpers need — they are small functions called from inside million-iteration loops.
 codegen-units = 1
+strip = "symbols"
 # Deliberately NOT `panic = "abort"`: the FFI boundary catches unwinds (`with_inner`) so a
 # Rust panic can never cross into Swift. Aborting would turn a recoverable engine error into
 # an app crash.

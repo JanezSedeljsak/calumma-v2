@@ -3,14 +3,12 @@ use crate::document::{point_dist, Document, TransformHandle, HANDLE_HIT_RADIUS_P
 use crate::layer::Layer;
 use crate::limits::{VECTOR_NUDGE_STEP, VECTOR_PICK_SLACK_PX};
 use crate::transform::{bounds_center, corner_scale, LayerTransform};
-use crate::vector::{items_bounds, VectorItem};
+use crate::vector::VectorItem;
 
-/// Which item, in which layer. A vector layer is a *list*, so an index inside the layer is
-/// as much a part of the address as the layer itself.
+/// A vector layer is the item. Clicking it selects that layer; there is no second index.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct VectorPick {
     pub layer: usize,
-    pub item: usize,
 }
 
 /// A live item drag. The item is captured whole at pointer-down and every frame re-derives
@@ -44,7 +42,7 @@ type Placement = Option<((f32, f32), LayerTransform)>;
 
 fn layer_pivot(layer: &Layer) -> Placement {
     let t = layer.transform.filter(|t| !t.is_identity())?;
-    let raw = items_bounds(layer.content.items()?)?;
+    let raw = layer.content.item()?.bounds()?;
     Some((bounds_center(raw), t))
 }
 
@@ -78,25 +76,20 @@ fn item_space_slack(layer: &Layer, doc_slack: f32) -> f32 {
 }
 
 impl Document {
-    /// The topmost visible vector item under a document point, searched the way the eye
-    /// reads the board: last layer first, and inside a layer the last item first, because
-    /// that is the one drawn on top.
+    /// The topmost visible vector layer whose item covers a document point, searched last
+    /// layer first because that is the one drawn on top. A hit is the layer — there is only
+    /// one item in it.
     pub fn vector_item_at(&self, doc_x: f32, doc_y: f32) -> Option<VectorPick> {
         let doc_slack = VECTOR_PICK_SLACK_PX / self.camera.zoom.max(1e-6);
         for (layer_index, layer) in self.layers.iter().enumerate().rev() {
             if !layer.visible || layer.is_paper() || layer.opacity <= 0.0 {
                 continue;
             }
-            if let Some(items) = layer.content.items() {
+            if let Some(item) = layer.content.item() {
                 let local = to_item_space(layer, (doc_x, doc_y));
                 let slack = item_space_slack(layer, doc_slack);
-                for (item_index, item) in items.iter().enumerate().rev() {
-                    if item.pick_distance(local.0, local.1) <= slack {
-                        return Some(VectorPick {
-                            layer: layer_index,
-                            item: item_index,
-                        });
-                    }
+                if item.pick_distance(local.0, local.1) <= slack {
+                    return Some(VectorPick { layer: layer_index });
                 }
                 continue;
             }
@@ -112,8 +105,7 @@ impl Document {
     /// selection exists — a stale pick simply stops resolving.
     pub fn selected_vector_item(&self) -> Option<VectorPick> {
         let pick = self.selected_vector?;
-        let items = self.layers.get(pick.layer)?.content.items()?;
-        (pick.item < items.len()).then_some(pick)
+        self.layers.get(pick.layer)?.content.item().map(|_| pick)
     }
 
     pub fn clear_vector_selection(&mut self) {
@@ -281,21 +273,12 @@ impl Document {
         let Some(pick) = self.selected_vector_item() else {
             return false;
         };
-        let Some(items) = self
-            .layers
-            .get_mut(pick.layer)
-            .and_then(|l| l.content.items_mut())
-        else {
-            return false;
-        };
-        items.remove(pick.item);
         self.clear_vector_selection();
-        self.bump_vector_revision();
-        true
+        self.remove_layer(pick.layer)
     }
 
     fn item_for_pick(&self, pick: VectorPick) -> Option<&VectorItem> {
-        self.layers.get(pick.layer)?.content.items()?.get(pick.item)
+        self.layers.get(pick.layer)?.content.item()
     }
 
     /// The selection box in **document** space: the item's own bounds carried through the
@@ -333,10 +316,11 @@ impl Document {
     }
 
     pub fn vector_item_count(&self, layer_index: usize) -> usize {
-        self.layers
-            .get(layer_index)
-            .and_then(|l| l.content.items())
-            .map_or(0, <[VectorItem]>::len)
+        usize::from(
+            self.layers
+                .get(layer_index)
+                .is_some_and(|l| l.content.item().is_some()),
+        )
     }
 
     /// The one place an item is moved: it maps the document-space delta into the layer's own
@@ -361,8 +345,7 @@ impl Document {
         let Some(slot) = self
             .layers
             .get_mut(pick.layer)
-            .and_then(|l| l.content.items_mut())
-            .and_then(|items| items.get_mut(pick.item))
+            .and_then(|l| l.content.item_mut())
         else {
             return false;
         };

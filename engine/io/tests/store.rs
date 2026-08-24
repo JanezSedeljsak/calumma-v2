@@ -81,7 +81,7 @@ fn layer_effects_round_trip() {
 }
 
 #[test]
-fn accent_round_trips_and_can_be_recoloured() {
+fn accent_round_trips_and_can_be_recolored() {
     let (_dir, store) = store();
     let mut doc = store.create("Tinted", 32, 32).unwrap();
     assert!(calumma_core::PROJECT_COLORS.contains(&doc.accent));
@@ -98,7 +98,7 @@ fn accent_round_trips_and_can_be_recoloured() {
 }
 
 #[test]
-fn rename_and_recolour_reject_unknown_projects() {
+fn rename_and_recolor_reject_unknown_projects() {
     let (_dir, store) = store();
     assert!(store.rename("nope", "x").is_err());
     assert!(store.set_accent("nope", [1, 2, 3]).is_err());
@@ -487,7 +487,7 @@ fn delete_all_projects_clears_store() {
 
 /// Paper is written to disk as one identical white blob per tile. Reading them back into
 /// separate allocations would undo the sharing a freshly created project has, so the loader
-/// hands every solid tile of a colour the same buffer.
+/// hands every solid tile of a color the same buffer.
 #[test]
 fn solid_tiles_come_back_sharing_one_allocation() {
     let dir = tempfile::tempdir().unwrap();

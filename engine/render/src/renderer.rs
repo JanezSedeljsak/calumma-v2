@@ -162,22 +162,6 @@ enum FrameDirty {
     Content,
 }
 
-/// Append an instance range, growing the previous entry instead when it is the same kind and
-/// ends where this one starts. Item order survives — a shape between two paths still splits
-/// the run — while the common layer, all of one kind, collapses to a single draw call.
-fn extend_run(out: &mut Vec<LayerDraw>, kind: VectorRun, range: std::ops::Range<u32>) {
-    if range.is_empty() {
-        return;
-    }
-    if let Some(LayerDraw::Vector(prev_kind, prev)) = out.last_mut() {
-        if *prev_kind == kind && prev.end == range.start {
-            prev.end = range.end;
-            return;
-        }
-    }
-    out.push(LayerDraw::Vector(kind, range));
-}
-
 pub struct Renderer {
     device: wgpu::Device,
     queue: wgpu::Queue,
@@ -1290,10 +1274,8 @@ impl Renderer {
 
     /// The whole layer stack as one ordered draw list, filling the instance buffers as it
     /// goes. A document layer's visible tiles become one range in `tiles` — one instanced
-    /// draw call regardless of how many tiles that is. Within a vector layer, runs of the
-    /// same kind coalesce into a single instanced draw while item order is preserved — so a
-    /// shapes-only layer is one draw call, and a layer that alternates shapes and freehand
-    /// still stacks in the order it was drawn in.
+    /// draw call regardless of how many tiles that is. A vector layer is one item, so it is
+    /// one `LayerDraw::Vector` and nothing in the layer coalesces.
     fn build_layer_draws(
         &mut self,
         doc: &Document,
@@ -1309,22 +1291,28 @@ impl Renderer {
             if !layer.visible {
                 continue;
             }
-            if let Some(items) = layer.content.items() {
+            if let Some(item) = layer.content.item() {
                 let placement = vector_placement(layer);
-                for item in items {
-                    if !item_visible(item, placement, visible) {
-                        continue;
+                if !item_visible(item, placement, visible) {
+                    continue;
+                }
+                match item {
+                    VectorItem::Shape(shape) => {
+                        let start = shapes.len() as u32;
+                        shapes.push(shape_instance(shape, placement));
+                        out.push(LayerDraw::Vector(
+                            VectorRun::Shapes,
+                            start..shapes.len() as u32,
+                        ));
                     }
-                    match item {
-                        VectorItem::Shape(shape) => {
-                            let start = shapes.len() as u32;
-                            shapes.push(shape_instance(shape, placement));
-                            extend_run(&mut out, VectorRun::Shapes, start..shapes.len() as u32);
-                        }
-                        VectorItem::Path(path) => {
-                            let start = strokes.len() as u32;
-                            push_path_instances(path, placement, strokes);
-                            extend_run(&mut out, VectorRun::Paths, start..strokes.len() as u32);
+                    VectorItem::Path(path) => {
+                        let start = strokes.len() as u32;
+                        push_path_instances(path, placement, strokes);
+                        if strokes.len() as u32 > start {
+                            out.push(LayerDraw::Vector(
+                                VectorRun::Paths,
+                                start..strokes.len() as u32,
+                            ));
                         }
                     }
                 }
@@ -1371,7 +1359,7 @@ impl Renderer {
         out
     }
 
-    /// Replays `cached_draws` into whatever colour attachment `pass` targets — the shared body
+    /// Replays `cached_draws` into whatever color attachment `pass` targets — the shared body
     /// behind both a full content redraw (the whole visible tile/vector set, into a fresh
     /// `PanCache` reference) and a blit-frame's exposed-strip repair (the same draws, scissored
     /// down to just the strip). Positions are document-space in the instance buffer, so the

@@ -25,8 +25,8 @@ viewBox=\"0 0 {width} {height}\">"
         if !layer.visible {
             continue;
         }
-        let body = match layer.content.items() {
-            Some(items) => vector_group(items, layer),
+        let body = match layer.content.item() {
+            Some(item) => vector_group(item, layer),
             None => raster_image(doc, index),
         };
         let Some(body) = body else {
@@ -60,15 +60,13 @@ fn group_attrs(layer: &Layer, name: String) -> String {
     attrs
 }
 
-fn vector_group(items: &[vector::VectorItem], layer: &Layer) -> Option<String> {
+fn vector_group(item: &vector::VectorItem, layer: &Layer) -> Option<String> {
     let mut out = String::new();
-    if let Some(group) = vector_svg::svg_transform_attr(items, layer.transform) {
+    if let Some(group) = vector_svg::svg_transform_attr(item, layer.transform) {
         out.push_str(&group);
     }
-    for item in items {
-        if let Some(markup) = vector_svg::item_svg(item) {
-            out.push_str(&markup);
-        }
+    if let Some(markup) = vector_svg::item_svg(item) {
+        out.push_str(&markup);
     }
     if layer.transform.is_some_and(|t| !t.is_identity()) {
         out.push_str("</g>");
@@ -141,7 +139,7 @@ fn base64(bytes: &[u8]) -> String {
     out
 }
 
-/// The one colour a box is painted in, if it is painted in exactly one. Paper is a
+/// The one color a box is painted in, if it is painted in exactly one. Paper is a
 /// document-sized field of solid white, and so is any layer someone flood-filled — embedding
 /// megabytes of base64 for a rectangle would be absurd when SVG has a `<rect>` for it.
 fn uniform_color(rgba: &[u8], width: u32, box_: (u32, u32, u32, u32)) -> Option<[u8; 4]> {

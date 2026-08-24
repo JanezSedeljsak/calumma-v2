@@ -75,7 +75,7 @@ pub fn document_memory(doc: &Document) -> DocumentMemory {
             out.mask_bytes += mask.len();
         }
         match &layer.content {
-            LayerContent::Vector(items) => out.vector_bytes += vector_bytes(items),
+            LayerContent::Vector(item) => out.vector_bytes += vector_bytes(item),
             LayerContent::Text { run, .. } => out.text_bytes += run.text.capacity(),
             LayerContent::Raster(_) => {}
         }
@@ -89,15 +89,10 @@ pub fn document_memory(doc: &Document) -> DocumentMemory {
     out
 }
 
-fn vector_bytes(items: &[VectorItem]) -> usize {
-    items
-        .iter()
-        .map(|item| {
-            std::mem::size_of::<VectorItem>()
-                + match item {
-                    VectorItem::Path(p) => p.points.capacity() * std::mem::size_of::<(f32, f32)>(),
-                    VectorItem::Shape(_) => 0,
-                }
-        })
-        .sum()
+fn vector_bytes(item: &VectorItem) -> usize {
+    std::mem::size_of::<VectorItem>()
+        + match item {
+            VectorItem::Path(p) => p.points.capacity() * std::mem::size_of::<(f32, f32)>(),
+            VectorItem::Shape(_) => 0,
+        }
 }

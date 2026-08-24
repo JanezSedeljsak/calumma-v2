@@ -111,8 +111,8 @@ fn a_shift_held_only_at_release_still_constrains_what_is_committed() {
     let up = doc.camera.to_screen(150.0, 90.0);
     doc.pointer_up(up.0, up.1);
 
-    let items = doc.layers[doc.active_layer].content.items().unwrap();
-    let VectorItem::Shape(committed) = &items[0] else {
+    let item = doc.layers[doc.active_layer].content.item().unwrap();
+    let VectorItem::Shape(committed) = item else {
         unreachable!("vector mode commits a shape")
     };
     assert!(close(committed.shape.start, (50.0, 50.0)));

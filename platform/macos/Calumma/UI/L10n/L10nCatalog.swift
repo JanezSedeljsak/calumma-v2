@@ -212,6 +212,7 @@ struct L10nCatalog: Equatable {
     var toolSelectEllipse: String { self["toolSelectEllipse"] }
     var toolSelectLasso: String { self["toolSelectLasso"] }
     var brushSize: String { self["brushSize"] }
+    var sampleSize: String { self["sampleSize"] }
     var inkOpacity: String { self["inkOpacity"] }
     var blurStrength: String { self["blurStrength"] }
     var tolerance: String { self["tolerance"] }

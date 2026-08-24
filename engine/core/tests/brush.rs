@@ -99,7 +99,7 @@ fn the_pen_brush_keeps_a_hard_edge() {
 }
 
 /// The point of a marker and an airbrush: they lay down less ink than the pen at the same
-/// colour and the same opacity slider, so they read as translucent without any fiddling.
+/// color and the same opacity slider, so they read as translucent without any fiddling.
 #[test]
 fn brushes_lay_down_their_own_amount_of_ink() {
     let laid = |brush: Brush| {
@@ -250,10 +250,7 @@ fn vector_mode_ignores_the_brush() {
     doc.set_color([0, 0, 0, 255]);
     slow_drag(&mut doc, (60.0, 128.0), (180.0, 128.0), 20);
     assert!(
-        doc.layers[doc.active_layer]
-            .content
-            .items()
-            .is_some_and(|i| !i.is_empty()),
+        doc.layers[doc.active_layer].content.item().is_some(),
         "it committed a vector item"
     );
 }
@@ -292,10 +289,10 @@ fn a_soft_eraser_feathers_its_rim() {
     );
 }
 
-/// A soft erase keeps the colour it is thinning out. Alpha comes down, RGB stays put — tiles
+/// A soft erase keeps the color it is thinning out. Alpha comes down, RGB stays put — tiles
 /// hold straight alpha, so zeroing the channels would turn a half-erased edge black.
 #[test]
-fn a_soft_erase_thins_alpha_without_touching_colour() {
+fn a_soft_erase_thins_alpha_without_touching_color() {
     let mut doc = board();
     {
         let tiles = doc.layers[doc.active_layer].tiles_mut().unwrap();
@@ -312,7 +309,7 @@ fn a_soft_erase_thins_alpha_without_touching_colour() {
     assert_eq!(
         [edge[0], edge[1], edge[2]],
         [200, 40, 90],
-        "and still its own colour"
+        "and still its own color"
     );
 }
 

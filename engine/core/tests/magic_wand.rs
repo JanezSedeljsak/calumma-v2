@@ -83,7 +83,7 @@ fn wand_reads_the_active_layer_not_the_composite() {
     assert!(
         !sel.contains(100.5, 100.5),
         "Paper is opaque white everywhere, so a composite read would have selected \
-         everything but the square's colour — this must be the active layer's transparency"
+         everything but the square's color — this must be the active layer's transparency"
     );
     assert!(sel.contains(10.5, 10.5));
 }

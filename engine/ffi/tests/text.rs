@@ -258,7 +258,7 @@ fn switching_tools_commits_the_session() {
 }
 
 #[test]
-fn the_ink_colour_recolours_the_live_run() {
+fn the_ink_color_recolors_the_live_run() {
     let engine = TextEngine::new();
     engine.click(200.0, 200.0);
     engine.type_text("red");
