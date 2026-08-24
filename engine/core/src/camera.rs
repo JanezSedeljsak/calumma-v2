@@ -1,7 +1,7 @@
 use crate::limits::{
     FIT_MATCH_PAN_TOLERANCE, FIT_MATCH_ZOOM_TOLERANCE, FIT_PADDING, MAX_ZOOM_HARD,
-    MAX_ZOOM_IN_FACTOR, MIN_VISIBLE_DOC_SIDE, MIN_ZOOM_FILL, PAN_KEEP_VISIBLE, SCROLL_LINE_PIXELS,
-    SCROLL_PAN_MAX_GAIN, ZOOM_PER_SCROLL_LINE, ZOOM_PER_SCROLL_PIXEL, ZOOM_STEP,
+    MIN_VISIBLE_DOC_SIDE, MIN_ZOOM_FILL, PAN_KEEP_VISIBLE, SCROLL_LINE_PIXELS, SCROLL_PAN_MAX_GAIN,
+    ZOOM_PER_SCROLL_LINE, ZOOM_PER_SCROLL_PIXEL, ZOOM_STEP,
 };
 
 /// Scroll deltas reach the camera in whatever unit the input device speaks: pixels from a
@@ -61,14 +61,18 @@ impl Camera {
         self.fill_zoom(doc_width, doc_height, MIN_ZOOM_FILL)
     }
 
+    /// The zoom ceiling, set by how few document pixels may fill the viewport rather than by
+    /// any multiple of [`Camera::min_zoom`]. Deriving it from the floor is what used to tie
+    /// the two ends together: lowering the floor to show more desk also lowered the ceiling
+    /// by the same factor, which is not what either end is for. `.min(shorter_doc)` keeps a
+    /// document smaller than [`MIN_VISIBLE_DOC_SIDE`] zoomable at all.
     pub fn max_zoom(&self, doc_width: f32, doc_height: f32) -> f32 {
         let min = self.min_zoom(doc_width, doc_height);
-        let by_factor = min * MAX_ZOOM_IN_FACTOR;
         let shorter_view = self.viewport_width.min(self.viewport_height).max(1.0);
         let shorter_doc = doc_width.min(doc_height).max(1.0);
         let visible_side = MIN_VISIBLE_DOC_SIDE.min(shorter_doc);
         let by_detail = shorter_view / visible_side;
-        by_factor.min(by_detail).min(MAX_ZOOM_HARD).max(min)
+        by_detail.min(MAX_ZOOM_HARD).max(min)
     }
 
     pub fn to_doc(&self, screen_x: f32, screen_y: f32) -> (f32, f32) {

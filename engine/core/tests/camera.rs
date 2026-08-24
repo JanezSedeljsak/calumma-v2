@@ -24,7 +24,7 @@ fn fit_zoom_is_above_min_floor() {
 }
 
 #[test]
-fn min_zoom_fills_half_viewport() {
+fn min_zoom_fills_the_floor_fraction_of_the_viewport() {
     let c = cam(1000.0, 800.0);
     let z = c.min_zoom(2000.0, 1000.0);
     let paper_w = 2000.0 * z;
@@ -34,12 +34,16 @@ fn min_zoom_fills_half_viewport() {
     assert!((fill_w.max(fill_h) - MIN_ZOOM_FILL).abs() < 1e-4);
 }
 
+/// The regression the whole decoupling exists for: `max_zoom` used to be `min_zoom` times a
+/// factor, so two documents that fit the same viewport very differently got very different
+/// ceilings — and lowering the floor lowered the ceiling with it.
 #[test]
-fn max_zoom_is_ten_times_min_when_detail_allows() {
-    let c = cam(2000.0, 2000.0);
-    let min = c.min_zoom(3000.0, 3000.0);
-    let max = c.max_zoom(3000.0, 3000.0);
-    assert!((max - min * MAX_ZOOM_IN_FACTOR).abs() < 1e-3);
+fn max_zoom_does_not_follow_the_floor() {
+    let c = cam(1200.0, 800.0);
+    let small = (1000.0, 1000.0);
+    let large = (4000.0, 4000.0);
+    assert!(c.min_zoom(large.0, large.1) < c.min_zoom(small.0, small.1) * 0.5);
+    assert!((c.max_zoom(small.0, small.1) - c.max_zoom(large.0, large.1)).abs() < 1e-3);
 }
 
 #[test]
@@ -48,6 +52,27 @@ fn max_zoom_respects_visible_doc_side() {
     let max = c.max_zoom(4000.0, 4000.0);
     let visible = 600.0 / max;
     assert!(visible + 1e-3 >= MIN_VISIBLE_DOC_SIDE.min(4000.0));
+}
+
+#[test]
+fn max_zoom_reaches_pixel_detail() {
+    let c = cam(1200.0, 800.0);
+    let max = c.max_zoom(1000.0, 1000.0);
+    assert!(max > 16.0, "expected a deep ceiling, got {max}");
+    assert!(max <= MAX_ZOOM_HARD + 1e-3);
+}
+
+#[test]
+fn max_zoom_stops_at_the_hard_ceiling_on_a_large_viewport() {
+    let c = cam(4000.0, 3000.0);
+    assert!((c.max_zoom(2000.0, 2000.0) - MAX_ZOOM_HARD).abs() < 1e-3);
+}
+
+#[test]
+fn a_document_smaller_than_the_detail_cap_can_still_zoom() {
+    let side = MIN_CANVAS_SIDE as f32;
+    let c = cam(1000.0, 800.0);
+    assert!(c.max_zoom(side, side) > c.min_zoom(side, side));
 }
 
 #[test]

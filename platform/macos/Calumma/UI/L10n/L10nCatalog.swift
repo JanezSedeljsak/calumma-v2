@@ -220,6 +220,7 @@ struct L10nCatalog: Equatable {
     var primaryColor: String { self["primaryColor"] }
     var strokeColor: String { self["strokeColor"] }
     var secondaryColor: String { self["secondaryColor"] }
+    var tertiaryColor: String { self["tertiaryColor"] }
     var hex: String { self["hex"] }
 
     func languageName(_ language: AppLanguage) -> String {

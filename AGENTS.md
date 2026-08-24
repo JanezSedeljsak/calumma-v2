@@ -163,8 +163,12 @@ have to be read together.
 - Editor: **titlebar workspace tabs** (right of traffic lights). Switch = save/close current
   → open the workspace’s active project (full reload). `+` adds a project to the active
   workspace; **extend** opens the workspace/project overlay with cached thumbnails.
-- One board per project; bounded paper (not infinite canvas). Zoom out floor fills ~50% of
-  the viewport; zoom in max is 10× that floor (detail-capped around a 400px visible side).
+- One board per project; bounded paper (not infinite canvas). The two ends of the zoom range
+  are set independently and share no constant: the floor fills ~20% of the viewport
+  (`MIN_ZOOM_FILL`), and the ceiling is whatever puts `MIN_VISIBLE_DOC_SIDE` (16) doc pixels
+  across the short viewport side, under a flat `MAX_ZOOM_HARD` of 64×. Past
+  `CRISP_PIXEL_ZOOM` the board magnifies tiles nearest-neighbour so deep zoom shows pixels
+  rather than a blur of them.
 
 ---
 
@@ -504,6 +508,13 @@ LOD, motion mode) are documented in `engine/render/rendering.md`, not repeated h
   (`Camera::paper_scissor`); the desk and paper border stay unclipped.
 - Swift owns the `MTKView` / CAMetalLayer; Rust borrows the layer pointer (no retain).
 - Layer hover = dashed outline in the shader, not a Swift overlay.
+- Board **chrome** — guides, transform and vector-item frames, the text session's box and
+  caret, the hover outline — is measured in *screen* pixels, not document units, so it is the
+  same size at every zoom. Guides ride `vs_guide`/`fs_guide`, everything else
+  `vs_overlay`/`fs_overlay`; both take document-space endpoints and read their width in screen
+  px. Ink-shaped previews (a live stroke, a lasso, a selection's marching ants) stay on
+  `vs_stroke`, where the brush is measured in document units because that is what it will
+  commit as. Adding chrome means adding to the overlay pass, never to the stroke pass.
 
 ### WGSL naming
 

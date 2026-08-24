@@ -42,9 +42,13 @@ final class AppModel: ObservableObject {
     }
     /// Which of the two the picker is currently pointed at.
     @Published private(set) var editingStroke = false
+    /// Three ink slots the picker switches between — primary, secondary, tertiary. Their
+    /// count is the only thing `QuickColorPicker` reads to decide how many swatches to draw,
+    /// so a fourth slot is one line here and nothing else.
     @Published var quickColors: [Color] = [
         Color(red: 0.1, green: 0.1, blue: 0.1),
         Color.white,
+        Color(red: 0.5, green: 0.5, blue: 0.5),
     ]
     @Published var activeQuickColorIndex = 0
     @Published private(set) var hsb = HSBColor(Color(red: 0.1, green: 0.1, blue: 0.1))

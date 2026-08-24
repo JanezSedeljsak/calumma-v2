@@ -48,9 +48,20 @@ pub const FIT_PADDING: f32 = 0.99;
 pub const FIT_MATCH_ZOOM_TOLERANCE: f32 = 1e-3;
 pub const FIT_MATCH_PAN_TOLERANCE: f32 = 1.0;
 pub const ZOOM_STEP: f32 = 1.25;
-pub const MIN_ZOOM_FILL: f32 = 0.5;
-pub const MAX_ZOOM_IN_FACTOR: f32 = 10.0;
-pub const MIN_VISIBLE_DOC_SIDE: f32 = 400.0;
+/// How much of the viewport the paper still fills at the zoom floor. A fifth, so there is
+/// real desk around a fitted board to drag it against and to see a large composition whole.
+pub const MIN_ZOOM_FILL: f32 = 0.2;
+/// The zoom ceiling, expressed as what it is for: the smallest span of document, in document
+/// pixels, that may fill the shorter side of the viewport. Sixteen puts a single pixel under
+/// a fingertip on any normal viewport, which is the point of zooming in this far — below that
+/// `MAX_ZOOM_HARD` takes over as a flat cap. It is the *only* thing deriving the ceiling: the
+/// floor and the ceiling are set from what each is for and share no constant, so moving one
+/// cannot silently move the other.
+pub const MIN_VISIBLE_DOC_SIDE: f32 = 16.0;
+/// Above this zoom the board magnifies tiles with nearest-neighbour instead of bilinear, so
+/// deep zoom shows pixels rather than a smooth gradient of them. Minification keeps its
+/// filtering and its mip chain — that end is a downsample and wants both.
+pub const CRISP_PIXEL_ZOOM: f32 = 4.0;
 /// How much of the paper (as a fraction of whichever is smaller, paper or viewport)
 /// has to stay on screen. Panning is free inside that slack, so the paper can be
 /// dragged around even when it fits the viewport whole.

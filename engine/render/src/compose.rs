@@ -7,14 +7,19 @@ use calumma_core::{
     TransformHandles,
 };
 
+/// Every width and radius below is a **screen**-pixel half-width, read by `board.wgsl`'s
+/// `vs_overlay` / `fs_overlay` rather than the stroke pass — board furniture is the same size
+/// at every zoom or it is not furniture. An 8px grip radius draws a 16px grip, which finally
+/// agrees with the 10px `HANDLE_HIT_RADIUS_PX` it is grabbed by: a ring of slack around
+/// something visible, instead of two unrelated numbers that only matched at one zoom.
 const TRANSFORM_OUTLINE_COLOR: [f32; 4] = [0.24, 0.78, 0.84, 0.95];
-const TRANSFORM_OUTLINE_WIDTH: f32 = 1.0;
+const TRANSFORM_OUTLINE_WIDTH_PX: f32 = 1.0;
 const TRANSFORM_HANDLE_COLOR: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
-const TRANSFORM_HANDLE_RADIUS: f32 = 4.0;
+const TRANSFORM_HANDLE_RADIUS_PX: f32 = 8.0;
 
 const TEXT_BOX_COLOR: [f32; 4] = [0.24, 0.78, 0.84, 0.45];
-const TEXT_BOX_WIDTH: f32 = 0.5;
-const TEXT_CARET_WIDTH: f32 = 1.0;
+const TEXT_BOX_WIDTH_PX: f32 = 0.5;
+const TEXT_CARET_WIDTH_PX: f32 = 1.0;
 /// Seconds for one on-off caret cycle. The blink runs off the renderer clock rather than a
 /// shell timer, so nothing outside the engine has to know a caret exists.
 const TEXT_CARET_BLINK_SECONDS: f32 = 1.06;
@@ -44,13 +49,22 @@ pub fn rgba_unit(rgba: [u8; 4]) -> [f32; 4] {
 }
 
 const LAYER_HIGHLIGHT_COLOR: [f32; 4] = [0.24, 0.78, 0.84, 0.85];
-const LAYER_HIGHLIGHT_WIDTH: f32 = 1.5;
-const LAYER_HIGHLIGHT_DASH: f32 = 8.0;
-const LAYER_HIGHLIGHT_GAP: f32 = 8.0;
-const LAYER_HIGHLIGHT_SPEED: f32 = 40.0;
+const LAYER_HIGHLIGHT_WIDTH_PX: f32 = 1.0;
+const LAYER_HIGHLIGHT_DASH_PX: f32 = 8.0;
+const LAYER_HIGHLIGHT_GAP_PX: f32 = 8.0;
+const LAYER_HIGHLIGHT_SPEED_PX: f32 = 40.0;
 
-pub fn layer_highlight_instances(corners: [(f32, f32); 4], elapsed: f32) -> Vec<StrokeInstance> {
-    let phase = elapsed * LAYER_HIGHLIGHT_SPEED;
+/// The hover outline, dashed at a constant screen period. `vs_overlay` fixes the *width* on
+/// screen but not the dash pattern — the marching ants are cut here, in document space, one
+/// instance per dash — so the period and the march speed are divided by the zoom instead. Both
+/// halves have to be screen-anchored or the dash looks like a different pattern at every zoom.
+pub fn layer_highlight_instances(
+    corners: [(f32, f32); 4],
+    elapsed: f32,
+    zoom: f32,
+) -> Vec<StrokeInstance> {
+    let zoom = zoom.max(f32::MIN_POSITIVE);
+    let phase = elapsed * LAYER_HIGHLIGHT_SPEED_PX / zoom;
     let mut out = Vec::with_capacity(32);
     for i in 0..4 {
         out.extend(dashed_edge(
@@ -58,9 +72,9 @@ pub fn layer_highlight_instances(corners: [(f32, f32); 4], elapsed: f32) -> Vec<
             corners[(i + 1) % 4],
             phase,
             LAYER_HIGHLIGHT_COLOR,
-            LAYER_HIGHLIGHT_WIDTH,
-            LAYER_HIGHLIGHT_DASH,
-            LAYER_HIGHLIGHT_GAP,
+            LAYER_HIGHLIGHT_WIDTH_PX,
+            LAYER_HIGHLIGHT_DASH_PX / zoom,
+            LAYER_HIGHLIGHT_GAP_PX / zoom,
         ));
     }
     out
@@ -161,7 +175,7 @@ pub fn box_overlay_instances(
     let outline = |a: (f32, f32), b: (f32, f32)| StrokeInstance {
         segment: [a.0, a.1, b.0, b.1],
         color: TRANSFORM_OUTLINE_COLOR,
-        brush: brush_params(TRANSFORM_OUTLINE_WIDTH, &BrushProfile::HARD),
+        brush: brush_params(TRANSFORM_OUTLINE_WIDTH_PX, &BrushProfile::HARD),
     };
     for i in 0..4 {
         out.push(outline(corners[i], corners[(i + 1) % 4]));
@@ -177,7 +191,7 @@ pub fn box_overlay_instances(
         out.push(StrokeInstance {
             segment: [p.0, p.1, p.0, p.1],
             color: TRANSFORM_HANDLE_COLOR,
-            brush: brush_params(TRANSFORM_HANDLE_RADIUS, &BrushProfile::HARD),
+            brush: brush_params(TRANSFORM_HANDLE_RADIUS_PX, &BrushProfile::HARD),
         });
     }
     out
@@ -198,7 +212,7 @@ pub fn text_overlay_instances(doc: &Document, elapsed: f32) -> Vec<StrokeInstanc
         out.push(StrokeInstance {
             segment: [a.0, a.1, b.0, b.1],
             color: TEXT_BOX_COLOR,
-            brush: brush_params(TEXT_BOX_WIDTH, &BrushProfile::HARD),
+            brush: brush_params(TEXT_BOX_WIDTH_PX, &BrushProfile::HARD),
         });
     }
     let visible = (elapsed / TEXT_CARET_BLINK_SECONDS).fract() < 0.5;
@@ -206,7 +220,7 @@ pub fn text_overlay_instances(doc: &Document, elapsed: f32) -> Vec<StrokeInstanc
         out.push(StrokeInstance {
             segment: [a.0, a.1, b.0, b.1],
             color: rgba_unit(doc.text_caret_color()),
-            brush: brush_params(TEXT_CARET_WIDTH, &BrushProfile::HARD),
+            brush: brush_params(TEXT_CARET_WIDTH_PX, &BrushProfile::HARD),
         });
     }
     out

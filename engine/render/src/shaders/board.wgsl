@@ -81,6 +81,10 @@ struct TileCamera {
     dpr: f32,
     viewport: vec2<f32>,
     doc_size: vec2<f32>,
+    crisp: f32,
+    _pad0: f32,
+    _pad1: f32,
+    _pad2: f32,
 }
 
 struct SolidLayer {
@@ -106,6 +110,7 @@ struct LayerXform {
 @group(0) @binding(0) var<uniform> tu: TileCamera;
 @group(0) @binding(1) var tile_tex: texture_2d_array<f32>;
 @group(0) @binding(2) var tile_sampler: sampler;
+@group(0) @binding(3) var tile_sampler_crisp: sampler;
 @group(1) @binding(0) var<uniform> lx: LayerXform;
 
 // Must match `calumma_core::tile::TILE_SIZE` — tiles are square and fixed-size at runtime, so
@@ -166,7 +171,17 @@ fn fs_tile(input: TileVsOut) -> @location(0) vec4<f32> {
     // `input.uv` automatically — coarser levels as the board zooms out, blended between levels
     // by `tile_sampler`'s mipmap_filter. That is what keeps a zoomed-out pan from shimmering:
     // without mips this would minify raw 256x256 texels with nothing pre-filtered underneath.
-    let c = textureSample(tile_tex, tile_sampler, input.uv, i32(input.slot));
+    //
+    // Past `limits::CRISP_PIXEL_ZOOM` the same sample is a magnification instead, where a
+    // bilinear tap smears one texel into a gradient the width of the whole magnified pixel.
+    // The crisp sampler differs only in mag_filter, so minification behaves identically either
+    // way; `tu.crisp` is uniform, so both arms are uniform control flow.
+    var c: vec4<f32>;
+    if tu.crisp > 0.5 {
+        c = textureSample(tile_tex, tile_sampler_crisp, input.uv, i32(input.slot));
+    } else {
+        c = textureSample(tile_tex, tile_sampler, input.uv, i32(input.slot));
+    }
     return vec4<f32>(c.rgb * c.a, c.a);
 }
 
@@ -610,6 +625,63 @@ fn fs_guide(input: GuideOut) -> @location(0) vec4<f32> {
     let screen = input.position.xy / max(pu.dpr, 1.0);
     let d = sd_segment_pts(screen, input.p0, input.p1);
     let cov = clamp(GUIDE_HALF_WIDTH_PX + 0.5 - d, 0.0, 1.0);
+    if cov <= 0.0 {
+        return vec4<f32>(0.0);
+    }
+    return vec4<f32>(input.color.rgb, input.color.a * cov);
+}
+
+struct OverlayOut {
+    @builtin(position) position: vec4<f32>,
+    @location(0) color: vec4<f32>,
+    @location(1) p0: vec2<f32>,
+    @location(2) p1: vec2<f32>,
+    @location(3) @interpolate(flat) half_width_px: f32,
+}
+
+// Board furniture — transform grips, the frames they sit on, the layer hover outline — measured
+// in screen pixels instead of document units, for the same reason `vs_guide` exists: chrome is
+// the same size at every zoom or it is not chrome. It takes the stroke pass's own instance
+// shape so nothing has to build a second kind of overlay, and reads `brush.x` as a screen-pixel
+// half-width rather than a document-unit brush radius. The SDF is `sd_segment_pts`, the one
+// `fs_guide` already evaluates — a new entry point over existing geometry, not new geometry.
+const OVERLAY_QUAD_PAD_PX: f32 = 2.0;
+
+@vertex
+fn vs_overlay(input: StrokeIn, @builtin(vertex_index) idx: u32) -> OverlayOut {
+    var corners = array<vec2<f32>, 6>(
+        vec2<f32>(0.0, 0.0),
+        vec2<f32>(1.0, 0.0),
+        vec2<f32>(0.0, 1.0),
+        vec2<f32>(0.0, 1.0),
+        vec2<f32>(1.0, 0.0),
+        vec2<f32>(1.0, 1.0),
+    );
+    let a = input.segment.xy * pu.zoom + pu.pan;
+    let b = input.segment.zw * pu.zoom + pu.pan;
+    let pad = vec2<f32>(input.brush.x + OVERLAY_QUAD_PAD_PX);
+    let lo = min(a, b) - pad;
+    let hi = max(a, b) + pad;
+    let screen = mix(lo, hi, corners[idx]);
+    let device = screen * pu.dpr;
+    let ndc = vec2<f32>(
+        (device.x / max(pu.viewport.x, 1.0)) * 2.0 - 1.0,
+        1.0 - (device.y / max(pu.viewport.y, 1.0)) * 2.0,
+    );
+    var out: OverlayOut;
+    out.position = vec4<f32>(ndc, 0.0, 1.0);
+    out.color = input.color;
+    out.p0 = a;
+    out.p1 = b;
+    out.half_width_px = input.brush.x;
+    return out;
+}
+
+@fragment
+fn fs_overlay(input: OverlayOut) -> @location(0) vec4<f32> {
+    let screen = input.position.xy / max(pu.dpr, 1.0);
+    let d = sd_segment_pts(screen, input.p0, input.p1);
+    let cov = clamp(input.half_width_px + 0.5 - d, 0.0, 1.0);
     if cov <= 0.0 {
         return vec4<f32>(0.0);
     }

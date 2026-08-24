@@ -65,10 +65,23 @@ fn n_points_become_n_minus_one_segments_joined_end_to_end() {
 #[test]
 fn layer_highlight_outline_marches() {
     let corners = [(0.0, 0.0), (100.0, 0.0), (100.0, 50.0), (0.0, 50.0)];
-    let a = layer_highlight_instances(corners, 0.0);
-    let b = layer_highlight_instances(corners, 0.25);
+    let a = layer_highlight_instances(corners, 0.0, 1.0);
+    let b = layer_highlight_instances(corners, 0.25, 1.0);
     assert!(!a.is_empty());
     assert!(a.iter().zip(b.iter()).any(|(x, y)| x.segment != y.segment));
+}
+
+/// The dash is chrome like the width is: zooming in four times has to cut four times as many
+/// dashes out of the same edge, or the pattern grows with the board.
+#[test]
+fn layer_highlight_dashes_keep_a_constant_screen_period() {
+    let corners = [(0.0, 0.0), (100.0, 0.0), (100.0, 50.0), (0.0, 50.0)];
+    let at_one = layer_highlight_instances(corners, 0.0, 1.0).len();
+    let at_four = layer_highlight_instances(corners, 0.0, 4.0).len();
+    assert!(
+        at_four >= at_one * 3,
+        "expected ~4x the dashes at 4x zoom, got {at_four} against {at_one}"
+    );
 }
 
 #[test]

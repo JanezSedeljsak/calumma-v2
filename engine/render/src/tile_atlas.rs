@@ -32,6 +32,40 @@ pub(crate) fn tile_mip_levels() -> u32 {
 /// adds roughly a third more storage on top of the base level (256×256 → ~1.33×), so the atlas's
 /// real worst case is closer to 1.3GiB than the 1GiB `TILE_ATLAS_MAX_CAPACITY * TILE_BYTES`
 /// alone would suggest — accounted for in [`TileAtlas::capacity_bytes`].
+/// The two samplers every atlas bind group carries, differing only in `mag_filter`. Which one
+/// `fs_tile` reads is a per-frame decision on `TileCamera::crisp` rather than a rebind: past
+/// `limits::CRISP_PIXEL_ZOOM` the board is magnifying, and a bilinear tap turns one texel into
+/// a gradient the width of the whole magnified pixel — the opposite of what zooming that far
+/// in is for. Everything at or below 1:1 is a minification, which wants filtering and the mip
+/// chain, so both samplers keep `min_filter`/`mipmap_filter` linear.
+pub struct TileSamplers {
+    smooth: wgpu::Sampler,
+    crisp: wgpu::Sampler,
+}
+
+impl TileSamplers {
+    pub fn new(device: &wgpu::Device) -> Self {
+        let descriptor = |label: &'static str, mag_filter: wgpu::FilterMode| {
+            device.create_sampler(&wgpu::SamplerDescriptor {
+                label: Some(label),
+                mag_filter,
+                min_filter: wgpu::FilterMode::Linear,
+                // Tiles carry a full mip chain (`TileAtlas`/`compose::tile_mip_chain`) precisely
+                // so this can blend between levels: `fs_tile` samples with automatic LOD, and
+                // without this the GPU would still pick the right mip but snap to it instead of
+                // blending, which shows up as visible seams sweeping across the board while
+                // zooming.
+                mipmap_filter: wgpu::MipmapFilterMode::Linear,
+                ..Default::default()
+            })
+        };
+        Self {
+            smooth: descriptor("tile-sampler", wgpu::FilterMode::Linear),
+            crisp: descriptor("tile-sampler-crisp", wgpu::FilterMode::Nearest),
+        }
+    }
+}
+
 pub struct TileAtlas {
     texture: wgpu::Texture,
     bind_group: wgpu::BindGroup,
@@ -45,13 +79,13 @@ impl TileAtlas {
         device: &wgpu::Device,
         layout: &wgpu::BindGroupLayout,
         camera_buf: &wgpu::Buffer,
-        sampler: &wgpu::Sampler,
+        samplers: &TileSamplers,
         max_capacity: u32,
     ) -> Self {
         let max_capacity = max_capacity.max(1);
         let capacity = TILE_ATLAS_INITIAL_CAPACITY.min(max_capacity);
         let texture = create_array_texture(device, capacity);
-        let bind_group = build_bind_group(device, layout, camera_buf, &texture, sampler);
+        let bind_group = build_bind_group(device, layout, camera_buf, &texture, samplers);
         Self {
             texture,
             bind_group,
@@ -80,10 +114,10 @@ impl TileAtlas {
         queue: &wgpu::Queue,
         layout: &wgpu::BindGroupLayout,
         camera_buf: &wgpu::Buffer,
-        sampler: &wgpu::Sampler,
+        samplers: &TileSamplers,
     ) -> Option<u32> {
         if self.free.is_empty() && self.capacity < self.max_capacity {
-            self.grow(device, queue, layout, camera_buf, sampler);
+            self.grow(device, queue, layout, camera_buf, samplers);
         }
         self.free.pop()
     }
@@ -149,7 +183,7 @@ impl TileAtlas {
         queue: &wgpu::Queue,
         layout: &wgpu::BindGroupLayout,
         camera_buf: &wgpu::Buffer,
-        sampler: &wgpu::Sampler,
+        samplers: &TileSamplers,
     ) {
         let old_capacity = self.capacity;
         let next = (old_capacity.saturating_mul(2))
@@ -184,7 +218,7 @@ impl TileAtlas {
         }
         queue.submit(Some(encoder.finish()));
 
-        self.bind_group = build_bind_group(device, layout, camera_buf, &texture, sampler);
+        self.bind_group = build_bind_group(device, layout, camera_buf, &texture, samplers);
         self.texture = texture;
         self.free.extend(old_capacity..next);
         self.capacity = next;
@@ -233,7 +267,7 @@ fn build_bind_group(
     layout: &wgpu::BindGroupLayout,
     camera_buf: &wgpu::Buffer,
     texture: &wgpu::Texture,
-    sampler: &wgpu::Sampler,
+    samplers: &TileSamplers,
 ) -> wgpu::BindGroup {
     let view = texture.create_view(&wgpu::TextureViewDescriptor {
         dimension: Some(wgpu::TextureViewDimension::D2Array),
@@ -253,7 +287,11 @@ fn build_bind_group(
             },
             wgpu::BindGroupEntry {
                 binding: 2,
-                resource: wgpu::BindingResource::Sampler(sampler),
+                resource: wgpu::BindingResource::Sampler(&samplers.smooth),
+            },
+            wgpu::BindGroupEntry {
+                binding: 3,
+                resource: wgpu::BindingResource::Sampler(&samplers.crisp),
             },
         ],
     })

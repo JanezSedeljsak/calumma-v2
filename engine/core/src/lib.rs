@@ -47,7 +47,7 @@ pub use guide::{Guide, GuideAxis};
 pub use history::History;
 pub use layer::{BlendMode, Layer, LayerContent};
 pub use limits::{
-    IMPORT_MAX_SIDE, LOSSY_EXPORT_QUALITY, MAX_ZOOM_HARD, MAX_ZOOM_IN_FACTOR, MIN_VISIBLE_DOC_SIDE,
+    CRISP_PIXEL_ZOOM, IMPORT_MAX_SIDE, LOSSY_EXPORT_QUALITY, MAX_ZOOM_HARD, MIN_VISIBLE_DOC_SIDE,
     MIN_ZOOM_FILL,
 };
 pub use names::{LAYER_ONE, PAPER, UNTITLED};

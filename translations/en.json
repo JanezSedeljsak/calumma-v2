@@ -152,6 +152,7 @@
   "color": "Color",
   "primaryColor": "Primary Color",
   "secondaryColor": "Secondary Color",
+  "tertiaryColor": "Tertiary Color",
   "strokeColor": "Stroke Color",
   "hex": "Hex"
 }

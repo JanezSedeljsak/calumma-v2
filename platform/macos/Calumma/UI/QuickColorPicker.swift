@@ -79,21 +79,19 @@ struct QuickColorPicker: View {
         }
     }
 
-    /// The two ink swatches, plus the stroke swatch for the tools that enclose an area. All
-    /// three point the field, hue slider and hex box at a different color — the picker only
-    /// ever edits one thing, and the ring says which.
+    /// The ink swatches — primary, secondary, tertiary — plus the stroke swatch for the tools
+    /// that enclose an area. Each one points the field, hue slider and hex box at a different
+    /// color: the picker only ever edits one thing, and the ring says which. Driven off
+    /// `quickColors`' own count rather than a fixed list, so the slots stay in one place.
     private var swatches: some View {
         HStack(spacing: Tokens.Space.xs) {
-            swatch(
-                app.quickColors[0],
-                active: !app.editingStroke && app.activeQuickColorIndex == 0,
-                tooltip: l10n.primaryColor
-            ) { app.selectQuickColor(0) }
-            swatch(
-                app.quickColors[1],
-                active: !app.editingStroke && app.activeQuickColorIndex == 1,
-                tooltip: l10n.secondaryColor
-            ) { app.selectQuickColor(1) }
+            ForEach(Array(app.quickColors.enumerated()), id: \.offset) { index, quick in
+                swatch(
+                    quick,
+                    active: !app.editingStroke && app.activeQuickColorIndex == index,
+                    tooltip: inkSwatchTooltip(index)
+                ) { app.selectQuickColor(index) }
+            }
             if app.tool.takesFill {
                 swatch(
                     app.strokeColor,
@@ -101,6 +99,14 @@ struct QuickColorPicker: View {
                     tooltip: l10n.strokeColor
                 ) { app.selectStrokeColor() }
             }
+        }
+    }
+
+    private func inkSwatchTooltip(_ index: Int) -> String {
+        switch index {
+        case 0: return l10n.primaryColor
+        case 1: return l10n.secondaryColor
+        default: return l10n.tertiaryColor
         }
     }
 

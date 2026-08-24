@@ -174,6 +174,13 @@ arithmetic happens in Swift, ever. Zoom steps, the log zoom curve (`zoom_unit` /
 `zoom_from_unit`), the fit padding, the min/max zoom rules and `is_fit` are all core
 functions the shell reads results from.
 
+The two ends of the zoom range are set independently and **share no constant** — `max_zoom`
+used to be `min_zoom` times a factor, which meant lowering the floor silently lowered the
+ceiling with it. The floor is `MIN_ZOOM_FILL` (0.2 of the viewport); the ceiling is whatever
+puts `MIN_VISIBLE_DOC_SIDE` (16) document pixels across the short viewport side, under a
+flat `MAX_ZOOM_HARD` of 64×, with a `.min(shorter_doc)` guard so a 16px document still
+zooms. Do not re-derive one from the other.
+
 ### History
 
 `History` (`core/src/history.rs`) is a stack of `HistoryCommand`s, each a set of `TileDiff`
@@ -265,7 +272,10 @@ difference.
   copy alignment — `write_texture` can read the tile `Arc` with no CPU pad.
 - Every slot carries a **full mip chain** (`compose::tile_mip_chain`). Without mips, a
   zoomed-out pan minifies raw 256×256 texels through a plain bilinear filter, and that
-  aliasing *is* the shimmer. The chain costs about a third more storage, so the real worst
+  aliasing *is* the shimmer. The opposite end has the opposite problem: past
+  `CRISP_PIXEL_ZOOM` the board is *magnifying*, where a bilinear tap smears one texel into a
+  gradient the width of the whole magnified pixel — so `fs_tile` swaps to a
+  nearest-`mag_filter` sampler there and deep zoom shows pixels rather than a blur of them. The chain costs about a third more storage, so the real worst
   case is nearer 1.3 GiB than the 1 GiB the base levels alone suggest —
   `TileAtlas::capacity_bytes` accounts for it.
 - When the atlas is full, `allocate` returns `None` and `sync_tiles` evicts — always
@@ -307,6 +317,17 @@ Four instance types, all `#[repr(C)] + Pod`, all written straight into vertex bu
 | `VectorShapeInstance { p0, p1, color, stroke_color, half_width, tool, fill, stroke }` | `vector_draw::shape_instance` | `vs_vector_shape` / `fs_vector_shape` |
 | `GuideInstance` | `compose::guide_instances` | `vs_guide` / `fs_guide` |
 
+`StrokeInstance` is drawn by **two** pipelines, and which one is the whole distinction
+between ink and chrome. `vs_stroke` measures `brush.x` in *document* units, because a live
+pen stroke, a lasso and a selection's marching ants are shaped like what they will commit
+as. `vs_overlay` reads the same field as a *screen*-pixel half-width — transforming the
+endpoints by `pu.zoom`/`pu.pan`, padding the quad in screen space, and evaluating
+`sd_segment_pts` against screen coordinates exactly as `fs_guide` does — because board
+furniture (the `⌘T` and vector-item frames, the text session's box and caret, the layer
+hover outline) has to be the same size at every zoom. Both ride contiguous ranges of the
+one stroke buffer, so the split costs a second `draw`, not a second upload. New chrome goes
+on the overlay pass; only ink goes on the stroke pass.
+
 `build_layer_draws` walks the **whole layer stack once** and emits an ordered
 `Vec<LayerDraw>`:
 
@@ -337,8 +358,10 @@ function serve both a full redraw and a scissored strip repair (§3.7).
 
 Bindings are arranged by *how often they change*:
 
-- **Group 0 (tiles):** `TileCamera` uniform + the atlas array texture + the sampler — bound
-  once per frame, shared by every tile draw.
+- **Group 0 (tiles):** `TileCamera` uniform + the atlas array texture + **two** samplers —
+  bound once per frame, shared by every tile draw. The samplers (`TileSamplers`) differ only
+  in `mag_filter`; `fs_tile` picks between them on `TileCamera::crisp`, a flag the engine
+  sets from `limits::CRISP_PIXEL_ZOOM` so the renderer never re-invents the threshold.
 - **Group 1 (tiles):** `LayerXform` — pivot, offset, scale, rotation. The one thing that
   still varies per *document layer*, so it is one small uniform buffer and bind group per
   layer id, cached in `layer_xforms` and reaped when the layer goes away.
@@ -359,7 +382,8 @@ Pipelines (all from the single `board.wgsl` module):
 | `paper` | Fullscreen desk: grid pattern + paper border, screen-space |
 | `tile_normal` / `tile_multiply` / `tile_screen` | Tile draws, one per blend mode |
 | `solid_normal` / `solid_multiply` / `solid_screen` | The unpainted-Paper quad, same three |
-| `stroke` | Stroke capsules: live pen, lasso, marching ants, handles, dashed outlines |
+| `stroke` | Stroke capsules in document units: live pen, lasso, marching ants |
+| `overlay` | The same capsules measured in screen pixels: transform and item frames, the text box and caret, the hover outline |
 | `guide` | Ruler guides |
 | `shape` | The live shape-drag preview (fullscreen triangle, SDF per pixel) |
 | `vector_shape` | Committed parametric vector items |

@@ -7,7 +7,7 @@ use crate::compose::{
 use crate::framebuffer::{self, PanCache, PxRect};
 use crate::overview::OverviewPass;
 use crate::stroke_coverage::StrokeCoverage;
-use crate::tile_atlas::TileAtlas;
+use crate::tile_atlas::{TileAtlas, TileSamplers};
 use crate::vector_draw::{
     item_visible, push_path_instances, shape_instance, vector_placement,
     vector_selection_instances, VectorShapeInstance,
@@ -15,7 +15,7 @@ use crate::vector_draw::{
 use bytemuck::{Pod, Zeroable};
 use calumma_core::filters::AdjustmentLut;
 use calumma_core::limits::{
-    CAMERA_MOTION_IDLE_FRAMES, GPU_TILE_RETENTION_MARGIN_TILES, GUIDES_LIMIT,
+    CAMERA_MOTION_IDLE_FRAMES, CRISP_PIXEL_ZOOM, GPU_TILE_RETENTION_MARGIN_TILES, GUIDES_LIMIT,
     STROKE_INSTANCE_CAPACITY, SURFACE_FRAME_LATENCY, TILE_ATLAS_MAX_CAPACITY,
     TILE_INSTANCE_CAPACITY, VECTOR_SHAPE_INSTANCE_CAPACITY,
 };
@@ -61,6 +61,8 @@ struct TileCamera {
     dpr: f32,
     viewport: [f32; 2],
     doc_size: [f32; 2],
+    crisp: f32,
+    _pad: [f32; 3],
 }
 
 #[repr(C)]
@@ -175,6 +177,7 @@ pub struct Renderer {
     solid_pipeline_multiply: wgpu::RenderPipeline,
     solid_pipeline_screen: wgpu::RenderPipeline,
     stroke_pipeline: wgpu::RenderPipeline,
+    overlay_pipeline: wgpu::RenderPipeline,
     guide_pipeline: wgpu::RenderPipeline,
     stroke_coverage: StrokeCoverage,
     shape_pipeline: wgpu::RenderPipeline,
@@ -194,7 +197,7 @@ pub struct Renderer {
     vector_shape_capacity: usize,
     tile_instance_buf: wgpu::Buffer,
     tile_instance_capacity: usize,
-    sampler: wgpu::Sampler,
+    samplers: TileSamplers,
     atlas: TileAtlas,
     tiles: HashMap<TileKey, GpuTile>,
     layer_xforms: HashMap<String, (wgpu::Buffer, wgpu::BindGroup)>,
@@ -207,6 +210,7 @@ pub struct Renderer {
     cached_tile_instances: Vec<TileInstance>,
     cached_strokes: Vec<StrokeInstance>,
     overlay_scratch: Vec<StrokeInstance>,
+    screen_overlay_scratch: Vec<StrokeInstance>,
     cached_shapes: Vec<VectorShapeInstance>,
     cached_draws: Vec<LayerDraw>,
     overview: OverviewPass,
@@ -362,6 +366,12 @@ impl Renderer {
                     ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                     count: None,
                 },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 3,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
             ],
         });
         let tile_layer_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -374,22 +384,12 @@ impl Renderer {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            label: Some("tile-sampler"),
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Linear,
-            // Tiles carry a full mip chain (`TileAtlas`/`compose::tile_mip_chain`) precisely so
-            // this can blend between levels: `fs_tile` samples with automatic LOD, and without
-            // this the GPU would still pick the right mip but snap to it instead of blending,
-            // which shows up as visible seams sweeping across the board while zooming.
-            mipmap_filter: wgpu::MipmapFilterMode::Linear,
-            ..Default::default()
-        });
+        let samplers = TileSamplers::new(&device);
         let atlas = TileAtlas::new(
             &device,
             &tile_shared_bgl,
             &tile_camera_buf,
-            &sampler,
+            &samplers,
             atlas_max_capacity,
         );
         let tile_pl = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -499,6 +499,32 @@ impl Renderer {
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
                 entry_point: Some("fs_stroke"),
+                compilation_options: Default::default(),
+                targets: &[Some(alpha_target(format))],
+            }),
+            primitive: wgpu::PrimitiveState::default(),
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview_mask: None,
+            cache: None,
+        });
+
+        let overlay_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("overlay"),
+            layout: Some(&preview_pl),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_overlay"),
+                compilation_options: Default::default(),
+                buffers: &[Some(wgpu::VertexBufferLayout {
+                    array_stride: std::mem::size_of::<StrokeInstance>() as u64,
+                    step_mode: wgpu::VertexStepMode::Instance,
+                    attributes: STROKE_ATTRS,
+                })],
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_overlay"),
                 compilation_options: Default::default(),
                 targets: &[Some(alpha_target(format))],
             }),
@@ -645,6 +671,7 @@ impl Renderer {
             solid_pipeline_multiply,
             solid_pipeline_screen,
             stroke_pipeline,
+            overlay_pipeline,
             guide_pipeline,
             stroke_coverage,
             shape_pipeline,
@@ -664,7 +691,7 @@ impl Renderer {
             vector_shape_capacity,
             tile_instance_buf,
             tile_instance_capacity,
-            sampler,
+            samplers,
             atlas,
             tiles: HashMap::new(),
             layer_xforms: HashMap::new(),
@@ -677,6 +704,7 @@ impl Renderer {
             cached_tile_instances: Vec::new(),
             cached_strokes: Vec::new(),
             overlay_scratch: Vec::new(),
+            screen_overlay_scratch: Vec::new(),
             cached_shapes: Vec::new(),
             cached_draws: Vec::new(),
             overview,
@@ -1210,7 +1238,7 @@ impl Renderer {
                 &self.queue,
                 &self.tile_shared_bgl,
                 &self.tile_camera_buf,
-                &self.sampler,
+                &self.samplers,
             ) {
                 Some(slot) => slot,
                 None => {
@@ -1228,7 +1256,7 @@ impl Renderer {
                         &self.queue,
                         &self.tile_shared_bgl,
                         &self.tile_camera_buf,
-                        &self.sampler,
+                        &self.samplers,
                     ) else {
                         continue;
                     };
@@ -1599,6 +1627,8 @@ impl Renderer {
             dpr: doc.camera.dpr,
             viewport,
             doc_size: [doc.width as f32, doc.height as f32],
+            crisp: f32::from(u8::from(doc.camera.zoom >= CRISP_PIXEL_ZOOM)),
+            _pad: [0.0; 3],
         };
         self.queue
             .write_buffer(&self.tile_camera_buf, 0, bytemuck::bytes_of(&tile_camera));
@@ -1692,6 +1722,7 @@ impl Renderer {
 
         let guide_count = self.write_guides(doc);
         let mut overlay_range = 0u32..0u32;
+        let mut screen_overlay_range = 0u32..0u32;
         let mut brush_range = 0u32..0u32;
         if !camera_only {
             let radius = doc.brush_size * 0.5;
@@ -1706,6 +1737,12 @@ impl Renderer {
             // so it is built into a reused scratch buffer and written at the prefix's offset —
             // cloning `cached_strokes` every frame just to rewrite a suffix put a full copy of
             // every vector path in the document on the hot path.
+            //
+            // The overlay itself splits in two, by which pass measures it: ink-shaped previews
+            // stay in document units on `stroke_pipeline`, while chrome — the transform and
+            // item frames, the text session's box and caret, the hover outline — is measured in
+            // screen pixels on `overlay_pipeline`. Both are contiguous ranges of the same
+            // buffer, so the split costs a second `draw`, not a second upload.
             let prefix_len = if self.camera_motion {
                 0
             } else {
@@ -1713,9 +1750,11 @@ impl Renderer {
             };
             let mut instances = std::mem::take(&mut self.overlay_scratch);
             instances.clear();
+            let mut screen_instances = std::mem::take(&mut self.screen_overlay_scratch);
+            screen_instances.clear();
             let overlay_start = prefix_len as u32;
             if doc.text_editing() {
-                instances.extend(text_overlay_instances(
+                screen_instances.extend(text_overlay_instances(
                     doc,
                     self.started.elapsed().as_secs_f32(),
                 ));
@@ -1734,7 +1773,7 @@ impl Renderer {
                     &BrushProfile::HARD,
                 ));
             } else if let Some(handles) = doc.transform_handles() {
-                instances.extend(transform_overlay_instances(handles));
+                screen_instances.extend(transform_overlay_instances(handles));
             } else if let Some(points) = selection_lasso_points(doc) {
                 instances.extend(stroke_instances(
                     &points,
@@ -1751,20 +1790,24 @@ impl Renderer {
             // tool too, where none of those branches is the one that ran. It costs nothing
             // when nothing is selected, and `transform_handles` stands the layer frame down
             // while it is on screen, so the two can never both draw.
-            instances.extend(vector_selection_instances(doc));
+            screen_instances.extend(vector_selection_instances(doc));
             if let Some((index, corners)) = doc.layer_highlight() {
                 let covered = doc
                     .transform_handles()
                     .is_some_and(|(handle_index, _, _)| handle_index == index);
                 if !covered {
-                    instances.extend(layer_highlight_instances(
+                    screen_instances.extend(layer_highlight_instances(
                         corners,
                         self.started.elapsed().as_secs_f32(),
+                        doc.camera.zoom,
                     ));
                 }
             }
             overlay_range = overlay_start..overlay_start + instances.len() as u32;
-            let brush_start = overlay_range.end;
+            let screen_start = overlay_range.end;
+            instances.append(&mut screen_instances);
+            screen_overlay_range = screen_start..prefix_len as u32 + instances.len() as u32;
+            let brush_start = screen_overlay_range.end;
             instances.append(&mut brush_instances);
             brush_range = brush_start..prefix_len as u32 + instances.len() as u32;
             if !brush_range.is_empty() {
@@ -1789,6 +1832,7 @@ impl Renderer {
                 );
             }
             self.overlay_scratch = instances;
+            self.screen_overlay_scratch = screen_instances;
             if need_draw_rebuild && !self.cached_shapes.is_empty() {
                 self.ensure_vector_shape_capacity(self.cached_shapes.len());
                 self.queue.write_buffer(
@@ -1918,6 +1962,13 @@ impl Renderer {
                     pass.set_bind_group(0, &self.preview_bg, &[]);
                     pass.set_vertex_buffer(0, self.stroke_buf.slice(..));
                     pass.draw(0..6, overlay_range.clone());
+                }
+
+                if !screen_overlay_range.is_empty() {
+                    pass.set_pipeline(&self.overlay_pipeline);
+                    pass.set_bind_group(0, &self.preview_bg, &[]);
+                    pass.set_vertex_buffer(0, self.stroke_buf.slice(..));
+                    pass.draw(0..6, screen_overlay_range.clone());
                 }
 
                 if !brush_range.is_empty() {

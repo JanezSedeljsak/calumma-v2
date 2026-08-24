@@ -126,11 +126,13 @@ while Landing is showing — that screen already *is* the create form.
   Hover shows a thumbnail popover; each row also carries a persistent thumbnail.
 - **AI:** tools-island icon menu; Remove Background when Vision is available.
 - **Zoom:** a pill pinned **bottom-trailing inside the canvas island** — `−`, slider, `+`,
-  percentage, Fit. Range is canvas-relative: zoom out until the paper fills ~50% of the
-  viewport, in up to 10× that floor (capped so ~400 doc px still span the short viewport
-  side). The slider is logarithmic; the curve, the step factor, and the fit padding are all
-  core (`Camera::zoom_unit` / `zoom_from_unit` / `step_zoom`, `limits::ZOOM_STEP`,
-  `limits::FIT_PADDING`), so the shell only moves a 0…1 value.
+  percentage, Fit. The two ends are independent: zoom out until the paper fills ~20% of the
+  viewport, and in until ~16 doc px span the short viewport side (or 64×, whichever comes
+  first) — far enough to work pixel by pixel, where the board switches to nearest-neighbour
+  magnification so a pixel reads as a pixel. The slider is logarithmic; the curve, the step
+  factor, and the fit padding are all core (`Camera::zoom_unit` / `zoom_from_unit` /
+  `step_zoom`, `limits::ZOOM_STEP`, `limits::FIT_PADDING`), so the shell only moves a 0…1
+  value.
 - **Fit** fills the canvas island rather than leaving a wide margin — opening a project or
   pressing `0` puts the paper edge-to-edge in the viewport.
 
