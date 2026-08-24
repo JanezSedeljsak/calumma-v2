@@ -57,7 +57,12 @@ is the wrong plan. Renderer work that *follows* from them lives in
 - **Flat stack only.** The stack is a `Vec<Layer>`. No groups, no folders, no clipping
   trees, no non-destructive **adjustment layers** (a layer that reads the backdrop).
   Per-layer opacity, blend mode, mask, transform, and the existing `Layer.adjustments`
-  slot are the filter model; they do not grow a graph.
+  slot are the filter model; they do not grow a graph. The rule behind all of it:
+  **a layer's rendering never depends on another layer's contents.** Features that
+  look like they need it get a *destructive* form instead — a clipping mask merges the
+  two layers the moment it is applied, the way merge-down already bakes. Acting on
+  several layers at once (shift-select rows, then align, distribute or drag) is fine
+  and is not an exception: that is one gesture applied N times, not a relationship.
 - **1:1 vector limit.** `LayerContent::Vector(VectorItem)` — exactly one item, never
   `Vec`. A second shape or stroke is a new layer. Clicking a vector selects the layer;
   there is no `(layer, item)` address. **Multi-select of vector items is permanently
@@ -549,6 +554,17 @@ Rust unit tests live in `engine/<crate>/tests/<module>.rs`, one file per module 
 (`camera.rs` → `tests/camera.rs`), not in a `#[cfg(test)] mod tests` block inside the source
 file — logic files stay logic, and `cargo test` already treats each `tests/*.rs` file as its
 own integration-test crate against the library's public API, so this is free.
+
+**One exception, `engine/render` only:** a crate-private module an integration test cannot
+reach (`renderer`, `tile_atlas`, `overview`, `PanCache`'s `pub(crate)` half, `stroke_coverage`)
+keeps its tests in a `#[cfg(test)] mod` at the bottom of its own file. Widening the API to
+`pub` so a `tests/` file could reach it would be a worse trade than the one this rule is
+protecting. Those tests share one headless device from `render/src/test_gpu.rs` — a
+`wgpu::Device` with no surface, which is enough to build an atlas, a pan cache or an overview
+pass, and they return early instead of failing where no adapter exists. The `Renderer` itself
+still needs a real `wgpu::Surface`, so what its own tests cover is what it *decides* — blend
+state per blend mode, bind-group and vertex layouts, visible/retained tile spans — not what it
+draws.
 
 Distribution: `.github/workflows/main.yml`'s `macos-dmg` job builds and publishes. On a
 `push` to `main` it only runs if `version-check` (diffs `engine/Cargo.toml`'s version

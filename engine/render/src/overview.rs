@@ -278,3 +278,163 @@ impl OverviewPass {
         pass.draw(0..6, 0..1);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_gpu::{gpu, Gpu};
+
+    fn pass(gpu: &Gpu) -> OverviewPass {
+        OverviewPass::new(
+            &gpu.device,
+            &gpu.shader,
+            wgpu::TextureFormat::Bgra8UnormSrgb,
+        )
+    }
+
+    fn doc(width: u32, height: u32) -> Document {
+        Document::new("p".into(), "t", width, height)
+    }
+
+    /// Entering and leaving use different thresholds on purpose: a tile count sitting on one
+    /// number would flip the whole board between two rendering paths every frame.
+    #[test]
+    fn the_overview_switches_on_and_off_with_hysteresis() {
+        let Some(gpu) = gpu() else { return };
+        let mut overview = pass(gpu);
+
+        assert!(!overview.should_use(OVERVIEW_ENTER_TILE_THRESHOLD - 1, false));
+        assert!(overview.should_use(OVERVIEW_ENTER_TILE_THRESHOLD, false));
+        assert!(
+            overview.should_use(OVERVIEW_ENTER_TILE_THRESHOLD - 1, false),
+            "once on, it stays on well below the entry threshold"
+        );
+        assert!(overview.should_use(OVERVIEW_EXIT_TILE_THRESHOLD + 1, false));
+        assert!(!overview.should_use(OVERVIEW_EXIT_TILE_THRESHOLD, false));
+    }
+
+    #[test]
+    fn live_editing_takes_the_overview_off_whatever_the_tile_count() {
+        let Some(gpu) = gpu() else { return };
+        let mut overview = pass(gpu);
+        assert!(overview.should_use(OVERVIEW_ENTER_TILE_THRESHOLD, false));
+
+        assert!(!overview.should_use(OVERVIEW_ENTER_TILE_THRESHOLD * 10, true));
+        assert!(
+            !overview.should_use(OVERVIEW_EXIT_TILE_THRESHOLD + 1, false),
+            "coming back off a stroke re-enters through the entry threshold, not the exit one"
+        );
+    }
+
+    #[test]
+    fn an_inactive_pass_never_composites_the_document() {
+        let Some(gpu) = gpu() else { return };
+        let mut overview = pass(gpu);
+
+        overview.sync(&doc(512, 512), &gpu.device, &gpu.queue);
+
+        assert!(overview.texture.is_none(), "no upload while inactive");
+        assert!(overview.dirty);
+    }
+
+    #[test]
+    fn an_active_pass_uploads_once_and_then_leaves_the_texture_alone() {
+        let Some(gpu) = gpu() else { return };
+        let mut overview = pass(gpu);
+        let doc = doc(512, 256);
+        overview.should_use(OVERVIEW_ENTER_TILE_THRESHOLD, false);
+
+        overview.sync(&doc, &gpu.device, &gpu.queue);
+        assert!(overview.texture.is_some());
+        assert!(!overview.dirty);
+        assert_eq!((overview.doc_width, overview.doc_height), (512, 256));
+        assert_eq!((overview.tex_width, overview.tex_height), (512, 256));
+
+        let (w, h) = (overview.tex_width, overview.tex_height);
+        overview.sync(&doc, &gpu.device, &gpu.queue);
+        assert_eq!((overview.tex_width, overview.tex_height), (w, h));
+    }
+
+    /// A resize changes what the overview *is*, so it re-uploads even though nothing marked it
+    /// dirty — the document dimensions are part of the cache key, not just a payload.
+    #[test]
+    fn a_document_resize_re_uploads_without_anything_marking_it_dirty() {
+        let Some(gpu) = gpu() else { return };
+        let mut overview = pass(gpu);
+        overview.should_use(OVERVIEW_ENTER_TILE_THRESHOLD, false);
+        overview.sync(&doc(512, 256), &gpu.device, &gpu.queue);
+
+        overview.sync(&doc(256, 512), &gpu.device, &gpu.queue);
+
+        assert_eq!((overview.doc_width, overview.doc_height), (256, 512));
+        assert_eq!((overview.tex_width, overview.tex_height), (256, 512));
+    }
+
+    #[test]
+    fn marking_dirty_makes_the_next_sync_upload_again() {
+        let Some(gpu) = gpu() else { return };
+        let mut overview = pass(gpu);
+        let doc = doc(128, 128);
+        overview.should_use(OVERVIEW_ENTER_TILE_THRESHOLD, false);
+        overview.sync(&doc, &gpu.device, &gpu.queue);
+
+        overview.mark_dirty();
+        assert!(overview.dirty);
+        overview.sync(&doc, &gpu.device, &gpu.queue);
+        assert!(!overview.dirty);
+    }
+
+    /// Prewarm is the one path that uploads while the pass is *inactive*: it pays the
+    /// composite before the zoom-out that needs it, so the first overview frame is not the
+    /// slow one.
+    #[test]
+    fn prewarm_uploads_while_inactive_and_only_once_per_request() {
+        let Some(gpu) = gpu() else { return };
+        let mut overview = pass(gpu);
+        let doc = doc(128, 128);
+
+        overview.prewarm(&doc, &gpu.device, &gpu.queue);
+        assert!(overview.texture.is_none(), "nothing was requested yet");
+
+        overview.request_prewarm();
+        overview.prewarm(&doc, &gpu.device, &gpu.queue);
+        assert!(overview.texture.is_some());
+        assert!(!overview.prewarm_pending);
+        assert!(!overview.active, "prewarming does not turn the overview on");
+
+        overview.mark_dirty();
+        overview.prewarm(&doc, &gpu.device, &gpu.queue);
+        assert!(overview.dirty, "a spent request does not upload again");
+    }
+
+    #[test]
+    fn clearing_drops_the_texture_and_the_pass_falls_back_to_drawing_nothing() {
+        let Some(gpu) = gpu() else { return };
+        let mut overview = pass(gpu);
+        overview.should_use(OVERVIEW_ENTER_TILE_THRESHOLD, false);
+        overview.sync(&doc(128, 128), &gpu.device, &gpu.queue);
+
+        overview.clear();
+
+        assert!(overview.texture.is_none());
+        assert!(overview.bind_group.is_none());
+        assert!(!overview.active);
+        assert!(overview.dirty);
+        assert_eq!((overview.doc_width, overview.doc_height), (0, 0));
+    }
+
+    /// `_pad` exists to keep this struct the exact size of `board.wgsl`'s `OverviewCamera`
+    /// (ten floats: pan, zoom, dpr, viewport, doc_size, pad). A field added on either side
+    /// without the other reads the uniform off by however many bytes it grew.
+    #[test]
+    fn the_camera_uniform_stays_the_size_the_shader_declares() {
+        let Some(gpu) = gpu() else { return };
+        let overview = pass(gpu);
+        let mut doc = doc(128, 128);
+        doc.camera.pan_x = 12.0;
+
+        overview.write_camera(&gpu.queue, &doc, [800.0, 600.0]);
+
+        assert_eq!(std::mem::size_of::<OverviewCamera>(), 10 * 4);
+    }
+}

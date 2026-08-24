@@ -433,3 +433,192 @@ fn text_overlay_draws_a_four_edge_box_and_a_caret_that_blinks() {
     let hidden = text_overlay_instances(&doc, 0.7);
     assert_eq!(hidden.len(), 4, "mid-cycle the caret blinks off");
 }
+
+#[test]
+fn brush_params_hand_the_shader_the_engines_own_profile() {
+    let crayon = calumma_core::Brush::Crayon.profile();
+    let params = brush_params(7.5, &crayon);
+
+    assert_eq!(params[0], 7.5);
+    assert_eq!(params[1], crayon.hardness);
+    assert_eq!(params[2], crayon.grain);
+    assert_eq!(params[3], crayon.grain_scale);
+    assert!(crayon.grain > 0.0, "a smooth profile would not prove much");
+}
+
+#[test]
+fn segment_count_matches_what_stroke_instances_actually_emits() {
+    let color = [1.0, 1.0, 1.0, 1.0];
+    for n in 0..5 {
+        let points: Vec<StrokePoint> = (0..n)
+            .map(|i| StrokePoint {
+                x: i as f32,
+                y: 0.0,
+            })
+            .collect();
+        assert_eq!(
+            stroke_instances(&points, 1.0, color, &BrushProfile::HARD).len(),
+            stroke_segment_count(n),
+            "n={n}"
+        );
+    }
+}
+
+/// A live stroke appends: each frame hands the GPU only the capsules the pointer has drawn
+/// since the last one, and segment `i` must always mean the same capsule so the GPU's existing
+/// coverage stays valid.
+#[test]
+fn resuming_a_stroke_emits_the_tail_and_nothing_already_drawn() {
+    let color = [0.0, 0.0, 0.0, 1.0];
+    let points: Vec<StrokePoint> = (0..5)
+        .map(|i| StrokePoint {
+            x: i as f32,
+            y: 0.0,
+        })
+        .collect();
+    let all = stroke_instances(&points, 1.0, color, &BrushProfile::HARD);
+
+    let tail = stroke_instances_from(&points, 2, 1.0, color, &BrushProfile::HARD);
+
+    assert_eq!(tail.len(), 2);
+    assert_eq!(tail, all[2..]);
+}
+
+#[test]
+fn resuming_past_the_last_segment_emits_nothing_rather_than_wrapping() {
+    let color = [0.0, 0.0, 0.0, 1.0];
+    let points = vec![
+        StrokePoint { x: 0.0, y: 0.0 },
+        StrokePoint { x: 1.0, y: 0.0 },
+    ];
+    assert!(stroke_instances_from(&points, 1, 1.0, color, &BrushProfile::HARD).is_empty());
+    assert!(stroke_instances_from(&[], 0, 1.0, color, &BrushProfile::HARD).is_empty());
+}
+
+/// The one-point case is a degenerate capsule that segment 0 later replaces, so a caller that
+/// appended across that boundary would draw the first dab twice.
+#[test]
+fn a_lone_point_is_segment_zero_and_is_replaced_rather_than_appended_to() {
+    let color = [0.0, 0.0, 0.0, 1.0];
+    let one = vec![StrokePoint { x: 3.0, y: 4.0 }];
+    let dot = stroke_instances_from(&one, 0, 2.0, color, &BrushProfile::HARD);
+    assert_eq!(dot.len(), 1);
+    assert_eq!(dot[0].segment, [3.0, 4.0, 3.0, 4.0]);
+
+    let two = vec![
+        StrokePoint { x: 3.0, y: 4.0 },
+        StrokePoint { x: 9.0, y: 4.0 },
+    ];
+    let first = stroke_instances_from(&two, 0, 2.0, color, &BrushProfile::HARD);
+    assert_eq!(first[0].segment, [3.0, 4.0, 9.0, 4.0]);
+}
+
+#[test]
+fn guides_span_the_paper_and_nothing_beyond_it() {
+    let mut doc = Document::new("t".to_string(), "Guides", 400, 200);
+    doc.resize_viewport(400.0, 200.0, 1.0);
+    doc.add_guide(calumma_core::GuideAxis::Horizontal, 50.0)
+        .expect("guide");
+    doc.add_guide(calumma_core::GuideAxis::Vertical, 120.0)
+        .expect("guide");
+
+    let instances = guide_instances(&doc);
+
+    assert_eq!(instances[0].segment, [0.0, 50.0, 400.0, 50.0]);
+    assert_eq!(instances[1].segment, [120.0, 0.0, 120.0, 200.0]);
+}
+
+/// The guide under the pointer is drawn at full alpha so the one being moved is legible
+/// against the ones it is being lined up with.
+#[test]
+fn the_dragged_guide_is_the_only_one_drawn_at_full_strength() {
+    let mut doc = Document::new("t".to_string(), "Guides", 400, 400);
+    doc.resize_viewport(400.0, 400.0, 1.0);
+    doc.camera.zoom = 1.0;
+    doc.camera.pan_x = 0.0;
+    doc.camera.pan_y = 0.0;
+    doc.add_guide(calumma_core::GuideAxis::Horizontal, 40.0)
+        .expect("guide");
+    let dragged = doc
+        .add_guide(calumma_core::GuideAxis::Horizontal, 200.0)
+        .expect("guide");
+    let (sx, sy) = doc.camera.to_screen(10.0, 200.0);
+    assert!(
+        doc.begin_guide_drag(sx, sy),
+        "the drag has to actually start"
+    );
+    assert_eq!(doc.dragged_guide(), Some(dragged));
+
+    let instances = guide_instances(&doc);
+
+    assert_eq!(instances[dragged].color[3], 1.0);
+    assert!(instances[0].color[3] < 1.0);
+    assert_eq!(instances[0].color[0..3], instances[dragged].color[0..3]);
+}
+
+#[test]
+fn no_guides_means_no_instances() {
+    let doc = Document::new("t".to_string(), "Guides", 64, 64);
+    assert!(guide_instances(&doc).is_empty());
+}
+
+#[test]
+fn mask_selection_edges_come_straight_off_the_traced_outline() {
+    let mut doc = Document::new("t".to_string(), "Mask", 64, 64);
+    assert!(selection_mask_edges(&doc, 1.0, [1.0; 4]).is_none());
+
+    let mut mask = calumma_core::selection_mask::SelectionMask::new((0, 0), 64, 64);
+    for y in 10..14 {
+        for x in 10..14 {
+            mask.set(x, y);
+        }
+    }
+    let mask = mask.finish().expect("mask");
+    let outline = mask.outline().len();
+    doc.selection = Some(Selection {
+        shape: SelectionShape::Mask(mask),
+    });
+
+    let edges = selection_mask_edges(&doc, 2.5, [0.0, 1.0, 0.0, 1.0]).expect("edges");
+
+    assert_eq!(edges.len(), outline);
+    assert_eq!(edges.len(), 4, "a square traces as one run per side");
+    assert!(edges.iter().all(|e| e.brush[0] == 2.5));
+    assert!(edges.iter().all(|e| e.color == [0.0, 1.0, 0.0, 1.0]));
+}
+
+#[test]
+fn a_rect_selection_has_no_mask_edges_to_draw() {
+    let mut doc = Document::new("t".to_string(), "Mask", 64, 64);
+    doc.selection = Some(Selection {
+        shape: SelectionShape::Rect {
+            start: (0.0, 0.0),
+            end: (4.0, 4.0),
+        },
+    });
+    assert!(selection_mask_edges(&doc, 1.0, [1.0; 4]).is_none());
+}
+
+/// The box is four separate segments, so nothing enforces that they meet — a sign flip in one
+/// corner draws three sides and a diagonal.
+#[test]
+fn the_text_box_is_drawn_as_a_closed_four_edge_loop() {
+    let mut doc = Document::new("t".to_string(), "Text", 128, 128);
+    doc.resize_viewport(128.0, 128.0, 1.0);
+    doc.fit_to_view();
+    doc.tool = Tool::Text;
+    let (sx, sy) = doc.camera.to_screen(20.0, 20.0);
+    doc.pointer_down(sx, sy);
+
+    let edges = text_overlay_instances(&doc, 0.7);
+
+    for i in 0..4 {
+        let [_, _, x1, y1] = edges[i].segment;
+        let [x0, y0, _, _] = edges[(i + 1) % 4].segment;
+        assert_eq!(
+            (x1, y1),
+            (x0, y0),
+            "edge {i} has to end where the next starts"
+        );
+    }
+}

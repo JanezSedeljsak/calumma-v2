@@ -120,3 +120,67 @@ fn masks_and_vectors_are_counted_where_they_live() {
     assert_eq!(report.mask_bytes, (SIDE * SIDE) as usize);
     assert!(report.vector_bytes >= 100 * std::mem::size_of::<(f32, f32)>());
 }
+
+/// A preview is a cache, so it only exists for a layer whose thumbnail something has actually
+/// asked for — the report has to show it appearing rather than pretending every layer carries
+/// one.
+#[test]
+fn a_layer_preview_is_only_counted_once_it_has_been_asked_for() {
+    let mut doc = doc();
+    assert_eq!(document_memory(&doc).preview_bytes, 0);
+
+    let preview = doc.layers[0].tiles_mut().unwrap().preview();
+
+    assert!(preview.bytes() > 0);
+    assert_eq!(document_memory(&doc).preview_bytes, preview.bytes());
+}
+
+#[test]
+fn a_text_layers_string_is_counted_as_text_rather_than_tiles() {
+    let mut doc = doc();
+    doc.resize_viewport(SIDE as f32, SIDE as f32, 1.0);
+    doc.fit_to_view();
+    doc.tool = Tool::Text;
+    let (sx, sy) = doc.camera.to_screen(40.0, 40.0);
+    doc.pointer_down(sx, sy);
+    for ch in "hello".chars() {
+        doc.text_insert(&ch.to_string());
+    }
+
+    let report = document_memory(&doc);
+
+    assert!(doc.layers[doc.active_layer].is_text());
+    assert!(report.text_bytes >= 5, "the run's own string is charged");
+    assert_eq!(report.vector_bytes, 0);
+}
+
+/// A wand selection owns a bitmap; a rect selection is four floats. Only the one that owns
+/// storage may be charged for it, or the report drifts from what the process actually holds.
+#[test]
+fn only_a_mask_selection_costs_anything() {
+    let mut doc = doc();
+    let plain = document_memory(&doc).mask_bytes;
+
+    doc.selection = Some(Selection {
+        shape: SelectionShape::Rect {
+            start: (0.0, 0.0),
+            end: (100.0, 100.0),
+        },
+    });
+    assert_eq!(document_memory(&doc).mask_bytes, plain, "a formula is free");
+
+    let mut mask = selection_mask::SelectionMask::new((0, 0), SIDE, SIDE);
+    for y in 0..40 {
+        for x in 0..40 {
+            mask.set(x, y);
+        }
+    }
+    let mask = mask.finish().expect("mask");
+    let owned = mask.memory_bytes();
+    doc.selection = Some(Selection {
+        shape: SelectionShape::Mask(mask),
+    });
+
+    assert!(owned > 0);
+    assert_eq!(document_memory(&doc).mask_bytes, plain + owned);
+}

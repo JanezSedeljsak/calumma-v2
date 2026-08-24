@@ -2165,3 +2165,211 @@ const VECTOR_SHAPE_ATTRS: &[wgpu::VertexAttribute] = &[
         format: wgpu::VertexFormat::Float32,
     },
 ];
+
+/// Everything a `Renderer` does needs a `wgpu::Surface`, which needs a window, so what can be
+/// tested here without one is what the renderer *decides* rather than what it draws: the blend
+/// state each layer blend mode compiles to, the bind-group and vertex layouts the pipelines are
+/// declared with, and the tile spans that drive upload and eviction. The drawing itself is
+/// covered where it can be — `stroke_coverage`, `tile_atlas`, `framebuffer` and `overview` all
+/// run against a headless device.
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use calumma_core::tile::TILE_SIZE;
+
+    fn blend(target: wgpu::ColorTargetState) -> wgpu::BlendState {
+        target.blend.expect("every board target blends")
+    }
+
+    fn doc_with_viewport() -> Document {
+        let mut doc = Document::new("p".into(), "t", 2048, 2048);
+        doc.resize_viewport(800.0, 600.0, 1.0);
+        doc.fit_to_view();
+        doc
+    }
+
+    #[test]
+    fn every_target_keeps_its_format_and_writes_every_channel() {
+        let format = wgpu::TextureFormat::Bgra8UnormSrgb;
+        for target in [
+            replace_target(format),
+            premultiplied_target(format),
+            multiply_target(format),
+            screen_target(format),
+            alpha_target(format),
+        ] {
+            assert_eq!(target.format, format);
+            assert_eq!(target.write_mask, wgpu::ColorWrites::ALL);
+        }
+    }
+
+    /// Normal is a premultiplied source-over: the tile arrives with its color already scaled by
+    /// its alpha, so the source factor is `One` and only the destination is attenuated. `Src`
+    /// there instead would double-apply alpha and darken every edge.
+    #[test]
+    fn normal_blends_as_premultiplied_source_over() {
+        let state = blend(premultiplied_target(wgpu::TextureFormat::Bgra8UnormSrgb));
+
+        assert_eq!(state.color.src_factor, wgpu::BlendFactor::One);
+        assert_eq!(state.color.dst_factor, wgpu::BlendFactor::OneMinusSrcAlpha);
+        assert_eq!(state.color.operation, wgpu::BlendOperation::Add);
+        assert_eq!(state.alpha, state.color, "alpha rides the same component");
+    }
+
+    /// Multiply is `src * dst` expressed as a fixed-function factor: the source is scaled *by
+    /// the destination* on the way in. Alpha must not be multiplied too — coverage still
+    /// composites normally, or a multiplied layer would eat the alpha underneath it.
+    #[test]
+    fn multiply_scales_the_source_by_the_destination_but_leaves_alpha_alone() {
+        let state = blend(multiply_target(wgpu::TextureFormat::Bgra8UnormSrgb));
+
+        assert_eq!(state.color.src_factor, wgpu::BlendFactor::Dst);
+        assert_eq!(state.color.dst_factor, wgpu::BlendFactor::OneMinusSrcAlpha);
+        assert_eq!(state.alpha, PREMULTIPLIED_ALPHA_COMPONENT);
+    }
+
+    /// Screen is `1 - (1 - src)(1 - dst)`, which factors to `src + dst * (1 - src)` — hence a
+    /// destination factor keyed on the source *color*, not its alpha. This is the one place the
+    /// two differ, and swapping them silently turns Screen back into Normal.
+    #[test]
+    fn screen_attenuates_the_destination_by_the_source_color() {
+        let state = blend(screen_target(wgpu::TextureFormat::Bgra8UnormSrgb));
+
+        assert_eq!(state.color.src_factor, wgpu::BlendFactor::One);
+        assert_eq!(state.color.dst_factor, wgpu::BlendFactor::OneMinusSrc);
+        assert_ne!(state.color.dst_factor, state.alpha.dst_factor);
+        assert_eq!(state.alpha, PREMULTIPLIED_ALPHA_COMPONENT);
+    }
+
+    #[test]
+    fn the_three_blend_modes_compile_to_three_different_states() {
+        let format = wgpu::TextureFormat::Bgra8UnormSrgb;
+        let normal = blend(premultiplied_target(format));
+        let multiply = blend(multiply_target(format));
+        let screen = blend(screen_target(format));
+
+        assert_ne!(normal.color, multiply.color);
+        assert_ne!(normal.color, screen.color);
+        assert_ne!(multiply.color, screen.color);
+        assert_eq!(blend(replace_target(format)), wgpu::BlendState::REPLACE);
+        assert_eq!(
+            blend(alpha_target(format)),
+            wgpu::BlendState::ALPHA_BLENDING
+        );
+    }
+
+    /// `min_binding_size` is how a uniform that has grown in Rust but not in WGSL (or the other
+    /// way round) is caught at pipeline creation instead of read as garbage at 120 Hz.
+    #[test]
+    fn a_uniform_entry_declares_the_size_of_the_struct_it_carries() {
+        let entry = uniform_entry(2, std::mem::size_of::<TileCamera>());
+
+        assert_eq!(entry.binding, 2);
+        assert_eq!(entry.count, None);
+        let wgpu::BindingType::Buffer {
+            ty,
+            has_dynamic_offset,
+            min_binding_size,
+        } = entry.ty
+        else {
+            panic!("a uniform entry has to be a buffer");
+        };
+        assert_eq!(ty, wgpu::BufferBindingType::Uniform);
+        assert!(!has_dynamic_offset);
+        assert_eq!(
+            min_binding_size.map(|n| n.get()),
+            Some(std::mem::size_of::<TileCamera>() as u64)
+        );
+    }
+
+    /// Instance attributes are hand-written offsets into a `#[repr(C)]` struct. Nothing in the
+    /// type system ties the two together, so a field inserted into the struct without the table
+    /// being updated makes every instance read the wrong bytes — with no error anywhere.
+    #[test]
+    fn every_instance_attribute_table_matches_the_struct_it_reads() {
+        let cases: [(&[wgpu::VertexAttribute], usize, &str); 4] = [
+            (
+                TILE_INSTANCE_ATTRS,
+                std::mem::size_of::<TileInstance>(),
+                "tile",
+            ),
+            (
+                STROKE_ATTRS,
+                std::mem::size_of::<StrokeInstance>(),
+                "stroke",
+            ),
+            (GUIDE_ATTRS, std::mem::size_of::<GuideInstance>(), "guide"),
+            (
+                VECTOR_SHAPE_ATTRS,
+                std::mem::size_of::<VectorShapeInstance>(),
+                "vector shape",
+            ),
+        ];
+
+        for (attrs, stride, name) in cases {
+            let mut cursor = 0u64;
+            for (i, attr) in attrs.iter().enumerate() {
+                assert_eq!(
+                    attr.offset, cursor,
+                    "{name} attribute {i} is not packed against the one before it"
+                );
+                assert_eq!(attr.shader_location, i as u32, "{name} location {i}");
+                cursor += attr.format.size();
+            }
+            assert!(
+                cursor <= stride as u64,
+                "{name} attributes read {cursor} bytes past a {stride}-byte instance"
+            );
+        }
+    }
+
+    #[test]
+    fn a_document_with_no_viewport_has_nothing_visible_to_upload_or_retain() {
+        let doc = Document::new("p".into(), "t", 512, 512);
+
+        assert_eq!(Renderer::visible_span(&doc), None);
+        assert_eq!(Renderer::retained_span(&doc), None);
+    }
+
+    /// The retained span is the visible one plus a margin, and that margin is the whole
+    /// eviction policy: tiles just outside the viewport are kept so a pan does not have to
+    /// re-upload the row it is about to reach.
+    #[test]
+    fn the_retained_span_is_the_visible_span_grown_by_exactly_the_margin() {
+        let doc = doc_with_viewport();
+
+        let (vx0, vy0, vx1, vy1) = Renderer::visible_span(&doc).expect("visible");
+        let (rx0, ry0, rx1, ry1) = Renderer::retained_span(&doc).expect("retained");
+
+        let margin = GPU_TILE_RETENTION_MARGIN_TILES;
+        assert_eq!((rx0, ry0), (vx0 - margin, vy0 - margin));
+        assert_eq!((rx1, ry1), (vx1 + margin, vy1 + margin));
+    }
+
+    /// Zoomed in far enough that the paper is larger than the viewport, panning slides the
+    /// span across the document — which is what decides the tiles the next frame has to have
+    /// resident.
+    #[test]
+    fn panning_slides_the_visible_span_across_the_document() {
+        let mut doc = doc_with_viewport();
+        doc.camera.zoom = 2.0;
+        doc.camera.pan_x = 0.0;
+        doc.camera.pan_y = 0.0;
+        let before = Renderer::visible_span(&doc).expect("visible");
+
+        doc.camera.pan_x -= (TILE_SIZE as f32) * 4.0;
+        let after = Renderer::visible_span(&doc).expect("visible");
+
+        assert!(after.0 > before.0, "{before:?} -> {after:?}");
+        assert!(after.2 > before.2, "{before:?} -> {after:?}");
+        assert_eq!(after.1, before.1, "a horizontal pan leaves the rows alone");
+        assert_eq!(after.3, before.3);
+
+        doc.camera.pan_x += (TILE_SIZE as f32) * 4.0;
+        assert_eq!(
+            Renderer::visible_span(&doc),
+            Some(before),
+            "panning back lands on the same tiles, so a pan gesture uploads nothing new"
+        );
+    }
+}
