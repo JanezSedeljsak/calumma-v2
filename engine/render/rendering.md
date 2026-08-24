@@ -299,7 +299,7 @@ phases 0 and 1 of that plan. The rest of Tier B, and Tiers C/D, remain open.
 | # | Change | Effect | Throw away? |
 | --- | --- | --- | --- |
 | C1 | **Separate tile path entirely during motion** — never rebuild draw list; only uniforms | Already partial; finish by skipping `visible_needs_gpu_upload` checks on camera-only | No |
-| C2 | **GPU compositing for adjustments** instead of CPU bake per dirty tile — `plans/23-gpu-adjustment-evaluation.md` | Slider drag on large docs | CPU path for export stays |
+| C2 | **GPU compositing for adjustments** instead of CPU bake per dirty tile — `plans/23-gpu-adjustment-evaluation.md` (LUT + opacity on the `LayerData` SSBO from `plans/02-strict-scope-optimizations.md`) | Slider drag on large docs | CPU path for export stays |
 | C3 | **Layer flatten cache** — one GPU texture per layer at rest, patch on edit | Fewer instances when many layers | Memory ↑ |
 | C4 | **Display link driven render** — `isPaused = true`, draw only when dirty | No idle 120 Hz wakeups | Requires explicit `setNeedsDisplay` wiring |
 | C5 | **Read zoom pill from atomics** — `flushPendingState` only when chrome visible | Less Swift publish per frame | No |

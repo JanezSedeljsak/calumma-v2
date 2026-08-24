@@ -10,7 +10,7 @@ Read this alongside:
 
 | File | Answers |
 | --- | --- |
-| [`../AGENTS.md`](../AGENTS.md) | The rules a change has to obey (start there) |
+| [`../AGENTS.md`](../AGENTS.md) | The rules a change has to obey (start there). **STRICT SCOPE LIMITATIONS** is load-bearing for this crate. |
 | [`../FLOW.md`](../FLOW.md) | What the product does — screens, tools, shortcuts, I/O |
 | [`render/rendering.md`](render/rendering.md) | The **frame loop**, dirty flags, and the pan/zoom performance strategy in detail |
 | this file | How the crates fit together, and how the renderer is built |
@@ -83,6 +83,22 @@ recoverable engine error into an app crash.
 
 ---
 
+## STRICT SCOPE LIMITATIONS
+
+The engine is a 120 Hz rasterizer with a **flat** layer stack. These three rules are why
+tiles stay 256 KiB, why a vector layer is one GPU draw, and why the atlas can stay a
+LIFO free list with no padded uploads. Full wording:
+[`AGENTS.md` STRICT SCOPE LIMITATIONS](../AGENTS.md). Do not add the missing half here.
+
+- **Pure RGBA8 only.** `TILE_SIZE` is 256, `TILE_BYTES` is 262144. No CMYK, no 16/32-bit
+  HDR, no ICC / color-profile conversion in the engine.
+- **Flat stack only.** `Vec<Layer>`. No groups, folders, or adjustment *layers* (a layer
+  that reads the backdrop). `Layer.adjustments` is a per-layer LUT, not a graph.
+- **1:1 vector limit.** `LayerContent::Vector(VectorItem)` — exactly one item. Multi-select
+  of vector items is permanently cancelled.
+
+---
+
 ## 2. `core` — the document model
 
 ### The document
@@ -128,8 +144,9 @@ things in the same order, which is why an export matches the board.
 ### Tiles
 
 `TileGrid` (`core/src/tile.rs`) is a hash map from `TileCoord` to `Arc<Vec<u8>>` — 256×256
-RGBA, 256 KB a tile, straight (non-premultiplied) alpha. Three properties carry most of the
-engine's scalability:
+RGBA8, 256 KiB a tile (`TILE_BYTES` = 262144), straight (non-premultiplied) alpha. A row is
+exactly 1024 bytes, which is why the renderer can upload the `Arc` without padding.
+Three properties carry most of the engine's scalability:
 
 - **Sparse.** An empty region costs nothing. A diagonal flick across an 8K board allocates
   the tiles along the ribbon, not the rectangle enclosing it.
@@ -168,7 +185,7 @@ nominal size.
 
 Known limit: history is **tile/mask/run diffs only**. Structural edits — add/remove/
 duplicate/merge layer, opacity, filters, `⌘T`, vector item edits — are deliberately outside
-the model today (see `plans/01-document-undo.md`). History also dies with the document; it is
+the model today. History also dies with the document; it is
 not persisted.
 
 ### Strokes, shapes and selection
@@ -242,6 +259,10 @@ difference.
   `TILE_ATLAS_MAX_CAPACITY` (4096) — capped further by whatever
   `max_texture_array_layers` the adapter reports. A `wgpu::Texture` reserves VRAM for its
   full declared layer count, so a small document must never pay for a big array.
+- Free slots are a **LIFO `Vec<u32>`** (`pop` / `push`). Every slot is the same size, so
+  there is nothing to fragment; do not add a coalescing allocator.
+- A 256×256 RGBA8 tile is **1024 bytes per row**, which is a multiple of wgpu's 256-byte
+  copy alignment — `write_texture` can read the tile `Arc` with no CPU pad.
 - Every slot carries a **full mip chain** (`compose::tile_mip_chain`). Without mips, a
   zoomed-out pan minifies raw 256×256 texels through a plain bilinear filter, and that
   aliasing *is* the shimmer. The chain costs about a third more storage, so the real worst

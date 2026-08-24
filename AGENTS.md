@@ -44,24 +44,26 @@ hardcoded in Rust or WGSL.
 
 ## STRICT SCOPE LIMITATIONS (Do Not Build)
 
-Calumma is a lightning-fast, **flat-hierarchy** engine. These limits are load-bearing, not
-backlog: they keep every tile 256 KB, every vector layer one GPU draw, and selection a
-layer index. Do not add the missing half. A plan that needs one of these is the wrong plan.
+Calumma is a lightning-fast, **flat-hierarchy** engine aimed at 120 Hz. These limits are
+load-bearing, not backlog: they keep every tile 256 KiB, every vector layer one GPU draw,
+and selection a layer index. Do not add the missing half. A plan that needs one of these
+is the wrong plan. Renderer work that *follows* from them lives in
+`plans/02-strict-scope-optimizations.md`.
 
-- **Pure RGBA only.** Tiles are 256×256×4 bytes, straight 8-bit RGBA — `TILE_BYTES` is
-  262144 and stays that. No CMYK, no 16-bit, no 32-bit HDR, no ICC / display-P3 /
+- **Pure RGBA8 only.** Tiles are 256×256×4 bytes, straight 8-bit RGBA — `TILE_BYTES` is
+  262144 (256 KiB) and stays that. No CMYK, no 16-bit, no 32-bit HDR, no ICC / display-P3 /
   color-profile conversion in the engine. Color in is color stored. Convert at the
   shell boundary on import if an OS decoder hands you something else, then forget it.
-- **No layer hierarchies.** The stack is a flat `Vec<Layer>`. No groups, no folders, no
-  clipping trees, no non-destructive **adjustment layers** (a layer that reads the
-  backdrop). Per-layer opacity, blend mode, mask, transform, and the existing
-  `Layer.adjustments` slot are the filter model; they do not grow a graph.
-- **Strict 1:1 vector layers.** `LayerContent::Vector(VectorItem)` — exactly one item,
-  never `Vec`. A second shape or stroke is a new layer. Clicking a vector selects the
-  layer; there is no `(layer, item)` address.
+- **Flat stack only.** The stack is a `Vec<Layer>`. No groups, no folders, no clipping
+  trees, no non-destructive **adjustment layers** (a layer that reads the backdrop).
+  Per-layer opacity, blend mode, mask, transform, and the existing `Layer.adjustments`
+  slot are the filter model; they do not grow a graph.
+- **1:1 vector limit.** `LayerContent::Vector(VectorItem)` — exactly one item, never
+  `Vec`. A second shape or stroke is a new layer. Clicking a vector selects the layer;
+  there is no `(layer, item)` address. **Multi-select of vector items is permanently
+  cancelled** (`plans/10-multi-select-align.md`). Do not build it.
 - **Basic vector editing only.** Vectors are drawn, moved, and scaled. No node / point
-  editing, no bezier handles, no per-item rotation on the GPU, no boolean ops, no
-  multi-select / align / distribute of items inside a layer (there is only one item).
+  editing, no bezier handles, no per-item rotation on the GPU, no boolean ops.
 
 ---
 
@@ -602,5 +604,6 @@ swatch), vector layers (`V` / tool options; one item per layer, moved and scaled
 Move tool (tools island; pick-and-drag without `⌘T`). See `FLOW.md`.
 
 **Now carrying plans** in `todo.md`: undo for the rest of the document (`01`),
-display cache (`07`), strict-scope renderer wins (`02`). Vector multi-select (`10`)
+display cache (`07`), strict-scope wgpu wins (`02` — SSBO / atlas / uploads), GPU
+adjustment evaluation (`23`, depends on `02`'s `LayerData`). Vector multi-select (`10`)
 is closed by the 1:1 rule — do not build it.
