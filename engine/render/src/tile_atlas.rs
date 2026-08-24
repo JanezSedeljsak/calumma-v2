@@ -66,6 +66,22 @@ impl TileSamplers {
     }
 }
 
+/// Everything bind group 0 is built from: the layout, the per-frame camera uniform, the layer
+/// table the tile shader indexes per instance, and the two samplers.
+///
+/// Bundled rather than passed as four parameters because the atlas rebuilds this bind group
+/// every time it grows, and the layer table rebuilds it every time the buffer is reallocated —
+/// two independent lifetimes writing the same descriptor. One struct keeps them in step: add a
+/// binding here and every rebuild path gets it, instead of one of them silently keeping a stale
+/// resource. Callers construct it from disjoint `Renderer` fields, so it borrows fine alongside
+/// `&mut self.atlas`.
+pub struct SharedBindings<'a> {
+    pub layout: &'a wgpu::BindGroupLayout,
+    pub camera: &'a wgpu::Buffer,
+    pub layers: &'a wgpu::Buffer,
+    pub samplers: &'a TileSamplers,
+}
+
 pub struct TileAtlas {
     texture: wgpu::Texture,
     bind_group: wgpu::BindGroup,
@@ -75,17 +91,11 @@ pub struct TileAtlas {
 }
 
 impl TileAtlas {
-    pub fn new(
-        device: &wgpu::Device,
-        layout: &wgpu::BindGroupLayout,
-        camera_buf: &wgpu::Buffer,
-        samplers: &TileSamplers,
-        max_capacity: u32,
-    ) -> Self {
+    pub fn new(device: &wgpu::Device, shared: &SharedBindings, max_capacity: u32) -> Self {
         let max_capacity = max_capacity.max(1);
         let capacity = TILE_ATLAS_INITIAL_CAPACITY.min(max_capacity);
         let texture = create_array_texture(device, capacity);
-        let bind_group = build_bind_group(device, layout, camera_buf, &texture, samplers);
+        let bind_group = build_bind_group(device, shared, &texture);
         Self {
             texture,
             bind_group,
@@ -97,6 +107,14 @@ impl TileAtlas {
 
     pub fn bind_group(&self) -> &wgpu::BindGroup {
         &self.bind_group
+    }
+
+    /// Rebinds group 0 against the same texture. The atlas does this itself when it grows; this
+    /// is for the other half of the descriptor — the layer table, which is reallocated by a
+    /// document with more layers than the buffer had room for. A bind group holds the buffer it
+    /// was built from, so without this the shader would keep reading the freed one.
+    pub fn rebuild_bind_group(&mut self, device: &wgpu::Device, shared: &SharedBindings) {
+        self.bind_group = build_bind_group(device, shared, &self.texture);
     }
 
     /// VRAM reserved by the atlas's declared capacity, mip chain included — every layer costs
@@ -112,12 +130,10 @@ impl TileAtlas {
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-        layout: &wgpu::BindGroupLayout,
-        camera_buf: &wgpu::Buffer,
-        samplers: &TileSamplers,
+        shared: &SharedBindings,
     ) -> Option<u32> {
         if self.free.is_empty() && self.capacity < self.max_capacity {
-            self.grow(device, queue, layout, camera_buf, samplers);
+            self.grow(device, queue, shared);
         }
         self.free.pop()
     }
@@ -177,14 +193,7 @@ impl TileAtlas {
     /// recomposite (mask/adjustment baking), so growth preserves them rather than forcing
     /// every live tile to re-upload, which would show up as a stutter at exactly the moment
     /// — many tiles already live — growth tends to happen.
-    fn grow(
-        &mut self,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        layout: &wgpu::BindGroupLayout,
-        camera_buf: &wgpu::Buffer,
-        samplers: &TileSamplers,
-    ) {
+    fn grow(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, shared: &SharedBindings) {
         let old_capacity = self.capacity;
         let next = (old_capacity.saturating_mul(2))
             .min(self.max_capacity)
@@ -218,7 +227,7 @@ impl TileAtlas {
         }
         queue.submit(Some(encoder.finish()));
 
-        self.bind_group = build_bind_group(device, layout, camera_buf, &texture, samplers);
+        self.bind_group = build_bind_group(device, shared, &texture);
         self.texture = texture;
         self.free.extend(old_capacity..next);
         self.capacity = next;
@@ -264,10 +273,8 @@ fn bytes_per_slot() -> usize {
 
 fn build_bind_group(
     device: &wgpu::Device,
-    layout: &wgpu::BindGroupLayout,
-    camera_buf: &wgpu::Buffer,
+    shared: &SharedBindings,
     texture: &wgpu::Texture,
-    samplers: &TileSamplers,
 ) -> wgpu::BindGroup {
     let view = texture.create_view(&wgpu::TextureViewDescriptor {
         dimension: Some(wgpu::TextureViewDimension::D2Array),
@@ -275,11 +282,11 @@ fn build_bind_group(
     });
     device.create_bind_group(&wgpu::BindGroupDescriptor {
         label: Some("tile-atlas-bg"),
-        layout,
+        layout: shared.layout,
         entries: &[
             wgpu::BindGroupEntry {
                 binding: 0,
-                resource: camera_buf.as_entire_binding(),
+                resource: shared.camera.as_entire_binding(),
             },
             wgpu::BindGroupEntry {
                 binding: 1,
@@ -287,11 +294,15 @@ fn build_bind_group(
             },
             wgpu::BindGroupEntry {
                 binding: 2,
-                resource: wgpu::BindingResource::Sampler(&samplers.smooth),
+                resource: wgpu::BindingResource::Sampler(&shared.samplers.smooth),
             },
             wgpu::BindGroupEntry {
                 binding: 3,
-                resource: wgpu::BindingResource::Sampler(&samplers.crisp),
+                resource: wgpu::BindingResource::Sampler(&shared.samplers.crisp),
+            },
+            wgpu::BindGroupEntry {
+                binding: 4,
+                resource: shared.layers.as_entire_binding(),
             },
         ],
     })
@@ -306,12 +317,24 @@ mod tests {
     struct Fixture {
         layout: wgpu::BindGroupLayout,
         camera_buf: wgpu::Buffer,
+        layer_buf: wgpu::Buffer,
         samplers: TileSamplers,
     }
 
-    /// The same Group 0 the renderer binds: camera uniform, the tile array, and the two
-    /// samplers. Built here rather than borrowed from `renderer.rs` so a layout change there
-    /// fails these tests loudly instead of silently drifting.
+    impl Fixture {
+        fn shared(&self) -> SharedBindings<'_> {
+            SharedBindings {
+                layout: &self.layout,
+                camera: &self.camera_buf,
+                layers: &self.layer_buf,
+                samplers: &self.samplers,
+            }
+        }
+    }
+
+    /// The same Group 0 the renderer binds: camera uniform, the tile array, the two samplers
+    /// and the layer table. Built here rather than borrowed from `renderer.rs` so a layout
+    /// change there fails these tests loudly instead of silently drifting.
     fn fixture(gpu: &Gpu) -> Fixture {
         let layout = gpu
             .device
@@ -350,6 +373,16 @@ mod tests {
                         ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                         count: None,
                     },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 4,
+                        visibility: wgpu::ShaderStages::VERTEX,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: true },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
                 ],
             });
         let camera_buf = gpu.device.create_buffer(&wgpu::BufferDescriptor {
@@ -358,31 +391,26 @@ mod tests {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
+        let layer_buf = gpu.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("layer-data"),
+            size: 32,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
         Fixture {
             layout,
             camera_buf,
+            layer_buf,
             samplers: TileSamplers::new(&gpu.device),
         }
     }
 
     fn atlas(gpu: &Gpu, f: &Fixture, max_capacity: u32) -> TileAtlas {
-        TileAtlas::new(
-            &gpu.device,
-            &f.layout,
-            &f.camera_buf,
-            &f.samplers,
-            max_capacity,
-        )
+        TileAtlas::new(&gpu.device, &f.shared(), max_capacity)
     }
 
     fn allocate(gpu: &Gpu, f: &Fixture, atlas: &mut TileAtlas) -> Option<u32> {
-        atlas.allocate(
-            &gpu.device,
-            &gpu.queue,
-            &f.layout,
-            &f.camera_buf,
-            &f.samplers,
-        )
+        atlas.allocate(&gpu.device, &gpu.queue, &f.shared())
     }
 
     #[test]
@@ -402,7 +430,7 @@ mod tests {
         );
     }
 
-    /// The free list is a LIFO `Vec<u32>` on purpose (`docs/plans/02`): the slot released last is
+    /// The free list is a LIFO `Vec<u32>` on purpose: the slot released last is
     /// the slot handed out next, so a steady state of evict-then-upload never fragments.
     #[test]
     fn a_freed_slot_is_the_next_one_handed_out() {

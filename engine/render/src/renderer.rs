@@ -7,7 +7,7 @@ use crate::compose::{
 use crate::framebuffer::{self, PanCache, PxRect};
 use crate::overview::OverviewPass;
 use crate::stroke_coverage::StrokeCoverage;
-use crate::tile_atlas::{TileAtlas, TileSamplers};
+use crate::tile_atlas::{SharedBindings, TileAtlas, TileSamplers};
 use crate::vector_draw::{
     item_visible, push_path_instances, shape_instance, vector_placement,
     vector_selection_instances, VectorShapeInstance,
@@ -16,7 +16,7 @@ use bytemuck::{Pod, Zeroable};
 use calumma_core::filters::AdjustmentLut;
 use calumma_core::limits::{
     CAMERA_MOTION_IDLE_FRAMES, CRISP_PIXEL_ZOOM, GPU_TILE_RETENTION_MARGIN_TILES, GUIDES_LIMIT,
-    STROKE_INSTANCE_CAPACITY, SURFACE_FRAME_LATENCY, TILE_ATLAS_MAX_CAPACITY,
+    LAYER_DATA_CAPACITY, STROKE_INSTANCE_CAPACITY, SURFACE_FRAME_LATENCY, TILE_ATLAS_MAX_CAPACITY,
     TILE_INSTANCE_CAPACITY, VECTOR_SHAPE_INSTANCE_CAPACITY,
 };
 use calumma_core::tile::{DirtyChannel, TileCoord, TileGrid};
@@ -65,43 +65,51 @@ struct TileCamera {
     _pad: [f32; 3],
 }
 
-#[repr(C)]
-#[derive(Clone, Copy, Pod, Zeroable)]
-struct SolidLayerUniform {
-    slot: u32,
-    _pad: [u32; 7],
-}
-
-/// One visible tile: where it sits in document space, and which array layer of the shared
-/// atlas holds its pixels. This is the whole per-tile payload now — everything else a tile
-/// draw needs (camera, the atlas itself, the layer's transform) is bound once per document
-/// layer rather than once per tile.
+/// One visible tile: where it sits in document space, which array layer of the shared atlas
+/// holds its pixels, and which row of the layer table it is transformed by. This is the whole
+/// per-tile payload — everything else a tile draw needs (camera, the atlas, every layer's
+/// transform) is bound once for the entire board.
+///
+/// `layer_index` replaced what used to be padding, so carrying it costs nothing: the instance
+/// was already 16 bytes.
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
 struct TileInstance {
     origin: [f32; 2],
     slot: u32,
-    _pad: u32,
+    layer_index: u32,
 }
 
+/// One row of the layer table the tile shader indexes — `LayerData` in `board.wgsl`, and the
+/// two must agree byte for byte. Row *i* is `doc.layers[i]`, so a tile instance addresses its
+/// layer by stack position and no side table is needed to resolve it.
+///
+/// This replaced a per-layer uniform buffer *and* a per-layer bind group. The win is not the
+/// bytes — it is that a stack of Normal layers now draws with one `set_bind_group` for the
+/// whole board instead of a rebind between every layer's instanced draw.
+///
+/// 32 bytes, `vec2<f32>`-aligned, so the WGSL array stride is 32 with no tail padding. Plan 23
+/// grows it with opacity and the adjustment LUT; keep both sides in step when it does.
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
-struct LayerXform {
+struct LayerData {
     pivot: [f32; 2],
     offset: [f32; 2],
     scale: [f32; 2],
     rotation: f32,
-    _pad: f32,
+    /// Read only by the solid-Paper quad, which has no instance buffer to carry it. `0` for
+    /// every other layer, and unread there.
+    atlas_slot: u32,
 }
 
-impl Default for LayerXform {
+impl Default for LayerData {
     fn default() -> Self {
         Self {
             pivot: [0.0, 0.0],
             offset: [0.0, 0.0],
             scale: [1.0, 1.0],
             rotation: 0.0,
-            _pad: 0.0,
+            atlas_slot: 0,
         }
     }
 }
@@ -145,10 +153,13 @@ enum VectorRun {
 /// exactly as the flattened composite already had it.
 enum LayerDraw {
     /// A run of one document layer's visible tiles, as a range into the shared tile-instance
-    /// buffer — one instanced draw regardless of how many tiles that is. The layer id looks up
-    /// its transform bind group at draw time.
-    Tiles(BlendMode, String, std::ops::Range<u32>),
-    Solid(BlendMode, String),
+    /// buffer — one instanced draw regardless of how many tiles that is. Nothing else is needed
+    /// at draw time: each instance carries the layer row it reads, so the draw does not have to
+    /// name its layer at all.
+    Tiles(BlendMode, std::ops::Range<u32>),
+    /// Paper collapsed to one full-document quad. The layer's table row travels as the
+    /// one-instance draw range, which is where `vs_doc_quad` reads its `instance_index` from.
+    Solid(BlendMode, u32),
     Vector(VectorRun, std::ops::Range<u32>),
 }
 
@@ -185,8 +196,10 @@ pub struct Renderer {
     paper_buf: wgpu::Buffer,
     paper_bg: wgpu::BindGroup,
     tile_shared_bgl: wgpu::BindGroupLayout,
-    tile_layer_bgl: wgpu::BindGroupLayout,
     tile_camera_buf: wgpu::Buffer,
+    layer_data_buf: wgpu::Buffer,
+    layer_data_capacity: usize,
+    layer_data_scratch: Vec<LayerData>,
     preview_buf: wgpu::Buffer,
     preview_bg: wgpu::BindGroup,
     stroke_buf: wgpu::Buffer,
@@ -200,7 +213,6 @@ pub struct Renderer {
     samplers: TileSamplers,
     atlas: TileAtlas,
     tiles: HashMap<TileKey, GpuTile>,
-    layer_xforms: HashMap<String, (wgpu::Buffer, wgpu::BindGroup)>,
     layer_slots: HashMap<String, u32>,
     next_layer_slot: u32,
     started: Instant,
@@ -343,58 +355,34 @@ impl Renderer {
             cache: None,
         });
 
-        // Group 0: the shared tile atlas plus the per-frame camera, bound once regardless of
-        // how many document layers draw this frame. Group 1: the one thing that still varies
-        // per layer, its transform.
-        let tile_shared_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("tile-shared-bgl"),
-            entries: &[
-                uniform_entry(0, std::mem::size_of::<TileCamera>()),
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        view_dimension: wgpu::TextureViewDimension::D2Array,
-                        multisampled: false,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 2,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 3,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                    count: None,
-                },
-            ],
-        });
-        let tile_layer_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("tile-layer-bgl"),
-            entries: &[uniform_entry(0, std::mem::size_of::<LayerXform>())],
-        });
+        let tile_shared_bgl = tile_shared_bgl(&device);
         let tile_camera_buf = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("tile-camera"),
             size: std::mem::size_of::<TileCamera>() as u64,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
+        let layer_data_capacity = LAYER_DATA_CAPACITY;
+        let layer_data_buf = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("layer-data"),
+            size: (layer_data_capacity * std::mem::size_of::<LayerData>()) as u64,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
         let samplers = TileSamplers::new(&device);
         let atlas = TileAtlas::new(
             &device,
-            &tile_shared_bgl,
-            &tile_camera_buf,
-            &samplers,
+            &SharedBindings {
+                layout: &tile_shared_bgl,
+                camera: &tile_camera_buf,
+                layers: &layer_data_buf,
+                samplers: &samplers,
+            },
             atlas_max_capacity,
         );
         let tile_pl = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("tile-pl"),
-            bind_group_layouts: &[Some(&tile_shared_bgl), Some(&tile_layer_bgl)],
+            bind_group_layouts: &[Some(&tile_shared_bgl)],
             ..Default::default()
         });
         let tile_instance_layout = wgpu::VertexBufferLayout {
@@ -679,7 +667,6 @@ impl Renderer {
             paper_buf,
             paper_bg,
             tile_shared_bgl,
-            tile_layer_bgl,
             tile_camera_buf,
             preview_buf,
             preview_bg,
@@ -691,10 +678,12 @@ impl Renderer {
             vector_shape_capacity,
             tile_instance_buf,
             tile_instance_capacity,
+            layer_data_buf,
+            layer_data_capacity,
+            layer_data_scratch: Vec::new(),
             samplers,
             atlas,
             tiles: HashMap::new(),
-            layer_xforms: HashMap::new(),
             layer_slots: HashMap::new(),
             next_layer_slot: 0,
             started: Instant::now(),
@@ -759,15 +748,6 @@ impl Renderer {
         if self.motion_idle_frames >= CAMERA_MOTION_IDLE_FRAMES {
             self.end_camera_motion();
         }
-    }
-
-    fn write_solid_layer_slot(&self, layer_id: &str, slot: u32) {
-        let Some((buf, _)) = self.layer_xforms.get(layer_id) else {
-            return;
-        };
-        let uniform = SolidLayerUniform { slot, _pad: [0; 7] };
-        self.queue
-            .write_buffer(buf, 0, bytemuck::bytes_of(&uniform));
     }
 
     fn visible_span(doc: &Document) -> Option<(i32, i32, i32, i32)> {
@@ -872,56 +852,86 @@ impl Renderer {
         slot
     }
 
-    fn ensure_layer_xform(&mut self, layer_id: &str) {
-        if self.layer_xforms.contains_key(layer_id) {
+    /// Grows the layer table to hold `count` rows, rebinding group 0 if the buffer had to be
+    /// replaced. Doubling, like the instance buffers, so a document that keeps gaining layers
+    /// does not reallocate on every one.
+    fn ensure_layer_data_capacity(&mut self, count: usize) {
+        if count <= self.layer_data_capacity {
             return;
         }
-        let buf = self.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("layer-transform"),
-            size: std::mem::size_of::<LayerXform>() as u64,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        let mut next = self.layer_data_capacity.max(1);
+        while next < count {
+            next *= 2;
+        }
+        self.layer_data_buf = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("layer-data"),
+            size: (next * std::mem::size_of::<LayerData>()) as u64,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        self.queue
-            .write_buffer(&buf, 0, bytemuck::bytes_of(&LayerXform::default()));
-        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("tile-layer-bg"),
-            layout: &self.tile_layer_bgl,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: buf.as_entire_binding(),
-            }],
-        });
-        self.layer_xforms
-            .insert(layer_id.to_string(), (buf, bind_group));
+        self.layer_data_capacity = next;
+        // The old buffer is still held by the atlas's bind group, which would keep reading it.
+        self.atlas.rebuild_bind_group(
+            &self.device,
+            &SharedBindings {
+                layout: &self.tile_shared_bgl,
+                camera: &self.tile_camera_buf,
+                layers: &self.layer_data_buf,
+                samplers: &self.samplers,
+            },
+        );
     }
 
-    /// Every layer `sync_tiles` uploads needs its uniform written, text included — the
-    /// buffer is created zeroed, and a zeroed `LayerXform` scales the tile to nothing.
-    fn write_layer_transforms(&mut self, doc: &Document) {
+    /// Writes one table row per document layer, in stack order, as one buffer write.
+    ///
+    /// Every layer gets a row — vector layers and hidden ones included — so that a row index is
+    /// simply a stack position and never has to be mapped through a side table. An unread row
+    /// costs 32 bytes; an index that means different things in different frames costs
+    /// correctness, which is what the old per-layer-id lookup was quietly risking.
+    ///
+    /// Must run after `sync_tiles`: solid Paper's `atlas_slot` is only known once its tile has
+    /// an atlas slot. Runs whenever the draw list is rebuilt, which is exactly when a transform,
+    /// the stack, or the visible span can have changed.
+    fn write_layer_data(&mut self, doc: &Document) {
+        self.ensure_layer_data_capacity(doc.layers.len().max(1));
+        let mut rows = std::mem::take(&mut self.layer_data_scratch);
+        rows.clear();
+        rows.reserve(doc.layers.len());
         for layer in &doc.layers {
-            if layer.tiles().is_none() {
-                continue;
-            }
-            if layer.is_paper() && layer.tiles().is_some_and(|g| g.whole_tiles_share_one_arc()) {
-                continue;
-            }
-            self.ensure_layer_xform(&layer.id);
-            let Some((buf, _)) = self.layer_xforms.get(&layer.id) else {
-                continue;
-            };
-            let xform = match (layer.transform, layer.content_bounds()) {
-                (Some(t), Some(bounds)) => LayerXform {
+            let mut row = match (layer.transform, layer.content_bounds()) {
+                (Some(t), Some(bounds)) => LayerData {
                     pivot: [(bounds.0 + bounds.2) * 0.5, (bounds.1 + bounds.3) * 0.5],
                     offset: [t.offset_x, t.offset_y],
                     scale: [t.scale_x, t.scale_y],
                     rotation: t.rotation,
-                    _pad: 0.0,
+                    atlas_slot: 0,
                 },
-                _ => LayerXform::default(),
+                _ => LayerData::default(),
             };
-            self.queue.write_buffer(buf, 0, bytemuck::bytes_of(&xform));
+            if let Some(slot) = self.solid_atlas_slot(layer) {
+                row.atlas_slot = slot;
+            }
+            rows.push(row);
         }
+        if !rows.is_empty() {
+            self.queue
+                .write_buffer(&self.layer_data_buf, 0, bytemuck::cast_slice(&rows));
+        }
+        self.layer_data_scratch = rows;
+    }
+
+    /// The atlas slot behind a Paper layer that has collapsed to one shared tile, or `None` for
+    /// every layer that draws its tiles the ordinary way.
+    fn solid_atlas_slot(&self, layer: &calumma_core::Layer) -> Option<u32> {
+        if !layer.is_paper() {
+            return None;
+        }
+        let grid = layer.tiles()?;
+        if !grid.whole_tiles_share_one_arc() {
+            return None;
+        }
+        let slot = *self.layer_slots.get(&layer.id)?;
+        self.tiles.get(&(slot, 0, 0)).map(|gpu| gpu.array_layer)
     }
 
     pub fn cached_tile_count(&self) -> usize {
@@ -944,7 +954,6 @@ impl Renderer {
         self.tiles.clear();
         self.base_only_tiles.clear();
         self.atlas.clear();
-        self.layer_xforms.clear();
         self.layer_slots.clear();
         self.next_layer_slot = 0;
         self.clear_layer_cache();
@@ -1111,7 +1120,6 @@ impl Renderer {
                 continue;
             };
             let slot = self.layer_slot(&layer.id);
-            self.ensure_layer_xform(&layer.id);
             let dirty = grid.dirty_tiles(DirtyChannel::Render);
 
             if layer.is_paper() && grid.whole_tiles_share_one_arc() {
@@ -1233,13 +1241,13 @@ impl Renderer {
                 continue;
             }
 
-            let array_layer = match self.atlas.allocate(
-                &self.device,
-                &self.queue,
-                &self.tile_shared_bgl,
-                &self.tile_camera_buf,
-                &self.samplers,
-            ) {
+            let shared = SharedBindings {
+                layout: &self.tile_shared_bgl,
+                camera: &self.tile_camera_buf,
+                layers: &self.layer_data_buf,
+                samplers: &self.samplers,
+            };
+            let array_layer = match self.atlas.allocate(&self.device, &self.queue, &shared) {
                 Some(slot) => slot,
                 None => {
                     let victim = evictable
@@ -1251,13 +1259,7 @@ impl Renderer {
                     if let Some(freed) = self.tiles.remove(&victim) {
                         self.atlas.free(freed.array_layer);
                     }
-                    let Some(slot) = self.atlas.allocate(
-                        &self.device,
-                        &self.queue,
-                        &self.tile_shared_bgl,
-                        &self.tile_camera_buf,
-                        &self.samplers,
-                    ) else {
+                    let Some(slot) = self.atlas.allocate(&self.device, &self.queue, &shared) else {
                         continue;
                     };
                     slot
@@ -1290,8 +1292,6 @@ impl Renderer {
         let live_layers: FxHashSet<&str> = doc.layers.iter().map(|l| l.id.as_str()).collect();
         self.layer_slots
             .retain(|id, _| live_layers.contains(id.as_str()));
-        self.layer_xforms
-            .retain(|id, _| live_layers.contains(id.as_str()));
 
         for (layer_index, coord) in uploaded {
             if let Some(grid) = doc.layers.get_mut(layer_index).and_then(|l| l.tiles_mut()) {
@@ -1315,7 +1315,8 @@ impl Renderer {
             return Vec::new();
         };
         let mut out = Vec::new();
-        for layer in &doc.layers {
+        for (layer_index, layer) in doc.layers.iter().enumerate() {
+            let layer_index = layer_index as u32;
             if !layer.visible {
                 continue;
             }
@@ -1353,13 +1354,10 @@ impl Renderer {
                 continue;
             };
             if layer.is_paper() && grid.whole_tiles_share_one_arc() {
-                let key: TileKey = (slot, 0, 0);
-                if self.tiles.contains_key(&key) {
-                    self.ensure_layer_xform(&layer.id);
-                    if let Some(gpu) = self.tiles.get(&key) {
-                        self.write_solid_layer_slot(&layer.id, gpu.array_layer);
-                        out.push(LayerDraw::Solid(layer.blend_mode, layer.id.clone()));
-                    }
+                // `write_layer_data` already put this layer's atlas slot in its table row; the
+                // draw only has to name the row.
+                if self.tiles.contains_key(&(slot, 0, 0)) {
+                    out.push(LayerDraw::Solid(layer.blend_mode, layer_index));
                 }
                 continue;
             }
@@ -1373,13 +1371,12 @@ impl Renderer {
                 tiles.push(TileInstance {
                     origin: [ox as f32, oy as f32],
                     slot: gpu.array_layer,
-                    _pad: 0,
+                    layer_index,
                 });
             }
             if tiles.len() as u32 > start {
                 out.push(LayerDraw::Tiles(
                     layer.blend_mode,
-                    layer.id.clone(),
                     start..tiles.len() as u32,
                 ));
             }
@@ -1396,24 +1393,18 @@ impl Renderer {
     fn draw_cached_content<'a>(&'a self, pass: &mut wgpu::RenderPass<'a>) {
         for draw in &self.cached_draws {
             match draw {
-                LayerDraw::Tiles(mode, layer_id, range) => {
-                    let Some((_, xform_bg)) = self.layer_xforms.get(layer_id) else {
-                        continue;
-                    };
+                LayerDraw::Tiles(mode, range) => {
                     pass.set_pipeline(self.tile_pipeline(*mode));
                     pass.set_bind_group(0, self.atlas.bind_group(), &[]);
-                    pass.set_bind_group(1, xform_bg, &[]);
                     pass.set_vertex_buffer(0, self.tile_instance_buf.slice(..));
                     pass.draw(0..6, range.clone());
                 }
-                LayerDraw::Solid(mode, layer_id) => {
-                    let Some((_, xform_bg)) = self.layer_xforms.get(layer_id) else {
-                        continue;
-                    };
+                LayerDraw::Solid(mode, layer_index) => {
                     pass.set_pipeline(self.solid_pipeline(*mode));
                     pass.set_bind_group(0, self.atlas.bind_group(), &[]);
-                    pass.set_bind_group(1, xform_bg, &[]);
-                    pass.draw(0..6, 0..1);
+                    // The instance range *is* the argument: `vs_doc_quad` reads its layer row
+                    // from `instance_index`, so a one-instance draw at `layer_index` says which.
+                    pass.draw(0..6, *layer_index..*layer_index + 1);
                 }
                 LayerDraw::Vector(kind, range) => {
                     let (pipeline, buf) = match kind {
@@ -1596,10 +1587,13 @@ impl Renderer {
         } else {
             self.overview.prewarm(doc, &self.device, &self.queue);
             if need_tile_sync {
-                self.write_layer_transforms(doc);
                 self.sync_tiles(doc);
             }
             if need_draw_rebuild {
+                // After `sync_tiles`, because solid Paper's row carries an atlas slot that only
+                // exists once its tile is resident, and before the draw list, which indexes
+                // these rows.
+                self.write_layer_data(doc);
                 self.rebuild_layer_cache(doc);
             }
         }
@@ -2006,6 +2000,61 @@ impl Renderer {
 const ERASER_PREVIEW_COLOR: [f32; 4] = [0.5, 0.5, 0.5, 0.5];
 const SELECTION_OUTLINE_COLOR: [f32; 4] = [1.0, 1.0, 1.0, 0.9];
 const SELECTION_OUTLINE_WIDTH: f32 = 1.5;
+/// Group 0 for every tile and solid draw: the per-frame camera, the shared atlas with its two
+/// samplers, and the layer table. Bound once for the whole board — there is no per-layer group,
+/// which is the point of the table.
+///
+/// A function rather than an inline descriptor so the GPU tests below build their pipelines
+/// against the *same* layout the app does; a shader/layout disagreement then fails a test
+/// instead of only the running app.
+fn tile_shared_bgl(device: &wgpu::Device) -> wgpu::BindGroupLayout {
+    device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some("tile-shared-bgl"),
+        entries: &[
+            uniform_entry(0, std::mem::size_of::<TileCamera>()),
+            wgpu::BindGroupLayoutEntry {
+                binding: 1,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    view_dimension: wgpu::TextureViewDimension::D2Array,
+                    multisampled: false,
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 2,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 3,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                count: None,
+            },
+            // The layer table. Vertex-only: every field it currently holds places geometry,
+            // and the fragment stage reads pixels the CPU already baked. Plan 23 moves that
+            // bake onto this row and will need `VERTEX_FRAGMENT` here.
+            //
+            // `Limits::default()` guarantees 8 storage buffers per stage, and Metal offers
+            // far more; the binding is not near any adapter limit. What is finite is the
+            // *row count*, and that is a plain buffer size the renderer grows.
+            wgpu::BindGroupLayoutEntry {
+                binding: 4,
+                visibility: wgpu::ShaderStages::VERTEX,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Storage { read_only: true },
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
+        ],
+    })
+}
+
 fn uniform_entry(binding: u32, size: usize) -> wgpu::BindGroupLayoutEntry {
     wgpu::BindGroupLayoutEntry {
         binding,
@@ -2091,6 +2140,11 @@ const TILE_INSTANCE_ATTRS: &[wgpu::VertexAttribute] = &[
     wgpu::VertexAttribute {
         offset: 8,
         shader_location: 1,
+        format: wgpu::VertexFormat::Uint32,
+    },
+    wgpu::VertexAttribute {
+        offset: 12,
+        shader_location: 2,
         format: wgpu::VertexFormat::Uint32,
     },
 ];
@@ -2373,6 +2427,430 @@ mod tests {
             Renderer::visible_span(&doc),
             Some(before),
             "panning back lands on the same tiles, so a pan gesture uploads nothing new"
+        );
+    }
+}
+
+/// The layer table, exercised on a real device.
+///
+/// These build the tile and solid pipelines against the *same* `tile_shared_bgl` and the same
+/// shader the app uses, so a disagreement between `LayerData` in Rust and `LayerData` in WGSL —
+/// a field added on one side, a stride that stopped matching — fails here rather than showing up
+/// as geometry in the wrong place on someone's board.
+#[cfg(test)]
+mod layer_table_tests {
+    use super::*;
+    use crate::test_gpu::{gpu, read_texture_layer, Gpu};
+    use calumma_core::tile::{TILE_BYTES, TILE_SIZE};
+
+    const TARGET_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
+    const RED: [u8; 4] = [255, 0, 0, 255];
+    const BLUE: [u8; 4] = [0, 0, 255, 255];
+
+    struct Fixture {
+        bgl: wgpu::BindGroupLayout,
+        camera: wgpu::Buffer,
+        layers: wgpu::Buffer,
+        samplers: TileSamplers,
+        atlas: TileAtlas,
+        target: wgpu::Texture,
+    }
+
+    impl Fixture {
+        /// A slot in the atlas holding one flat colour, mip chain included so the sampler's
+        /// choice of level cannot change what the test reads back.
+        fn solid_slot(&mut self, gpu: &Gpu, rgba: [u8; 4]) -> u32 {
+            let shared = SharedBindings {
+                layout: &self.bgl,
+                camera: &self.camera,
+                layers: &self.layers,
+                samplers: &self.samplers,
+            };
+            let slot = self
+                .atlas
+                .allocate(&gpu.device, &gpu.queue, &shared)
+                .expect("slot");
+            let base = rgba.repeat(TILE_BYTES / 4);
+            let mut mips = Vec::new();
+            let mut side = TILE_SIZE / 2;
+            while side >= 1 {
+                mips.push(rgba.repeat((side * side) as usize));
+                if side == 1 {
+                    break;
+                }
+                side /= 2;
+            }
+            self.atlas.write(&gpu.queue, slot, &base, &mips);
+            slot
+        }
+
+        fn write_rows(&self, gpu: &Gpu, rows: &[LayerData]) {
+            gpu.queue
+                .write_buffer(&self.layers, 0, bytemuck::cast_slice(rows));
+        }
+    }
+
+    /// One tile's worth of board, drawn 1:1 into a `TILE_SIZE` target: document pixel *n* lands
+    /// on target pixel *n*, so a readback coordinate is a document coordinate and the mip level
+    /// is 0 everywhere.
+    fn fixture(gpu: &Gpu) -> Fixture {
+        let bgl = tile_shared_bgl(&gpu.device);
+        let camera = gpu.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("tile-camera"),
+            size: std::mem::size_of::<TileCamera>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let side = TILE_SIZE as f32;
+        gpu.queue.write_buffer(
+            &camera,
+            0,
+            bytemuck::bytes_of(&TileCamera {
+                pan: [0.0, 0.0],
+                zoom: 1.0,
+                dpr: 1.0,
+                viewport: [side, side],
+                doc_size: [side, side],
+                crisp: 0.0,
+                _pad: [0.0; 3],
+            }),
+        );
+        let layers = gpu.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("layer-data"),
+            size: (LAYER_DATA_CAPACITY * std::mem::size_of::<LayerData>()) as u64,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let samplers = TileSamplers::new(&gpu.device);
+        let atlas = TileAtlas::new(
+            &gpu.device,
+            &SharedBindings {
+                layout: &bgl,
+                camera: &camera,
+                layers: &layers,
+                samplers: &samplers,
+            },
+            8,
+        );
+        let target = gpu.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("layer-table-target"),
+            size: wgpu::Extent3d {
+                width: TILE_SIZE,
+                height: TILE_SIZE,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: TARGET_FORMAT,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
+        Fixture {
+            bgl,
+            camera,
+            layers,
+            samplers,
+            atlas,
+            target,
+        }
+    }
+
+    fn pipeline(
+        gpu: &Gpu,
+        f: &Fixture,
+        vs: &str,
+        fs: &str,
+        instanced: bool,
+    ) -> wgpu::RenderPipeline {
+        let layout = gpu
+            .device
+            .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("tile-pl"),
+                bind_group_layouts: &[Some(&f.bgl)],
+                ..Default::default()
+            });
+        let instance_layout = wgpu::VertexBufferLayout {
+            array_stride: std::mem::size_of::<TileInstance>() as u64,
+            step_mode: wgpu::VertexStepMode::Instance,
+            attributes: TILE_INSTANCE_ATTRS,
+        };
+        let buffers: &[Option<wgpu::VertexBufferLayout>] = if instanced {
+            &[Some(instance_layout)]
+        } else {
+            &[]
+        };
+        gpu.device
+            .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("layer-table-test"),
+                layout: Some(&layout),
+                vertex: wgpu::VertexState {
+                    module: &gpu.shader,
+                    entry_point: Some(vs),
+                    compilation_options: Default::default(),
+                    buffers,
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &gpu.shader,
+                    entry_point: Some(fs),
+                    compilation_options: Default::default(),
+                    targets: &[Some(premultiplied_target(TARGET_FORMAT))],
+                }),
+                primitive: wgpu::PrimitiveState::default(),
+                depth_stencil: None,
+                multisample: wgpu::MultisampleState::default(),
+                multiview_mask: None,
+                cache: None,
+            })
+    }
+
+    /// Runs one draw against a cleared target and hands back the rendered pixels.
+    fn draw(
+        gpu: &Gpu,
+        f: &Fixture,
+        pipeline: &wgpu::RenderPipeline,
+        instances: &[TileInstance],
+        range: std::ops::Range<u32>,
+    ) -> Vec<u8> {
+        let buf = gpu.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("tile-instances"),
+            size: ((instances.len().max(1)) * std::mem::size_of::<TileInstance>()) as u64,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        if !instances.is_empty() {
+            gpu.queue
+                .write_buffer(&buf, 0, bytemuck::cast_slice(instances));
+        }
+        let view = f
+            .target
+            .create_view(&wgpu::TextureViewDescriptor::default());
+        let mut encoder = gpu
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+        {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("layer-table-pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            pass.set_pipeline(pipeline);
+            pass.set_bind_group(0, f.atlas.bind_group(), &[]);
+            if !instances.is_empty() {
+                pass.set_vertex_buffer(0, buf.slice(..));
+            }
+            pass.draw(0..6, range);
+        }
+        gpu.queue.submit(Some(encoder.finish()));
+        read_texture_layer(&gpu.device, &gpu.queue, &f.target, 0, TILE_SIZE)
+    }
+
+    fn pixel(image: &[u8], x: u32, y: u32) -> [u8; 4] {
+        let i = ((y * TILE_SIZE + x) * 4) as usize;
+        [image[i], image[i + 1], image[i + 2], image[i + 3]]
+    }
+
+    /// The whole point of the table: two tiles in **one** instanced draw, transformed
+    /// differently, because each instance names its own row. Under the per-layer uniform this
+    /// needed two draws with a bind group swap between them, and a single draw could only ever
+    /// place every tile with one transform.
+    #[test]
+    fn an_instance_is_transformed_by_the_row_its_layer_index_names() {
+        let Some(gpu) = gpu() else { return };
+        let mut f = fixture(gpu);
+        let red = f.solid_slot(gpu, RED);
+        let blue = f.solid_slot(gpu, BLUE);
+        let shift = (TILE_SIZE / 2) as f32;
+        f.write_rows(
+            gpu,
+            &[
+                LayerData::default(),
+                LayerData {
+                    offset: [shift, 0.0],
+                    ..LayerData::default()
+                },
+            ],
+        );
+        let pipe = pipeline(gpu, &f, "vs_tile", "fs_tile", true);
+
+        let image = draw(
+            gpu,
+            &f,
+            &pipe,
+            &[
+                TileInstance {
+                    origin: [0.0, 0.0],
+                    slot: red,
+                    layer_index: 0,
+                },
+                TileInstance {
+                    origin: [0.0, 0.0],
+                    slot: blue,
+                    layer_index: 1,
+                },
+            ],
+            0..2,
+        );
+
+        assert_eq!(
+            pixel(&image, 8, 8),
+            RED,
+            "row 0 is identity, so the red tile sits where its origin says"
+        );
+        assert_eq!(
+            pixel(&image, TILE_SIZE - 8, 8),
+            BLUE,
+            "row 1 offsets by half a tile, so the blue tile covers the right half — same draw, \
+             same origin, different row"
+        );
+    }
+
+    /// Both tiles carry the *same* origin and the same row; nothing should move. Guards against
+    /// a shader that reads a row by something other than the index it was handed — an instance
+    /// counter, say — which the test above alone would not catch.
+    #[test]
+    fn two_instances_sharing_a_row_land_in_the_same_place() {
+        let Some(gpu) = gpu() else { return };
+        let mut f = fixture(gpu);
+        let red = f.solid_slot(gpu, RED);
+        let blue = f.solid_slot(gpu, BLUE);
+        f.write_rows(
+            gpu,
+            &[
+                LayerData::default(),
+                LayerData {
+                    offset: [TILE_SIZE as f32, 0.0],
+                    ..LayerData::default()
+                },
+            ],
+        );
+        let pipe = pipeline(gpu, &f, "vs_tile", "fs_tile", true);
+
+        let image = draw(
+            gpu,
+            &f,
+            &pipe,
+            &[
+                TileInstance {
+                    origin: [0.0, 0.0],
+                    slot: red,
+                    layer_index: 0,
+                },
+                TileInstance {
+                    origin: [0.0, 0.0],
+                    slot: blue,
+                    layer_index: 0,
+                },
+            ],
+            0..2,
+        );
+
+        assert_eq!(
+            pixel(&image, TILE_SIZE - 8, 8),
+            BLUE,
+            "the second instance read row 0 like the first, so it covers the first everywhere"
+        );
+        assert_eq!(pixel(&image, 8, 8), BLUE);
+    }
+
+    /// A layer's transform reaches the shader through the row, not through a bind group: scale
+    /// about the pivot has to survive the move to the table.
+    #[test]
+    fn a_rows_scale_and_pivot_still_place_the_tile() {
+        let Some(gpu) = gpu() else { return };
+        let mut f = fixture(gpu);
+        let red = f.solid_slot(gpu, RED);
+        let centre = (TILE_SIZE / 2) as f32;
+        f.write_rows(
+            gpu,
+            &[LayerData {
+                pivot: [centre, centre],
+                scale: [0.5, 0.5],
+                ..LayerData::default()
+            }],
+        );
+        let pipe = pipeline(gpu, &f, "vs_tile", "fs_tile", true);
+
+        let image = draw(
+            gpu,
+            &f,
+            &pipe,
+            &[TileInstance {
+                origin: [0.0, 0.0],
+                slot: red,
+                layer_index: 0,
+            }],
+            0..1,
+        );
+
+        assert_eq!(
+            pixel(&image, centre as u32, centre as u32),
+            RED,
+            "half scale about the centre keeps the middle covered"
+        );
+        assert_eq!(
+            pixel(&image, 8, 8),
+            [0, 0, 0, 0],
+            "and pulls the corner in, leaving it clear"
+        );
+    }
+
+    /// Solid Paper has no instance buffer to carry an atlas slot, so its row holds one and the
+    /// draw names the row through its instance range. This is what replaced bitcasting the slot
+    /// into `pivot.x` — two draw paths reading the same bytes as different types.
+    #[test]
+    fn the_solid_quad_reads_its_atlas_slot_from_the_row_the_draw_range_names() {
+        let Some(gpu) = gpu() else { return };
+        let mut f = fixture(gpu);
+        let red = f.solid_slot(gpu, RED);
+        let blue = f.solid_slot(gpu, BLUE);
+        f.write_rows(
+            gpu,
+            &[
+                LayerData {
+                    atlas_slot: red,
+                    ..LayerData::default()
+                },
+                LayerData {
+                    atlas_slot: blue,
+                    ..LayerData::default()
+                },
+            ],
+        );
+        let pipe = pipeline(gpu, &f, "vs_doc_quad", "fs_solid_tile", false);
+
+        let image = draw(gpu, &f, &pipe, &[], 1..2);
+
+        assert_eq!(
+            pixel(&image, 8, 8),
+            BLUE,
+            "instance range 1..2 selects row 1, whose atlas slot is the blue tile"
+        );
+        assert_eq!(pixel(&image, TILE_SIZE - 8, TILE_SIZE - 8), BLUE);
+    }
+
+    /// The Rust row and the WGSL row have to agree byte for byte, and nothing in the type system
+    /// enforces it. 32 bytes with `vec2<f32>` alignment is also what makes the WGSL array stride
+    /// 32 with no tail padding — a mismatch here misaddresses every row past the first.
+    #[test]
+    fn a_table_row_is_the_size_the_shader_strides_by() {
+        assert_eq!(std::mem::size_of::<LayerData>(), 32);
+        assert_eq!(std::mem::align_of::<LayerData>(), 4);
+        assert_eq!(
+            std::mem::size_of::<TileInstance>(),
+            16,
+            "layer_index took the place of padding, so instances did not grow"
         );
     }
 }

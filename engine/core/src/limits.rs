@@ -114,6 +114,11 @@ pub const VECTOR_SHAPE_INSTANCE_CAPACITY: usize = 256;
 /// Unrelated to the atlas's own capacity: this just needs to hold one record per tile drawn
 /// this frame, and grows the same way the stroke/vector-shape instance buffers do.
 pub const TILE_INSTANCE_CAPACITY: usize = 1024;
+/// Initial row count of the layer table the tile shader indexes per instance. One row per
+/// document layer, so this is a starting capacity rather than a cap — the stack is unbounded
+/// and the buffer doubles like the instance buffers do. Sized for the documents people
+/// actually open, so the common case never reallocates.
+pub const LAYER_DATA_CAPACITY: usize = 64;
 /// Swapchain queue depth, fixed for the life of the surface. One, not two: this is an
 /// interactive editor, so a shallower queue is always the right trade — a deeper one only buys
 /// throughput headroom the board does not need, and costs a frame of pen-to-pixel latency.

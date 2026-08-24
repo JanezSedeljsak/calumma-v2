@@ -366,22 +366,37 @@ function serve both a full redraw and a scissored strip repair (§3.7).
 
 Bindings are arranged by *how often they change*:
 
-- **Group 0 (tiles):** `TileCamera` uniform + the atlas array texture + **two** samplers —
-  bound once per frame, shared by every tile draw. The samplers (`TileSamplers`) differ only
-  in `mag_filter`; `fs_tile` picks between them on `TileCamera::crisp`, a flag the engine
-  sets from `limits::CRISP_PIXEL_ZOOM` so the renderer never re-invents the threshold.
-- **Group 1 (tiles):** `LayerXform` — pivot, offset, scale, rotation. The one thing that
-  still varies per *document layer*, so it is one small uniform buffer and bind group per
-  layer id, cached in `layer_xforms` and reaped when the layer goes away.
+- **Group 0 (tiles):** `TileCamera` uniform + the atlas array texture + **two** samplers +
+  the layer table — bound once for the whole board, shared by every tile and solid draw. The
+  samplers (`TileSamplers`) differ only in `mag_filter`; `fs_tile` picks between them on
+  `TileCamera::crisp`, a flag the engine sets from `limits::CRISP_PIXEL_ZOOM` so the renderer
+  never re-invents the threshold.
+- **There is no group 1 for tiles.** Everything that varies per *document layer* — pivot,
+  offset, scale, rotation, and solid Paper's atlas slot — lives in one read-only storage
+  buffer of `LayerData` rows at `@group(0) @binding(4)`, written once per content rebuild by
+  `write_layer_data`. **Row *i* is `doc.layers[i]`**: a row index is a stack position, so a
+  tile instance addresses its layer directly and no side table resolves it. Vector layers and
+  hidden ones own a row nobody reads, which is cheaper than an index that means something
+  different in each frame.
 - **`preview_bg`** is group 0 for everything overlay-shaped: strokes, guides, the shape
   preview, and vector shapes. One uniform block (`PreviewUniforms`) carries the camera plus
   the current tool/color/geometry, so an overlay pipeline needs no per-draw state at all.
 
-One sharp edge worth knowing: the unpainted-Paper quad (`vs_doc_quad`) reuses the **same
-per-layer buffer** as `LayerXform`, but written as a `SolidLayerUniform { slot }` and read
-back in the shader as `bitcast<u32>(lx.pivot.x)`. It is a union over one buffer — a solid
-layer has no transform to carry, so the slot rides in the first word instead of costing a
-second binding.
+What the table bought is not bytes — it is that a stack of Normal layers draws with **one**
+`set_bind_group` for the whole board. Before, every layer's instanced draw was preceded by a
+rebind of its own one-uniform group, so a 40-layer document paid 40 of them per frame to say
+things that mostly read `scale: [1, 1], offset: [0, 0]`. `TileInstance` grew a `layer_index`
+into what was already padding, so the per-tile payload did not get bigger.
+
+The unpainted-Paper quad (`vs_doc_quad`) has no instance buffer to carry an atlas slot, so its
+row holds one and the draw names the row through its **instance range**: `draw(0..6, i..i+1)`,
+read back as `@builtin(instance_index)`. That replaced a genuinely sharp edge — the slot used
+to be bitcast into `LayerXform.pivot.x`, a union over one buffer that had two draw paths
+reading the same bytes as different types.
+
+Blend mode is still per *pipeline*, and vector layers still composite in stack order against
+tiles, so the draw list is one instanced draw per contiguous run of the same pipeline. The
+table did not remove those splits; it removed the bind that used to happen *inside* a run.
 
 Pipelines (all from the single `board.wgsl` module):
 
@@ -645,8 +660,8 @@ The only crate Swift links, via `platform/macos/Calumma/Bridge/Calumma.h`.
 
 Every path out of an open document — closing, switching project, switching workspace — must
 route through `Inner::close_document`, which saves, drops the document, and calls
-`Renderer::release_document` so the GPU textures and per-layer uniform buffers keyed by its
-layer ids go with it. Add a new way to leave and forget this, and its tiles stay in VRAM where
+`Renderer::release_document` so the GPU textures and the atlas slots keyed by its layer ids
+go with it. Add a new way to leave and forget this, and its tiles stay in VRAM where
 nothing will ever evict them: `sync_tiles` only runs with a document open.
 
 ---

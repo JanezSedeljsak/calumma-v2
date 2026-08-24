@@ -161,11 +161,52 @@ When visible tile count ≥ **48** (exit at **24**), skip tile sync entirely:
 
 Disabled while live-editing (stroke, shape preview, text caret).
 
+**This is the renderer's weakest part, measured 2026-08-25.** It is a *single-level* LOD, and
+the threshold that selects it counts draws **summed across layers**, so which document you are
+looking at decides how blurry the board is:
+
+| Document (1600×1000 @2x) | Overview holds until | The 2048px flatten is then magnified |
+| --- | --- | --- |
+| 8192px, 1 painted layer | 1.57x zoom | 12.6x |
+| 8192px, 3 painted layers | 3.16x zoom | 25.3x |
+| 8192px, 10 painted layers | never, out to the 64x hard cap | — |
+| 4096px, 1 painted layer | 1.57x zoom | 6.3x |
+
+The hysteresis is the trap: it enters at ≥48 but only leaves at ≤24, and ten painted layers
+never reliably get under 24. Zoom out once on such a document and every pixel from then on
+comes from a 2048px flatten of an 8K canvas. (Sparse layers count fewer tiles and do exit —
+this needs layers painted across the whole canvas, i.e. a photo stack.)
+
+A caveat on the 10-layer row: at extreme zoom the count depends on whether the visible rect
+straddles a tile boundary (4 tiles per layer if it does, 1 if it does not), and these runs
+centre the camera on the document centre, which on an 8K canvas *is* a boundary. The honest
+statement is not "never" but "does not reliably exit at any zoom" — at 4x a 10-layer document
+sits at roughly 20–30 draws, hovering either side of the threshold, so whether the board is
+sharp depends on where it happens to be scrolled.
+
+
+Regen is why the thresholds are set that way. One `composite_overview` on an 8K document costs
+~10 ms at 1 layer, ~32 ms at 5, ~86 ms at 10, and any content change pays it **in full** — the
+path has one resolution and no partial invalidation. Disabling it during a live preview is what
+avoids that, and it is also what drops a fit-to-view stroke back onto ~10,000 tile instances.
+
+Both problems are the same missing feature: **levels, and chunked invalidation**. A pyramid
+picks an LOD from the zoom, so neither the trap nor 25x magnification stays expressible, and an
+edit re-flattens the chunks it touched at the levels on screen rather than 67 megapixels of
+document. Two cheap fixes stand in front of it and are not thrown away by it — make the exit
+threshold per-layer rather than summed, and raise `OVERVIEW_MAX_SIDE` for large documents.
+
+This is written down here rather than in a plan on purpose. The display-cache plan that used to
+own it (todo #7) was cancelled on 2026-08-25: it was written against a renderer that no longer
+exists, and its central move — replace the tile instance path with a chunk atlas — is pointless
+now that the tile path is bounded at 48 draws behind a single bind group. The measurements
+above are what survived it.
+
 ---
 
 ## PanCache (scroll-blit)
 
-Phase 1 of `docs/plans/07-display-cache.md`. `PanCache` (`engine/render/src/framebuffer.rs`) is two
+`PanCache` (`engine/render/src/framebuffer.rs`) is two
 fixed-role offscreen color textures, sized to the viewport — not an alternating ping-pong:
 
 - **`reference`** holds the last full content redraw (every visible tile/vector draw call,
@@ -277,9 +318,29 @@ After Tier A **and** shipped Tier B1/B2 (below):
 
 ## Optimization roadmap
 
-See `docs/plans/07-display-cache.md` for the full Figma-style display-cache plan (todo #7).
-Tier B1 (framebuffer scroll-blit) and B2 (autosave off the render thread) are **shipped** —
-phases 0 and 1 of that plan. The rest of Tier B, and Tiers C/D, remain open.
+Tier B1 (framebuffer scroll-blit) and B2 (autosave off the render thread) are **shipped**. The
+rest of Tier B, and Tiers C/D, remain open. The display-cache plan that used to carry the
+roadmap beyond them (todo #7) was cancelled on 2026-08-25 — see the Overview path section for
+what came out of it and what is actually left.
+
+**Where the headroom actually is, as of 2026-08-25.** The per-frame *draw* path is close to
+done and the remaining items on it are small:
+
+- A camera-only pan is a texture copy plus up to four scissored strips, bounded by how far the
+  camera moved rather than by document size. An overlay-only frame does not even shift — it
+  samples the reference directly.
+- A content redraw is capped at **48 tile instances** by the overview threshold, and since the
+  `LayerData` table landed it runs behind **one** `set_bind_group` for the whole board. Merging
+  the remaining per-layer draws into one instanced draw per contiguous Normal run is now
+  possible (instances blend in submission order, and the buffer is already filled in stack
+  order) — but it would save on the order of ten draw calls a frame, so it is a curiosity, not
+  a win. The tile path has nothing meaningful left in it.
+- What is left on the CPU per frame is small and known: the `visible_needs_gpu_upload` walk
+  (C1, 3–34 µs), the desk fullscreen triangle (B3/D), and uniform writes.
+
+**Everything that is actually slow or actually looks bad is now in `OverviewPass`** — see the
+Overview path section above for the numbers. That is where the next work belongs, and it is a
+fidelity problem before it is a performance one.
 
 ---
 
@@ -291,16 +352,16 @@ phases 0 and 1 of that plan. The rest of Tier B, and Tiers C/D, remain open.
 | B1b | **Reuse the `PanCache` reference on an overlay-only frame** — no shift, no redraw, the board pass samples it directly | Brush strokes, shape drags and the caret stop recompositing the visible stack per frame | No — additive | **Shipped** — `reference_matches` / `reuse_reference` |
 | B2 | **Move autosave off render path** — background thread or timer, never inside `calm_engine_render` | Removes mutex + SQLite from frame budget | No | **Shipped** — `engine/ffi/src/autosave.rs` |
 | B3 | **Skip desk clear on camera-only** — `LoadOp::Load` + blit previous color attachment, or persistent desk texture | Saves full-screen fill | No | Open |
-| B4 | **Lower overview enter to ~32** once prewarm is reliable | More 8K pans hit overview sooner | Slight quality trade at mid zoom | Open |
+| B4 | ~~**Lower overview enter to ~32**~~ — **withdrawn 2026-08-25.** The measured problem is the opposite one: the overview is entered *too eagerly and left too late*, and the "slight quality trade at mid zoom" is up to 25x magnification. Raise `OVERVIEW_MAX_SIDE` and make the exit threshold per-layer instead | — | — | Withdrawn |
 | B5 | **R8 or RGB10A2 desk** if banding acceptable | Less memory bandwidth on fill | Minor visual | Open |
 
 ## Tier C — medium
 
 | # | Change | Effect | Throw away? |
 | --- | --- | --- | --- |
-| C1 | **Separate tile path entirely during motion** — never rebuild draw list; only uniforms | Already partial; finish by skipping `visible_needs_gpu_upload` checks on camera-only | No |
-| C2 | **GPU compositing for adjustments** instead of CPU bake per dirty tile — `docs/plans/23-gpu-adjustment-evaluation.md` (LUT + opacity on the `LayerData` SSBO from `docs/plans/02-strict-scope-optimizations.md`) | Slider drag on large docs | CPU path for export stays |
-| C3 | **Layer flatten cache** — one GPU texture per layer at rest, patch on edit | Fewer instances when many layers | Memory ↑ |
+| C1 | **Separate tile path entirely during motion** — never rebuild draw list; only uniforms | Already partial; finish by skipping `visible_needs_gpu_upload` on camera-only. That walk is one hash lookup per candidate tile per layer — measured 3 µs at 1 layer, 34 µs at 10, per frame on an 8K fit-to-view — so it is worth removing but is not what makes a big document slow | No |
+| C2 | **GPU compositing for adjustments** instead of CPU bake per dirty tile — `docs/plans/23-gpu-adjustment-evaluation.md` (LUT + opacity on the shipped `LayerData` table — see `docs/ENGINE.md` § Bind groups) | Slider drag on large docs | CPU path for export stays |
+| C3 | **Layer flatten cache** — one GPU texture per layer at rest, patch on edit | Fewer instances when many layers. Note the instance count is already bounded at 48 by the overview threshold, so this is only worth it *inside* a pyramid rebuild, not for the live tile path | Memory ↑ |
 | C4 | **Display link driven render** — `isPaused = true`, draw only when dirty | No idle 120 Hz wakeups | Requires explicit `setNeedsDisplay` wiring |
 | C5 | **Read zoom pill from atomics** — `flushPendingState` only when chrome visible | Less Swift publish per frame | No |
 
@@ -332,10 +393,10 @@ Figma's smoothness comes from a **different contract**:
 - Aggressive **level-of-detail** — text, effects, and grid degrade during motion
 
 Calumma is closer to a **pixel editor** (sparse tiles, undo, masks, adjustments). Matching
-Figma on pan is achievable; matching Figma on *everything* without a scene-graph rewrite
-is not. The pragmatic target: **pan/zoom feels like Figma; edit fidelity stays like Krita**.
-Phases 2+ of `docs/plans/07-display-cache.md` (a real chunk pyramid, multi-level LOD) are what
-would close the remaining gap.
+Figma on pan is achievable — and largely done; matching Figma on *everything* without a
+scene-graph rewrite is not. The pragmatic target: **pan/zoom feels like Figma; edit fidelity
+stays like Krita**. The gap that remains is not pan, it is level-of-detail: a multi-level
+pyramid in place of the single 2048px overview flatten (see Overview path).
 
 ---
 

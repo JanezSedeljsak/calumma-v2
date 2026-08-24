@@ -87,31 +87,36 @@ struct TileCamera {
     _pad2: f32,
 }
 
-struct SolidLayer {
-    slot: u32,
-    _pad0: u32,
-    _pad1: u32,
-    _pad2: u32,
-}
-
-struct LayerXform {
+// One document layer's contribution to a tile draw, indexed by the instance's `layer_index`.
+// Row *i* is `doc.layers[i]` — stack position, so the index a tile instance carries needs no
+// side table to resolve and a vector layer simply owns an unread row.
+//
+// `atlas_slot` is only read by the solid-Paper quad, which has no instance buffer to carry it
+// the way `vs_tile` does. It used to ride in `pivot.x` as a `bitcast` union with this same
+// struct; an explicit field costs 4 bytes a layer and stops two draw paths disagreeing about
+// what the bytes mean.
+//
+// Plan 23 grows this row with opacity and the adjustment LUT. Nothing here is per *tile*: the
+// whole point is that the table is written once per content rebuild, not once per draw.
+struct LayerData {
     pivot: vec2<f32>,
     offset: vec2<f32>,
     scale: vec2<f32>,
     rotation: f32,
-    _pad: f32,
+    atlas_slot: u32,
 }
 
 // Every tile GPU-resident across the whole document lives in one shared array texture,
 // addressed per-instance by array-layer index — see `TileAtlas` in `render/src/tile_atlas.rs`.
 // That is what turns a document layer's tiles into a single instanced draw instead of one
-// draw call per tile. Group 0 is the atlas plus the per-frame camera, bound once; group 1 is
-// the one thing that still varies per *document layer*, its transform.
+// draw call per tile. Group 0 carries the atlas, the per-frame camera and the layer table, and
+// is bound once for the whole board: there is no per-layer bind group, so a stack of Normal
+// layers is one `set_bind_group` and one instanced draw per layer rather than a rebind each.
 @group(0) @binding(0) var<uniform> tu: TileCamera;
 @group(0) @binding(1) var tile_tex: texture_2d_array<f32>;
 @group(0) @binding(2) var tile_sampler: sampler;
 @group(0) @binding(3) var tile_sampler_crisp: sampler;
-@group(1) @binding(0) var<uniform> lx: LayerXform;
+@group(0) @binding(4) var<storage, read> layer_data: array<LayerData>;
 
 // Must match `calumma_core::tile::TILE_SIZE` — tiles are square and fixed-size at runtime, so
 // this is a shader constant rather than a per-instance value.
@@ -120,6 +125,7 @@ const TILE_SIZE_PX: f32 = 256.0;
 struct TileInstanceIn {
     @location(0) origin: vec2<f32>,
     @location(1) slot: u32,
+    @location(2) layer_index: u32,
 }
 
 struct TileVsOut {
@@ -139,6 +145,7 @@ fn vs_tile(input: TileInstanceIn, @builtin(vertex_index) idx: u32) -> TileVsOut 
         vec2<f32>(1.0, 1.0),
     );
     let uv = corners[idx];
+    let lx = layer_data[input.layer_index];
     let raw_doc = input.origin + uv * TILE_SIZE_PX;
     var doc: vec2<f32>;
     if abs(lx.rotation) < 1e-6 && all(lx.scale == vec2<f32>(1.0, 1.0)) && all(lx.offset == vec2<f32>(0.0, 0.0)) {
@@ -190,8 +197,11 @@ struct SolidVsOut {
     @location(0) @interpolate(flat) slot: u32,
 }
 
+// Paper collapses to one full-document quad when its tiles all share one `Arc`, so there is no
+// instance buffer to carry a layer index. The draw passes it as a one-instance range instead —
+// `draw(0..6, i..i+1)` — which is why this reads `instance_index` rather than a vertex input.
 @vertex
-fn vs_doc_quad(@builtin(vertex_index) idx: u32) -> SolidVsOut {
+fn vs_doc_quad(@builtin(vertex_index) idx: u32, @builtin(instance_index) layer_index: u32) -> SolidVsOut {
     var corners = array<vec2<f32>, 6>(
         vec2<f32>(0.0, 0.0),
         vec2<f32>(1.0, 0.0),
@@ -210,7 +220,7 @@ fn vs_doc_quad(@builtin(vertex_index) idx: u32) -> SolidVsOut {
     );
     var out: SolidVsOut;
     out.position = vec4<f32>(ndc, 0.0, 1.0);
-    out.slot = bitcast<u32>(lx.pivot.x);
+    out.slot = layer_data[layer_index].atlas_slot;
     return out;
 }
 

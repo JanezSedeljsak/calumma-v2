@@ -47,8 +47,9 @@ hardcoded in Rust or WGSL.
 Calumma is a lightning-fast, **flat-hierarchy** engine aimed at 120 Hz. These limits are
 load-bearing, not backlog: they keep every tile 256 KiB, every vector layer one GPU draw,
 and selection a layer index. Do not add the missing half. A plan that needs one of these
-is the wrong plan. Renderer work that *follows* from them lives in
-`docs/plans/02-strict-scope-optimizations.md`.
+is the wrong plan. The renderer work that *followed* from them — the LIFO atlas, unpadded
+tile uploads, one vector draw per layer, and the `LayerData` table that replaced per-layer
+bind groups — is shipped; see `docs/ENGINE.md` § Bind groups.
 
 - **Pure RGBA8 only.** Tiles are 256×256×4 bytes, straight 8-bit RGBA — `TILE_BYTES` is
   262144 (256 KiB) and stays that. No CMYK, no 16-bit, no 32-bit HDR, no ICC / display-P3 /
@@ -66,7 +67,8 @@ is the wrong plan. Renderer work that *follows* from them lives in
 - **1:1 vector limit.** `LayerContent::Vector(VectorItem)` — exactly one item, never
   `Vec`. A second shape or stroke is a new layer. Clicking a vector selects the layer;
   there is no `(layer, item)` address. **Multi-select of vector items is permanently
-  cancelled** (`docs/plans/10-multi-select-align.md`). Do not build it.
+  cancelled** (see `docs/plans/24-layer-multi-select.md`, which replaces it at the *layer*
+  level). Do not build it.
 - **Basic vector editing only.** Vectors are drawn, moved, and scaled. No node / point
   editing, no bezier handles, no per-item rotation on the GPU, no boolean ops.
 
@@ -455,7 +457,7 @@ not a place to pile micro-opts that muddy the code for single-digit percent gain
 in SQLite. There is no document cache, no per-workspace pool, and nothing to evict on a
 timer; switching workspaces or projects goes through `Inner::close_document`, which saves
 the old document, drops it, and calls `Renderer::release_document` so the GPU textures and
-per-layer uniform buffers keyed by its layer ids go with it. Add a new way to leave a
+the atlas slots keyed by its layer ids go with it. Add a new way to leave a
 document and it must route through that same function — otherwise its tiles stay in VRAM,
 where nothing will ever evict them (`sync_tiles` only runs with a document open).
 
@@ -637,6 +639,6 @@ swatch), vector layers (`V` / tool options; one item per layer, moved and scaled
 Move tool (tools island; pick-and-drag without `⌘T`). See `docs/FLOW.md`.
 
 **Now carrying plans** in `docs/todo.md`: undo for the rest of the document (`01`),
-display cache (`07`), strict-scope wgpu wins (`02` — SSBO / atlas / uploads), GPU
-adjustment evaluation (`23`, depends on `02`'s `LayerData`). Vector multi-select (`10`)
-is closed by the 1:1 rule — do not build it.
+GPU adjustment evaluation (`23`, which grows the shipped `LayerData`
+table with the LUT and opacity). Vector multi-select (`10`) is closed by the 1:1 rule — do
+not build it.
