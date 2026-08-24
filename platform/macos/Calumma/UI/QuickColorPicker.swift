@@ -79,33 +79,32 @@ struct QuickColorPicker: View {
         }
     }
 
-    /// The ink swatches — primary, secondary, tertiary — plus the stroke swatch for the tools
-    /// that enclose an area. Each one points the field, hue slider and hex box at a different
-    /// color: the picker only ever edits one thing, and the ring says which. Driven off
-    /// `quickColors`' own count rather than a fixed list, so the slots stay in one place.
+    /// The three ink swatches — primary, secondary, tertiary — and nothing else. Each one
+    /// points the field, hue slider and hex box at a different color: the picker only ever
+    /// edits one thing, and the ring says which. Driven off `quickColors`' own count rather
+    /// than a fixed list, so the slots stay in one place.
+    ///
+    /// There is no separate outline swatch: a shape outlines itself in the primary color and
+    /// fills itself with the secondary one, so the two roles are already on screen. A fourth
+    /// swatch would have been a fourth color to keep track of for the same result.
     private var swatches: some View {
         HStack(spacing: Tokens.Space.xs) {
             ForEach(Array(app.quickColors.enumerated()), id: \.offset) { index, quick in
                 swatch(
                     quick,
-                    active: !app.editingStroke && app.activeQuickColorIndex == index,
+                    active: app.activeQuickColorIndex == index,
                     tooltip: inkSwatchTooltip(index)
                 ) { app.selectQuickColor(index) }
-            }
-            if app.tool.takesFill {
-                swatch(
-                    app.strokeColor,
-                    active: app.editingStroke,
-                    tooltip: l10n.strokeColor
-                ) { app.selectStrokeColor() }
             }
         }
     }
 
+    /// For the shape tools the first two slots have a job, not just an order, so the tooltip
+    /// says which part of a shape each one paints.
     private func inkSwatchTooltip(_ index: Int) -> String {
         switch index {
-        case 0: return l10n.primaryColor
-        case 1: return l10n.secondaryColor
+        case 0: return app.tool.takesFill ? l10n.strokeColor : l10n.primaryColor
+        case 1: return app.tool.takesFill ? l10n.fill : l10n.secondaryColor
         default: return l10n.tertiaryColor
         }
     }

@@ -50,6 +50,9 @@ pub struct CalmState {
     pub last_shape_tool: u32,
     pub last_select_tool: u32,
     pub is_fit: u8,
+    /// Whether the active layer is inside `⌘T`. The shell mirrors it on the Transform tool
+    /// button, which is a mode the engine owns rather than a tool the shell selects.
+    pub transform_active: u8,
 }
 
 #[repr(C)]
@@ -1039,6 +1042,23 @@ pub unsafe extern "C" fn calm_engine_set_stroke_color(
 }
 
 #[no_mangle]
+pub unsafe extern "C" fn calm_engine_set_shape_fill_color(
+    engine: *mut CalmEngine,
+    r: u8,
+    g: u8,
+    b: u8,
+    a: u8,
+) -> CalmStatus {
+    with_inner(engine, |inner| {
+        if let Some(doc) = &mut inner.doc {
+            doc.shape_fill_color = [r, g, b, a];
+        }
+        inner.invalidate_renderer();
+        Ok(())
+    })
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn calm_engine_set_dark(engine: *mut CalmEngine, dark: u8) -> CalmStatus {
     with_inner(engine, |inner| {
         if let Some(doc) = &mut inner.doc {
@@ -1085,11 +1105,60 @@ pub unsafe extern "C" fn calm_engine_reset_layer_transform(
     })
 }
 
+/// Where the pointer is when no button is down, in screen coordinates — the brush cursor is
+/// the only thing that reads it. Cheap on purpose: it invalidates the overlay and nothing
+/// else, so a hovering pointer costs one overlay pass a frame and never touches a tile.
+#[no_mangle]
+pub unsafe extern "C" fn calm_engine_set_pointer_hover(
+    engine: *mut CalmEngine,
+    x: f32,
+    y: f32,
+) -> CalmStatus {
+    with_inner(engine, |inner| {
+        if let Some(doc) = &mut inner.doc {
+            doc.set_pointer_hover(x, y);
+            if let Some(r) = &mut inner.renderer {
+                r.invalidate_overlay();
+            }
+        }
+        Ok(())
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn calm_engine_clear_pointer_hover(engine: *mut CalmEngine) -> CalmStatus {
+    with_inner(engine, |inner| {
+        if let Some(doc) = &mut inner.doc {
+            doc.clear_pointer_hover();
+            if let Some(r) = &mut inner.renderer {
+                r.invalidate_overlay();
+            }
+        }
+        Ok(())
+    })
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn calm_engine_toggle_transform(engine: *mut CalmEngine) -> CalmStatus {
     with_inner(engine, |inner| {
         let doc = inner.doc.as_mut().context("no project is open")?;
         doc.toggle_transform();
+        if let Some(r) = &mut inner.renderer {
+            r.invalidate();
+        }
+        Ok(())
+    })
+}
+
+/// Enters `⌘T` on the active layer, unlike `calm_engine_toggle_transform`, which would leave
+/// it again if the caller happened to already be in it. Pasting needs the idempotent one: an
+/// image dropped onto a board that is already transforming still has to end up transforming
+/// the layer that just arrived.
+#[no_mangle]
+pub unsafe extern "C" fn calm_engine_enter_transform(engine: *mut CalmEngine) -> CalmStatus {
+    with_inner(engine, |inner| {
+        let doc = inner.doc.as_mut().context("no project is open")?;
+        doc.enter_transform();
         if let Some(r) = &mut inner.renderer {
             r.invalidate();
         }
@@ -1640,6 +1709,7 @@ pub unsafe extern "C" fn calm_engine_state(
                     last_shape_tool: inner.last_shape_tool as u32,
                     last_select_tool: inner.last_select_tool as u32,
                     is_fit: 0,
+                    transform_active: 0,
                 };
             }
             return Ok(());
@@ -1665,6 +1735,7 @@ pub unsafe extern "C" fn calm_engine_state(
                 last_shape_tool: doc.last_shape_tool as u32,
                 last_select_tool: doc.last_select_tool as u32,
                 is_fit: doc.camera.is_fit(dw, dh) as u8,
+                transform_active: doc.transform_active as u8,
             };
         }
         Ok(())

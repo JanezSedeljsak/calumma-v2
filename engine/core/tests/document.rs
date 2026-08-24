@@ -1075,7 +1075,7 @@ fn ink_opacity_glazes_a_filled_shape() {
     let mut doc = Document::new("p".into(), "t", 256, 256);
     doc.tool = Tool::Rect;
     doc.fill = true;
-    doc.color = [200, 0, 0, 255];
+    doc.shape_fill_color = [200, 0, 0, 255];
     doc.set_ink_opacity(0.5);
     doc.resize_viewport(256.0, 256.0, 1.0);
     doc.fit_to_view();
@@ -1270,11 +1270,14 @@ fn drag_rect(doc: &mut Document, start: (f32, f32), end: (f32, f32)) {
     doc.pointer_up(s1x, s1y);
 }
 
+/// Three distinct swatches, so every assertion below says *which* one landed. The ink is a
+/// colour an area shape must never paint with: primary outlines it, secondary fills it.
 fn shape_doc() -> Document {
     let mut doc = Document::new("p".into(), "t", 256, 256);
     doc.tool = Tool::Rect;
-    doc.color = [255, 255, 255, 255];
+    doc.color = [200, 0, 0, 255];
     doc.stroke_color = [0, 0, 0, 255];
+    doc.shape_fill_color = [255, 255, 255, 255];
     doc.resize_viewport(256.0, 256.0, 1.0);
     doc.fit_to_view();
     doc
@@ -1287,8 +1290,37 @@ fn a_shape_commits_its_fill_and_its_border_in_their_own_colors() {
     doc.stroke = true;
     doc.brush_size = 4.0;
     drag_rect(&mut doc, (20.0, 20.0), (60.0, 60.0));
-    assert_eq!(pixel(&doc, doc.active_layer, 40, 40), [255, 255, 255, 255]);
-    assert_eq!(pixel(&doc, doc.active_layer, 20, 40), [0, 0, 0, 255]);
+    assert_eq!(
+        pixel(&doc, doc.active_layer, 40, 40),
+        [255, 255, 255, 255],
+        "the interior is the secondary swatch"
+    );
+    assert_eq!(
+        pixel(&doc, doc.active_layer, 20, 40),
+        [0, 0, 0, 255],
+        "the outline is the primary swatch"
+    );
+}
+
+/// The ink follows whichever swatch the picker is pointed at, and an area shape has to be
+/// drawn the same way regardless — outlined in primary, filled with secondary — or a rectangle
+/// would come out differently depending on what was clicked last.
+#[test]
+fn an_area_shape_ignores_the_ink_swatch_entirely() {
+    let mut doc = shape_doc();
+    doc.fill = true;
+    doc.stroke = true;
+    doc.brush_size = 4.0;
+    doc.color = [0, 255, 0, 255];
+    drag_rect(&mut doc, (20.0, 20.0), (60.0, 60.0));
+
+    for (x, y) in [(40, 40), (20, 40), (40, 20)] {
+        assert_ne!(
+            pixel(&doc, doc.active_layer, x, y),
+            [0, 255, 0, 255],
+            "ink at ({x}, {y})"
+        );
+    }
 }
 
 #[test]
@@ -1320,6 +1352,7 @@ fn a_line_stays_on_the_ink_swatch_whatever_the_stroke_swatch_says() {
     doc.tool = Tool::Line;
     doc.color = [200, 0, 0, 255];
     doc.stroke_color = [0, 0, 255, 255];
+    doc.shape_fill_color = [0, 255, 0, 255];
     doc.brush_size = 4.0;
     drag_rect(&mut doc, (20.0, 40.0), (60.0, 40.0));
     assert_eq!(pixel(&doc, doc.active_layer, 40, 40), [200, 0, 0, 255]);

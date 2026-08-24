@@ -186,13 +186,16 @@ struct CalmPlainButton: View {
     let title: String
     var enabled = true
     var accent = false
+    /// An explicit color for the few buttons that are neither ordinary nor the accent —
+    /// today just Delete, which is `color.danger` per `STYLE.md`'s hierarchy table.
+    var tint: Color?
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
             Text(title)
                 .foregroundStyle(
-                    accent ? colors.accentTeal : (enabled ? colors.text : colors.textMuted)
+                    tint ?? (accent ? colors.accentTeal : (enabled ? colors.text : colors.textMuted))
                 )
         }
         .buttonStyle(.plain)

@@ -50,6 +50,7 @@ fn every_status_entry_point_rejects_a_null_engine() {
         last_shape_tool: 0,
         last_select_tool: 0,
         is_fit: 0,
+        transform_active: 0,
     };
     let mut buf: *mut u8 = ptr::null_mut();
     let mut w = 0u32;
@@ -103,6 +104,7 @@ fn every_status_entry_point_rejects_a_null_engine() {
             CalmStatus::Null
         );
         assert_eq!(calm_engine_toggle_transform(e), CalmStatus::Null);
+        assert_eq!(calm_engine_enter_transform(e), CalmStatus::Null);
         assert_eq!(calm_engine_exit_transform(e), CalmStatus::Null);
         assert_eq!(calm_engine_set_hover_layer(e, 0 as c_int), CalmStatus::Null);
         assert_eq!(calm_engine_clear_layer(e), CalmStatus::Null);
@@ -249,6 +251,7 @@ fn data_returning_entry_points_error_with_no_project_open() {
             CalmStatus::Error
         );
         assert_eq!(calm_engine_toggle_transform(e), CalmStatus::Error);
+        assert_eq!(calm_engine_enter_transform(e), CalmStatus::Error);
         let mut picked = 0u32;
         assert_eq!(
             calm_engine_pick_color(e, 0.0, 0.0, &mut picked),

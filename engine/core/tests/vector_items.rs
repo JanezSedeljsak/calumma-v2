@@ -91,7 +91,7 @@ fn vector_item_stores_ink_opacity() {
     doc.set_vector_mode(true);
     doc.tool = Tool::Rect;
     doc.fill = true;
-    doc.color = [10, 20, 30, 255];
+    doc.shape_fill_color = [10, 20, 30, 255];
     doc.set_ink_opacity(0.5);
     drag(&mut doc, (10.0, 10.0), (40.0, 40.0));
     let item = &doc.layers[doc.active_layer].content.item().unwrap();

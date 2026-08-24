@@ -59,12 +59,12 @@ struct ToolsPanel: View {
 
     private var toolGrid: some View {
         Self.iconGrid {
-            toolButton(.move) { AppIcon.moveIcon(color: iconColor(.move)) }
+            moveButton
+            selectToolButton
             toolButton(.pen) { AppIcon.pen(color: iconColor(.pen)) }
             toolButton(.eraser) { AppIcon.eraser(color: iconColor(.eraser)) }
             toolButton(.blur) { AppIcon.blur(color: iconColor(.blur)) }
             shapeToolButton
-            selectToolButton
             toolButton(.bucket) { AppIcon.bucket(color: iconColor(.bucket)) }
             toolButton(.eyedropper) { AppIcon.eyedropper(color: iconColor(.eyedropper)) }
             toolButton(.text) { AppIcon.text(color: iconColor(.text)) }
@@ -347,6 +347,33 @@ struct ToolsPanel: View {
         .menuIndicator(.hidden)
         .calmTooltip(l10n.aiTools, edge: .trailing)
         .calmPointer()
+    }
+
+    /// Move and Transform are one button: moving a layer and resizing one are the same intent
+    /// one step apart, so picking Move drops the active layer straight into `⌘T` with its
+    /// corners live. Transform is still a *mode* the engine owns — pressing the button while
+    /// already inside it steps back out without giving up the tool, and `⌘T` keeps working.
+    private var moveButton: some View {
+        let selected = app.tool == .move
+        let transforming = selected && app.engine.state.transformActive
+        return CalmToolButton(
+            selected: selected,
+            action: {
+                if transforming {
+                    app.engine.toggleTransform()
+                } else {
+                    app.enterMoveTransform()
+                }
+            },
+            tooltip: l10n.toolMove,
+            tooltipEdge: .trailing
+        ) {
+            if transforming {
+                AppIcon.transform(color: colors.accentTeal)
+            } else {
+                AppIcon.moveIcon(color: iconColor(.move))
+            }
+        }
     }
 
     private var shapeToolButton: some View {

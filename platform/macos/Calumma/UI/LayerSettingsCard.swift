@@ -1,10 +1,19 @@
 import SwiftUI
 
+/// Everything a layer can do, behind the row's one `…` button. The row itself carries only a
+/// thumbnail and a name now: visibility, lock, rename and delete moved in here rather than
+/// competing for a 276pt-wide row with the four controls that were already in it.
 struct LayerSettingsCard: View {
     let index: Int
     let canMoveUp: Bool
     let canMoveDown: Bool
     let canMergeDown: Bool
+    let canRename: Bool
+    let canDelete: Bool
+    /// Renaming happens inline in the row, and deleting has to close this popover before the
+    /// index it is bound to goes away — both belong to the panel, so both are handed in.
+    let onRename: () -> Void
+    let onDelete: () -> Void
 
     @EnvironmentObject private var app: AppModel
     @Environment(\.themeColors) private var colors
@@ -17,7 +26,24 @@ struct LayerSettingsCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: Tokens.Space.md) {
+            // First, because hiding a layer is the most frequent thing anyone does in a layers
+            // panel and it is now one click deeper than it was. Toggles rather than buttons:
+            // they carry state, so they show it.
+            VStack(alignment: .leading, spacing: Tokens.Space.xs) {
+                stateToggle(l10n.layerVisibility, isOn: visible) {
+                    app.engine.setLayerVisible(index, visible: $0)
+                }
+                stateToggle(locked ? l10n.layerUnlock : l10n.layerLock, isOn: locked) {
+                    app.engine.setLayerLocked(index, locked: $0)
+                }
+            }
+
+            CalmDivider()
+
             LazyVGrid(columns: Self.actionColumns, alignment: .leading, spacing: Tokens.Space.sm) {
+                if canRename {
+                    actionButton(l10n.renameLayer, action: onRename)
+                }
                 actionButton(l10n.moveLayerUp, enabled: canMoveUp) {
                     app.engine.moveLayerUp(index)
                 }
@@ -106,10 +132,41 @@ struct LayerSettingsCard: View {
                     onChange: update { $0.levelsGamma = $1 }
                 )
             }
+
+            if canDelete {
+                CalmDivider()
+                // Last and on its own, away from Duplicate — the two are one slip apart
+                // otherwise, and this one is the destructive half.
+                CalmPlainButton(title: l10n.deleteLayer, tint: colors.danger, action: onDelete)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
         .padding(Tokens.Space.md)
         .frame(width: 260)
         .background(colors.surface)
+    }
+
+    private var visible: Bool {
+        app.engine.layerVisibles.indices.contains(index) ? app.engine.layerVisibles[index] : true
+    }
+
+    private var locked: Bool {
+        app.engine.layerLocked.indices.contains(index) ? app.engine.layerLocked[index] : false
+    }
+
+    private func stateToggle(
+        _ title: String,
+        isOn: Bool,
+        set: @escaping (Bool) -> Void
+    ) -> some View {
+        HStack {
+            CalmText.muted(title)
+            Spacer()
+            Toggle("", isOn: Binding(get: { isOn }, set: set))
+                .toggleStyle(.switch)
+                .controlSize(.mini)
+                .labelsHidden()
+        }
     }
 
     private func actionButton(

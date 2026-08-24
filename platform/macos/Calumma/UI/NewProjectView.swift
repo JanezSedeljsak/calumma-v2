@@ -97,6 +97,7 @@ struct NewProjectView: View {
                     }
 
                     CalmField(text: $name)
+                        .onSubmit(createProject)
                 }
             }
 
@@ -105,12 +106,17 @@ struct NewProjectView: View {
                 HStack(spacing: Tokens.Space.sm) {
                     CalmNumberField(value: $width, width: 72)
                     CalmNumberField(value: $height, width: 72)
-                    CalmAccentButton(title: l10n.create) {
-                        app.create(name: name, width: width, height: height, accent: accent)
-                    }
+                    CalmAccentButton(title: l10n.create, action: createProject)
                 }
             }
         }
+    }
+
+    /// Return in the name field creates the project, which is the same thing the Create
+    /// button does — typing a name and pressing Return is the whole form for most projects,
+    /// and an empty name still resolves to Untitled in `AppModel.create`.
+    private func createProject() {
+        app.create(name: name, width: width, height: height, accent: accent)
     }
 
     private var presetsColumn: some View {

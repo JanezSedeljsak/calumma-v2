@@ -1,8 +1,8 @@
 use crate::compose::{
-    composited_tile_payload, guide_instances, layer_highlight_instances, rgba_unit,
-    selection_lasso_points, selection_mask_edges, selection_rect_or_ellipse, stroke_instances,
-    text_overlay_instances, tile_upload_mips, transform_overlay_instances, GuideInstance,
-    StrokeInstance,
+    brush_ring_instances, composited_tile_payload, guide_instances, layer_highlight_instances,
+    rgba_unit, selection_lasso_points, selection_mask_edges, selection_rect_or_ellipse,
+    stroke_instances, text_overlay_instances, tile_upload_mips, transform_overlay_instances,
+    GuideInstance, StrokeInstance,
 };
 use crate::framebuffer::{self, PanCache, PxRect};
 use crate::overview::OverviewPass;
@@ -1791,6 +1791,9 @@ impl Renderer {
             // when nothing is selected, and `transform_handles` stands the layer frame down
             // while it is on screen, so the two can never both draw.
             screen_instances.extend(vector_selection_instances(doc));
+            // Unconditional for the same reason: the engine decides whether there is a brush
+            // cursor to draw, and answers with nothing when there is not.
+            screen_instances.extend(brush_ring_instances(doc));
             if let Some((index, corners)) = doc.layer_highlight() {
                 let covered = doc
                     .transform_handles()

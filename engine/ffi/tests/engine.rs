@@ -51,6 +51,7 @@ impl TestEngine {
             last_shape_tool: 0,
             last_select_tool: 0,
             is_fit: 0,
+            transform_active: 0,
         };
         let status = unsafe { calm_engine_state(self.ptr, &mut out) };
         assert_eq!(status, CalmStatus::Ok);
@@ -136,6 +137,7 @@ fn autosave_persists_off_the_render_path() {
         last_shape_tool: 0,
         last_select_tool: 0,
         is_fit: 0,
+        transform_active: 0,
     };
     let status = unsafe { calm_engine_state(reader, &mut state) };
     assert_eq!(status, CalmStatus::Ok);
@@ -635,6 +637,7 @@ fn null_engine_pointer_is_handled_everywhere() {
         last_shape_tool: 0,
         last_select_tool: 0,
         is_fit: 0,
+        transform_active: 0,
     };
     // A null engine is rejected before the out-param is touched, same as everywhere else.
     assert_eq!(
@@ -1148,4 +1151,61 @@ fn ending_camera_motion_is_safe_with_or_without_a_project() {
         CalmStatus::Ok,
         "ending a motion that already ended is not an error"
     );
+}
+
+/// `enter_transform` is the idempotent half of the toggle: the shell calls it after a paste,
+/// where the board may or may not already be transforming, and either way the layer that just
+/// arrived is the one that has to end up with the handles.
+#[test]
+fn entering_transform_twice_stays_in_transform() {
+    let engine = TestEngine::new();
+    engine.create_project("Transform", 32, 32);
+    let w = 4u32;
+    let h = 4u32;
+    let mut rgba = [9u8, 8, 7, 255].repeat((w * h) as usize);
+    unpremultiply_rgba(&mut rgba);
+    assert_eq!(
+        unsafe { calm_engine_paste_image(engine.ptr, rgba.as_ptr(), rgba.len(), w, h) },
+        CalmStatus::Ok
+    );
+    assert_eq!(engine.state().transform_active, 0);
+
+    assert_eq!(
+        unsafe { calm_engine_enter_transform(engine.ptr) },
+        CalmStatus::Ok
+    );
+    assert_eq!(engine.state().transform_active, 1);
+
+    assert_eq!(
+        unsafe { calm_engine_enter_transform(engine.ptr) },
+        CalmStatus::Ok
+    );
+    assert_eq!(
+        engine.state().transform_active,
+        1,
+        "a second enter is not a toggle"
+    );
+
+    assert_eq!(
+        unsafe { calm_engine_toggle_transform(engine.ptr) },
+        CalmStatus::Ok
+    );
+    assert_eq!(engine.state().transform_active, 0);
+}
+
+/// An empty layer has no bounds to draw handles around, so the engine refuses — and the state
+/// flag has to say so rather than leaving the shell lighting a button for a mode nothing is
+/// in.
+#[test]
+fn an_empty_layer_cannot_enter_transform() {
+    let engine = TestEngine::new();
+    engine.create_project("Transform", 32, 32);
+    assert_eq!(unsafe { calm_engine_add_layer(engine.ptr) }, CalmStatus::Ok);
+
+    assert_eq!(
+        unsafe { calm_engine_enter_transform(engine.ptr) },
+        CalmStatus::Ok,
+        "refusing is not an error — there is simply nothing to transform"
+    );
+    assert_eq!(engine.state().transform_active, 0);
 }

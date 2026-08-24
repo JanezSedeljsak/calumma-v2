@@ -46,7 +46,9 @@ the window rather than sitting at a fixed size. Window sizes come from
 
 ## Landing
 
-1. Enter a project name (default from i18n).
+1. Enter a project name (default from i18n). **Return in the name field creates the
+   project** — name plus the default size is the whole form for most projects, so the
+   keyboard finishes it; an empty name still resolves to Untitled.
 2. Set width × height, or pick a **preset** from tokens (product data, not i18n).
 3. **Create** → engine creates SQLite project, opens it, fits camera, shows Editor.
 4. **Recents** → open existing project (full load).
@@ -101,8 +103,11 @@ while Landing is showing — that screen already *is* the create form.
   Create / delete workspaces live here.
 - **Tools / layers / canvas:** three rounded, bordered islands, full-height, separated by a
   minimal gap and window margin (`space.sm`) — each has its own `islandBorder` stroke.
-- **Tools island** (top to bottom): a 2-column tool grid (Move, Pen, Eraser, Blur, Shape,
-  Select, Fill, Eyedropper, Text); a contextual options section below it that changes with the
+- **Tools island** (top to bottom): a 2-column tool grid (Move, Transform, Pen, Eraser, Blur,
+  Shape, Select, Fill, Eyedropper, Text). **Transform sits next to Move** and is the odd one
+  out: it is a *mode*, not a tool — it toggles `⌘T` on the active layer, leaves the selected
+  tool alone, and lights up from engine state (`CalmState.transform_active`) rather than from
+  the shell's tool. Then a contextual options section below it that changes with the
   selected tool (shape/selection sub-picker + independent **Fill** and **Stroke** toggles for
   the shape tools that enclose an area — Rect, Ellipse, Triangle, Pentagon; Line and Arrow are
   outlines with nothing inside them and offer neither — a **brush**
@@ -110,9 +115,17 @@ while Landing is showing — that screen already *is* the create form.
   one — not Fill, Eyedropper, Text, Move, or the selection tools — sample size for the
   Eyedropper (a circle under the cursor shows the area) — ink opacity for Pen, shapes,
   and Fill, strength for Blur, and tolerance for Fill and the magic wand; Eraser stays a full
-  erase); a color section (two equal quick swatches — plus a third **stroke** swatch while a
-  fill-capable shape tool is active — a saturation/brightness field, a hue strip, and a hex
-  field, all three editing whichever swatch is ringed); the AI menu pinned at the bottom.
+  erase); a color section of **exactly three swatches — primary, secondary, tertiary — and
+  never more**, plus a saturation/brightness field, a hue strip, and a hex field, all three
+  editing whichever swatch is ringed; the AI menu pinned at the bottom.
+
+  The three are the whole colour surface. There is no separate outline swatch, because an area
+  shape already reads two of them **by role**: **primary is its outline, secondary is its
+  fill** (`Document::shape_paint`), whichever swatch happens to be ringed for editing — so a
+  rectangle comes out the same way every time instead of depending on what was clicked last.
+  While a fill-capable shape tool is selected the first two tooltips say so. Line and Arrow
+  have no interior and no second half: they are the ink, meaning the ringed swatch, as they
+  always were.
 - **Board:** Metal surface clipped as its own island. Desk fill, grid, and the paper border
   come from tokens via `calm_engine_set_board_colors` — in light mode the desk matches the
   island surface; in dark mode the desk is a step darker than the window background so the
@@ -151,6 +164,7 @@ launches.
 | Action | How |
 | --- | --- |
 | Paint / place shape | Click-drag on the board (pointer down → move → up). Engine converts **screen** coords. |
+| See the brush | Pen, Eraser and Blur draw a **ring at the pointer, the size of the brush** — document geometry, so it scales with the zoom exactly as the stamp does, with the line held at one screen pixel by `vs_overlay`. Two rings a pixel apart, light inside dark, because one colour cannot stay legible over both white paper and black ink. Under ~3px across it collapses to a dot. It is withheld exactly where a stroke would be refused — a text, vector or locked layer, or inside `⌘T` — so no ring means no stroke. `Document::brush_ring` owns every one of those rules; the shell only forwards the pointer (`calm_engine_set_pointer_hover`) and takes it away while panning or zoom-chording. |
 | Move a layer or vector item | Select **Move** on the tools island, then drag painted pixels or a vector item. Arrow keys nudge the same target. `⌘T` is still scale/rotate for a *layer*. |
 | Resize a vector item | Select it (Move or `⌘T`), then drag a corner of its box. Proportional by default, **Shift** frees the two axes — the same polarity as a `⌘T` corner. |
 | Constrain a shape | Hold **Shift** while dragging **Rect** or **Ellipse** (and their marquee twins) for a square or circle. Corner-anchored, and the *longer* side wins, so the shape fills the drag. Press or release Shift mid-drag and the board snaps immediately — the clamp is derived from the raw drag on every frame, not baked in on the last mouse-move. Line, Arrow, Triangle and Pentagon are unconstrained (angle snap and regular-polygon lock are different clamps, not built). |
@@ -282,8 +296,9 @@ live in `engine/core`; the actual PNG/JPEG/WebP/AVIF **encode** happens in the s
   black 2px border is one shape, not two. `Shape` keeps the two as flags (`fill`, `stroke`)
   over one region SDF, so the interior and the annulus come off a single distance evaluation
   per pixel; the colors live on whatever is painting (`VectorShape.color` /
-  `stroke_color`, or the document's ink and stroke swatches for a raster commit). Stroke
-  width shares the brush-size slider. Line and Arrow have no interior, so they ignore both
+  `stroke_color`, or the document's **primary swatch for the outline and secondary for the
+  fill** on a raster commit — see the tools island above). Stroke width shares the brush-size
+  slider. Line and Arrow have no interior, so they ignore both
   flags and keep the one ink color they always had — resolved once in
   `Document::shape_paint`, so nothing downstream has to re-ask which tool it is dealing with.
   SVG export now writes real `fill` *and* `stroke`/`stroke-width` attributes rather than one
@@ -306,19 +321,29 @@ live in `engine/core`; the actual PNG/JPEG/WebP/AVIF **encode** happens in the s
   Clicking off the item drops the selection and hands the frame back to the layer.
 - Add layer: `⌘⇧N` (shell).
 - Clear active layer: `⌘⌫` — clears just the active **selection** instead if one exists.
-- Each layer row keeps the visibility toggle, a **lock** toggle and a delete button directly
-  visible; every other layer action lives behind a single `…` icon (`AppIcon.more`) that opens
-  a per-layer settings popover (`LayerSettingsCard.swift`): **Copy** (PNG, or SVG if the layer is vector
-  content), **Duplicate** (cheap, shares tile data via `Arc` until edited), **Merge Down**
-  (composites onto the layer below respecting opacity/blend mode/adjustments, then removes
-  the source — disabled when the layer below is Paper), **Reset Transform**, an **Opacity**
-  slider, a **Blend Mode** picker (Normal / Multiply / Screen — see `AGENTS.md` → Layers for
+- **A row is a thumbnail, a name, and one `…` button** (`AppIcon.more`) — nothing else. Every
+  layer action lives in the popover it opens (`LayerSettingsCard.swift`), including the three
+  that used to sit in the row: **Visibility** and **Lock** (toggles at the top of the card, so
+  they show their state), and **Delete** (last, in `color.danger`, behind a divider so it is
+  not adjacent to Duplicate). A hidden or locked layer still says so in its row, with a glyph
+  rather than a button. The cost is that visibility is one click deeper than it was — the most
+  frequent action in any layers panel — which is why it is the first thing in the card, under
+  the pointer as the popover opens. The rest of the card: **Rename**, **Copy** (PNG, or SVG if
+  the layer is vector content), **Duplicate** (cheap, shares tile data via `Arc` until edited),
+  **Merge Down** (composites onto the layer below respecting opacity/blend mode/adjustments,
+  then removes the source — disabled when the layer below is Paper), **Reset Transform**, an
+  **Opacity** slider, a **Blend Mode** picker (Normal / Multiply / Screen — see `AGENTS.md` → Layers for
   why only these three), and five **Filter** sliders (brightness, contrast, vibrance,
   saturation, gamma — levels black/white points were removed as redundant with
   brightness/contrast) with a reset button. All of it is live on the canvas
   and non-destructive — nothing here is undo-tracked (matches add/remove layer), and there is
   no explicit "bake into pixels" action; `merge_layer_down` and PSD export are the only two
   places any of it gets baked into concrete bytes today.
+- **The list uses the height it has:** the stack takes every point the header above it and the
+  Layer bounds fields below it do not, and scrolls once it runs out, rather than stopping at a
+  fixed share of the island with dead space underneath. A floor keeps it from collapsing
+  entirely in a short window. Renaming is still a double-click on the name, or the row's
+  context menu, or Rename in the card.
 - **Drag-reorder:** drag a row onto another row to put it there. Dropping *onto* a row rather
   than between rows is the whole contract — there is no insertion point to get off by one at
   either end. Move Up / Move Down stay in the `…` popover as the keyboard-reachable path. The
@@ -436,7 +461,10 @@ preview is on-screen at the same time, reappearing once that drag ends.
 | `⌘⌫` | Clears the selection's pixels if one exists, otherwise clears the whole active
   layer (existing binding, now selection-aware) |
 | `⌘V` | Paste — clipboard image becomes a new layer, positioned at the selection's origin
-  if one exists, otherwise at (0, 0) |
+  if one exists, otherwise at (0, 0). The board hands it straight over: **Move is selected and
+  the new layer enters `⌘T`**, corners live, because placing it is the next thing anyone does.
+  Dropping an image onto an open board is the same gesture by another route and behaves
+  identically |
 
 Selection-scoped copy/cut only ever reads/writes the **active layer**, matching Photoshop's
 default `⌘C` (not "Copy Merged"). Paste always adds a new layer at the top of the stack

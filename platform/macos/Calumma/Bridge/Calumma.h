@@ -73,6 +73,7 @@ typedef struct CalmState {
     uint32_t last_shape_tool;
     uint32_t last_select_tool;
     uint8_t is_fit;
+    uint8_t transform_active;
 } CalmState;
 
 typedef struct CalmRulerTick {
@@ -200,10 +201,14 @@ CalmStatus calm_engine_set_eraser_hardness(CalmEngine *engine, float hardness);
 CalmStatus calm_engine_set_fill(CalmEngine *engine, uint8_t fill);
 CalmStatus calm_engine_set_stroke(CalmEngine *engine, uint8_t stroke);
 CalmStatus calm_engine_set_stroke_color(CalmEngine *engine, uint8_t r, uint8_t g, uint8_t b, uint8_t a);
+CalmStatus calm_engine_set_shape_fill_color(CalmEngine *engine, uint8_t r, uint8_t g, uint8_t b, uint8_t a);
 CalmStatus calm_engine_set_dark(CalmEngine *engine, uint8_t dark);
 CalmStatus calm_engine_set_shift(CalmEngine *engine, uint8_t held);
 CalmStatus calm_engine_reset_layer_transform(CalmEngine *engine, uint32_t index);
+CalmStatus calm_engine_set_pointer_hover(CalmEngine *engine, float x, float y);
+CalmStatus calm_engine_clear_pointer_hover(CalmEngine *engine);
 CalmStatus calm_engine_toggle_transform(CalmEngine *engine);
+CalmStatus calm_engine_enter_transform(CalmEngine *engine);
 CalmStatus calm_engine_exit_transform(CalmEngine *engine);
 
 CalmStatus calm_engine_undo(CalmEngine *engine);

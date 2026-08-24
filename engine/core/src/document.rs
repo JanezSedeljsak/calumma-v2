@@ -321,9 +321,14 @@ pub struct Document {
     pub history: History,
     pub tool: Tool,
     pub color: [u8; 4],
-    /// The outline color the shape tools use, independent of `color` so a rectangle can be
-    /// white with a black border. A shell knob like `color` and `fill`.
+    /// The outline color the area shape tools use — the shell's **primary** swatch. Separate
+    /// from `color` because `color` follows whichever swatch the picker has selected, while a
+    /// shape's two parts are always the same two swatches. A shell knob like `color`.
     pub stroke_color: [u8; 4],
+    /// The interior color the area shape tools use — the shell's **secondary** swatch. A
+    /// rectangle is drawn the way it is described: outlined in the primary color, filled with
+    /// the secondary one.
+    pub shape_fill_color: [u8; 4],
     pub brush_size: f32,
     pub ink_opacity: f32,
     pub fill: bool,
@@ -334,6 +339,10 @@ pub struct Document {
     pub accent: [u8; 3],
     pub board_colors: BoardColors,
     pub hover_layer: Option<usize>,
+    /// Where the pointer is on the paper, in document units, whether or not a button is down.
+    /// Only the brush cursor reads it (`brush_cursor.rs`); it is `None` whenever the pointer is
+    /// off the board.
+    pub(crate) pointer_hover: Option<(f32, f32)>,
     pub stroke_active: bool,
     pub stroke_points: Vec<StrokePoint>,
     /// Bumped once per `begin_stroke`, never reused. The renderer accumulates a brush stroke's
@@ -521,6 +530,7 @@ impl Document {
             tool: Tool::Pen,
             color: DEFAULT_INK,
             stroke_color: DEFAULT_INK,
+            shape_fill_color: PAPER_WHITE,
             brush_size: BRUSH_SIZE_DEFAULT,
             ink_opacity: INK_OPACITY_DEFAULT,
             fill: false,
@@ -529,6 +539,7 @@ impl Document {
             accent: crate::palette::random_project_color(),
             board_colors: BoardColors::fallback(true),
             hover_layer: None,
+            pointer_hover: None,
             stroke_active: false,
             stroke_points: Vec::with_capacity(STROKE_POINT_CAPACITY),
             stroke_generation: 0,
@@ -1272,6 +1283,7 @@ impl Document {
 
     pub fn pointer_down(&mut self, screen_x: f32, screen_y: f32) {
         let (dx, dy) = self.camera.to_doc(screen_x, screen_y);
+        self.pointer_hover = Some((dx, dy));
         if self.transform_active {
             self.transform_pointer_down(dx, dy);
             return;
@@ -1335,6 +1347,9 @@ impl Document {
     /// `pointer_up`, so every frame in between is an overlay frame.
     pub fn pointer_move(&mut self, screen_x: f32, screen_y: f32) -> bool {
         let (dx, dy) = self.camera.to_doc(screen_x, screen_y);
+        // Keeps the brush cursor under the pointer mid-stroke without the shell having to
+        // send the position twice.
+        self.pointer_hover = Some((dx, dy));
         if self.transform_active {
             if !self.update_vector_item_drag(dx, dy) {
                 self.update_transform_drag(dx, dy);
@@ -1806,18 +1821,22 @@ impl Document {
         glazed(self.stroke_color, self.ink_opacity)
     }
 
-    /// The two colors a shape commits with: `(fill, outline)`. Line and Arrow have no
-    /// interior, so their outline is the ink swatch — the stroke swatch belongs to the tools
-    /// that enclose an area. Resolving that here is what lets everything downstream — the
-    /// rasterizer, the SVG writer, the shader — read one `stroke_color` with no tool test.
+    pub fn shape_fill_rgba(&self) -> [u8; 4] {
+        glazed(self.shape_fill_color, self.ink_opacity)
+    }
+
+    /// The two colors a shape commits with: `(fill, outline)`. An area shape reads its own
+    /// two swatches — primary outlines it, secondary fills it — rather than the ink, so the
+    /// same rectangle is drawn the same way whichever swatch the picker happens to be pointed
+    /// at. Line and Arrow have no interior and no second half: they are the ink, as they
+    /// always were. Resolving that here is what lets everything downstream — the rasterizer,
+    /// the SVG writer, the shader — read two colors with no tool test.
     pub fn shape_paint(&self, tool: Tool) -> ([u8; 4], [u8; 4]) {
-        let fill = self.ink_rgba();
-        let stroke = if tool.takes_fill() {
-            self.shape_stroke_rgba()
-        } else {
-            fill
-        };
-        (fill, stroke)
+        if !tool.takes_fill() {
+            let ink = self.ink_rgba();
+            return (ink, ink);
+        }
+        (self.shape_fill_rgba(), self.shape_stroke_rgba())
     }
 
     fn commit_fill(&mut self, doc_x: f32, doc_y: f32) {

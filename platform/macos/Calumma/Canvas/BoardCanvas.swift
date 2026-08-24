@@ -223,6 +223,7 @@ final class BoardMTKView: MTKView {
 
     override func mouseMoved(with event: NSEvent) {
         updateHoveredGuide(with: event)
+        updateBrushCursor(with: event)
         refreshCursor()
         updateEyedropper(with: event)
     }
@@ -230,7 +231,23 @@ final class BoardMTKView: MTKView {
     override func mouseExited(with event: NSEvent) {
         hoveredGuideAxis = nil
         NSCursor.arrow.set()
+        boardCoordinator?.engine.clearPointerHover()
         MainActor.assumeIsolated { app?.clearEyedropperLoupe() }
+    }
+
+    /// The board draws the brush at the pointer, so the pointer has to reach the engine even
+    /// with no button down. Panning and the zoom chord take it away again: the ring belongs to
+    /// the brush, and neither of those is about to paint anything.
+    private func updateBrushCursor(with event: NSEvent) {
+        guard let coordinator = boardCoordinator else { return }
+        let flags = NSEvent.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        let zoomChord = flags.contains(.command) || flags.contains(.option)
+        guard !panning, !spaceHeld, !zoomChord else {
+            coordinator.engine.clearPointerHover()
+            return
+        }
+        let point = coordinator.screenPoint(in: self, event: event)
+        coordinator.engine.setPointerHover(x: Float(point.x), y: Float(point.y))
     }
 
     /// Shift constrains the shape being dragged, so the engine has to hear about the key
@@ -250,6 +267,7 @@ final class BoardMTKView: MTKView {
         if shouldPan(with: event) {
             panning = true
             lastDrag = point
+            coordinator.engine.clearPointerHover()
             refreshCursor()
         } else if MainActor.assumeIsolated({ app?.tool == .eyedropper }) {
             if let color = coordinator.engine.pickColor(x: Float(point.x), y: Float(point.y)) {

@@ -26,25 +26,15 @@ final class AppModel: ObservableObject {
     @Published var color: Color = Color(red: 0.1, green: 0.1, blue: 0.1) {
         didSet {
             quickColors[activeQuickColorIndex] = color
-            if !editingHSB, !editingStroke {
+            if !editingHSB {
                 hsb = HSBColor(color)
             }
         }
     }
-    /// The shape tools' outline color, edited through the same picker as the ink but stored
-    /// apart from it — a rectangle can be white with a black border.
-    @Published var strokeColor: Color = .black {
-        didSet {
-            if !editingHSB, editingStroke {
-                hsb = HSBColor(strokeColor)
-            }
-        }
-    }
-    /// Which of the two the picker is currently pointed at.
-    @Published private(set) var editingStroke = false
-    /// Three ink slots the picker switches between — primary, secondary, tertiary. Their
-    /// count is the only thing `QuickColorPicker` reads to decide how many swatches to draw,
-    /// so a fourth slot is one line here and nothing else.
+    /// Three ink slots the picker switches between — primary, secondary, tertiary — and the
+    /// only colors the tools panel ever shows. A shape reads two of them by *role* rather
+    /// than by which is selected: primary outlines it, secondary fills it (`shapeStrokeColor`
+    /// / `shapeFillColor`), which is why there is no fourth swatch for the outline any more.
     @Published var quickColors: [Color] = [
         Color(red: 0.1, green: 0.1, blue: 0.1),
         Color.white,
@@ -155,11 +145,27 @@ final class AppModel: ObservableObject {
 
     func pasteFromClipboard() {
         guard let artwork = ArtworkImport.fromPasteboard() else { return }
+        pasteIntoBoard(artwork)
+    }
+
+    /// A pasted image lands as a new layer at the top of the stack, and the first thing anyone
+    /// does with one is put it somewhere — so the board hands it over already grabbed: Move
+    /// selected, the new layer inside `⌘T` with its corners live. Dropping onto an open board
+    /// is the same gesture by another route, so it goes through here too.
+    private func pasteIntoBoard(_ artwork: ArtworkImage) {
         engine.pasteImage(
             premultipliedRGBA: artwork.premultipliedRGBA,
             width: artwork.width,
             height: artwork.height
         )
+        enterMoveTransform()
+    }
+
+    /// Move is the transform tool: picking it puts the active layer inside `⌘T` so the same
+    /// press that says "move this" hands back the handles that resize and rotate it.
+    func enterMoveTransform() {
+        selectTool(.move)
+        engine.enterTransform()
     }
 
     func createFromArtwork(_ artwork: ArtworkImage?) {
@@ -199,11 +205,7 @@ final class AppModel: ObservableObject {
     func dropArtworkIntoWorkspace(providers: [NSItemProvider]) -> Bool {
         ArtworkImport.load(providers: providers) { [weak self] artwork in
             guard let artwork else { return }
-            self?.engine.pasteImage(
-                premultipliedRGBA: artwork.premultipliedRGBA,
-                width: artwork.width,
-                height: artwork.height
-            )
+            self?.pasteIntoBoard(artwork)
         }
     }
 
@@ -512,29 +514,23 @@ final class AppModel: ObservableObject {
 
     func selectQuickColor(_ index: Int) {
         guard quickColors.indices.contains(index) else { return }
-        editingStroke = false
         activeQuickColorIndex = index
         color = quickColors[index]
         hsb = HSBColor(color)
     }
 
-    func selectStrokeColor() {
-        editingStroke = true
-        hsb = HSBColor(strokeColor)
+    /// What the gradient field, hue slider and hex box read and write: always the selected
+    /// swatch, since every color the panel offers is one of the three.
+    var editedColor: Color {
+        get { color }
+        set { color = newValue }
     }
 
-    /// What the gradient field, hue slider and hex box read and write. One picker serves the
-    /// ink and the stroke; this is the only thing that knows which.
-    var editedColor: Color {
-        get { editingStroke ? strokeColor : color }
-        set {
-            if editingStroke {
-                strokeColor = newValue
-            } else {
-                color = newValue
-            }
-        }
-    }
+    /// A shape's outline is the primary swatch and its interior is the secondary one,
+    /// whichever swatch the picker is pointed at — so a rectangle is drawn the way it is
+    /// described rather than depending on what was clicked last.
+    var shapeStrokeColor: Color { quickColors.first ?? color }
+    var shapeFillColor: Color { quickColors.count > 1 ? quickColors[1] : .white }
 
     func applyEyedropperSample(_ next: Color, at point: CGPoint) {
         let hex = next.hexRGB
@@ -575,7 +571,8 @@ final class AppModel: ObservableObject {
         engine.setEraserHardness(eraserHardness)
         engine.setFill(fill)
         engine.setStroke(stroke)
-        engine.setStrokeColor(strokeColor)
+        engine.setStrokeColor(shapeStrokeColor)
+        engine.setShapeFillColor(shapeFillColor)
         engine.setVectorMode(vectorMode)
         engine.setDark(theme.isDark)
         engine.setBoardColors(
@@ -600,12 +597,6 @@ final class AppModel: ObservableObject {
         // layer — the panel has to hear about that.
         let wasTyping = engine.textEditing
         tool = next
-        // The stroke swatch is only offered for the tools that enclose an area, so the picker
-        // cannot be left pointed at a swatch that is no longer on screen.
-        if !next.takesFill, editingStroke {
-            editingStroke = false
-            hsb = HSBColor(color)
-        }
         if next != .eyedropper {
             clearEyedropperLoupe()
         }

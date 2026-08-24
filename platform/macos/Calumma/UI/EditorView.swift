@@ -83,7 +83,8 @@ struct EditorView: View {
             eraserHardness: app.eraserHardness,
             fill: app.fill,
             stroke: app.stroke,
-            strokeColor: app.strokeColor.hexRGB,
+            shapeStroke: app.shapeStrokeColor.hexRGB,
+            shapeFill: app.shapeFillColor.hexRGB,
             vectorMode: app.vectorMode,
             theme: app.theme.rawValue
         )
@@ -261,51 +262,45 @@ struct EditorView: View {
         }
     }
 
-    /// How much of the layers island the scrolling stack may claim before it starts scrolling
-    /// instead of growing. The rest is reserved for the header and the bounds/canvas fields,
-    /// which must stay reachable no matter how deep the stack gets.
-    private static let layerListHeightFraction: CGFloat = 0.5
+    /// Floor on the scrolling stack, so a short window cannot squeeze the list away entirely
+    /// and leave the island as nothing but its header and the bounds fields.
+    private static let layerListMinHeight: CGFloat = 96
 
     private var layersIsland: some View {
         CalmIsland {
-            GeometryReader { proxy in
-                VStack(alignment: .leading, spacing: Tokens.Space.md) {
-                    HStack {
-                        CalmText.label(l10n.layers)
-                        Spacer()
-                        Button {
-                            app.engine.addLayer()
-                        } label: {
-                            AppIcon.plus(color: colors.textMuted)
-                        }
-                        .buttonStyle(.plain)
-                        .calmTooltip(l10n.addLayer, edge: .leading)
-                        .calmPointer()
+            VStack(alignment: .leading, spacing: Tokens.Space.md) {
+                HStack {
+                    CalmText.label(l10n.layers)
+                    Spacer()
+                    Button {
+                        app.engine.addLayer()
+                    } label: {
+                        AppIcon.plus(color: colors.textMuted)
                     }
-                    // The stack scrolls; the header above and the bounds/canvas fields below
-                    // stay put. Capped against the island's own height rather than a constant
-                    // so the list keeps its share of a resized window.
-                    ScrollView(.vertical) {
-                        VStack(alignment: .leading, spacing: Tokens.Space.md) {
-                            ForEach((0..<app.engine.layerNames.count).reversed(), id: \.self) {
-                                index in
-                                layerRow(index)
-                            }
-                        }
-                        .calmScrollBars()
-                    }
-                    .frame(maxHeight: proxy.size.height * Self.layerListHeightFraction)
-                    .onDrop(of: [.text], isTargeted: nil) { _ in
-                        draggingRow = nil
-                        dropTargetRow = nil
-                        return true
-                    }
-                    CalmDivider()
-                    Spacer(minLength: 0)
-                    CalmDivider()
-                    panelFooter
+                    .buttonStyle(.plain)
+                    .calmTooltip(l10n.addLayer, edge: .leading)
+                    .calmPointer()
                 }
-                .frame(maxHeight: .infinity, alignment: .top)
+                // The stack takes every point the header and the bounds fields below it do
+                // not, and scrolls once it runs out — rather than stopping at a fixed share of
+                // the island with dead space underneath it.
+                ScrollView(.vertical) {
+                    VStack(alignment: .leading, spacing: Tokens.Space.md) {
+                        ForEach((0..<app.engine.layerNames.count).reversed(), id: \.self) {
+                            index in
+                            layerRow(index)
+                        }
+                    }
+                    .calmScrollBars()
+                }
+                .frame(minHeight: Self.layerListMinHeight, maxHeight: .infinity)
+                .onDrop(of: [.text], isTargeted: nil) { _ in
+                    draggingRow = nil
+                    dropTargetRow = nil
+                    return true
+                }
+                CalmDivider()
+                panelFooter
             }
         }
         .frame(width: 276)
@@ -426,27 +421,6 @@ struct EditorView: View {
         let row = layerDisplayRow(index)
         return HStack(spacing: Tokens.Space.sm) {
             Button {
-                app.engine.setLayerVisible(index, visible: !visible)
-            } label: {
-                AppIcon.eye(color: visible ? colors.textMuted : colors.textMuted.opacity(0.45), open: visible)
-            }
-            .buttonStyle(.plain)
-            .calmTooltip(l10n.layerVisibility, edge: .leading)
-            .calmPointer()
-
-            Button {
-                app.engine.setLayerLocked(index, locked: !locked)
-            } label: {
-                AppIcon.lock(
-                    color: locked ? colors.accentTeal : colors.textMuted.opacity(0.45),
-                    closed: locked
-                )
-            }
-            .buttonStyle(.plain)
-            .calmTooltip(locked ? l10n.layerUnlock : l10n.layerLock, edge: .leading)
-            .calmPointer()
-
-            Button {
                 app.engine.setActiveLayer(index)
             } label: {
                 HStack(spacing: Tokens.Space.md) {
@@ -463,6 +437,15 @@ struct EditorView: View {
                             .calmTooltip(name, edge: .trailing)
                     }
                     Spacer()
+                    // The two toggles that used to sit outside the row now live in the
+                    // settings card, so a layer that is hidden or locked says so here — with a
+                    // glyph, not a button.
+                    if locked {
+                        AppIcon.lock(color: colors.accentTeal, closed: true)
+                    }
+                    if !visible {
+                        AppIcon.eye(color: colors.textMuted.opacity(0.45), open: false)
+                    }
                     if app.engine.isLayerVector(index: index) {
                         CalmText.muted("\(app.engine.layerItemCount(index: index))", mono: true)
                     }
@@ -520,24 +503,25 @@ struct EditorView: View {
                     canMoveDown: index > 0
                         && !isPaper
                         && !(index == 1 && app.engine.isLayerPaper(index: 0)),
-                    canMergeDown: index > 0 && !app.engine.isLayerPaper(index: index - 1)
+                    canMergeDown: index > 0 && !app.engine.isLayerPaper(index: index - 1),
+                    canRename: renameable,
+                    canDelete: !isPaper,
+                    onRename: {
+                        layerSettingsIndex = nil
+                        beginRename(index)
+                    },
+                    onDelete: {
+                        layerSettingsIndex = nil
+                        app.engine.removeLayer(index)
+                        if hoveredLayer == index {
+                            hoveredLayer = nil
+                        }
+                    }
                 )
                     .environmentObject(app)
                     .themeColors(colors)
                     .l10n(l10n)
             }
-
-            Button {
-                app.engine.removeLayer(index)
-                if hoveredLayer == index {
-                    hoveredLayer = nil
-                }
-            } label: {
-                AppIcon.trash(color: colors.textMuted)
-            }
-            .buttonStyle(.plain)
-            .calmTooltip(l10n.deleteLayer, edge: .leading)
-            .calmPointer()
         }
         .onHover { hovering in
             app.engine.setHoverLayer(hovering ? index : nil)
@@ -669,7 +653,8 @@ private struct EditorKnobs: Equatable {
     var eraserHardness: Float
     var fill: Bool
     var stroke: Bool
-    var strokeColor: String
+    var shapeStroke: String
+    var shapeFill: String
     var vectorMode: Bool
     var theme: String
 }

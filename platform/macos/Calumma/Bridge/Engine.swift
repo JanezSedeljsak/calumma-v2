@@ -159,6 +159,10 @@ struct EngineState {
     /// Whether the board already shows what Fit to View would show. The engine answers it —
     /// the shell never recomputes a fit — and the zoom pill's Fit button lights up on it.
     var isFit = false
+    /// Whether the active layer is inside `⌘T`. Transform is a mode the engine owns, not a
+    /// tool the shell selects, so the Transform button reads its lit state from here rather
+    /// than from `AppModel.tool`.
+    var transformActive = false
 
     var accentColor: Color { Color(rgb: accent) }
 }
@@ -467,6 +471,12 @@ final class Engine: ObservableObject, @unchecked Sendable {
         _ = calm_engine_set_stroke_color(ptr, r, g, b, a)
     }
 
+    func setShapeFillColor(_ color: Color) {
+        guard let ptr else { return }
+        let (r, g, b, a) = channels(color)
+        _ = calm_engine_set_shape_fill_color(ptr, r, g, b, a)
+    }
+
     private func channels(_ color: Color) -> (UInt8, UInt8, UInt8, UInt8) {
         let ns = NSColor(color).usingColorSpace(.sRGB) ?? NSColor.black
         var r: CGFloat = 0
@@ -581,9 +591,31 @@ final class Engine: ObservableObject, @unchecked Sendable {
         render()
     }
 
+    /// The pointer while no button is down, so the board can draw the brush where it is. No
+    /// `render()` — the canvas is already drawing every frame, and this only marks the overlay
+    /// stale for whichever frame comes next.
+    func setPointerHover(x: Float, y: Float) {
+        guard let ptr else { return }
+        _ = calm_engine_set_pointer_hover(ptr, x, y)
+    }
+
+    func clearPointerHover() {
+        guard let ptr else { return }
+        _ = calm_engine_clear_pointer_hover(ptr)
+    }
+
     func toggleTransform() {
         guard let ptr else { return }
         _ = calm_engine_toggle_transform(ptr)
+        render()
+        syncState()
+    }
+
+    /// Idempotent, unlike `toggleTransform` — pasting always wants to *be* in transform, not
+    /// to flip whatever the board was already doing.
+    func enterTransform() {
+        guard let ptr else { return }
+        _ = calm_engine_enter_transform(ptr)
         render()
         syncState()
     }
@@ -1143,7 +1175,8 @@ final class Engine: ObservableObject, @unchecked Sendable {
             zoomUnit: raw.zoom_unit,
             lastShapeTool: CalmTool(rawValue: raw.last_shape_tool) ?? .rect,
             lastSelectTool: CalmTool(rawValue: raw.last_select_tool) ?? .selectRect,
-            isFit: raw.is_fit != 0
+            isFit: raw.is_fit != 0,
+            transformActive: raw.transform_active != 0
         )
         syncGuideCount()
     }

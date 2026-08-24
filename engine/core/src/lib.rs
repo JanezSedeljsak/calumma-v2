@@ -1,5 +1,6 @@
 pub mod blur;
 pub mod brush;
+pub mod brush_cursor;
 pub mod camera;
 pub mod color;
 pub mod coverage;

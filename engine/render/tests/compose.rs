@@ -622,3 +622,106 @@ fn the_text_box_is_drawn_as_a_closed_four_edge_loop() {
         );
     }
 }
+
+fn brush_board(zoom: f32, brush: f32) -> Document {
+    let mut doc = Document::new("t".to_string(), "Brush", 256, 256);
+    doc.resize_viewport(256.0, 256.0, 1.0);
+    doc.camera.zoom = zoom;
+    doc.camera.pan_x = 0.0;
+    doc.camera.pan_y = 0.0;
+    doc.add_layer("Paint");
+    doc.tool = Tool::Pen;
+    doc.brush_size = brush;
+    let (sx, sy) = doc.camera.to_screen(100.0, 100.0);
+    doc.set_pointer_hover(sx, sy);
+    doc
+}
+
+fn ring_radius(instance: &StrokeInstance, centre: (f32, f32)) -> f32 {
+    let [x, y, _, _] = instance.segment;
+    ((x - centre.0).powi(2) + (y - centre.1).powi(2)).sqrt()
+}
+
+#[test]
+fn nothing_hovers_nothing_draws() {
+    let doc = Document::new("t".to_string(), "Brush", 64, 64);
+    assert!(brush_ring_instances(&doc).is_empty());
+}
+
+/// Two rings, light inside dark: one colour cannot stay legible over both white paper and
+/// black ink, and the overlay pass has no difference blend to invert with.
+#[test]
+fn the_brush_cursor_is_a_two_tone_ring_around_the_pointer() {
+    let doc = brush_board(1.0, 40.0);
+
+    let ring = brush_ring_instances(&doc);
+
+    assert!(!ring.is_empty());
+    assert_eq!(ring.len() % 2, 0, "the same segment count twice");
+    let half = ring.len() / 2;
+    let dark = &ring[..half];
+    let light = &ring[half..];
+    assert!(dark.iter().all(|i| i.color == ring[0].color));
+    assert_ne!(dark[0].color, light[0].color);
+    assert!(
+        ring_radius(&dark[0], (100.0, 100.0)) > ring_radius(&light[0], (100.0, 100.0)),
+        "the dark ring is the outer one"
+    );
+}
+
+#[test]
+fn the_ring_is_drawn_at_the_brushs_own_radius_in_document_units() {
+    let doc = brush_board(1.0, 40.0);
+
+    let ring = brush_ring_instances(&doc);
+
+    for instance in &ring[..ring.len() / 2] {
+        let r = ring_radius(instance, (100.0, 100.0));
+        assert!((r - 20.0).abs() < 1.0, "radius {r} is not the brush's 20");
+    }
+}
+
+/// The line stays one screen pixel at every zoom — `vs_overlay` fixes the width — while the
+/// circle itself is document geometry, so zooming in makes the ring bigger on screen exactly
+/// as it makes the stamp bigger.
+#[test]
+fn zooming_changes_how_round_the_ring_is_drawn_but_not_how_wide_its_line_is() {
+    let close = brush_ring_instances(&brush_board(8.0, 40.0));
+    let far = brush_ring_instances(&brush_board(0.25, 40.0));
+
+    assert!(
+        close.len() > far.len(),
+        "a bigger ring on screen gets more segments: {} vs {}",
+        close.len(),
+        far.len()
+    );
+    assert_eq!(
+        close[0].brush[0], far[0].brush[0],
+        "one screen pixel, always"
+    );
+}
+
+/// Under a few screen pixels a ring is smaller than its own line weight and reads as a smudge,
+/// so it becomes a dot — the same rule Photoshop applies at the same size.
+#[test]
+fn a_ring_too_small_to_read_becomes_a_single_dot() {
+    let doc = brush_board(0.05, 20.0);
+
+    let ring = brush_ring_instances(&doc);
+
+    assert_eq!(ring.len(), 1);
+    assert_eq!(ring[0].segment, [100.0, 100.0, 100.0, 100.0]);
+}
+
+#[test]
+fn the_ring_closes_back_onto_its_starting_point() {
+    let ring = brush_ring_instances(&brush_board(1.0, 40.0));
+    let half = ring.len() / 2;
+
+    for arc in [&ring[..half], &ring[half..]] {
+        let [first_x, first_y, _, _] = arc[0].segment;
+        let [_, _, last_x, last_y] = arc[arc.len() - 1].segment;
+        assert!((first_x - last_x).abs() < 1e-3, "{first_x} vs {last_x}");
+        assert!((first_y - last_y).abs() < 1e-3, "{first_y} vs {last_y}");
+    }
+}
