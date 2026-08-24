@@ -196,6 +196,13 @@ pub extern "C" fn calm_lossy_export_quality() -> f32 {
     calumma_core::LOSSY_EXPORT_QUALITY
 }
 
+/// The DPI at which one document pixel exports as one PDF point. The shell offers it as the
+/// default rather than knowing that PDF measures in 72nds of an inch.
+#[no_mangle]
+pub extern "C" fn calm_pdf_default_dpi() -> f32 {
+    calumma_io::PDF_DEFAULT_DPI
+}
+
 #[no_mangle]
 pub extern "C" fn calm_ink_opacity_min() -> f32 {
     calumma_core::limits::INK_OPACITY_MIN

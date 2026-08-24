@@ -190,6 +190,14 @@ the point, and a step's cost is its pixels, not its existence. Because the befor
 `Arc` clones of tiles that mostly did not change, a deep stack is far cheaper than its
 nominal size.
 
+Cold entries are **compacted, not dropped**: past `HISTORY_HOT_COMMANDS` from either end of
+the stack, a uniquely-owned tile collapses to `HistoryTile::Uniform` (four bytes, and most of
+a drawing app's history is flat or transparent) or to a zstd frame. The gate is
+`Arc::strong_count == 1` rather than age, because a snapshot the live document still shares
+costs history nothing — compressing it would force the copy the sharing was avoiding.
+`HistoryCommand.bytes` tracks the compacted size, so `evict()` really does admit more
+commands; a saving the budget cannot see would buy no undo depth at all.
+
 Known limit: history is **tile/mask/run diffs only**. Structural edits — add/remove/
 duplicate/merge layer, opacity, filters, `⌘T`, vector item edits — are deliberately outside
 the model today. History also dies with the document; it is
@@ -557,6 +565,14 @@ Adding a field means bumping the version and writing the migration in the same c
 - **SVG** (`io/src/svg.rs` + `core/src/vector_svg.rs`) — layered, and a vector item emits the
   matching SVG *primitive* (`<rect>`, `<ellipse>`, `<path>`) rather than a flattened polyline,
   so the export stays as editable as the layer is. This is the payoff of storing parameters.
+- **PDF** (`io/src/pdf.rs` + `core/src/vector_pdf.rs`) — layered, and the closest fit of the
+  three: `layer.opacity` is `/ca`/`/CA`, the blend modes are `/BM` names that map one for one,
+  and a shape emits real path operators. Two things it does that the others cannot: a painted
+  layer's alpha rides a separate `/SMask` image (PDF images have no alpha channel), and the
+  page carries one flip matrix rather than negating every y. A hand-written writer, for the
+  same reason `svg.rs` is — the container is a header, numbered objects, an xref table and a
+  trailer. `io/src/flate.rs` supplies `/FlateDecode`, since PDF's one general filter is zlib
+  and the undo stack's zstd is no help here.
 - Import is flattened composite only.
 
 ---

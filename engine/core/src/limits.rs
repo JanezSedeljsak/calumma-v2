@@ -1,4 +1,17 @@
 pub const HISTORY_MEMORY_BUDGET_BYTES: usize = 256 * 1024 * 1024;
+/// How many of the most recent commands on each stack are never compacted. An immediate
+/// undo/redo round trip is the one history access that has to be instant, so the commands
+/// either side of the cursor keep their raw bytes and pay no decompression.
+pub const HISTORY_HOT_COMMANDS: usize = 8;
+/// zstd level for cold history tiles. 1, not the default 3: the sweep runs on the autosave
+/// tick while holding the engine lock, so wall time bounds how long a frame can be delayed —
+/// and level 1 already beats LZ4's ratio on tile data for a fraction of the cost of chasing
+/// the last few percent.
+pub const HISTORY_COMPRESSION_LEVEL: i32 = 1;
+/// Tiles one sweep may compact before yielding. Compaction happens under the engine lock, so
+/// this is a latency bound rather than a throughput one — the rest is picked up on the next
+/// tick, and a stack that never goes cold never queues any work at all.
+pub const HISTORY_COMPACT_TILES_PER_SWEEP: usize = 16;
 
 pub const EFFECT_CHUNK_BYTES: usize = 64 * 1024;
 

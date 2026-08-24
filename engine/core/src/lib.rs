@@ -8,6 +8,7 @@ pub mod fill;
 pub mod filters;
 pub mod guide;
 pub mod history;
+pub mod history_tile;
 pub mod layer;
 pub mod limits;
 pub mod memory;
@@ -26,6 +27,7 @@ pub mod tile;
 pub mod transform;
 pub mod vector;
 pub mod vector_edit;
+pub mod vector_pdf;
 pub mod vector_svg;
 pub mod viewport;
 
@@ -45,6 +47,7 @@ pub use document::{stamp_spacing, stroke_stamps, Document, StrokePoint, Transfor
 pub use filters::{AdjustmentKind, Adjustments};
 pub use guide::{Guide, GuideAxis};
 pub use history::History;
+pub use history_tile::HistoryTile;
 pub use layer::{BlendMode, Layer, LayerContent};
 pub use limits::{
     CRISP_PIXEL_ZOOM, IMPORT_MAX_SIDE, LOSSY_EXPORT_QUALITY, MAX_ZOOM_HARD, MIN_VISIBLE_DOC_SIDE,

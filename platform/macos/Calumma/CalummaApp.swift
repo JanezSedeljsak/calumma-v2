@@ -48,6 +48,7 @@ struct CalummaApp: App {
                     }
                     Button(app.l10n.formatKey("exportAs", "PSD")) { app.exportPSD() }
                     Button(app.l10n.formatKey("exportAs", "SVG")) { app.exportSVG() }
+                    Button(app.l10n.formatKey("exportAs", "PDF")) { app.exportPDF() }
                 }
                 .disabled(app.showLanding)
             }

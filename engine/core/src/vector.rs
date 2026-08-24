@@ -46,6 +46,16 @@ impl VectorItem {
         }
     }
 
+    /// The item's outline color, the sibling of [`color`](Self::color). Both exist because a
+    /// shape carries a fill and a stroke independently — a white rectangle with a black
+    /// border is one item, not two.
+    pub fn stroke_color(&self) -> [u8; 4] {
+        match self {
+            Self::Path(p) => p.stroke_color,
+            Self::Shape(s) => s.stroke_color,
+        }
+    }
+
     /// Untransformed extent in the layer's own space, padded by whatever the stroke adds.
     pub fn bounds(&self) -> Option<(f32, f32, f32, f32)> {
         let (x0, y0, x1, y1) = self.geometry_bounds()?;

@@ -105,7 +105,7 @@ dependencies = [
 
 [[package]]
 name = "calumma-core"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "calumma-text",
  "num_enum",
@@ -113,11 +113,12 @@ dependencies = [
  "rayon",
  "rustc-hash 2.1.3",
  "uuid",
+ "zstd",
 ]
 
 [[package]]
 name = "calumma-ffi"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "anyhow",
  "bytemuck",
@@ -134,10 +135,11 @@ dependencies = [
 
 [[package]]
 name = "calumma-io"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "calumma-core",
  "dirs",
+ "flate2",
  "png",
  "rayon",
  "rusqlite",
@@ -149,7 +151,7 @@ dependencies = [
 
 [[package]]
 name = "calumma-ops"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "calumma-core",
  "rustc-hash 2.1.3",
@@ -157,7 +159,7 @@ dependencies = [
 
 [[package]]
 name = "calumma-render"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "bytemuck",
  "calumma-core",
@@ -170,7 +172,7 @@ dependencies = [
 
 [[package]]
 name = "calumma-text"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "cosmic-text",
  "num_enum",
@@ -183,6 +185,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "509591b7bcd67f4ef775afad7662703b4935daaa6ec0e5605cfb1090b32a2b6d"
 dependencies = [
  "find-msvc-tools",
+ "jobserver",
+ "libc",
  "shlex",
 ]
 
@@ -532,6 +536,16 @@ checksum = "d466e9454f08e4a911e14806c24e16fba1b4c121d1ea474396f396069cf949d9"
 dependencies = [
  "equivalent",
  "hashbrown 0.17.1",
+]
+
+[[package]]
+name = "jobserver"
+version = "0.1.35"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1c00acbd29eabad4a2392fa0e921c874934dbbf4194312ad20f04a0ed67a3cb3"
+dependencies = [
+ "getrandom 0.4.3",
+ "libc",
 ]
 
 [[package]]
@@ -1809,4 +1823,32 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.119",
+]
+
+[[package]]
+name = "zstd"
+version = "0.13.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e91ee311a569c327171651566e07972200e76fcfe2242a4fa446149a3881c08a"
+dependencies = [
+ "zstd-safe",
+]
+
+[[package]]
+name = "zstd-safe"
+version = "7.2.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8f49c4d5f0abb602a93fb8736af2a4f4dd9512e36f7f570d66e65ff867ed3b9d"
+dependencies = [
+ "zstd-sys",
+]
+
+[[package]]
+name = "zstd-sys"
+version = "2.0.16+zstd.1.5.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "91e19ebc2adc8f83e43039e79776e3fda8ca919132d68a1fed6a5faca2683748"
+dependencies = [
+ "cc",
+ "pkg-config",
 ]

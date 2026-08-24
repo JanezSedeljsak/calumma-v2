@@ -1,3 +1,4 @@
+use crate::history_tile::HistoryTile;
 use crate::limits::{ALPHA_MAX, ALPHA_ROUND_BIAS, EFFECT_CHUNK_BYTES, LAYER_PREVIEW_MAX_SIDE};
 use rayon::prelude::*;
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -192,7 +193,7 @@ pub fn unpremultiply_rgba(rgba: &mut [u8]) {
     });
 }
 
-fn uniform_tile(rgba: [u8; 4]) -> Vec<u8> {
+pub(crate) fn uniform_tile(rgba: [u8; 4]) -> Vec<u8> {
     rgba.repeat(TILE_SIZE as usize * TILE_SIZE as usize)
 }
 
@@ -471,20 +472,26 @@ impl TileGrid {
         true
     }
 
-    pub fn snapshot_tiles(&self, coords: &[TileCoord]) -> TileMap<Option<Arc<Vec<u8>>>> {
+    /// A snapshot stays exactly as cheap as it has always been: every tile is stored as a
+    /// cloned `Arc` handle, so a fresh diff costs **zero** real bytes until the live tile is
+    /// painted again. Nothing is inspected or compressed here — that is `History`'s cold
+    /// sweep, deliberately off the paint-commit path this sits on.
+    pub fn snapshot_tiles(&self, coords: &[TileCoord]) -> TileMap<Option<HistoryTile>> {
         let mut out = TileMap::default();
         out.reserve(coords.len());
         for c in coords {
-            out.insert(*c, self.tiles.get(c).cloned());
+            out.insert(*c, self.tiles.get(c).cloned().map(HistoryTile::from_pixels));
         }
         out
     }
 
-    pub fn restore_tiles(&mut self, snapshot: &TileMap<Option<Arc<Vec<u8>>>>) {
+    pub fn restore_tiles(&mut self, snapshot: &TileMap<Option<HistoryTile>>) {
+        let mut uniform = Vec::new();
         for (coord, maybe) in snapshot {
             match maybe {
-                Some(pixels) => {
-                    self.tiles.insert(*coord, Arc::clone(pixels));
+                Some(tile) => {
+                    let pixels = tile.materialize(&mut uniform);
+                    self.tiles.insert(*coord, pixels);
                 }
                 None => {
                     self.tiles.remove(coord);

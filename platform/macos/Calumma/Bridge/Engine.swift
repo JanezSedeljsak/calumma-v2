@@ -1381,6 +1381,20 @@ final class Engine: ObservableObject, @unchecked Sendable {
         return data
     }
 
+    /// The document as one PDF. Layered like the SVG export: vector layers stay real PDF
+    /// paths and layer opacity/blend ride graphics state, so it is built from engine bytes
+    /// rather than from a composited image.
+    func exportPDF(dpi: Float = calm_pdf_default_dpi()) -> Data? {
+        guard let ptr else { return nil }
+        var bytesPtr: UnsafeMutablePointer<UInt8>?
+        var len: Int = 0
+        let status = calm_engine_export_pdf(ptr, dpi, &bytesPtr, &len)
+        guard status == CalmStatusOk, let bytesPtr, len > 0 else { return nil }
+        let data = Data(bytes: bytesPtr, count: len)
+        calm_buffer_free(bytesPtr, len)
+        return data
+    }
+
     func compositeCGImage() -> CGImage? {
         guard let ptr else { return nil }
         var rgbaPtr: UnsafeMutablePointer<UInt8>?

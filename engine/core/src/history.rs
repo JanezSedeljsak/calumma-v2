@@ -1,10 +1,13 @@
+use crate::history_tile::HistoryTile;
 use crate::layer::Layer;
-use crate::limits::HISTORY_MEMORY_BUDGET_BYTES;
+use crate::limits::{
+    HISTORY_COMPACT_TILES_PER_SWEEP, HISTORY_HOT_COMMANDS, HISTORY_MEMORY_BUDGET_BYTES,
+};
 use crate::tile::{TileMap, TILE_BYTES};
 use calumma_text::TextRun;
 use std::sync::Arc;
 
-pub type TileSnapshot = TileMap<Option<Arc<Vec<u8>>>>;
+pub type TileSnapshot = TileMap<Option<HistoryTile>>;
 
 #[derive(Clone, Debug)]
 pub struct TileDiff {
@@ -36,8 +39,39 @@ pub struct HistoryCommand {
     pub bytes: usize,
 }
 
+impl HistoryCommand {
+    /// Compact this command's tiles, spending at most `budget` of them, and fold the saving
+    /// back into `bytes` so the stack's own accounting stays true. Only tiles that still cost
+    /// a full tile are counted against the budget — already-compacted ones are free to skip.
+    fn compact(&mut self, budget: &mut usize) -> usize {
+        let mut freed = 0;
+        for diff in &mut self.diffs {
+            for tile in diff.tiles.values_mut().flatten() {
+                if *budget == 0 {
+                    return freed;
+                }
+                if !tile.is_compactable() {
+                    continue;
+                }
+                *budget -= 1;
+                freed += tile.compact();
+            }
+        }
+        self.bytes = self.bytes.saturating_sub(freed);
+        freed
+    }
+}
+
+/// What the budget charges a snapshot. Every tile pays what its current representation costs
+/// — a full tile while it is raw pixels, its frame length once compacted — so shrinking a
+/// cold command genuinely buys undo depth rather than only looking smaller in the memory
+/// panel. That is where this feature's value comes from: `evict()` reads this number.
 pub fn snapshot_bytes(tiles: &TileSnapshot) -> usize {
-    tiles.values().filter(|v| v.is_some()).count() * TILE_BYTES
+    tiles
+        .values()
+        .flatten()
+        .map(HistoryTile::budget_bytes)
+        .sum()
 }
 
 #[derive(Clone, Debug)]
@@ -88,12 +122,9 @@ impl History {
         let mut total = 0;
         for command in self.undo.iter().chain(&self.redo) {
             for diff in &command.diffs {
-                total += diff
-                    .tiles
-                    .values()
-                    .flatten()
-                    .map(&mut tile_bytes)
-                    .sum::<usize>();
+                for tile in diff.tiles.values().flatten() {
+                    total += tile.held_bytes(&mut tile_bytes);
+                }
             }
             total += command
                 .masks
@@ -213,6 +244,33 @@ impl History {
         self.memory_used = self.memory_used.saturating_sub(command.bytes);
         self.memory_used += inverse.bytes;
         inverse
+    }
+
+    /// Shrink cold tiles until the per-sweep budget runs out, returning the bytes reclaimed.
+    ///
+    /// Age picks the *candidates* and unique ownership decides which of them are actually
+    /// worth touching (`HistoryTile::compact`). The commands either side of the history
+    /// cursor — the last `HISTORY_HOT_COMMANDS` of each stack — are left alone so an
+    /// immediate undo/redo never pays decompression.
+    ///
+    /// Bounded per call because it runs under the engine lock: whatever is left stays cold
+    /// and is picked up on the next tick. A stack with nothing cold queues no work at all.
+    pub fn compact_cold(&mut self) -> usize {
+        let mut budget = HISTORY_COMPACT_TILES_PER_SWEEP;
+        let mut freed = 0;
+        let undo_cold = self.undo.len().saturating_sub(HISTORY_HOT_COMMANDS);
+        let redo_cold = self.redo.len().saturating_sub(HISTORY_HOT_COMMANDS);
+        for command in self.undo[..undo_cold]
+            .iter_mut()
+            .chain(self.redo[..redo_cold].iter_mut())
+        {
+            if budget == 0 {
+                break;
+            }
+            freed += command.compact(&mut budget);
+        }
+        self.memory_used = self.memory_used.saturating_sub(freed);
+        freed
     }
 
     fn evict(&mut self) {

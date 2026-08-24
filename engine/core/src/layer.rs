@@ -1,10 +1,10 @@
 use crate::filters::Adjustments;
+use crate::history::TileSnapshot;
 use crate::limits::PAPER_WHITE;
-use crate::tile::{DirtyChannel, DocRect, TileGrid, TileMap, TileSet, TILE_SIZE};
+use crate::tile::{DirtyChannel, DocRect, TileGrid, TileSet, TILE_SIZE};
 use crate::transform::LayerTransform;
 use crate::vector::VectorItem;
 use calumma_text::TextRun;
-use std::sync::Arc;
 use uuid::Uuid;
 
 use num_enum::{IntoPrimitive, TryFromPrimitive};
@@ -272,9 +272,9 @@ impl Layer {
         }
     }
 
-    pub fn clear(&mut self) -> TileMap<Option<Arc<Vec<u8>>>> {
+    pub fn clear(&mut self) -> TileSnapshot {
         let Some(tiles) = self.tiles_mut() else {
-            return TileMap::default();
+            return TileSnapshot::default();
         };
         let coords: Vec<_> = tiles.coords().collect();
         let snap = tiles.snapshot_tiles(&coords);

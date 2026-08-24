@@ -6,7 +6,7 @@ use calumma_core::{
     pack_rgba, project_color, unpack_rgba, unpremultiply_rgba, AdjustmentKind, Adjustments,
     BlendMode, BoardColors, Brush, Document, Tool, PROJECT_COLORS,
 };
-use calumma_io::{encode_psd, encode_svg, ProjectListItem, ProjectStore};
+use calumma_io::{encode_pdf, encode_psd, encode_svg, ProjectListItem, ProjectStore};
 use calumma_ops::{
     apply_output, layer_input, run_op_on_document, Backend, Op, OpParams, OpRegistry,
 };
@@ -278,10 +278,17 @@ impl Inner {
     }
 
     pub(crate) fn autosave(&mut self) {
-        if !self.dirty_save {
+        if self.doc.as_ref().is_some_and(|d| d.stroke_active) {
             return;
         }
-        if self.doc.as_ref().is_some_and(|d| d.stroke_active) {
+        // The autosave tick is this codebase's "the user is idle enough for background work"
+        // signal, and it already runs off the render thread — so it is also where the undo
+        // stack shrinks its cold tiles. It runs whether or not there is anything to save: a
+        // document being traversed with undo/redo dirties no bytes but still goes cold.
+        if let Some(doc) = self.doc.as_mut() {
+            doc.history.compact_cold();
+        }
+        if !self.dirty_save {
             return;
         }
         if self.last_save.elapsed() < Duration::from_millis(AUTOSAVE_INTERVAL_MS) {
@@ -1996,6 +2003,46 @@ pub unsafe extern "C" fn calm_engine_layer_svg(
 
 /// The whole visible stack as one SVG: vector layers as real primitives, everything with
 /// pixels as an embedded PNG. Layered, unlike the flattened raster exports.
+/// Whole-document PDF. Layered like the SVG export rather than flattened like the raster
+/// ones: vector layers stay real PDF paths, opacity and blend mode ride an `/ExtGState`, and
+/// only the layers that really are pixels become image XObjects.
+///
+/// `dpi` decides how many points a document pixel is worth — the page shrinks as it rises
+/// while the pixels stay put. Pass `calm_pdf_default_dpi()` for one pixel per point.
+#[no_mangle]
+pub unsafe extern "C" fn calm_engine_export_pdf(
+    engine: *mut CalmEngine,
+    dpi: f32,
+    out_bytes: *mut *mut u8,
+    out_len: *mut usize,
+) -> CalmStatus {
+    if engine.is_null() || out_bytes.is_null() || out_len.is_null() {
+        return CalmStatus::Null;
+    }
+    unsafe {
+        *out_bytes = ptr::null_mut();
+        *out_len = 0;
+    }
+    match catch_unwind(AssertUnwindSafe(|| {
+        let mutex = unsafe { &*(engine as *const Mutex<Inner>) };
+        let inner = mutex.lock();
+        let doc = inner.doc.as_ref().context("no project is open")?;
+        let bytes = encode_pdf(doc, dpi);
+        let mut boxed = bytes.into_boxed_slice();
+        let len = boxed.len();
+        let ptr = boxed.as_mut_ptr();
+        std::mem::forget(boxed);
+        unsafe {
+            *out_bytes = ptr;
+            *out_len = len;
+        }
+        Ok::<(), anyhow::Error>(())
+    })) {
+        Ok(Ok(())) => CalmStatus::Ok,
+        _ => CalmStatus::Error,
+    }
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn calm_engine_export_svg(engine: *mut CalmEngine) -> *mut c_char {
     if engine.is_null() {

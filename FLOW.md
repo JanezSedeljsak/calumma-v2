@@ -186,7 +186,7 @@ gain — it tracks the cursor one-for-one by definition.
 | Store | OS-native app-data dir + `Calumma/calumma.sqlite` (macOS: `~/Library/Application Support/…`) |
 | Autosave / explicit save | Engine dirty flag + `⌘S`; tab switch and close save first |
 | One board per project | Bounded document size chosen at create time |
-| Export image | **Shipped** — PNG / JPEG / WebP / AVIF / HEIC / PSD / SVG via File → Export, plus per-layer **Export…** in the layer card. PDF is still deferred; PSD and SVG are layered (PSD: real per-layer opacity/blend mode/pixels, hand-written encoder since ImageIO can only read PSD. SVG: vector layers stay geometry, painted layers embed a cropped PNG). |
+| Export image | **Shipped** — PNG / JPEG / WebP / AVIF / HEIC / PSD / SVG / PDF via File → Export, plus per-layer **Export…** in the layer card. PSD, SVG and PDF are layered (PSD: real per-layer opacity/blend mode/pixels, hand-written encoder since ImageIO can only read PSD. SVG: vector layers stay geometry, painted layers embed a cropped PNG. PDF: vector layers become real PDF paths, opacity and blend mode ride an `/ExtGState`, transparency an `/SMask`). |
 | Import image / PSD | **Shipped** — new project from PNG / JPG / AVIF / WEBP / PSD / HEIC / SVG (SVG rasterized on import) |
 | Clipboard paste artwork | **Shipped** — `⌘V`, drag-and-drop, or click on the island (creates a new project) |
 | Import into an existing board | **Shipped** — drag-and-drop onto the canvas island, or `⌘V`, both add the image as a new layer (see Selection below) |
@@ -461,7 +461,18 @@ losing the artwork would be worse. SVG (`engine/io/src/svg.rs`) keeps a vector l
 a `<rect>` instead, so a flat page costs bytes rather than megabytes of base64. Layer opacity
 and blend mode ride along as `opacity` / `mix-blend-mode`; masks and adjustments are baked into
 the pixels, as everywhere else. Text exports as pixels, not `<text>` — the font it needs is not
-in the file. PDF export is not implemented.
+in the file.
+
+**PDF** is the same layered walk written to a different format, and the one Calumma's layer
+model maps onto most exactly: `layer.opacity` is `/ca` and `/CA`, the three blend modes are
+`/BM` names that match one for one, a vector layer becomes real path operators (`re`, `c`,
+`m`/`l`) rather than a picture of itself, and a painted layer becomes a cropped image XObject
+with its alpha in a `/SMask` — PDF images carry no alpha channel of their own. One flip
+matrix at the top of the page reconciles PDF's bottom-left origin with Calumma's top-left.
+Masks and adjustments are still baked; text still exports as pixels, so a PDF's text is not
+selectable yet. Page size is document pixels at 72 dpi by default (`calm_pdf_default_dpi`),
+and the encoder is Rust (`engine/io/src/pdf.rs`) for the same reason PSD and SVG are:
+`CGPDFContext` would need the shell to re-emit every shape.
 
 **One layer at a time**: the layer `…` card has **Export…** next to Copy, writing just that
 layer through the same encoders — SVG first for a vector layer (its geometry, via
@@ -589,8 +600,10 @@ or the middle button is armed, **closed hand** while actually panning, zoom-in w
 
 ## What is intentionally out of FLOW (for now)
 
-PDF export (PNG/JPEG/WebP/AVIF/HEIC/PSD/SVG export shipped instead — see Export above), layered PSD
+Layered PSD
 **import** (we import the flattened composite only; PSD *export* is layered and shipped),
+PDF text as *selectable* text (PDF export is shipped, but text rides as pixels — font
+embedding needs `FontFile2`, `/Widths` and a `/ToUnicode` CMap),
 picking a layer by clicking it *outside* transform mode as a *modifier* (the Move tool on the tools island is the path — click painted pixels or a vector item to drag; Option-click and ⌘-click stay Pan),
 text *selection* (the Text tool ships with a caret only — no shift-arrow, no styled ranges),
 vectorize, generate-texture, BiRefNet core remove-bg — see

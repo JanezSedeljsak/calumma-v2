@@ -314,6 +314,17 @@ final class AppModel: ObservableObject {
         try? data.write(to: url)
     }
 
+    /// The document as one PDF. Layered like the SVG export rather than flattened like the
+    /// raster ones, and written from the engine's bytes for the same reason.
+    func exportPDF() {
+        guard let data = engine.exportPDF() else { return }
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.pdf]
+        panel.nameFieldStringValue = "\(activeProjectName).pdf"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        try? data.write(to: url)
+    }
+
     private func adoptProject(id: String, name: String) {
         if let workspaceId = activeWorkspaceId, !showLanding {
             engine.addProjectToWorkspace(workspaceId: workspaceId, projectId: id)

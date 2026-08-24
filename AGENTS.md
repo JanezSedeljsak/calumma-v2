@@ -432,7 +432,12 @@ not a place to pile micro-opts that muddy the code for single-digit percent gain
   as the pointer moves.
 - Dirty-flag rendering; idle board submits nothing.
 - Tile pixels are `Arc` COW; history shares unchanged tiles (`Arc::make_mut` on write).
-- Cap history by memory budget; design for documents that outgrow a single bitmap.
+- Cap history by memory budget; design for documents that outgrow a single bitmap. Cold undo
+  entries shrink rather than being dropped (`core/src/history_tile.rs`): a flat tile collapses
+  to its four bytes, anything else is zstd. **The gate is `Arc::strong_count == 1`, not age** —
+  a snapshot still shared with the live document costs nothing today, so compressing it would
+  force the very copy the sharing avoids. The sweep runs on the autosave tick, never on the
+  paint path, and is bounded per tick because it holds the engine lock.
 - Painting APIs take **screen** coordinates; convert once in the engine.
 - Engine `Inner` is behind a `Mutex` so ops can run off the main thread.
 - Scalability checklist on structural changes: sparse tiles stay sparse, history does not
@@ -600,8 +605,9 @@ Pin versions in `[workspace.dependencies]`. Never `*` or bare `^`.
 Vector *rotation* on the GPU (see Layers; per-item undo is planned with document
 history, `plans/01-document-undo.md`), BiRefNet / `ort`,
 GenerateTexture model manager, SuggestShape,
-Vectorize (`vtracer`), PDF export, layered PSD import (import is flattened composite only;
-PSD *and SVG export* are layered and shipped — see FLOW.md), picking a layer by clicking it outside
+Vectorize (`vtracer`), font embedding in PDF export (the exporter is shipped and layered, but
+text rides as pixels), layered PSD import (import is flattened composite only;
+PSD, SVG *and PDF export* are layered and shipped — see FLOW.md), picking a layer by clicking it outside
 transform mode as a *modifier* (the Move tool on the tools island is the path; Option-click and ⌘-click are
 both already Pan), text *selection*
 (the Text tool ships with a caret only — no shift-arrow, no styled ranges) — add

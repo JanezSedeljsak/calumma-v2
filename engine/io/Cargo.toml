@@ -12,7 +12,9 @@ dirs = { workspace = true }
 thiserror = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }
 png = { workspace = true }
+flate2 = { workspace = true }
 rustc-hash = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
+flate2 = { workspace = true }

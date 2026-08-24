@@ -171,6 +171,7 @@ uint8_t calm_tool_takes_eraser_hardness(uint32_t tool);
 CalmStatus calm_parse_hex_rgb(const char *s, uint32_t *out_rgb);
 char *calm_format_hex_rgb(uint32_t rgb);
 float calm_lossy_export_quality(void);
+float calm_pdf_default_dpi(void);
 float calm_ink_opacity_min(void);
 float calm_ink_opacity_max(void);
 float calm_ink_opacity_default(void);
@@ -248,6 +249,8 @@ CalmStatus calm_engine_layer_bounds(CalmEngine *engine, uint32_t index, CalmLaye
 CalmStatus calm_engine_set_layer_bounds(CalmEngine *engine, uint32_t index, float x, float y, float width, float height);
 CalmStatus calm_engine_composite_rgba(CalmEngine *engine, uint8_t **out_rgba, uint32_t *out_w, uint32_t *out_h);
 CalmStatus calm_engine_export_psd(CalmEngine *engine, uint8_t **out_bytes, size_t *out_len);
+CalmStatus calm_engine_export_pdf(CalmEngine *engine, float dpi, uint8_t **out_bytes,
+                                  size_t *out_len);
 CalmStatus calm_engine_layer_rgba(CalmEngine *engine, uint32_t layer_index, uint8_t **out_rgba, uint32_t *out_w, uint32_t *out_h);
 char *calm_engine_layer_svg(CalmEngine *engine, uint32_t layer_index);
 char *calm_engine_export_svg(CalmEngine *engine);
