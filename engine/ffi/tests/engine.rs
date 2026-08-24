@@ -50,6 +50,7 @@ impl TestEngine {
             zoom_unit: 0.0,
             last_shape_tool: 0,
             last_select_tool: 0,
+            is_fit: 0,
         };
         let status = unsafe { calm_engine_state(self.ptr, &mut out) };
         assert_eq!(status, CalmStatus::Ok);
@@ -134,6 +135,7 @@ fn autosave_persists_off_the_render_path() {
         zoom_unit: 0.0,
         last_shape_tool: 0,
         last_select_tool: 0,
+        is_fit: 0,
     };
     let status = unsafe { calm_engine_state(reader, &mut state) };
     assert_eq!(status, CalmStatus::Ok);
@@ -632,6 +634,7 @@ fn null_engine_pointer_is_handled_everywhere() {
         zoom_unit: 0.0,
         last_shape_tool: 0,
         last_select_tool: 0,
+        is_fit: 0,
     };
     // A null engine is rejected before the out-param is touched, same as everywhere else.
     assert_eq!(

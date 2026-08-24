@@ -8,6 +8,7 @@ fn line_coverage_on_path() {
         end: (100.0, 0.0),
         half_width: 2.0,
         fill: false,
+        stroke: true,
     };
     assert!(s.coverage(50.0, 0.0) > 0.9);
     assert!(s.coverage(50.0, 20.0) < 0.1);
@@ -21,6 +22,7 @@ fn rect_bounds_include_pad() {
         end: (40.0, 40.0),
         half_width: 2.0,
         fill: false,
+        stroke: true,
     };
     let (x0, y0, x1, y1) = s.bounds();
     assert!(x0 < 10.0 && y0 < 10.0 && x1 > 40.0 && y1 > 40.0);
@@ -34,6 +36,7 @@ fn triangle_fill_covers_center() {
         end: (100.0, 100.0),
         half_width: 1.0,
         fill: true,
+        stroke: false,
     };
     assert!(s.coverage(50.0, 70.0) > 0.9);
     assert!(s.coverage(10.0, 10.0) < 0.1);
@@ -54,6 +57,7 @@ fn shape(tool: Tool, fill: bool) -> Shape {
         end: (80.0, 60.0),
         half_width: 2.0,
         fill,
+        stroke: !fill,
     }
 }
 
@@ -120,6 +124,7 @@ fn a_zero_length_arrow_degrades_to_its_shaft() {
         end: (30.0, 30.0),
         half_width: 3.0,
         fill: false,
+        stroke: true,
     };
     assert!(s.distance(30.0, 30.0).is_finite());
     assert!(s.coverage(30.0, 30.0) > 0.9, "the stamp under the pointer");
@@ -141,6 +146,7 @@ fn a_short_arrow_keeps_its_head_inside_its_own_length() {
         end: (6.0, 0.0),
         half_width: 4.0,
         fill: false,
+        stroke: true,
     };
     let verts = s.arrow_outline();
     assert_eq!(verts.len(), 5);
@@ -252,4 +258,95 @@ fn a_constrained_drag_fills_the_longer_side_in_every_direction() {
         (10.0, 10.0),
         "a drag that never moved stays where it is"
     );
+}
+
+fn bordered_rect() -> Shape {
+    Shape {
+        tool: Tool::Rect,
+        start: (20.0, 20.0),
+        end: (80.0, 60.0),
+        half_width: 2.0,
+        fill: true,
+        stroke: true,
+    }
+}
+
+#[test]
+fn a_shape_can_carry_a_fill_and_a_stroke_at_once() {
+    let s = bordered_rect();
+    let inside = (50.0, 40.0);
+    let on_edge = (20.0, 40.0);
+
+    assert!(s.fill_distance(inside.0, inside.1).unwrap() < 0.0);
+    assert!(s.stroke_distance(on_edge.0, on_edge.1).unwrap() < 0.0);
+    assert!(
+        s.fill_distance(on_edge.0, on_edge.1).unwrap().abs() < 0.001,
+        "the fill reaches the edge the stroke straddles"
+    );
+}
+
+#[test]
+fn a_fill_only_shape_has_no_stroke_part_and_a_stroke_only_shape_has_no_fill() {
+    let filled = Shape {
+        stroke: false,
+        ..bordered_rect()
+    };
+    assert!(filled.stroke_distance(20.0, 40.0).is_none());
+    assert!(filled.fill_distance(50.0, 40.0).is_some());
+
+    let outlined = Shape {
+        fill: false,
+        ..bordered_rect()
+    };
+    assert!(outlined.fill_distance(50.0, 40.0).is_none());
+    assert!(outlined.stroke_distance(20.0, 40.0).is_some());
+    assert!(
+        outlined.coverage(50.0, 40.0) < 0.1,
+        "the middle stays empty"
+    );
+}
+
+#[test]
+fn a_line_is_always_stroked_and_never_filled() {
+    let line = Shape {
+        tool: Tool::Line,
+        start: (0.0, 0.0),
+        end: (100.0, 0.0),
+        half_width: 2.0,
+        fill: true,
+        stroke: false,
+    };
+    assert!(line.fill_distance(50.0, 0.0).is_none());
+    assert!(line.stroke_distance(50.0, 0.0).unwrap() < 0.0);
+}
+
+#[test]
+fn a_shape_with_neither_part_draws_nothing() {
+    let blank = Shape {
+        fill: false,
+        stroke: false,
+        ..bordered_rect()
+    };
+    assert_eq!(blank.coverage(50.0, 40.0), 0.0);
+    assert_eq!(blank.coverage(20.0, 40.0), 0.0);
+}
+
+#[test]
+fn a_fill_with_no_stroke_pads_only_the_antialiased_pixel() {
+    let filled = Shape {
+        stroke: false,
+        ..bordered_rect()
+    };
+    assert_eq!(filled.padding(), 1.0);
+    assert_eq!(bordered_rect().padding(), 3.0);
+}
+
+#[test]
+fn ink_sample_scales_alpha_by_coverage_and_drops_what_it_cannot_see() {
+    assert_eq!(
+        ink_sample(Some(-5.0), [10, 20, 30, 200]),
+        Some([10, 20, 30, 200])
+    );
+    assert_eq!(ink_sample(Some(5.0), [10, 20, 30, 200]), None);
+    assert_eq!(ink_sample(None, [10, 20, 30, 200]), None);
 }

@@ -49,6 +49,7 @@ pub struct CalmState {
     pub zoom_unit: f32,
     pub last_shape_tool: u32,
     pub last_select_tool: u32,
+    pub is_fit: u8,
 }
 
 #[repr(C)]
@@ -982,6 +983,35 @@ pub unsafe extern "C" fn calm_engine_set_fill(engine: *mut CalmEngine, fill: u8)
         if let Some(doc) = &mut inner.doc {
             doc.fill = fill != 0;
         }
+        inner.invalidate_renderer();
+        Ok(())
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn calm_engine_set_stroke(engine: *mut CalmEngine, stroke: u8) -> CalmStatus {
+    with_inner(engine, |inner| {
+        if let Some(doc) = &mut inner.doc {
+            doc.stroke = stroke != 0;
+        }
+        inner.invalidate_renderer();
+        Ok(())
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn calm_engine_set_stroke_color(
+    engine: *mut CalmEngine,
+    r: u8,
+    g: u8,
+    b: u8,
+    a: u8,
+) -> CalmStatus {
+    with_inner(engine, |inner| {
+        if let Some(doc) = &mut inner.doc {
+            doc.stroke_color = [r, g, b, a];
+        }
+        inner.invalidate_renderer();
         Ok(())
     })
 }
@@ -1587,6 +1617,7 @@ pub unsafe extern "C" fn calm_engine_state(
                     zoom_unit: 0.0,
                     last_shape_tool: inner.last_shape_tool as u32,
                     last_select_tool: inner.last_select_tool as u32,
+                    is_fit: 0,
                 };
             }
             return Ok(());
@@ -1611,6 +1642,7 @@ pub unsafe extern "C" fn calm_engine_state(
                 zoom_unit: doc.camera.zoom_unit(dw, dh),
                 last_shape_tool: doc.last_shape_tool as u32,
                 last_select_tool: doc.last_select_tool as u32,
+                is_fit: doc.camera.is_fit(dw, dh) as u8,
             };
         }
         Ok(())
@@ -2026,6 +2058,32 @@ pub unsafe extern "C" fn calm_engine_deselect(engine: *mut CalmEngine) -> CalmSt
     with_inner(engine, |inner| {
         if let Some(doc) = &mut inner.doc {
             doc.deselect();
+            if let Some(r) = &mut inner.renderer {
+                r.invalidate();
+            }
+        }
+        Ok(())
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn calm_engine_select_all(engine: *mut CalmEngine) -> CalmStatus {
+    with_inner(engine, |inner| {
+        if let Some(doc) = &mut inner.doc {
+            doc.select_all();
+            if let Some(r) = &mut inner.renderer {
+                r.invalidate();
+            }
+        }
+        Ok(())
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn calm_engine_invert_selection(engine: *mut CalmEngine) -> CalmStatus {
+    with_inner(engine, |inner| {
+        if let Some(doc) = &mut inner.doc {
+            doc.invert_selection();
             if let Some(r) = &mut inner.renderer {
                 r.invalidate();
             }

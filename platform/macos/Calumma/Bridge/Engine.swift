@@ -81,6 +81,7 @@ enum CalmTool: UInt32 {
 
     var isShape: Bool { calm_tool_is_shape(rawValue) != 0 }
     var isSelection: Bool { calm_tool_is_selection(rawValue) != 0 }
+    var takesFill: Bool { calm_tool_takes_fill(rawValue) != 0 }
     var takesBrushSize: Bool { calm_tool_takes_brush_size(rawValue) != 0 }
     var takesInkOpacity: Bool { calm_tool_takes_ink_opacity(rawValue) != 0 }
     var showsVectorMode: Bool { calm_tool_shows_vector_mode(rawValue) != 0 }
@@ -154,6 +155,9 @@ struct EngineState {
     var zoomUnit: Float = 0
     var lastShapeTool: CalmTool = .rect
     var lastSelectTool: CalmTool = .selectRect
+    /// Whether the board already shows what Fit to View would show. The engine answers it —
+    /// the shell never recomputes a fit — and the zoom pill's Fit button lights up on it.
+    var isFit = false
 
     var accentColor: Color { Color(rgb: accent) }
 }
@@ -449,13 +453,24 @@ final class Engine: ObservableObject, @unchecked Sendable {
 
     func setColor(_ color: Color) {
         guard let ptr else { return }
+        let (r, g, b, a) = channels(color)
+        _ = calm_engine_set_color(ptr, r, g, b, a)
+    }
+
+    func setStrokeColor(_ color: Color) {
+        guard let ptr else { return }
+        let (r, g, b, a) = channels(color)
+        _ = calm_engine_set_stroke_color(ptr, r, g, b, a)
+    }
+
+    private func channels(_ color: Color) -> (UInt8, UInt8, UInt8, UInt8) {
         let ns = NSColor(color).usingColorSpace(.sRGB) ?? NSColor.black
         var r: CGFloat = 0
         var g: CGFloat = 0
         var b: CGFloat = 0
         var a: CGFloat = 0
         ns.getRed(&r, green: &g, blue: &b, alpha: &a)
-        _ = calm_engine_set_color(ptr, channel(r), channel(g), channel(b), channel(a))
+        return (channel(r), channel(g), channel(b), channel(a))
     }
 
     func sampleColor(x: Float, y: Float) -> Color? {
@@ -523,6 +538,11 @@ final class Engine: ObservableObject, @unchecked Sendable {
     func setFill(_ fill: Bool) {
         guard let ptr else { return }
         _ = calm_engine_set_fill(ptr, fill ? 1 : 0)
+    }
+
+    func setStroke(_ stroke: Bool) {
+        guard let ptr else { return }
+        _ = calm_engine_set_stroke(ptr, stroke ? 1 : 0)
     }
 
     func setVectorMode(_ on: Bool) {
@@ -1113,7 +1133,8 @@ final class Engine: ObservableObject, @unchecked Sendable {
             accent: raw.accent,
             zoomUnit: raw.zoom_unit,
             lastShapeTool: CalmTool(rawValue: raw.last_shape_tool) ?? .rect,
-            lastSelectTool: CalmTool(rawValue: raw.last_select_tool) ?? .selectRect
+            lastSelectTool: CalmTool(rawValue: raw.last_select_tool) ?? .selectRect,
+            isFit: raw.is_fit != 0
         )
         syncGuideCount()
     }
@@ -1444,6 +1465,18 @@ final class Engine: ObservableObject, @unchecked Sendable {
     func deselect() {
         guard let ptr else { return }
         _ = calm_engine_deselect(ptr)
+        render()
+    }
+
+    func selectAll() {
+        guard let ptr else { return }
+        _ = calm_engine_select_all(ptr)
+        render()
+    }
+
+    func invertSelection() {
+        guard let ptr else { return }
+        _ = calm_engine_invert_selection(ptr)
         render()
     }
 

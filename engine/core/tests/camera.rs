@@ -296,3 +296,22 @@ fn paper_scissor_is_none_when_the_paper_is_off_screen() {
     };
     assert!(c.paper_scissor(50.0, 50.0, 100, 100).is_none());
 }
+
+#[test]
+fn is_fit_holds_right_after_a_fit_and_not_after_a_zoom() {
+    let mut c = cam(800.0, 600.0);
+    c.fit(1920.0, 1080.0);
+    assert!(c.is_fit(1920.0, 1080.0));
+
+    c.step_zoom(true, 1920.0, 1080.0);
+    assert!(!c.is_fit(1920.0, 1080.0));
+}
+
+#[test]
+fn a_pan_off_centre_stops_reading_as_fitted_even_at_the_fit_zoom() {
+    let mut c = cam(800.0, 600.0);
+    c.fit(1920.0, 1080.0);
+    c.pan_by(60.0, 0.0, 1920.0, 1080.0);
+    assert!((c.zoom - c.fit_zoom(1920.0, 1080.0)).abs() < 1e-5);
+    assert!(!c.is_fit(1920.0, 1080.0));
+}

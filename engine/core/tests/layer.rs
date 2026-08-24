@@ -17,7 +17,9 @@ fn vector_layer_reports_path_bounds() {
             points: vec![(10.0, 20.0), (30.0, 40.0)],
             closed: false,
             fill: false,
+            stroke: true,
             color: [0, 0, 0, 255],
+            stroke_color: [0, 0, 0, 255],
             stroke_width: 2.0,
         })],
     );
@@ -157,7 +159,9 @@ fn a_vector_layers_tight_bounds_fall_back_to_its_parametric_box() {
             points: vec![(10.0, 20.0), (30.0, 40.0)],
             closed: false,
             fill: false,
+            stroke: true,
             color: [0, 0, 0, 255],
+            stroke_color: [0, 0, 0, 255],
             stroke_width: 2.0,
         })],
     );

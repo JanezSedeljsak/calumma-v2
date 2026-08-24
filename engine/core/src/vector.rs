@@ -1,16 +1,19 @@
-use crate::shape::{sd_polygon, sd_segment, Shape, Tool};
+use crate::shape::{ink_sample, sd_polygon, sd_segment, Shape, Tool};
 use crate::transform::LayerTransform;
 use rayon::prelude::*;
 
 /// A freehand path: the points the pointer actually travelled, kept as points rather than
-/// stamped into pixels. Stroked by default; `fill` closes and fills it, which only the
-/// flattening path implements (see [`VectorItem`]).
+/// stamped into pixels. Stroked by default; `fill` closes and fills it in `color`, which
+/// only the flattening path implements (see [`VectorItem`]). The two are independent, so a
+/// filled path can also carry an outline in `stroke_color`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct VectorPath {
     pub points: Vec<(f32, f32)>,
     pub closed: bool,
     pub fill: bool,
     pub color: [u8; 4],
+    pub stroke: bool,
+    pub stroke_color: [u8; 4],
     pub stroke_width: f32,
 }
 
@@ -23,6 +26,7 @@ pub struct VectorPath {
 pub struct VectorShape {
     pub shape: Shape,
     pub color: [u8; 4],
+    pub stroke_color: [u8; 4],
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -32,6 +36,9 @@ pub enum VectorItem {
 }
 
 impl VectorItem {
+    /// The item's fill colour — what a swatch of it would show. The stroke has its own
+    /// (`stroke_color`); painting the item goes through [`samples`](Self::samples), which
+    /// reads both.
     pub fn color(&self) -> [u8; 4] {
         match self {
             Self::Path(p) => p.color,
@@ -80,7 +87,7 @@ impl VectorItem {
     pub fn ink_pad(&self) -> f32 {
         match self {
             Self::Shape(s) => s.shape.padding(),
-            Self::Path(p) if p.closed && p.fill => 0.0,
+            Self::Path(p) if !p.stroke => 0.0,
             Self::Path(p) => p.stroke_width * 0.5 + 1.0,
         }
     }
@@ -91,7 +98,28 @@ impl VectorItem {
     pub fn distance(&self, x: f32, y: f32) -> f32 {
         match self {
             Self::Shape(s) => s.shape.distance(x, y),
-            Self::Path(p) => path_distance(p, x, y),
+            Self::Path(p) => match (path_fill_distance(p, x, y), path_stroke_distance(p, x, y)) {
+                (Some(fill), Some(stroke)) => fill.min(stroke),
+                (Some(d), None) | (None, Some(d)) => d,
+                (None, None) => f32::MAX,
+            },
+        }
+    }
+
+    /// The item's paint at a point, fill first then stroke, each as a straight-alpha source
+    /// colour ready to blend over what is already there. Two entries rather than one because
+    /// the two parts have their own colours — this is the CPU twin of `board.wgsl`'s
+    /// `shape_ink`, and the reason a flattened export shows the same border a live board does.
+    pub fn samples(&self, x: f32, y: f32) -> [Option<[u8; 4]>; 2] {
+        match self {
+            Self::Shape(s) => [
+                ink_sample(s.shape.fill_distance(x, y), s.color),
+                ink_sample(s.shape.stroke_distance(x, y), s.stroke_color),
+            ],
+            Self::Path(p) => [
+                ink_sample(path_fill_distance(p, x, y), p.color),
+                ink_sample(path_stroke_distance(p, x, y), p.stroke_color),
+            ],
         }
     }
 
@@ -150,6 +178,8 @@ impl VectorItem {
                 dst.closed = src.closed;
                 dst.fill = src.fill;
                 dst.color = src.color;
+                dst.stroke = src.stroke;
+                dst.stroke_color = src.stroke_color;
                 dst.stroke_width = src.stroke_width;
             }
             (dst, src) => {
@@ -181,10 +211,13 @@ impl VectorItem {
                 dst.closed = src.closed;
                 dst.fill = src.fill;
                 dst.color = src.color;
+                dst.stroke = src.stroke;
+                dst.stroke_color = src.stroke_color;
                 dst.stroke_width = src.stroke_width;
             }
             (Self::Shape(dst), Self::Shape(src)) => {
                 dst.color = src.color;
+                dst.stroke_color = src.stroke_color;
                 dst.shape = Shape {
                     start: map(src.shape.start),
                     end: map(src.shape.end),
@@ -196,27 +229,32 @@ impl VectorItem {
     }
 }
 
-fn path_distance(path: &VectorPath, x: f32, y: f32) -> f32 {
+/// The filled interior of a closed path, or `None` when the path is open or unfilled.
+fn path_fill_distance(path: &VectorPath, x: f32, y: f32) -> Option<f32> {
+    if !path.fill || !path.closed || path.points.len() < 3 {
+        return None;
+    }
+    Some(sd_polygon((x, y), &path.points))
+}
+
+/// The stroked polyline: the nearest segment, widened. Independent of the fill, so a filled
+/// path can carry a border and an unfilled one is nothing but this.
+fn path_stroke_distance(path: &VectorPath, x: f32, y: f32) -> Option<f32> {
+    if !path.stroke {
+        return None;
+    }
     let p = (x, y);
-    if path.points.len() < 2 {
-        let Some(&a) = path.points.first() else {
-            return f32::MAX;
-        };
-        return sd_segment(p, a, a) - path.stroke_width * 0.5;
-    }
-    if path.closed && path.fill {
-        return sd_polygon(p, &path.points);
-    }
-    let mut d = f32::MAX;
-    for pair in path.points.windows(2) {
-        d = d.min(sd_segment(p, pair[0], pair[1]));
+    let (&first, rest) = path.points.split_first()?;
+    let mut d = sd_segment(p, first, first);
+    let mut previous = first;
+    for &point in rest {
+        d = d.min(sd_segment(p, previous, point));
+        previous = point;
     }
     if path.closed {
-        if let (Some(&first), Some(&last)) = (path.points.first(), path.points.last()) {
-            d = d.min(sd_segment(p, last, first));
-        }
+        d = d.min(sd_segment(p, previous, first));
     }
-    d - path.stroke_width * 0.5
+    Some(d - path.stroke_width * 0.5)
 }
 
 pub fn items_bounds(items: &[VectorItem]) -> Option<(f32, f32, f32, f32)> {
@@ -299,18 +337,11 @@ pub fn rasterize_into_rgba(
                 };
                 let i = x * 4;
                 for item in items {
-                    let coverage = item.coverage(lx, ly);
-                    if coverage <= 0.0 {
-                        continue;
+                    for src in item.samples(lx, ly).into_iter().flatten() {
+                        let dst = [row[i], row[i + 1], row[i + 2], row[i + 3]];
+                        let out = crate::tile::blend_over(dst, src);
+                        row[i..i + 4].copy_from_slice(&out);
                     }
-                    let mut src = item.color();
-                    src[3] = ((src[3] as f32) * coverage).round().clamp(0.0, 255.0) as u8;
-                    if src[3] == 0 {
-                        continue;
-                    }
-                    let dst = [row[i], row[i + 1], row[i + 2], row[i + 3]];
-                    let out = crate::tile::blend_over(dst, src);
-                    row[i..i + 4].copy_from_slice(&out);
                 }
             }
         });
@@ -318,11 +349,15 @@ pub fn rasterize_into_rgba(
 
 /// Build a vector item from a shape the user just finished dragging. Selection tools and
 /// the non-drawing tools have no vector form.
-pub fn item_from_shape(shape: Shape, color: [u8; 4]) -> Option<VectorItem> {
+pub fn item_from_shape(shape: Shape, color: [u8; 4], stroke_color: [u8; 4]) -> Option<VectorItem> {
     if !shape.tool.is_shape() {
         return None;
     }
-    Some(VectorItem::Shape(VectorShape { shape, color }))
+    Some(VectorItem::Shape(VectorShape {
+        shape,
+        color,
+        stroke_color,
+    }))
 }
 
 pub fn item_from_points(
@@ -338,6 +373,8 @@ pub fn item_from_points(
         closed: false,
         fill: false,
         color,
+        stroke: true,
+        stroke_color: color,
         stroke_width,
     }))
 }

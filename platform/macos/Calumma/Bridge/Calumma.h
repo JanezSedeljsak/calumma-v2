@@ -72,6 +72,7 @@ typedef struct CalmState {
     float zoom_unit;
     uint32_t last_shape_tool;
     uint32_t last_select_tool;
+    uint8_t is_fit;
 } CalmState;
 
 typedef struct CalmRulerTick {
@@ -158,6 +159,7 @@ CalmStatus calm_project_set_accent(CalmEngine *engine, const char *id, uint32_t 
 CalmStatus calm_engine_set_tool(CalmEngine *engine, uint32_t tool);
 uint8_t calm_tool_is_shape(uint32_t tool);
 uint8_t calm_tool_is_selection(uint32_t tool);
+uint8_t calm_tool_takes_fill(uint32_t tool);
 uint8_t calm_tool_takes_brush_size(uint32_t tool);
 uint8_t calm_tool_takes_ink_opacity(uint32_t tool);
 uint8_t calm_tool_shows_vector_mode(uint32_t tool);
@@ -190,6 +192,8 @@ CalmStatus calm_engine_set_tolerance(CalmEngine *engine, uint8_t tolerance);
 CalmStatus calm_engine_set_brush_kind(CalmEngine *engine, uint32_t brush);
 CalmStatus calm_engine_set_eraser_hardness(CalmEngine *engine, float hardness);
 CalmStatus calm_engine_set_fill(CalmEngine *engine, uint8_t fill);
+CalmStatus calm_engine_set_stroke(CalmEngine *engine, uint8_t stroke);
+CalmStatus calm_engine_set_stroke_color(CalmEngine *engine, uint8_t r, uint8_t g, uint8_t b, uint8_t a);
 CalmStatus calm_engine_set_dark(CalmEngine *engine, uint8_t dark);
 CalmStatus calm_engine_set_shift(CalmEngine *engine, uint8_t held);
 CalmStatus calm_engine_reset_layer_transform(CalmEngine *engine, uint32_t index);
@@ -248,6 +252,8 @@ CalmStatus calm_engine_copy(CalmEngine *engine, uint8_t **out, size_t *out_len, 
 CalmStatus calm_engine_cut(CalmEngine *engine, uint8_t **out, size_t *out_len, uint32_t *out_kind);
 CalmStatus calm_engine_copy_layer(CalmEngine *engine, uint32_t layer_index, uint8_t **out, size_t *out_len, uint32_t *out_kind);
 CalmStatus calm_engine_deselect(CalmEngine *engine);
+CalmStatus calm_engine_select_all(CalmEngine *engine);
+CalmStatus calm_engine_invert_selection(CalmEngine *engine);
 CalmStatus calm_engine_selection_clear_pixels(CalmEngine *engine);
 CalmStatus calm_engine_paste_image(CalmEngine *engine, const uint8_t *premultiplied_rgba, size_t len, uint32_t width, uint32_t height);
 

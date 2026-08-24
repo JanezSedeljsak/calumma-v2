@@ -112,6 +112,8 @@ fn masks_and_vectors_are_counted_where_they_live() {
             closed: false,
             fill: false,
             color: [0, 0, 0, 255],
+            stroke: true,
+            stroke_color: [0, 0, 0, 255],
             stroke_width: 2.0,
         }));
     doc.layers[0].set_mask(Some(vec![255; (SIDE * SIDE) as usize]));

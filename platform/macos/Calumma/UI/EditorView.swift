@@ -53,6 +53,8 @@ struct EditorView: View {
         .onChange(of: app.brush) { _, _ in app.applyKnobs() }
         .onChange(of: app.eraserHardness) { _, _ in app.applyKnobs() }
         .onChange(of: app.fill) { _, _ in app.applyKnobs() }
+        .onChange(of: app.stroke) { _, _ in app.applyKnobs() }
+        .onChange(of: app.strokeColor) { _, _ in app.applyKnobs() }
         .onChange(of: app.vectorMode) { _, _ in app.applyKnobs() }
         .onChange(of: app.theme) { _, _ in app.applyKnobs() }
         .background(ShortcutCatcher(app: app))
@@ -199,7 +201,9 @@ struct EditorView: View {
                 Button {
                     app.engine.fit()
                 } label: {
-                    AppIcon.fitToView(color: colors.accentTeal)
+                    AppIcon.fitToView(
+                        color: app.engine.state.isFit ? colors.accentTeal : colors.textMuted
+                    )
                 }
                 .buttonStyle(.plain)
                 .help(l10n.fitToView)

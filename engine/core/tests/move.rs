@@ -98,8 +98,10 @@ fn move_tool_drags_a_vector_item() {
             end: (60.0, 60.0),
             half_width: 1.0,
             fill: true,
+            stroke: false,
         },
         color: [255, 0, 0, 255],
+        stroke_color: [255, 0, 0, 255],
     })];
     doc.set_tool(Tool::Move);
     drag(&mut doc, (40.0, 40.0), (55.0, 40.0));
@@ -326,8 +328,10 @@ fn a_nudge_prefers_the_selected_item_over_its_layer() {
             end: (40.0, 40.0),
             half_width: 1.0,
             fill: true,
+            stroke: false,
         },
         color: [255, 0, 0, 255],
+        stroke_color: [255, 0, 0, 255],
     })];
     doc.set_active_layer(layer);
     doc.set_tool(Tool::Move);

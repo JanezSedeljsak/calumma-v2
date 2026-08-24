@@ -71,29 +71,49 @@ struct QuickColorPicker: View {
             hueSlider
             hexField
         }
-        .onAppear { hexText = app.color.hexRGB }
-        .onChange(of: app.color) { _, next in
+        .onAppear { hexText = app.editedColor.hexRGB }
+        .onChange(of: app.editedColor) { _, next in
             if !hexFocused {
                 hexText = next.hexRGB
             }
         }
     }
 
+    /// The two ink swatches, plus the stroke swatch for the tools that enclose an area. All
+    /// three point the field, hue slider and hex box at a different colour — the picker only
+    /// ever edits one thing, and the ring says which.
     private var swatches: some View {
         HStack(spacing: Tokens.Space.xs) {
-            swatch(0)
-            swatch(1)
+            swatch(
+                app.quickColors[0],
+                active: !app.editingStroke && app.activeQuickColorIndex == 0,
+                tooltip: l10n.primaryColor
+            ) { app.selectQuickColor(0) }
+            swatch(
+                app.quickColors[1],
+                active: !app.editingStroke && app.activeQuickColorIndex == 1,
+                tooltip: l10n.secondaryColor
+            ) { app.selectQuickColor(1) }
+            if app.tool.takesFill {
+                swatch(
+                    app.strokeColor,
+                    active: app.editingStroke,
+                    tooltip: l10n.strokeColor
+                ) { app.selectStrokeColor() }
+            }
         }
     }
 
-    private func swatch(_ index: Int) -> some View {
+    private func swatch(
+        _ color: Color,
+        active: Bool,
+        tooltip: String,
+        select: @escaping () -> Void
+    ) -> some View {
         let shape = RoundedRectangle(cornerRadius: Tokens.Radius.sm, style: .continuous)
-        let active = app.activeQuickColorIndex == index
-        return Button {
-            app.selectQuickColor(index)
-        } label: {
+        return Button(action: select) {
             shape
-                .fill(app.quickColors[index])
+                .fill(color)
                 .frame(maxWidth: .infinity)
                 .frame(height: Self.swatchHeight)
                 .overlay(
@@ -104,10 +124,7 @@ struct QuickColorPicker: View {
                 )
         }
         .buttonStyle(.plain)
-        .calmTooltip(
-            index == 0 ? l10n.primaryColor : l10n.secondaryColor,
-            edge: .trailing
-        )
+        .calmTooltip(tooltip, edge: .trailing)
         .calmPointer()
     }
 
@@ -194,9 +211,9 @@ struct QuickColorPicker: View {
 
     private func commitHex() {
         if let parsed = Color(hexRGB: hexText) {
-            app.color = parsed
+            app.editedColor = parsed
         }
-        hexText = app.color.hexRGB
+        hexText = app.editedColor.hexRGB
     }
 
     private static let hueSpectrum: [Color] = stride(from: 0.0, through: 1.0, by: 1.0 / 11.0)

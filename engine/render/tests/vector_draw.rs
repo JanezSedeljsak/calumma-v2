@@ -11,8 +11,10 @@ fn shape_item(start: (f32, f32), end: (f32, f32)) -> VectorItem {
             end,
             half_width: 1.0,
             fill: true,
+            stroke: false,
         },
         color: [255, 0, 0, 255],
+        stroke_color: [255, 0, 0, 255],
     })
 }
 
@@ -22,6 +24,8 @@ fn path_item(points: Vec<(f32, f32)>, closed: bool, fill: bool) -> VectorItem {
         closed,
         fill,
         color: [0, 0, 255, 255],
+        stroke: !fill,
+        stroke_color: [0, 0, 255, 255],
         stroke_width: 4.0,
     })
 }
@@ -202,6 +206,8 @@ fn a_boundless_item_is_never_visible() {
         closed: false,
         fill: false,
         color: [0, 0, 0, 255],
+        stroke: true,
+        stroke_color: [0, 0, 0, 255],
         stroke_width: 1.0,
     });
     let visible = DocRect::new(0, 0, 200, 200);
@@ -227,8 +233,10 @@ fn shape_instance_marks_outline_shapes_as_unfilled() {
             end: (10.0, 10.0),
             half_width: 1.0,
             fill: false,
+            stroke: true,
         },
         color: [1, 2, 3, 255],
+        stroke_color: [1, 2, 3, 255],
     };
     assert_eq!(shape_instance(&shape, None).fill, 0.0);
 }

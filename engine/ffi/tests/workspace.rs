@@ -451,6 +451,7 @@ fn workspace_switch_opens_the_named_project() {
             zoom_unit: 0.0,
             last_shape_tool: 0,
             last_select_tool: 0,
+            is_fit: 0,
         };
         assert_eq!(calm_engine_state(engine.ptr, &mut state), CalmStatus::Ok);
         assert_eq!(state.width, 32);
@@ -509,6 +510,7 @@ fn workspace_switch_restores_viewport() {
             zoom_unit: 0.0,
             last_shape_tool: 0,
             last_select_tool: 0,
+            is_fit: 0,
         };
         assert_eq!(calm_engine_state(engine.ptr, &mut state), CalmStatus::Ok);
         assert!(

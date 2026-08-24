@@ -220,6 +220,8 @@ fn paths_output_adds_vector_layer() {
         closed: false,
         fill: false,
         color: [0, 0, 0, 255],
+        stroke: true,
+        stroke_color: [0, 0, 0, 255],
         stroke_width: 1.0,
     }];
     apply_output(&mut doc, 0, OpOutput::Paths(paths)).unwrap();

@@ -14,6 +14,7 @@ from _helpers import (
     load_tokens,
     swift_color_lit,
     token_colors,
+    token_control,
     token_presets,
     token_radius,
     token_space,
@@ -21,6 +22,7 @@ from _helpers import (
     token_window,
 )
 from constants import (
+    CONTROL_KEYS,
     ENCODING_UTF8,
     MSG_WROTE,
     RADIUS_KEYS,
@@ -34,6 +36,7 @@ def generate_tokens_swift() -> Path:
     tokens = load_tokens()
     radius = token_radius(tokens)
     space = token_space(tokens)
+    control = token_control(tokens)
     typ = token_type(tokens)
     window = token_window(tokens)
     colors = token_colors(tokens)
@@ -52,6 +55,9 @@ def generate_tokens_swift() -> Path:
     lines += ["    }", "", "    enum Space {"]
     for key in SPACE_KEYS:
         lines.append(f"        static let {key}: CGFloat = {space[key]}")
+    lines += ["    }", "", "    enum Control {"]
+    for key in CONTROL_KEYS:
+        lines.append(f"        static let {key}: CGFloat = {control[key]}")
     lines += ["    }", "", "    enum TypeSize {"]
     for json_key, swift_name in TYPE_KEYS:
         lines.append(f"        static let {swift_name}: CGFloat = {typ[json_key]}")

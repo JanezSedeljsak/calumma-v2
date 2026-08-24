@@ -41,6 +41,12 @@ pub const INK_OPACITY_MAX: f32 = 1.0;
 pub const INK_OPACITY_DEFAULT: f32 = 1.0;
 
 pub const FIT_PADDING: f32 = 0.99;
+/// How far the camera may drift from a fit and still read as fitted: a thousandth of the
+/// zoom, and a pixel of pan. The Fit control lights up while this holds, so the tolerance
+/// exists to absorb float round-trips through `zoom_unit`, not to be generous — a real
+/// nudge of the board has to switch it off.
+pub const FIT_MATCH_ZOOM_TOLERANCE: f32 = 1e-3;
+pub const FIT_MATCH_PAN_TOLERANCE: f32 = 1.0;
 pub const ZOOM_STEP: f32 = 1.25;
 pub const MIN_ZOOM_FILL: f32 = 0.5;
 pub const MAX_ZOOM_IN_FACTOR: f32 = 10.0;

@@ -18,6 +18,10 @@ enum Tokens {
         static let xxl: CGFloat = 32.0
     }
 
+    enum Control {
+        static let padY: CGFloat = 6.0
+    }
+
     enum TypeSize {
         static let label: CGFloat = 10.0
         static let labelTracking: CGFloat = 0.08

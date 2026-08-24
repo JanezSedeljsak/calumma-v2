@@ -154,8 +154,10 @@ fn an_overview_includes_a_vector_layer() {
             end: (63.0, 63.0),
             half_width: 1.0,
             fill: true,
+            stroke: false,
         },
         color: [0, 200, 0, 255],
+        stroke_color: [0, 200, 0, 255],
     })];
 
     let (w, _, rgba) = d.composite_overview(8);
@@ -231,8 +233,10 @@ fn a_mixed_document_reads_the_same_through_the_overview_and_the_flatten() {
             end: (58.0, 58.0),
             half_width: 1.0,
             fill: true,
+            stroke: false,
         },
         color: [0, 90, 220, 255],
+        stroke_color: [0, 90, 220, 255],
     })];
 
     let (w, h, overview) = d.composite_overview(64);

@@ -1190,3 +1190,84 @@ fn shrinking_a_layer_box_discards_the_pixels_outside_it() {
     let after = doc.layer_bounds(1).unwrap();
     assert_eq!(after.2 - after.0, 10.0, "the box reports its new width");
 }
+
+fn drag_rect(doc: &mut Document, start: (f32, f32), end: (f32, f32)) {
+    let (s0x, s0y) = doc.camera.to_screen(start.0, start.1);
+    let (s1x, s1y) = doc.camera.to_screen(end.0, end.1);
+    doc.pointer_down(s0x, s0y);
+    doc.pointer_move(s1x, s1y);
+    doc.pointer_up(s1x, s1y);
+}
+
+fn shape_doc() -> Document {
+    let mut doc = Document::new("p".into(), "t", 256, 256);
+    doc.tool = Tool::Rect;
+    doc.color = [255, 255, 255, 255];
+    doc.stroke_color = [0, 0, 0, 255];
+    doc.resize_viewport(256.0, 256.0, 1.0);
+    doc.fit_to_view();
+    doc
+}
+
+#[test]
+fn a_shape_commits_its_fill_and_its_border_in_their_own_colours() {
+    let mut doc = shape_doc();
+    doc.fill = true;
+    doc.stroke = true;
+    doc.brush_size = 4.0;
+    drag_rect(&mut doc, (20.0, 20.0), (60.0, 60.0));
+    assert_eq!(pixel(&doc, doc.active_layer, 40, 40), [255, 255, 255, 255]);
+    assert_eq!(pixel(&doc, doc.active_layer, 20, 40), [0, 0, 0, 255]);
+}
+
+#[test]
+fn turning_the_fill_off_leaves_the_border_and_an_empty_middle() {
+    let mut doc = shape_doc();
+    doc.fill = false;
+    doc.stroke = true;
+    doc.brush_size = 4.0;
+    drag_rect(&mut doc, (20.0, 20.0), (60.0, 60.0));
+    assert_eq!(pixel(&doc, doc.active_layer, 40, 40), [0, 0, 0, 0]);
+    assert_eq!(pixel(&doc, doc.active_layer, 20, 40), [0, 0, 0, 255]);
+}
+
+#[test]
+fn turning_the_border_off_leaves_the_fill_reaching_its_own_edge() {
+    let mut doc = shape_doc();
+    doc.fill = true;
+    doc.stroke = false;
+    doc.brush_size = 4.0;
+    drag_rect(&mut doc, (20.0, 20.0), (60.0, 60.0));
+    assert_eq!(pixel(&doc, doc.active_layer, 40, 40), [255, 255, 255, 255]);
+    assert_eq!(pixel(&doc, doc.active_layer, 22, 40), [255, 255, 255, 255]);
+    assert_eq!(pixel(&doc, doc.active_layer, 18, 40), [0, 0, 0, 0]);
+}
+
+#[test]
+fn a_line_stays_on_the_ink_swatch_whatever_the_stroke_swatch_says() {
+    let mut doc = shape_doc();
+    doc.tool = Tool::Line;
+    doc.color = [200, 0, 0, 255];
+    doc.stroke_color = [0, 0, 255, 255];
+    doc.brush_size = 4.0;
+    drag_rect(&mut doc, (20.0, 40.0), (60.0, 40.0));
+    assert_eq!(pixel(&doc, doc.active_layer, 40, 40), [200, 0, 0, 255]);
+}
+
+#[test]
+fn a_vector_shape_carries_both_colours_into_the_item() {
+    let mut doc = shape_doc();
+    doc.vector_mode = true;
+    doc.fill = true;
+    doc.stroke = true;
+    let layer = doc.add_vector_layer("V");
+    doc.set_active_layer(layer);
+    drag_rect(&mut doc, (20.0, 20.0), (60.0, 60.0));
+    let items = doc.layers[layer].content.items().unwrap();
+    let VectorItem::Shape(shape) = &items[0] else {
+        panic!("expected a parametric shape");
+    };
+    assert_eq!(shape.color, [255, 255, 255, 255]);
+    assert_eq!(shape.stroke_color, [0, 0, 0, 255]);
+    assert!(shape.shape.fill && shape.shape.stroke);
+}

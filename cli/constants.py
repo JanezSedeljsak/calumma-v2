@@ -66,6 +66,7 @@ PKG_CORE = f"{CRATE_PREFIX}core"
 
 TOKEN_KEY_RADIUS = "radius"
 TOKEN_KEY_SPACE = "space"
+TOKEN_KEY_CONTROL = "control"
 TOKEN_KEY_WINDOW = "window"
 TOKEN_KEY_TYPE = "type"
 TOKEN_KEY_COLOR = "color"
@@ -94,6 +95,7 @@ COLOR_KEYS = (
 
 RADIUS_KEYS = ("sm", "md", "lg", "window", "island")
 SPACE_KEYS = ("xs", "sm", "md", "lg", "xl", "xxl")
+CONTROL_KEYS = ("padY",)
 WINDOW_KEYS = (
     "mainWidth",
     "mainHeight",

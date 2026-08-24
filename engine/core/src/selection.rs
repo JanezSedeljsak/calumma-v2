@@ -57,6 +57,7 @@ impl SelectionShape {
                     end: *end,
                     half_width: 0.0,
                     fill: true,
+                    stroke: false,
                 };
                 shape.coverage(x, y) > 0.5
             }
@@ -67,6 +68,7 @@ impl SelectionShape {
                     end: *end,
                     half_width: 0.0,
                     fill: true,
+                    stroke: false,
                 };
                 shape.coverage(x, y) > 0.5
             }

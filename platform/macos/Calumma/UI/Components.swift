@@ -125,6 +125,9 @@ struct CalmIsland<Content: View>: View {
     }
 }
 
+/// Text and number inputs sit on `Tokens.Control.padY` rather than the spacing scale: a
+/// control's height is a control metric, and every field in the app moves together when it
+/// changes. Horizontal padding stays on the spacing scale — only the height was overgenerous.
 struct CalmField: View {
     @Environment(\.themeColors) private var colors
     @Binding var text: String
@@ -135,7 +138,7 @@ struct CalmField: View {
             .textFieldStyle(.plain)
             .focused($focused)
             .padding(.horizontal, Tokens.Space.md)
-            .padding(.vertical, Tokens.Space.md)
+            .padding(.vertical, Tokens.Control.padY)
             .calmSurface(bordered: true, focused: focused)
             .foregroundStyle(colors.text)
     }
@@ -153,7 +156,7 @@ struct CalmNumberField: View {
             .focused($focused)
             .frame(width: width)
             .padding(.horizontal, Tokens.Space.md)
-            .padding(.vertical, Tokens.Space.md)
+            .padding(.vertical, Tokens.Control.padY)
             .calmSurface(bordered: true, focused: focused)
             .foregroundStyle(colors.text)
     }

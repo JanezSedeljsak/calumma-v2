@@ -1,32 +1,47 @@
 //! A vector item as SVG markup. Kept apart from `vector` because emitting a file is a
 //! different job from being an item: the model side answers where an item is and how it is
 //! edited, this side answers what it looks like written down.
-use crate::shape::Tool;
+use crate::shape::{Shape, Tool};
 use crate::transform::{bounds_center, LayerTransform};
 use crate::vector::{items_bounds, VectorItem};
 
-fn svg_paint(color: [u8; 4], stroke_width: f32, filled: bool) -> String {
-    let alpha = color[3] as f32 / 255.0;
-    let (r, g, b) = (color[0], color[1], color[2]);
-    if filled {
-        format!("fill=\"rgb({r},{g},{b})\" fill-opacity=\"{alpha}\"")
-    } else {
-        format!(
-            "fill=\"none\" stroke=\"rgb({r},{g},{b})\" stroke-opacity=\"{alpha}\" stroke-width=\"{stroke_width}\""
-        )
+/// Fill and stroke as the two independent SVG attributes they natively are, which is a
+/// closer match to the format than the either/or this used to emit. A part that is switched
+/// off is `fill="none"` / no stroke attributes at all, so the file never carries a colour
+/// for something the board does not draw.
+fn svg_paint(fill: Option<[u8; 4]>, stroke: Option<([u8; 4], f32)>) -> String {
+    let mut out = match fill {
+        Some(color) => {
+            let (r, g, b) = (color[0], color[1], color[2]);
+            let alpha = color[3] as f32 / 255.0;
+            format!("fill=\"rgb({r},{g},{b})\" fill-opacity=\"{alpha}\"")
+        }
+        None => "fill=\"none\"".to_string(),
+    };
+    if let Some((color, width)) = stroke {
+        let (r, g, b) = (color[0], color[1], color[2]);
+        let alpha = color[3] as f32 / 255.0;
+        out.push_str(&format!(
+            " stroke=\"rgb({r},{g},{b})\" stroke-opacity=\"{alpha}\" stroke-width=\"{width}\""
+        ));
     }
+    out
 }
 
-fn polygon_svg(verts: &[(f32, f32)], color: [u8; 4], width: f32, filled: bool) -> String {
+fn shape_paint(shape: &Shape, fill: [u8; 4], stroke: [u8; 4]) -> String {
+    svg_paint(
+        (shape.fill && shape.tool.takes_fill()).then_some(fill),
+        (!shape.tool.takes_fill() || shape.stroke).then_some((stroke, shape.half_width * 2.0)),
+    )
+}
+
+fn polygon_svg(verts: &[(f32, f32)], paint: &str) -> String {
     let points = verts
         .iter()
         .map(|(x, y)| format!("{x},{y}"))
         .collect::<Vec<_>>()
         .join(" ");
-    format!(
-        "<polygon points=\"{points}\" {} />",
-        svg_paint(color, width, filled)
-    )
+    format!("<polygon points=\"{points}\" {paint} />")
 }
 
 /// SVG for one item. A parametric shape emits the matching SVG *primitive* rather than a
@@ -45,7 +60,10 @@ pub fn item_svg(item: &VectorItem) -> Option<String> {
             }
             Some(format!(
                 "<path d=\"{d}\" {} />",
-                svg_paint(p.color, p.stroke_width, p.fill)
+                svg_paint(
+                    (p.fill && p.closed).then_some(p.color),
+                    p.stroke.then_some((p.stroke_color, p.stroke_width)),
+                )
             ))
         }
         VectorItem::Shape(s) => {
@@ -54,7 +72,7 @@ pub fn item_svg(item: &VectorItem) -> Option<String> {
             let (x1, y1) = shape.end;
             let (min_x, min_y) = (x0.min(x1), y0.min(y1));
             let (w, h) = ((x1 - x0).abs(), (y1 - y0).abs());
-            let paint = svg_paint(s.color, shape.half_width * 2.0, shape.fill);
+            let paint = shape_paint(&shape, s.color, s.stroke_color);
             Some(match shape.tool {
                 Tool::Rect => {
                     format!(
@@ -71,22 +89,9 @@ pub fn item_svg(item: &VectorItem) -> Option<String> {
                 Tool::Line => {
                     format!("<line x1=\"{x0}\" y1=\"{y0}\" x2=\"{x1}\" y2=\"{y1}\" {paint} />")
                 }
-                Tool::Triangle => polygon_svg(
-                    &shape.triangle_vertices(),
-                    s.color,
-                    shape.half_width * 2.0,
-                    shape.fill,
-                ),
-                Tool::Pentagon => polygon_svg(
-                    &shape.pentagon_vertices(),
-                    s.color,
-                    shape.half_width * 2.0,
-                    shape.fill,
-                ),
-                Tool::Arrow => {
-                    let verts = shape.arrow_outline();
-                    polygon_svg(&verts, s.color, shape.half_width * 2.0, false)
-                }
+                Tool::Triangle => polygon_svg(&shape.triangle_vertices(), &paint),
+                Tool::Pentagon => polygon_svg(&shape.pentagon_vertices(), &paint),
+                Tool::Arrow => polygon_svg(&shape.arrow_outline(), &paint),
                 _ => return None,
             })
         }

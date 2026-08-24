@@ -109,6 +109,7 @@ struct L10nCatalog: Equatable {
     var artworkImportFailed: String { self["artworkImportFailed"] }
     var layers: String { self["layers"] }
     var fill: String { self["fill"] }
+    var stroke: String { self["stroke"] }
     var memoryUsed: String { self["memoryUsed"] }
     var vectorMode: String { self["vectorMode"] }
     var vectorModeHint: String { self["vectorModeHint"] }
@@ -216,6 +217,7 @@ struct L10nCatalog: Equatable {
     var tolerance: String { self["tolerance"] }
     var color: String { self["color"] }
     var primaryColor: String { self["primaryColor"] }
+    var strokeColor: String { self["strokeColor"] }
     var secondaryColor: String { self["secondaryColor"] }
     var hex: String { self["hex"] }
 

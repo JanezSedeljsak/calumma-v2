@@ -26,11 +26,22 @@ final class AppModel: ObservableObject {
     @Published var color: Color = Color(red: 0.1, green: 0.1, blue: 0.1) {
         didSet {
             quickColors[activeQuickColorIndex] = color
-            if !editingHSB {
+            if !editingHSB, !editingStroke {
                 hsb = HSBColor(color)
             }
         }
     }
+    /// The shape tools' outline colour, edited through the same picker as the ink but stored
+    /// apart from it — a rectangle can be white with a black border.
+    @Published var strokeColor: Color = .black {
+        didSet {
+            if !editingHSB, editingStroke {
+                hsb = HSBColor(strokeColor)
+            }
+        }
+    }
+    /// Which of the two the picker is currently pointed at.
+    @Published private(set) var editingStroke = false
     @Published var quickColors: [Color] = [
         Color(red: 0.1, green: 0.1, blue: 0.1),
         Color.white,
@@ -46,6 +57,7 @@ final class AppModel: ObservableObject {
     @Published var brush: CalmBrush = .pen
     @Published var eraserHardness: Float = Engine.eraserHardnessDefault
     @Published var fill = false
+    @Published var stroke = true
     @Published var vectorMode = false
     @Published var layersOpen = true
     @Published var spacePan = false
@@ -484,8 +496,28 @@ final class AppModel: ObservableObject {
 
     func selectQuickColor(_ index: Int) {
         guard quickColors.indices.contains(index) else { return }
+        editingStroke = false
         activeQuickColorIndex = index
         color = quickColors[index]
+        hsb = HSBColor(color)
+    }
+
+    func selectStrokeColor() {
+        editingStroke = true
+        hsb = HSBColor(strokeColor)
+    }
+
+    /// What the gradient field, hue slider and hex box read and write. One picker serves the
+    /// ink and the stroke; this is the only thing that knows which.
+    var editedColor: Color {
+        get { editingStroke ? strokeColor : color }
+        set {
+            if editingStroke {
+                strokeColor = newValue
+            } else {
+                color = newValue
+            }
+        }
     }
 
     func applyEyedropperSample(_ next: Color, at point: CGPoint) {
@@ -504,7 +536,7 @@ final class AppModel: ObservableObject {
     func updateHSB(_ next: HSBColor) {
         hsb = next
         editingHSB = true
-        color = next.color
+        editedColor = next.color
         editingHSB = false
     }
 
@@ -525,6 +557,8 @@ final class AppModel: ObservableObject {
         engine.setBrush(brush)
         engine.setEraserHardness(eraserHardness)
         engine.setFill(fill)
+        engine.setStroke(stroke)
+        engine.setStrokeColor(strokeColor)
         engine.setVectorMode(vectorMode)
         engine.setDark(theme.isDark)
         engine.setBoardColors(
@@ -549,6 +583,12 @@ final class AppModel: ObservableObject {
         // layer — the panel has to hear about that.
         let wasTyping = engine.textEditing
         tool = next
+        // The stroke swatch is only offered for the tools that enclose an area, so the picker
+        // cannot be left pointed at a swatch that is no longer on screen.
+        if !next.takesFill, editingStroke {
+            editingStroke = false
+            hsb = HSBColor(color)
+        }
         if next != .eyedropper {
             clearEyedropperLoupe()
         }

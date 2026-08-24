@@ -66,8 +66,10 @@ fn layer_at_finds_a_visible_vector_layer() {
             end: (50.0, 50.0),
             half_width: 1.0,
             fill: true,
+            stroke: false,
         },
         color: [255, 0, 0, 255],
+        stroke_color: [255, 0, 0, 255],
     })];
     assert_eq!(doc.layer_at(30.0, 30.0), Some(layer));
 }

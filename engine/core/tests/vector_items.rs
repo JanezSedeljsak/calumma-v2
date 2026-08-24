@@ -19,8 +19,10 @@ fn rect_item(start: (f32, f32), end: (f32, f32)) -> VectorItem {
             end,
             half_width: 1.0,
             fill: true,
+            stroke: false,
         },
         color: [255, 0, 0, 255],
+        stroke_color: [255, 0, 0, 255],
     })
 }
 
@@ -29,7 +31,9 @@ fn path_item(points: Vec<(f32, f32)>) -> VectorItem {
         points,
         closed: false,
         fill: false,
+        stroke: true,
         color: [0, 0, 255, 255],
+        stroke_color: [0, 0, 255, 255],
         stroke_width: 4.0,
     })
 }
@@ -39,7 +43,9 @@ fn filled_rect_path(x0: f32, y0: f32, x1: f32, y1: f32) -> VectorItem {
         points: vec![(x0, y0), (x1, y0), (x1, y1), (x0, y1)],
         closed: true,
         fill: true,
+        stroke: false,
         color: [255, 0, 0, 255],
+        stroke_color: [255, 0, 0, 255],
         stroke_width: 1.0,
     })
 }
@@ -154,8 +160,10 @@ fn an_outlined_shape_is_picked_from_the_inside_too() {
             end: (60.0, 60.0),
             half_width: 1.5,
             fill: false,
+            stroke: true,
         },
         color: [255, 0, 0, 255],
+        stroke_color: [255, 0, 0, 255],
     });
     let layer = vector_layer(&mut doc, vec![hollow]);
     assert_eq!(
@@ -178,8 +186,10 @@ fn a_line_has_no_inside_to_pick() {
                 end: (90.0, 90.0),
                 half_width: 1.0,
                 fill: false,
+                stroke: true,
             },
             color: [0, 0, 0, 255],
+            stroke_color: [0, 0, 0, 255],
         })],
     );
     assert!(doc.vector_item_at(50.0, 50.0).is_some());
@@ -479,9 +489,21 @@ fn assert_bounds(actual: (f32, f32, f32, f32), expected: (f32, f32, f32, f32)) {
     }
 }
 
-/// A `rect_item` has `half_width` 1, so `Shape::padding` puts its box 2px outside its
-/// endpoints — the pad every resize assertion below has to account for.
-const RECT_PAD: f32 = 2.0;
+/// A `rect_item` is filled with no outline, so `Shape::padding` is the antialiased pixel
+/// alone — the pad every resize assertion below has to account for.
+const RECT_PAD: f32 = 1.0;
+
+/// Where a `rect_item((10, 10), (40, 40))` lands after its bottom-right corner is dragged
+/// 20px out along both axes: the drag reaches the *ink* box, so the pad is on both ends of
+/// the answer as well as on the corner that was grabbed.
+fn dragged_rect_bounds() -> (f32, f32, f32, f32) {
+    (
+        -10.0 - RECT_PAD,
+        -10.0 - RECT_PAD,
+        60.0 + RECT_PAD,
+        60.0 + RECT_PAD,
+    )
+}
 
 #[test]
 fn a_corner_handle_resizes_the_item_not_the_layer() {
@@ -502,7 +524,7 @@ fn a_corner_handle_resizes_the_item_not_the_layer() {
     drag(&mut doc, corner, (corner.0 + 20.0, corner.1 + 20.0));
 
     let resized = item_bounds(&doc, layer, 0);
-    assert_bounds(resized, (-12.0, -12.0, 62.0, 62.0));
+    assert_bounds(resized, dragged_rect_bounds());
     assert_eq!(
         item_bounds(&doc, layer, 1),
         untouched,
@@ -608,8 +630,10 @@ fn a_padded_item_resizes_to_exactly_where_the_pointer_is() {
             end: (100.0, 80.0),
             half_width: 4.0,
             fill: false,
+            stroke: true,
         },
         color: [0, 0, 0, 255],
+        stroke_color: [0, 0, 0, 255],
     });
     let layer = vector_layer(&mut doc, vec![arrow]);
     doc.set_active_layer(layer);
@@ -662,7 +686,7 @@ fn a_resize_stays_exact_over_many_frames() {
     }
     doc.end_vector_item_drag();
 
-    assert_bounds(item_bounds(&doc, layer, 0), (-12.0, -12.0, 62.0, 62.0));
+    assert_bounds(item_bounds(&doc, layer, 0), dragged_rect_bounds());
 }
 
 #[test]
@@ -680,9 +704,10 @@ fn a_resize_inside_a_scaled_layer_reads_the_pointer_through_the_layer() {
     doc.set_shift_held(true);
 
     let corner = item_corner(&doc, 2);
+    let scaled_corner = 25.0 + (15.0 + RECT_PAD) * 2.0;
     assert_bounds(
         (corner.0, corner.1, corner.0, corner.1),
-        (59.0, 59.0, 59.0, 59.0),
+        (scaled_corner, scaled_corner, scaled_corner, scaled_corner),
     );
     drag(&mut doc, corner, (corner.0 + 20.0, corner.1 + 20.0));
 
@@ -702,7 +727,7 @@ fn the_move_tool_resizes_from_the_same_corners() {
 
     let corner = item_corner(&doc, 2);
     drag(&mut doc, corner, (corner.0 + 20.0, corner.1 + 20.0));
-    assert_bounds(item_bounds(&doc, layer, 0), (-12.0, -12.0, 62.0, 62.0));
+    assert_bounds(item_bounds(&doc, layer, 0), dragged_rect_bounds());
 }
 
 #[test]

@@ -41,7 +41,9 @@ fn rect(start: (f32, f32), end: (f32, f32), color: [u8; 4]) -> VectorItem {
             end,
             half_width: 1.0,
             fill: true,
+            stroke: false,
         },
+        stroke_color: color,
         color,
     })
 }

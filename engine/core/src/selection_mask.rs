@@ -10,6 +10,7 @@
 //! `Shape::coverage` call the analytic shapes make.
 
 use crate::tile::DocRect;
+use rayon::prelude::*;
 
 /// One edge of the selection boundary, in document coordinates: `[x0, y0, x1, y1]`.
 pub type OutlineEdge = [f32; 4];
@@ -39,6 +40,31 @@ impl SelectionMask {
             bits: vec![0u8; stride * height as usize],
             outline: Vec::new(),
         }
+    }
+
+    /// A mask built from a predicate, one row per rayon task. Invert asks the predicate
+    /// `width × height` times — 67 million times on an 8K document — so unlike the wand's
+    /// flood, which only ever visits what it reaches, this one is worth spreading across
+    /// cores. Rows are independent because each owns its own `stride` bytes.
+    pub fn from_predicate<F>(origin: (i32, i32), width: u32, height: u32, inside: F) -> Self
+    where
+        F: Fn(i32, i32) -> bool + Sync,
+    {
+        let mut mask = Self::new(origin, width, height);
+        let stride = mask.stride;
+        let w = width as i32;
+        mask.bits
+            .par_chunks_mut(stride)
+            .enumerate()
+            .for_each(|(row, bytes)| {
+                let y = origin.1 + row as i32;
+                for lx in 0..w {
+                    if inside(origin.0 + lx, y) {
+                        bytes[lx as usize / 8] |= 1u8 << (lx % 8);
+                    }
+                }
+            });
+        mask
     }
 
     fn index(&self, x: i32, y: i32) -> Option<(usize, u8)> {

@@ -118,8 +118,9 @@ pub(crate) struct PreviewUniforms {
     pub(crate) half_width: f32,
     pub(crate) tool: f32,
     pub(crate) fill: f32,
-    pub(crate) _pad: f32,
+    pub(crate) shape_stroke: f32,
     pub(crate) stroke_ink: [f32; 4],
+    pub(crate) shape_stroke_color: [f32; 4],
 }
 
 /// A tile GPU-resident in the shared atlas: just which array layer holds it. Texture and
@@ -1648,27 +1649,37 @@ impl Renderer {
             ink[2] as f32 / 255.0,
             ink[3] as f32 / 255.0,
         ];
-        let (p0, p1, tool, half_width, fill, shape_color) = match preview_shape {
-            Some(s) => (
-                [s.start.0, s.start.1],
-                [s.end.0, s.end.1],
-                s.tool as u32 as f32,
-                s.half_width,
-                if s.fill { 1.0 } else { 0.0 },
-                color,
-            ),
-            None => match selection_rect_or_ellipse(doc) {
-                Some((p0, p1, sel_tool)) => (
-                    p0,
-                    p1,
-                    sel_tool as u32 as f32,
-                    SELECTION_OUTLINE_WIDTH,
-                    0.0,
-                    SELECTION_OUTLINE_COLOR,
-                ),
-                None => ([0.0, 0.0], [0.0, 0.0], 0.0, 0.0, 0.0, color),
-            },
-        };
+        let (p0, p1, tool, half_width, fill, shape_stroke, shape_color, shape_stroke_color) =
+            match preview_shape {
+                Some(s) => {
+                    let (fill_ink, stroke_ink) = doc.shape_paint(s.tool);
+                    (
+                        [s.start.0, s.start.1],
+                        [s.end.0, s.end.1],
+                        s.tool as u32 as f32,
+                        s.half_width,
+                        f32::from(u8::from(s.fill)),
+                        f32::from(u8::from(s.stroke)),
+                        rgba_unit(fill_ink),
+                        rgba_unit(stroke_ink),
+                    )
+                }
+                None => match selection_rect_or_ellipse(doc) {
+                    // The marquee is an outline and nothing else, so it rides in on the stroke
+                    // half of the same uniform the shape preview uses.
+                    Some((p0, p1, sel_tool)) => (
+                        p0,
+                        p1,
+                        sel_tool as u32 as f32,
+                        SELECTION_OUTLINE_WIDTH,
+                        0.0,
+                        1.0,
+                        SELECTION_OUTLINE_COLOR,
+                        SELECTION_OUTLINE_COLOR,
+                    ),
+                    None => ([0.0, 0.0], [0.0, 0.0], 0.0, 0.0, 0.0, 0.0, color, color),
+                },
+            };
         // Written every frame, not only on the ones that build an overlay: the guide pass reads
         // the camera out of this buffer, and guides are board furniture that has to keep up with
         // a pan the overlay sits out.
@@ -1684,8 +1695,9 @@ impl Renderer {
             half_width,
             tool,
             fill,
-            _pad: 0.0,
+            shape_stroke,
             stroke_ink: rgba_unit(doc.stroke_ink()),
+            shape_stroke_color,
         };
         self.queue
             .write_buffer(&self.preview_buf, 0, bytemuck::bytes_of(&preview));
@@ -2091,16 +2103,26 @@ const VECTOR_SHAPE_ATTRS: &[wgpu::VertexAttribute] = &[
     wgpu::VertexAttribute {
         offset: 32,
         shader_location: 3,
-        format: wgpu::VertexFormat::Float32,
+        format: wgpu::VertexFormat::Float32x4,
     },
     wgpu::VertexAttribute {
-        offset: 36,
+        offset: 48,
         shader_location: 4,
         format: wgpu::VertexFormat::Float32,
     },
     wgpu::VertexAttribute {
-        offset: 40,
+        offset: 52,
         shader_location: 5,
+        format: wgpu::VertexFormat::Float32,
+    },
+    wgpu::VertexAttribute {
+        offset: 56,
+        shader_location: 6,
+        format: wgpu::VertexFormat::Float32,
+    },
+    wgpu::VertexAttribute {
+        offset: 60,
+        shader_location: 7,
         format: wgpu::VertexFormat::Float32,
     },
 ];

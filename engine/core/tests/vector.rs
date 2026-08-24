@@ -13,8 +13,10 @@ fn rect_shape(start: (f32, f32), end: (f32, f32), fill: bool) -> VectorShape {
             end,
             half_width: 1.0,
             fill,
+            stroke: !fill,
         },
         color: [10, 20, 30, 255],
+        stroke_color: [10, 20, 30, 255],
     }
 }
 
@@ -24,6 +26,8 @@ fn open_path(points: Vec<(f32, f32)>) -> VectorPath {
         closed: false,
         fill: false,
         color: [1, 2, 3, 255],
+        stroke: true,
+        stroke_color: [1, 2, 3, 255],
         stroke_width: 4.0,
     }
 }
@@ -58,6 +62,7 @@ fn closed_filled_path_bounds_have_no_pad() {
     let mut p = open_path(vec![(10.0, 10.0), (20.0, 10.0), (20.0, 20.0)]);
     p.closed = true;
     p.fill = true;
+    p.stroke = false;
     let (x0, y0, x1, y1) = VectorItem::Path(p).bounds().unwrap();
     assert_eq!((x0, y0, x1, y1), (10.0, 10.0, 20.0, 20.0));
 }
@@ -231,8 +236,9 @@ fn item_from_shape_rejects_tools_with_no_vector_form() {
         end: (1.0, 1.0),
         half_width: 1.0,
         fill: false,
+        stroke: true,
     };
-    assert_eq!(item_from_shape(pen, [0, 0, 0, 255]), None);
+    assert_eq!(item_from_shape(pen, [0, 0, 0, 255], [0, 0, 0, 255]), None);
 }
 
 #[test]
@@ -243,8 +249,9 @@ fn item_from_shape_wraps_a_shape_tool() {
         end: (1.0, 1.0),
         half_width: 1.0,
         fill: true,
+        stroke: false,
     };
-    let item = item_from_shape(rect, [1, 2, 3, 4]).unwrap();
+    let item = item_from_shape(rect, [1, 2, 3, 4], [5, 6, 7, 8]).unwrap();
     assert_eq!(item.color(), [1, 2, 3, 4]);
 }
 
@@ -305,8 +312,10 @@ fn item_svg_covers_every_shape_tool() {
                 end: (10.0, 10.0),
                 half_width: 1.0,
                 fill: true,
+                stroke: false,
             },
             color: [0, 0, 0, 255],
+            stroke_color: [0, 0, 0, 255],
         };
         let svg = item_svg(&VectorItem::Shape(shape)).unwrap();
         assert!(svg.starts_with(tag), "{tool:?} -> {svg}");
@@ -322,8 +331,10 @@ fn item_svg_arrow_is_always_an_outline_even_when_the_tool_is_marked_filled() {
             end: (10.0, 10.0),
             half_width: 1.0,
             fill: true,
+            stroke: false,
         },
         color: [0, 0, 0, 255],
+        stroke_color: [0, 0, 0, 255],
     };
     let svg = item_svg(&VectorItem::Shape(shape)).unwrap();
     assert!(svg.contains("fill=\"none\""));
@@ -338,8 +349,10 @@ fn item_svg_is_none_for_a_tool_with_no_svg_primitive() {
             end: (10.0, 10.0),
             half_width: 1.0,
             fill: false,
+            stroke: true,
         },
         color: [0, 0, 0, 255],
+        stroke_color: [0, 0, 0, 255],
     };
     assert_eq!(item_svg(&VectorItem::Shape(shape)), None);
 }
@@ -473,8 +486,10 @@ fn an_arrows_ink_pad_accounts_for_its_head() {
             end: (100.0, 0.0),
             half_width: 4.0,
             fill: false,
+            stroke: true,
         },
         color: [0, 0, 0, 255],
+        stroke_color: [0, 0, 0, 255],
     });
     let line = VectorItem::Shape(VectorShape {
         shape: Shape {
@@ -483,8 +498,10 @@ fn an_arrows_ink_pad_accounts_for_its_head() {
             end: (100.0, 0.0),
             half_width: 4.0,
             fill: false,
+            stroke: true,
         },
         color: [0, 0, 0, 255],
+        stroke_color: [0, 0, 0, 255],
     });
     assert!(
         arrow.ink_pad() > line.ink_pad() + 10.0,
@@ -501,6 +518,7 @@ fn only_stroked_geometry_carries_an_ink_pad() {
     let mut filled = open_path(vec![(0.0, 0.0), (10.0, 0.0), (10.0, 10.0)]);
     filled.closed = true;
     filled.fill = true;
+    filled.stroke = false;
     assert_eq!(VectorItem::Path(filled.clone()).ink_pad(), 0.0);
 
     let stroked = open_path(vec![(0.0, 0.0), (10.0, 0.0)]);
@@ -622,4 +640,49 @@ fn rasterize_into_rgba_leaves_the_buffer_alone_for_a_transparent_item() {
     let mut buf = vec![7u8; 32 * 32 * 4];
     rasterize_into_rgba(&[VectorItem::Shape(invisible)], None, &mut buf, 32, 32);
     assert!(buf.iter().all(|b| *b == 7), "nothing under it changed");
+}
+
+#[test]
+fn item_svg_emits_a_real_fill_and_a_real_stroke_together() {
+    let mut shape = rect_shape((0.0, 0.0), (10.0, 10.0), true);
+    shape.shape.stroke = true;
+    shape.stroke_color = [255, 0, 0, 255];
+    let svg = item_svg(&VectorItem::Shape(shape)).unwrap();
+    assert!(svg.contains("fill=\"rgb(10,20,30)\""), "{svg}");
+    assert!(svg.contains("stroke=\"rgb(255,0,0)\""), "{svg}");
+    assert!(svg.contains("stroke-width=\"2\""), "{svg}");
+}
+
+#[test]
+fn item_svg_omits_the_stroke_attributes_when_there_is_no_stroke() {
+    let shape = rect_shape((0.0, 0.0), (10.0, 10.0), true);
+    let svg = item_svg(&VectorItem::Shape(shape)).unwrap();
+    assert!(svg.contains("fill=\"rgb(10,20,30)\""), "{svg}");
+    assert!(!svg.contains("stroke="), "{svg}");
+}
+
+#[test]
+fn a_bordered_shape_paints_the_fill_under_the_stroke() {
+    let mut shape = rect_shape((0.0, 0.0), (40.0, 40.0), true);
+    shape.shape.stroke = true;
+    shape.shape.half_width = 3.0;
+    shape.stroke_color = [255, 0, 0, 255];
+    let item = VectorItem::Shape(shape);
+
+    let [fill, stroke] = item.samples(20.0, 20.0);
+    assert_eq!(fill, Some([10, 20, 30, 255]), "the middle is fill only");
+    assert_eq!(stroke, None);
+
+    let [fill, stroke] = item.samples(0.0, 20.0);
+    assert!(fill.is_some(), "the fill still reaches the edge");
+    assert_eq!(stroke, Some([255, 0, 0, 255]), "and the border sits on it");
+}
+
+#[test]
+fn a_stroked_path_samples_its_stroke_colour_not_its_fill_colour() {
+    let mut path = open_path(vec![(0.0, 0.0), (20.0, 0.0)]);
+    path.stroke_color = [9, 9, 9, 255];
+    let [fill, stroke] = VectorItem::Path(path).samples(10.0, 0.0);
+    assert_eq!(fill, None);
+    assert_eq!(stroke, Some([9, 9, 9, 255]));
 }

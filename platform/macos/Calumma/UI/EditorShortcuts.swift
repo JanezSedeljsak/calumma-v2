@@ -72,6 +72,14 @@ extension AppModel {
             engine.deselect()
             return true
         }
+        if flags.contains(.command), flags.contains(.shift), chars.lowercased() == "i" {
+            engine.invertSelection()
+            return true
+        }
+        if flags.contains(.command), chars.lowercased() == "a" {
+            engine.selectAll()
+            return true
+        }
         if flags.contains(.command), chars == "=" || chars == "+" {
             engine.stepZoom(in: true)
             return true
@@ -108,6 +116,7 @@ extension AppModel {
         case "g": selectTool(.bucket)
         case "i": selectTool(.eyedropper)
         case "f": fill.toggle()
+        case "s": stroke.toggle()
         case "v": vectorMode.toggle()
         case "0": engine.fit()
         case "[": brushSize = max(1, brushSize - 1)

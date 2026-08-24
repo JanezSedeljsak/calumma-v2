@@ -15,7 +15,7 @@ use crate::limits::{
 };
 use crate::palette::BoardColors;
 use crate::selection::{Selection, SelectionShape};
-use crate::shape::{Shape, Tool};
+use crate::shape::{ink_sample, Shape, Tool};
 use crate::text_edit::TextEdit;
 use crate::tile::{blend_over, blend_with_mode, DirtyChannel, DocRect, TileCoord, TileSet};
 use crate::transform::{bounds_center, clipped_pixel_span, corner_scale, LayerTransform};
@@ -331,9 +331,15 @@ pub struct Document {
     pub history: History,
     pub tool: Tool,
     pub color: [u8; 4],
+    /// The outline colour the shape tools use, independent of `color` so a rectangle can be
+    /// white with a black border. A shell knob like `color` and `fill`.
+    pub stroke_color: [u8; 4],
     pub brush_size: f32,
     pub ink_opacity: f32,
     pub fill: bool,
+    /// Whether the area shape tools draw an outline. Independent of `fill`: either, both, or
+    /// neither.
+    pub stroke: bool,
     pub dark_theme: bool,
     pub accent: [u8; 3],
     pub board_colors: BoardColors,
@@ -496,6 +502,14 @@ fn point_in_quad(p: (f32, f32), quad: [(f32, f32); 4]) -> bool {
     true
 }
 
+/// A colour with the ink-opacity slider folded into its alpha. The one place that happens,
+/// so a fill and its stroke cannot disagree about how translucent the shape is.
+fn glazed(color: [u8; 4], opacity: f32) -> [u8; 4] {
+    let mut rgba = color;
+    rgba[3] = ((color[3] as f32) * opacity).round().clamp(0.0, 255.0) as u8;
+    rgba
+}
+
 impl Document {
     pub fn new(id: String, name: impl Into<String>, width: u32, height: u32) -> Self {
         let width = width.max(1);
@@ -513,9 +527,11 @@ impl Document {
             history: History::default(),
             tool: Tool::Pen,
             color: DEFAULT_INK,
+            stroke_color: DEFAULT_INK,
             brush_size: BRUSH_SIZE_DEFAULT,
             ink_opacity: INK_OPACITY_DEFAULT,
             fill: false,
+            stroke: true,
             dark_theme: true,
             accent: crate::palette::random_project_color(),
             board_colors: BoardColors::fallback(true),
@@ -1333,6 +1349,7 @@ impl Document {
                 end: (dx, dy),
                 half_width: self.brush_size * 0.5,
                 fill: self.fill,
+                stroke: self.stroke,
             });
         }
     }
@@ -1370,6 +1387,7 @@ impl Document {
             shape.end = (dx, dy);
             shape.half_width = self.brush_size * 0.5;
             shape.fill = self.fill;
+            shape.stroke = self.stroke;
         }
         false
     }
@@ -1399,6 +1417,7 @@ impl Document {
             shape.end = (dx, dy);
             shape.half_width = self.brush_size * 0.5;
             shape.fill = self.fill;
+            shape.stroke = self.stroke;
             let Some(shape) = self.preview_shape() else {
                 return;
             };
@@ -1678,8 +1697,9 @@ impl Document {
         if !self.vector_mode && !self.active_layer_accepts_paint() {
             return;
         }
+        let (fill_color, stroke_color) = self.shape_paint(shape.tool);
         if self.vector_mode {
-            if let Some(item) = vector::item_from_shape(shape, self.ink_rgba()) {
+            if let Some(item) = vector::item_from_shape(shape, fill_color, stroke_color) {
                 self.push_vector_item(item);
                 return;
             }
@@ -1702,21 +1722,24 @@ impl Document {
             return;
         };
         let before = grid.snapshot_tiles(&coords);
-        let color = self.ink_rgba();
 
         let mut painted = false;
         if let Some(tiles) = self.layers.get_mut(active).and_then(|l| l.tiles_mut()) {
+            // Fill first, stroke over it — the same order the shader composites in, so a
+            // translucent border reads the same on the board as it does once committed.
             let touched = tiles.paint_rect(rect, |px, py, dst| {
-                let coverage = shape.coverage(px as f32 + 0.5, py as f32 + 0.5);
-                if coverage <= 0.0 {
-                    return None;
+                let (x, y) = (px as f32 + 0.5, py as f32 + 0.5);
+                let parts = [
+                    ink_sample(shape.fill_distance(x, y), fill_color),
+                    ink_sample(shape.stroke_distance(x, y), stroke_color),
+                ];
+                let mut out = dst;
+                let mut inked = false;
+                for src in parts.into_iter().flatten() {
+                    out = blend_over(out, src);
+                    inked = true;
                 }
-                let mut rgba = color;
-                rgba[3] = ((color[3] as f32) * coverage) as u8;
-                if rgba[3] == 0 {
-                    return None;
-                }
-                Some(blend_over(dst, rgba))
+                inked.then_some(out)
             });
             painted = touched > 0;
         }
@@ -1787,12 +1810,6 @@ impl Document {
         });
     }
 
-    pub fn deselect(&mut self) {
-        self.exit_transform();
-        self.commit_text();
-        self.selection = None;
-    }
-
     /// The one place the ink colour changes, so a text layer being typed into recolours with
     /// it instead of the shell having to know that text is special.
     pub fn set_color(&mut self, color: [u8; 4]) {
@@ -1805,10 +1822,27 @@ impl Document {
     }
 
     pub fn ink_rgba(&self) -> [u8; 4] {
-        let mut rgba = self.color;
-        let alpha = (self.color[3] as f32) * self.ink_opacity;
-        rgba[3] = alpha.round().clamp(0.0, 255.0) as u8;
-        rgba
+        glazed(self.color, self.ink_opacity)
+    }
+
+    /// The outline colour a shape lands, glazed by the same ink opacity the fill is — one
+    /// slider governs how translucent the whole shape is, as it does in Figma.
+    pub fn shape_stroke_rgba(&self) -> [u8; 4] {
+        glazed(self.stroke_color, self.ink_opacity)
+    }
+
+    /// The two colours a shape commits with: `(fill, outline)`. Line and Arrow have no
+    /// interior, so their outline is the ink swatch — the stroke swatch belongs to the tools
+    /// that enclose an area. Resolving that here is what lets everything downstream — the
+    /// rasterizer, the SVG writer, the shader — read one `stroke_color` with no tool test.
+    pub fn shape_paint(&self, tool: Tool) -> ([u8; 4], [u8; 4]) {
+        let fill = self.ink_rgba();
+        let stroke = if tool.takes_fill() {
+            self.shape_stroke_rgba()
+        } else {
+            fill
+        };
+        (fill, stroke)
     }
 
     fn commit_fill(&mut self, doc_x: f32, doc_y: f32) {

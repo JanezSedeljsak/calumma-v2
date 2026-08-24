@@ -1,7 +1,7 @@
 use crate::limits::{
-    FIT_PADDING, MAX_ZOOM_HARD, MAX_ZOOM_IN_FACTOR, MIN_VISIBLE_DOC_SIDE, MIN_ZOOM_FILL,
-    PAN_KEEP_VISIBLE, SCROLL_LINE_PIXELS, SCROLL_PAN_MAX_GAIN, ZOOM_PER_SCROLL_LINE,
-    ZOOM_PER_SCROLL_PIXEL, ZOOM_STEP,
+    FIT_MATCH_PAN_TOLERANCE, FIT_MATCH_ZOOM_TOLERANCE, FIT_PADDING, MAX_ZOOM_HARD,
+    MAX_ZOOM_IN_FACTOR, MIN_VISIBLE_DOC_SIDE, MIN_ZOOM_FILL, PAN_KEEP_VISIBLE, SCROLL_LINE_PIXELS,
+    SCROLL_PAN_MAX_GAIN, ZOOM_PER_SCROLL_LINE, ZOOM_PER_SCROLL_PIXEL, ZOOM_STEP,
 };
 
 /// Scroll deltas reach the camera in whatever unit the input device speaks: pixels from a
@@ -121,6 +121,19 @@ impl Camera {
         self.zoom = self.fit_zoom(doc_width, doc_height);
         self.center(doc_width, doc_height);
         self.clamp_to_board(doc_width, doc_height);
+    }
+
+    /// Whether the board is already showing exactly what `fit` would show. Answered by
+    /// running the real `fit` on a copy rather than by comparing against `fit_zoom`, because
+    /// `fit` also centres and clamps — a camera at the fit zoom but panned off-centre is not
+    /// fitted, and the Fit control has to say so.
+    pub fn is_fit(&self, doc_width: f32, doc_height: f32) -> bool {
+        let mut fitted = *self;
+        fitted.fit(doc_width, doc_height);
+        let zoom_slack = fitted.zoom.max(self.zoom) * FIT_MATCH_ZOOM_TOLERANCE;
+        (fitted.zoom - self.zoom).abs() <= zoom_slack
+            && (fitted.pan_x - self.pan_x).abs() <= FIT_MATCH_PAN_TOLERANCE
+            && (fitted.pan_y - self.pan_y).abs() <= FIT_MATCH_PAN_TOLERANCE
     }
 
     pub fn zoom_at(&mut self, screen_x: f32, screen_y: f32, zoom: f32, doc_w: f32, doc_h: f32) {

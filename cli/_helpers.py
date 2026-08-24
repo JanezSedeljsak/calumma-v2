@@ -35,6 +35,7 @@ from constants import (
     TOKEN_ACCENT_TEAL,
     TOKEN_KEY_ACCENT,
     TOKEN_KEY_COLOR,
+    TOKEN_KEY_CONTROL,
     TOKEN_KEY_PRESETS,
     TOKEN_KEY_RADIUS,
     TOKEN_KEY_SPACE,
@@ -146,6 +147,10 @@ def token_radius(tokens: dict[str, object] | None = None) -> dict[str, float]:
 
 def token_space(tokens: dict[str, object] | None = None) -> dict[str, float]:
     return _float_map((tokens or load_tokens())[TOKEN_KEY_SPACE])
+
+
+def token_control(tokens: dict[str, object] | None = None) -> dict[str, float]:
+    return _float_map((tokens or load_tokens())[TOKEN_KEY_CONTROL])
 
 
 def token_type(tokens: dict[str, object] | None = None) -> dict[str, float]:

@@ -21,7 +21,8 @@ systems.
 **The engine owns all state and all compute. The shell owns nothing but UI knobs.**
 
 Shell knobs only: active tool, active brush, colour, brush size, ink opacity, flood tolerance,
-blur strength, shape fill, panel visibility, open tab ids, theme, **language**. Last-used shape and selection tools, tool taxonomy (`is_shape`,
+blur strength, shape fill, shape stroke and its colour, panel visibility, open tab ids, theme,
+**language**. Last-used shape and selection tools, tool taxonomy (`is_shape`,
 brush-size, vector-mode visibility), hex RGB, copy/cut bytes, and workspace switch live in
 the engine. Coordinate math, clamping, pixels, camera, history, ops dispatch,
 and board visuals live in Rust/WGSL.
@@ -33,7 +34,8 @@ This extends to product rules, not just math. Zoom steps, the log zoom curve, fi
 the project-colour palette and which colour a new project gets, import limits, lossy export
 quality — all core constants and core functions, reached over FFI. Swift renders what the
 engine reports (`CalmState.zoom_unit`, `CalmState.accent`, `CalmState.last_shape_tool`,
-`calm_palette_color`) and never recomputes it.
+`CalmState.is_fit`, `calm_palette_color`) and never recomputes it — the zoom pill's Fit
+button lights up on `is_fit` rather than on Swift comparing a zoom against a fit zoom.
 Theme **values** are the exception that proves the rule: they come from `design/tokens.json`
 and are pushed *into* the engine (`calm_engine_set_board_colors`) so no colour is ever
 hardcoded in Rust or WGSL.
@@ -278,7 +280,19 @@ pub enum LayerContent {
   level concept, not a layer or a mask — a rect/ellipse/lasso shape (parameters only, not a
   persisted `width×height` buffer) that scopes copy/cut/clear to a region instead of a whole
   layer. Coverage is computed on demand (`SelectionShape::contains`), reusing the same
-  math the Rect/Ellipse paint shapes already use.
+  math the Rect/Ellipse paint shapes already use. The commands that are not a pointer drag —
+  `deselect` / `select_all` / `invert_selection` — live in `selection_edit.rs`, the way
+  `text_edit.rs` and `vector_edit.rs` extend `Document` from their own modules. Invert has no
+  buffer to flip for the parametric shapes, so it always produces the `SelectionShape::Mask`
+  the wand already built, filled through `SelectionMask::from_predicate` (one rayon task per
+  row, because unlike a flood it asks about every pixel of the canvas).
+- **A shape carries a fill and a stroke independently** (`engine/core/src/shape.rs`).
+  `Shape::region_distance` is the one SDF evaluation; `fill_distance` and `stroke_distance`
+  are the two parts taken off it, either of which may be `None`. Painting a shape means
+  blending both samples in order — `ink_sample` on the CPU, `shape_ink` in `board.wgsl`,
+  which composite to the same result. Colours never live on `Shape` (it also answers where a
+  *selection* rectangle is): they come from `VectorShape`/`VectorPath`, or from
+  `Document::shape_paint` for a raster commit.
 
 ---
 
@@ -570,12 +584,12 @@ both already Pan), text *selection*
 (the Text tool ships with a caret only — no shift-arrow, no styled ranges) — add
 only as considered features, not by restoring old app code.
 
-**Shipped from this list:** workspaces (titlebar tabs + extend overlay), Eyedropper
+**Shipped from this list:** Select All / Invert Selection (`⌘A` / `⌘⇧I`), shape fill *and*
+stroke together, workspaces (titlebar tabs + extend overlay), Eyedropper
 (`I` / tools island; samples the composited pixel under the cursor into the active ink
 swatch), vector layers (`V` / tool options; items composite in stack order and move
 and resize individually inside `⌘T` and with the Move tool), text layers (`T` / tools island),
 Move tool (tools island; pick-and-drag without `⌘T`). See `FLOW.md`.
 
 **Now carrying plans** in `todo.md`: undo for the rest of the document (`01`),
-display cache (`07`), Select All / Invert (`08`), shape fill *and* stroke (`09`),
-vector multi-select and align/distribute (`10`).
+display cache (`07`), vector multi-select and align/distribute (`10`).

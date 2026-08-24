@@ -62,6 +62,9 @@ impl Tool {
         matches!(self, Tool::Fill | Tool::MagicWand)
     }
 
+    /// Whether this tool encloses an area, and so can carry a fill and an outline
+    /// independently. Line and Arrow are outlines with nothing inside them, so their ink is
+    /// the one colour they have always had.
     pub fn takes_fill(self) -> bool {
         matches!(
             self,
@@ -149,6 +152,15 @@ const HEAD_RATIO: f32 = 6.0;
 const MIN_HEAD: f32 = 10.0;
 const MAX_HEAD: f32 = 80.0;
 
+/// Two endpoints and a style. `fill` and `stroke` are independent for the tools that
+/// enclose an area (`Tool::takes_fill`): either, both, or — briefly, while the shell is
+/// between toggles — neither. Line and Arrow ignore both and are always stroked, because an
+/// outline is all they are.
+///
+/// Geometry only, no colours: the same struct answers where a *selection* rectangle is
+/// (`selection.rs`), and it is what `board.wgsl` mirrors per pixel. Which colour goes on
+/// the fill and which on the stroke is the painter's business — `VectorShape` for a vector
+/// item, the document's ink for a raster commit.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Shape {
     pub tool: Tool,
@@ -156,6 +168,7 @@ pub struct Shape {
     pub end: (f32, f32),
     pub half_width: f32,
     pub fill: bool,
+    pub stroke: bool,
 }
 
 fn length(x: f32, y: f32) -> f32 {
@@ -319,7 +332,13 @@ impl Shape {
             .min(sd_segment(p, self.end, right))
     }
 
-    pub fn distance(&self, x: f32, y: f32) -> f32 {
+    /// The shape's region before any styling: negative inside the rectangle, ellipse or
+    /// polygon; for Line and Arrow, the distance to the centreline, since they have no
+    /// interior. `f32::MAX` for the tools that draw nothing.
+    ///
+    /// Everything the fill and the stroke need comes off this one number, which is why the
+    /// SDF is evaluated once per pixel however many parts the shape has.
+    pub fn region_distance(&self, x: f32, y: f32) -> f32 {
         let p = (x, y);
         match self.tool {
             Tool::Pen
@@ -334,42 +353,43 @@ impl Shape {
             | Tool::Move
             | Tool::Blur
             | Tool::MagicWand => f32::MAX,
-            Tool::Line => sd_segment(p, self.start, self.end) - self.half_width,
-            Tool::Arrow => self.arrow_distance(p) - self.half_width,
-            Tool::Rect => {
-                let d = sd_box(p, self.center(), self.half_extent());
-                if self.fill {
-                    d
-                } else {
-                    d.abs() - self.half_width
-                }
-            }
-            Tool::Ellipse => {
-                let d = sd_ellipse(p, self.center(), self.half_extent());
-                if self.fill {
-                    d
-                } else {
-                    d.abs() - self.half_width
-                }
-            }
-            Tool::Triangle => {
-                let verts = triangle_verts(self.start, self.end);
-                let d = sd_polygon(p, &verts);
-                if self.fill {
-                    d
-                } else {
-                    d.abs() - self.half_width
-                }
-            }
-            Tool::Pentagon => {
-                let verts = pentagon_verts(self.start, self.end);
-                let d = sd_polygon(p, &verts);
-                if self.fill {
-                    d
-                } else {
-                    d.abs() - self.half_width
-                }
-            }
+            Tool::Line => sd_segment(p, self.start, self.end),
+            Tool::Arrow => self.arrow_distance(p),
+            Tool::Rect => sd_box(p, self.center(), self.half_extent()),
+            Tool::Ellipse => sd_ellipse(p, self.center(), self.half_extent()),
+            Tool::Triangle => sd_polygon(p, &triangle_verts(self.start, self.end)),
+            Tool::Pentagon => sd_polygon(p, &pentagon_verts(self.start, self.end)),
+        }
+    }
+
+    /// Distance to the filled interior, or `None` when this shape has no fill.
+    pub fn fill_distance(&self, x: f32, y: f32) -> Option<f32> {
+        if !self.fill || !self.tool.takes_fill() {
+            return None;
+        }
+        Some(self.region_distance(x, y))
+    }
+
+    /// Distance to the outline band — an annulus of `half_width` straddling the region's
+    /// zero, or for Line and Arrow the stroked centreline itself.
+    pub fn stroke_distance(&self, x: f32, y: f32) -> Option<f32> {
+        let region = self.region_distance(x, y);
+        if region == f32::MAX {
+            return None;
+        }
+        if !self.tool.takes_fill() {
+            return Some(region - self.half_width);
+        }
+        self.stroke.then(|| region.abs() - self.half_width)
+    }
+
+    /// The union of whatever parts this shape draws — what picking, bounds and hit-testing
+    /// ask about, where "is any ink here" is the only question.
+    pub fn distance(&self, x: f32, y: f32) -> f32 {
+        match (self.fill_distance(x, y), self.stroke_distance(x, y)) {
+            (Some(fill), Some(stroke)) => fill.min(stroke),
+            (Some(d), None) | (None, Some(d)) => d,
+            (None, None) => f32::MAX,
         }
     }
 
@@ -377,14 +397,21 @@ impl Shape {
         (0.5 - self.distance(x, y)).clamp(0.0, 1.0)
     }
 
+    /// How far past its geometry this shape's ink reaches. A fill ends at the region's own
+    /// edge, so a shape with no stroke pays only the antialiased pixel — the stroke width is
+    /// what hangs off the outline, and an arrow's head off its end.
     pub fn padding(&self) -> f32 {
-        self.half_width
-            + if self.tool == Tool::Arrow {
-                self.head_len()
-            } else {
-                0.0
-            }
-            + 1.0
+        let outline = if self.tool.takes_fill() && !self.stroke {
+            0.0
+        } else {
+            self.half_width
+        };
+        let head = if self.tool == Tool::Arrow {
+            self.head_len()
+        } else {
+            0.0
+        };
+        outline + head + 1.0
     }
 
     pub fn bounds(&self) -> (f32, f32, f32, f32) {
@@ -396,4 +423,23 @@ impl Shape {
             self.start.1.max(self.end.1) + pad,
         )
     }
+}
+
+/// Antialiased coverage from a signed distance: the same half-pixel band the shader uses,
+/// so a flattened export matches what the board drew.
+pub fn distance_coverage(distance: f32) -> f32 {
+    (0.5 - distance).clamp(0.0, 1.0)
+}
+
+/// One part of a shape's paint as a straight-alpha source colour, or `None` where it lays
+/// nothing down. `distance` is `None` when the part is switched off entirely, which is what
+/// lets a caller ask for fill and stroke in one expression and blend whatever comes back.
+pub fn ink_sample(distance: Option<f32>, color: [u8; 4]) -> Option<[u8; 4]> {
+    let coverage = distance_coverage(distance?);
+    if coverage <= 0.0 {
+        return None;
+    }
+    let mut rgba = color;
+    rgba[3] = ((color[3] as f32) * coverage).round().clamp(0.0, 255.0) as u8;
+    (rgba[3] != 0).then_some(rgba)
 }

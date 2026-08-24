@@ -67,6 +67,7 @@ fn shape_distance_rect_inside_negative_when_filled_path() {
         end: (50.0, 40.0),
         half_width: 1.0,
         fill: true,
+        stroke: false,
     };
     let d = shape.distance(30.0, 25.0);
     assert!(
@@ -83,7 +84,9 @@ fn vector_layer_content_and_bounds() {
             points: vec![(0.0, 0.0), (8.0, 0.0), (8.0, 6.0)],
             closed: true,
             fill: true,
+            stroke: false,
             color: [0, 0, 0, 255],
+            stroke_color: [0, 0, 0, 255],
             stroke_width: 1.0,
         })],
     );

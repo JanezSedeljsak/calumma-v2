@@ -49,6 +49,7 @@ fn every_status_entry_point_rejects_a_null_engine() {
         zoom_unit: 0.0,
         last_shape_tool: 0,
         last_select_tool: 0,
+        is_fit: 0,
     };
     let mut buf: *mut u8 = ptr::null_mut();
     let mut w = 0u32;

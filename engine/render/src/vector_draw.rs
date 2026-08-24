@@ -17,10 +17,11 @@ pub struct VectorShapeInstance {
     pub p0: [f32; 2],
     pub p1: [f32; 2],
     pub color: [f32; 4],
+    pub stroke_color: [f32; 4],
     pub half_width: f32,
     pub tool: f32,
     pub fill: f32,
-    pub _pad: f32,
+    pub stroke: f32,
 }
 
 /// Where a layer's items sit in document space. Items are stored in the layer's own space;
@@ -80,10 +81,10 @@ pub fn push_path_instances(
     placement: VectorPlacement,
     out: &mut Vec<StrokeInstance>,
 ) {
-    if path.closed && path.fill {
+    if !path.stroke {
         return;
     }
-    let color = rgba_unit(path.color);
+    let color = rgba_unit(path.stroke_color);
     let radius = path.stroke_width * 0.5 * placement_scale(placement);
     let mut segment = |a: (f32, f32), b: (f32, f32)| {
         let (a, b) = (place(placement, a), place(placement, b));
@@ -117,10 +118,11 @@ pub fn shape_instance(shape: &VectorShape, placement: VectorPlacement) -> Vector
         p0: [start.0, start.1],
         p1: [end.0, end.1],
         color: rgba_unit(shape.color),
+        stroke_color: rgba_unit(shape.stroke_color),
         half_width: shape.shape.half_width * placement_scale(placement),
         tool: shape.shape.tool as u32 as f32,
-        fill: if shape.shape.fill { 1.0 } else { 0.0 },
-        _pad: 0.0,
+        fill: f32::from(u8::from(shape.shape.fill)),
+        stroke: f32::from(u8::from(shape.shape.stroke)),
     }
 }
 

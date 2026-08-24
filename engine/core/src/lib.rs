@@ -16,6 +16,7 @@ pub mod names;
 pub mod palette;
 pub mod ruler;
 pub mod selection;
+pub mod selection_edit;
 pub mod selection_mask;
 pub mod shape;
 pub mod text_edit;

@@ -122,6 +122,11 @@ pub extern "C" fn calm_tool_is_selection(tool: u32) -> u8 {
 }
 
 #[no_mangle]
+pub extern "C" fn calm_tool_takes_fill(tool: u32) -> u8 {
+    Tool::from_u32(tool).is_some_and(Tool::takes_fill) as u8
+}
+
+#[no_mangle]
 pub extern "C" fn calm_tool_takes_brush_size(tool: u32) -> u8 {
     Tool::from_u32(tool).is_some_and(Tool::takes_brush_size) as u8
 }

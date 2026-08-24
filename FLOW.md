@@ -103,13 +103,15 @@ while Landing is showing — that screen already *is* the create form.
   minimal gap and window margin (`space.sm`) — each has its own `islandBorder` stroke.
 - **Tools island** (top to bottom): a 2-column tool grid (Move, Pen, Eraser, Blur, Shape,
   Select, Fill, Eyedropper, Text); a contextual options section below it that changes with the
-  selected tool (shape/selection sub-picker + fill toggle for shape tools, a **brush**
+  selected tool (shape/selection sub-picker + independent **Fill** and **Stroke** toggles for
+  the shape tools that enclose an area — Rect, Ellipse, Triangle, Pentagon; Line and Arrow are
+  outlines with nothing inside them and offer neither — a **brush**
   sub-picker for the Pen, font / size / alignment for Text, brush size for the tools that use
   one — not Fill, Eyedropper, Text, Move, or the selection tools — ink opacity for Pen, shapes,
   and Fill, strength for Blur, and tolerance for Fill and the magic wand; Eraser stays a full
-  erase); a colour section (two equal quick swatches, a
-  saturation/brightness field, a hue strip, and a hex field); the AI menu pinned at the
-  bottom.
+  erase); a colour section (two equal quick swatches — plus a third **stroke** swatch while a
+  fill-capable shape tool is active — a saturation/brightness field, a hue strip, and a hex
+  field, all three editing whichever swatch is ringed); the AI menu pinned at the bottom.
 - **Board:** Metal surface clipped as its own island. Desk fill, grid, and the paper border
   come from tokens via `calm_engine_set_board_colors` — in light mode the desk matches the
   island surface; in dark mode the desk is a step darker than the window background so the
@@ -149,10 +151,10 @@ launches.
 | Move a layer or vector item | Select **Move** on the tools island, then drag painted pixels or a vector item. Arrow keys nudge the same target. `⌘T` is still scale/rotate for a *layer*. |
 | Resize a vector item | Select it (Move or `⌘T`), then drag a corner of its box. Proportional by default, **Shift** frees the two axes — the same polarity as a `⌘T` corner. |
 | Constrain a shape | Hold **Shift** while dragging **Rect** or **Ellipse** (and their marquee twins) for a square or circle. Corner-anchored, and the *longer* side wins, so the shape fills the drag. Press or release Shift mid-drag and the board snaps immediately — the clamp is derived from the raw drag on every frame, not baked in on the last mouse-move. Line, Arrow, Triangle and Pentagon are unconstrained (angle snap and regular-polygon lock are different clamps, not built). |
-| Live preview | GPU stroke/shape while dragging; CPU commit into sparse tiles on pointer-up. |
+| Live preview | GPU stroke/shape while dragging; CPU commit into sparse tiles on pointer-up. A shape previews its fill *and* its border in their own colours, because `board.wgsl`'s `shape_ink` composites the same two parts, in the same order, that the commit does. |
 | Pan | Scroll wheel / trackpad scroll; **middle-button drag**; Space-drag; or Option/⌘-drag |
 | Zoom | Pinch; ⌘ + scroll; Option + scroll; or ⌘`=` / ⌘`-` |
-| Fit to view | `0`, the zoom pill, or Board menu — fills the canvas island |
+| Fit to view | `0`, the zoom pill, or Board menu — fills the canvas island. The pill's Fit button reads as *on* (accent) while the board is already fitted and *off* (muted) once you pan or zoom away, the same way a selected tool reads. |
 | Space-pan | Hold Space for temporary hand tool (Photoshop-style) |
 | Maximise window | Double-click the titlebar (standard macOS zoom) |
 
@@ -274,6 +276,19 @@ live in `engine/core`; the actual PNG/JPEG/WebP/AVIF **encode** happens in the s
   how many items it holds. Nothing is rasterized: the board evaluates the same
   distance functions the exporter does, so a vector stays sharp at any zoom, exports as real
   SVG primitives (`<rect>`, `<ellipse>`, `<path>`, …) and is stored as parameters.
+- **Fill and stroke together.** A shape carries an independent fill colour and outline
+  colour, either of which may be off and both of which may be on — a white rectangle with a
+  black 2px border is one shape, not two. `Shape` keeps the two as flags (`fill`, `stroke`)
+  over one region SDF, so the interior and the annulus come off a single distance evaluation
+  per pixel; the colours live on whatever is painting (`VectorShape.color` /
+  `stroke_color`, or the document's ink and stroke swatches for a raster commit). Stroke
+  width shares the brush-size slider. Line and Arrow have no interior, so they ignore both
+  flags and keep the one ink colour they always had — resolved once in
+  `Document::shape_paint`, so nothing downstream has to re-ask which tool it is dealing with.
+  SVG export now writes real `fill` *and* `stroke`/`stroke-width` attributes rather than one
+  or the other, which is a closer match to the format than the either/or it replaced.
+  A shape saved before this carries its one colour into whichever half it was being used as
+  (`vector_blob` v3; v1 and v2 blobs still load).
 - **Moving one item:** with the Move tool or inside `⌘T`, click an item to select it and drag
   it on its own; the arrow keys nudge it and `⌫` deletes it. A click on an outlined shape
   counts anywhere inside it, not only on the outline. Item edits are not undo-tracked,
@@ -406,6 +421,13 @@ preview is on-screen at the same time, reappearing once that drag ends.
 | --- | --- |
 | `M` | Selection tool (rect / ellipse / lasso / magic wand — remembers the last one used) |
 | `W` | Magic wand directly |
+| `⌘A` | Select All — the whole canvas as one rect, matching Photoshop rather than the active
+  layer's painted bounds |
+| `⌘⇧I` | Invert Selection — everything the current selection leaves out, clipped to the
+  canvas. With no selection it selects all, the way Photoshop answers an inverted nothing.
+  The result is always a `SelectionShape::Mask`, since the parametric shapes have no buffer
+  to flip; inverting a full-canvas selection reaches no pixel and so leaves *no* selection,
+  the same rule the wand follows for a click that reaches nothing. |
 | `Esc` | Deselect |
 | `⌘C` | Copy — the selection (from the active layer) if one exists, otherwise the whole
   composited canvas. Always PNG on the clipboard. |
@@ -489,7 +511,9 @@ panel toggles are shell knobs.
 | `⌘⇧Z` | Redo (Edit menu) | Yes (Ps redo varies by platform; we use ⌘⇧Z) |
 | `⌘,` | Settings (theme / language) | macOS prefs |
 | `⌘⌥L` | Toggle layers panel | Close to Ps panels |
-| `0` | Fit to view | Ps `⌘0` is fit; bare `0` is our fit today |
+| `0` | Fit to view — the zoom pill's Fit button carries the accent colour while the board
+  is already fitted (`CalmState.is_fit`, answered by `Camera::is_fit`) and the muted colour
+  otherwise, the same on/off reading a selected tool has | Ps `⌘0` is fit; bare `0` is our fit today |
 
 ### Tools and brush
 
@@ -515,6 +539,7 @@ panel toggles are shell knobs.
 | `⇧⌥⌘` + the same letter | Decrease the same filter by one step | — |
 | `⌃⌘F` | Enter / exit full screen (re-homed from the removed View menu) | macOS standard |
 | `F` | Toggle shape fill | — |
+| `S` | Toggle shape stroke — independent of fill, so a shape can carry both | — (Figma has both by default) |
 | `⇧` (held while dragging) | Constrain Rect / Ellipse to a square / circle; on a `⌘T` or vector-item corner, free the two axes instead | Yes (Ps shape constrain) |
 | `V` | Toggle vector mode (shapes and the pen commit as editable vector items) | — (Ps has no equivalent; closest is Figma's vector tools) |
 | `←` `→` `↑` `↓` | Nudge the selected vector item, or the active layer when Move / `⌘T` is the current tool | Yes (Ps nudge) |
@@ -531,6 +556,7 @@ panel toggles are shell knobs.
 | `Esc` | Deselect |
 | `⌘=` / `⌘+` | Zoom in one core step (`limits::ZOOM_STEP`) |
 | `⌘-` | Zoom out one core step |
+| `⌘A` / `⌘⇧I` | Select All / Invert Selection — see Selection above |
 
 ### Pointer modifiers (board)
 

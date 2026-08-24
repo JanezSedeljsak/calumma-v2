@@ -219,8 +219,14 @@ const FILL_SOLID: f32 = 1.0;
 const TAU: f32 = 6.28318530718;
 const FRAC_PI_2: f32 = 1.57079632679;
 
-fn is_filled(fill: f32) -> bool {
-    return fill > 0.5;
+fn is_on(flag: f32) -> bool {
+    return flag > 0.5;
+}
+
+// Mirrors `Tool::takes_fill` in Rust: the tools that enclose an area, and so can carry a
+// fill and an outline at once. A line or an arrow has no interior to fill.
+fn tool_takes_fill(tool: u32) -> bool {
+    return tool == TOOL_RECT || tool == TOOL_ELLIPSE || tool == TOOL_TRIANGLE || tool == TOOL_PENTAGON;
 }
 
 fn sd_segment_pts(p: vec2<f32>, a: vec2<f32>, b: vec2<f32>) -> f32 {
@@ -286,15 +292,14 @@ fn sd_polygon5(p: vec2<f32>, v: array<vec2<f32>, 5>) -> f32 {
 // computes it locally instead of it running unconditionally before the switch — the SDF
 // polygon cases (RECT/ELLIPSE/TRIANGLE/PENTAGON) used to pay for a dot product, a clamp and
 // a sqrt every pixel for a value they never touch.
-fn shape_distance(tool: u32, p0: vec2<f32>, p1: vec2<f32>, half_width: f32, fill: f32, p: vec2<f32>) -> f32 {
+fn shape_region(tool: u32, p0: vec2<f32>, p1: vec2<f32>, half_width: f32, p: vec2<f32>) -> f32 {
     switch tool {
         case TOOL_LINE: {
             let pa = p - p0;
             let ba = p1 - p0;
             let baba = dot(ba, ba);
             let h = select(0.0, clamp(dot(pa, ba) / baba, 0.0, 1.0), baba > 0.0);
-            let seg = length(pa - ba * h);
-            return seg - half_width;
+            return length(pa - ba * h);
         }
         case TOOL_ARROW: {
             let pa = p - p0;
@@ -316,18 +321,14 @@ fn shape_distance(tool: u32, p0: vec2<f32>, p1: vec2<f32>, half_width: f32, fill
                 d = min(d, sd_segment_pts(p, p1, left));
                 d = min(d, sd_segment_pts(p, p1, right));
             }
-            return d - half_width;
+            return d;
         }
         case TOOL_RECT: {
             let center = (p0 + p1) * 0.5;
             let half = abs(p1 - p0) * 0.5;
             let d = p - center;
             let q = abs(d) - half;
-            let boxd = length(max(q, vec2<f32>(0.0))) + min(max(q.x, q.y), 0.0);
-            if is_filled(fill) {
-                return boxd;
-            }
-            return abs(boxd) - half_width;
+            return length(max(q, vec2<f32>(0.0))) + min(max(q.x, q.y), 0.0);
         }
         case TOOL_ELLIPSE: {
             let center = (p0 + p1) * 0.5;
@@ -341,10 +342,7 @@ fn shape_distance(tool: u32, p0: vec2<f32>, p1: vec2<f32>, half_width: f32, fill
             if grad > 1e-5 {
                 ed = (outer - 1.0) * outer / grad;
             }
-            if is_filled(fill) {
-                return ed;
-            }
-            return abs(ed) - half_width;
+            return ed;
         }
         case TOOL_TRIANGLE: {
             let x0 = min(p0.x, p1.x);
@@ -354,11 +352,7 @@ fn shape_distance(tool: u32, p0: vec2<f32>, p1: vec2<f32>, half_width: f32, fill
             let v0 = vec2<f32>((x0 + x1) * 0.5, y0);
             let v1 = vec2<f32>(x1, y1);
             let v2 = vec2<f32>(x0, y1);
-            let d = sd_polygon3(p, v0, v1, v2);
-            if is_filled(fill) {
-                return d;
-            }
-            return abs(d) - half_width;
+            return sd_polygon3(p, v0, v1, v2);
         }
         case TOOL_PENTAGON: {
             let center = (p0 + p1) * 0.5;
@@ -369,16 +363,59 @@ fn shape_distance(tool: u32, p0: vec2<f32>, p1: vec2<f32>, half_width: f32, fill
                 let angle = -FRAC_PI_2 + f32(i) * TAU / 5.0;
                 verts[i] = center + vec2<f32>(cos(angle) * rx, sin(angle) * ry);
             }
-            let d = sd_polygon5(p, verts);
-            if is_filled(fill) {
-                return d;
-            }
-            return abs(d) - half_width;
+            return sd_polygon5(p, verts);
         }
         case TOOL_PEN, default: {
             return 1e9;
         }
     }
+}
+
+// Straight-alpha `over`. A shape with both a fill and a stroke is two colours in one
+// fragment and the alpha blend state can only take one, so the two are composited here — in
+// the same order, and to the same result, as the CPU commit's `blend_over` pair.
+fn ink_over(bottom: vec4<f32>, top: vec4<f32>) -> vec4<f32> {
+    let a = top.a + bottom.a * (1.0 - top.a);
+    if a <= 0.0 {
+        return vec4<f32>(0.0);
+    }
+    let rgb = (top.rgb * top.a + bottom.rgb * bottom.a * (1.0 - top.a)) / a;
+    return vec4<f32>(rgb, a);
+}
+
+fn ink_sample(d: f32, color: vec4<f32>) -> vec4<f32> {
+    return vec4<f32>(color.rgb, color.a * clamp(0.5 - d, 0.0, 1.0));
+}
+
+// One shape's ink at one pixel, fill under stroke. The CPU twin is `Shape::fill_distance` /
+// `stroke_distance` fed through `ink_sample` in `vector.rs` — same region SDF, same
+// half-pixel band, same order — so the board and a flattened export agree.
+fn shape_ink(
+    tool: u32,
+    p0: vec2<f32>,
+    p1: vec2<f32>,
+    half_width: f32,
+    fill: f32,
+    stroke: f32,
+    fill_color: vec4<f32>,
+    stroke_color: vec4<f32>,
+    p: vec2<f32>,
+) -> vec4<f32> {
+    let region = shape_region(tool, p0, p1, half_width, p);
+    if region > 1e8 {
+        return vec4<f32>(0.0);
+    }
+    if !tool_takes_fill(tool) {
+        return ink_sample(region - half_width, stroke_color);
+    }
+    var out = vec4<f32>(0.0);
+    if is_on(fill) {
+        out = ink_sample(region, fill_color);
+    }
+    if is_on(stroke) {
+        out = ink_over(out, ink_sample(abs(region) - half_width, stroke_color));
+    }
+    return out;
 }
 
 struct PreviewUniforms {
@@ -393,8 +430,9 @@ struct PreviewUniforms {
     half_width: f32,
     tool: f32,
     fill: f32,
-    _pad: f32,
+    shape_stroke: f32,
     stroke_ink: vec4<f32>,
+    shape_stroke_color: vec4<f32>,
 }
 
 @group(0) @binding(0) var<uniform> pu: PreviewUniforms;
@@ -586,9 +624,11 @@ struct VectorShapeIn {
     @location(0) p0: vec2<f32>,
     @location(1) p1: vec2<f32>,
     @location(2) color: vec4<f32>,
-    @location(3) half_width: f32,
-    @location(4) tool: f32,
-    @location(5) fill: f32,
+    @location(3) stroke_color: vec4<f32>,
+    @location(4) half_width: f32,
+    @location(5) tool: f32,
+    @location(6) fill: f32,
+    @location(7) stroke: f32,
 }
 
 struct VectorShapeOut {
@@ -600,6 +640,8 @@ struct VectorShapeOut {
     @location(4) half_width: f32,
     @location(5) tool: f32,
     @location(6) fill: f32,
+    @location(7) stroke_color: vec4<f32>,
+    @location(8) stroke: f32,
 }
 
 @vertex
@@ -635,18 +677,24 @@ fn vs_vector_shape(input: VectorShapeIn, @builtin(vertex_index) idx: u32) -> Vec
     out.half_width = input.half_width;
     out.tool = input.tool;
     out.fill = input.fill;
+    out.stroke_color = input.stroke_color;
+    out.stroke = input.stroke;
     return out;
 }
 
 @fragment
 fn fs_vector_shape(input: VectorShapeOut) -> @location(0) vec4<f32> {
-    let tool = u32(input.tool + 0.5);
-    let d = shape_distance(tool, input.p0, input.p1, input.half_width, input.fill, input.doc);
-    let cov = clamp(0.5 - d, 0.0, 1.0);
-    if cov <= 0.0 {
-        return vec4<f32>(0.0);
-    }
-    return vec4<f32>(input.color.rgb, input.color.a * cov);
+    return shape_ink(
+        u32(input.tool + 0.5),
+        input.p0,
+        input.p1,
+        input.half_width,
+        input.fill,
+        input.stroke,
+        input.color,
+        input.stroke_color,
+        input.doc,
+    );
 }
 
 @vertex
@@ -665,13 +713,17 @@ fn vs_shape_preview(@builtin(vertex_index) idx: u32) -> VsOut {
 fn fs_shape_preview(in: VsOut) -> @location(0) vec4<f32> {
     let screen = in.position.xy / max(pu.dpr, 1.0);
     let xy = (screen - pu.pan) / max(pu.zoom, 1e-6);
-    let tool = u32(pu.tool + 0.5);
-    let d = shape_distance(tool, pu.p0, pu.p1, pu.half_width, pu.fill, xy);
-    let cov = clamp(0.5 - d, 0.0, 1.0);
-    if cov <= 0.0 {
-        return vec4<f32>(0.0);
-    }
-    return vec4<f32>(pu.color.rgb, pu.color.a * cov);
+    return shape_ink(
+        u32(pu.tool + 0.5),
+        pu.p0,
+        pu.p1,
+        pu.half_width,
+        pu.fill,
+        pu.shape_stroke,
+        pu.color,
+        pu.shape_stroke_color,
+        xy,
+    );
 }
 
 struct OverviewCamera {

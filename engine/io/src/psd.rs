@@ -237,8 +237,10 @@ mod tests {
                 end: (20.0, 20.0),
                 half_width: 1.0,
                 fill: true,
+                stroke: false,
             },
             color: [255, 0, 0, 255],
+            stroke_color: [255, 0, 0, 255],
         })];
         let bytes = encode(&doc);
         assert_eq!(read_u16(&bytes, 42), flat_layers + 1);

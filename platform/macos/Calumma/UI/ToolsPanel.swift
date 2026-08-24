@@ -197,16 +197,9 @@ struct ToolsPanel: View {
                 }
             }
 
-            if app.tool.isShape {
-                HStack {
-                    CalmText.muted(l10n.fill)
-                    Spacer()
-                    Toggle("", isOn: $app.fill)
-                        .toggleStyle(.switch)
-                        .controlSize(.mini)
-                        .labelsHidden()
-                }
-                .help(l10n.fill)
+            if app.tool.takesFill {
+                paintToggle(l10n.fill, isOn: $app.fill)
+                paintToggle(l10n.stroke, isOn: $app.stroke)
             }
 
             if showsVectorMode {
@@ -221,6 +214,20 @@ struct ToolsPanel: View {
                 .help(l10n.vectorModeHint)
             }
         }
+    }
+
+    /// Fill and stroke are independent, so they are two rows rather than one three-state
+    /// control — a shape can carry both, and the panel has to be able to say so.
+    private func paintToggle(_ label: String, isOn: Binding<Bool>) -> some View {
+        HStack {
+            CalmText.muted(label)
+            Spacer()
+            Toggle("", isOn: isOn)
+                .toggleStyle(.switch)
+                .controlSize(.mini)
+                .labelsHidden()
+        }
+        .help(label)
     }
 
     private var showsVectorMode: Bool {

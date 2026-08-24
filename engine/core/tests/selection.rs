@@ -1,5 +1,7 @@
 use calumma_core::selection::*;
 use calumma_core::selection_mask::SelectionMask;
+use calumma_core::tile::DocRect;
+use calumma_core::Document;
 
 #[test]
 fn rect_selection_contains_only_inside_points() {
@@ -174,4 +176,66 @@ fn only_the_shapes_that_store_something_report_bytes() {
         shape: SelectionShape::Mask(mask.finish().unwrap()),
     };
     assert!(mask.memory_bytes() > 0);
+}
+
+#[test]
+fn select_all_covers_the_whole_canvas() {
+    let mut doc = Document::new("p".into(), "t", 40, 30);
+    doc.select_all();
+    let selection = doc.selection.as_ref().expect("a selection");
+    assert!(selection.contains(0.5, 0.5));
+    assert!(selection.contains(39.5, 29.5));
+    assert_eq!(selection.bounds(), DocRect::new(0, 0, 40, 30));
+}
+
+#[test]
+fn inverting_nothing_selects_everything() {
+    let mut doc = Document::new("p".into(), "t", 40, 30);
+    doc.invert_selection();
+    let selection = doc.selection.as_ref().expect("a selection");
+    assert!(selection.contains(20.5, 15.5));
+}
+
+#[test]
+fn inverting_a_rect_selects_the_rest_of_the_canvas_as_a_mask() {
+    let mut doc = Document::new("p".into(), "t", 40, 30);
+    doc.selection = Some(Selection {
+        shape: SelectionShape::Rect {
+            start: (10.0, 10.0),
+            end: (20.0, 20.0),
+        },
+    });
+    doc.invert_selection();
+    let selection = doc.selection.as_ref().expect("a selection");
+    assert!(matches!(selection.shape, SelectionShape::Mask(_)));
+    assert!(
+        !selection.contains(15.5, 15.5),
+        "inside the old rect is out"
+    );
+    assert!(selection.contains(0.5, 0.5), "outside it is now in");
+    assert!(selection.contains(39.5, 29.5));
+}
+
+#[test]
+fn inverting_a_full_canvas_selection_leaves_no_selection_at_all() {
+    let mut doc = Document::new("p".into(), "t", 16, 16);
+    doc.select_all();
+    doc.invert_selection();
+    assert!(doc.selection.is_none());
+}
+
+#[test]
+fn inverting_twice_comes_back_to_the_same_pixels() {
+    let mut doc = Document::new("p".into(), "t", 24, 24);
+    doc.selection = Some(Selection {
+        shape: SelectionShape::Ellipse {
+            start: (4.0, 4.0),
+            end: (16.0, 16.0),
+        },
+    });
+    doc.invert_selection();
+    doc.invert_selection();
+    let selection = doc.selection.as_ref().expect("a selection");
+    assert!(selection.contains(10.5, 10.5));
+    assert!(!selection.contains(0.5, 0.5));
 }
