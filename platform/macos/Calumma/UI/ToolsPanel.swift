@@ -236,6 +236,25 @@ struct ToolsPanel: View {
             }
             .help(pinned ? l10n.vectorModeLockedHint : l10n.vectorModeHint)
         }
+        if app.tool == .move {
+            let block = app.engine.toolBlock(.transform)
+            VStack(alignment: .leading, spacing: 2) {
+                CalmText.muted(l10n.toolTransform)
+                Toggle(
+                    "",
+                    isOn: Binding(
+                        get: { app.engine.state.transformActive },
+                        set: { app.setMoveTransform($0) }
+                    )
+                )
+                .toggleStyle(.switch)
+                .controlSize(.mini)
+                .labelsHidden()
+                .disabled(block.blocks && !app.engine.state.transformActive)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .help(block.reason(l10n) ?? l10n.transformModeHint)
+        }
     }
 
     /// A slider row is a label, a value, and the track. The value is usually printed —
@@ -374,22 +393,14 @@ struct ToolsPanel: View {
         .calmPointer()
     }
 
-    /// Move and Transform are one button: moving a layer and resizing one are the same intent
-    /// one step apart, so picking Move drops the active layer straight into `⌘T` with its
-    /// corners live. Transform is still a *mode* the engine owns — pressing the button while
-    /// already inside it steps back out without giving up the tool, and `⌘T` keeps working.
+    /// Move just selects Move. Transform is the options toggle (and `⌘T`): on, a grab also
+    /// shows scale/rotate handles and selects the layer; off, the same grab only drags it.
     private var moveButton: some View {
         let selected = app.tool == .move
         let transforming = selected && app.engine.state.transformActive
         return CalmToolButton(
             selected: selected,
-            action: {
-                if transforming {
-                    app.engine.toggleTransform()
-                } else {
-                    app.enterMoveTransform()
-                }
-            },
+            action: { app.selectTool(.move) },
             tooltip: l10n.toolMove,
             tooltipEdge: .trailing
         ) {
@@ -473,6 +484,7 @@ struct ToolsPanel: View {
         case .eyedropper: AppIcon.eyedropper(color: color)
         case .text: AppIcon.text(color: color)
         case .move: AppIcon.moveIcon(color: color)
+        case .transform: AppIcon.transform(color: color)
         case .selectRect, .selectEllipse, .selectLasso: AppIcon.selectRect(color: color)
         case .magicWand: AppIcon.magicWand(color: color)
         }
@@ -549,6 +561,7 @@ struct ToolsPanel: View {
         case .eyedropper: return l10n.toolEyedropper
         case .text: return l10n.toolText
         case .move: return l10n.toolMove
+        case .transform: return l10n.toolTransform
         }
     }
 

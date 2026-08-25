@@ -51,6 +51,7 @@
   "vectorMode": "Vector",
   "vectorModeHint": "Commit shapes and strokes as editable vectors instead of pixels.",
   "vectorModeLockedHint": "A vector layer is selected, so the pen and the shapes stay vectors.",
+  "transformModeHint": "Scale and rotate the layer you grab. Off, Move only drags it.",
   "toolBlockedLocked": "Layer is locked",
   "toolBlockedText": "Text layer \u2014 rasterize it to paint",
   "toolBlockedVector": "Vector layer \u2014 no pixels to work on",

@@ -214,6 +214,49 @@ fn selecting_transform_toggles_the_mode_and_leaves_the_tool_alone() {
 }
 
 #[test]
+fn selecting_move_does_not_enter_transform() {
+    let mut doc = doc_with_viewport();
+    doc.add_layer("Ink");
+    let layer = doc.active_layer;
+    paint(
+        &mut doc,
+        layer,
+        DocRect::new(20, 20, 60, 60),
+        [0, 0, 0, 255],
+    );
+    doc.set_tool(Tool::Rect);
+    assert!(doc.set_tool(Tool::Move));
+    assert_eq!(doc.tool, Tool::Move);
+    assert!(!doc.transform_active);
+    assert!(doc.transform_handles().is_none());
+}
+
+#[test]
+fn switching_to_move_keeps_transform_mode() {
+    let mut doc = doc_with_viewport();
+    doc.add_layer("Ink");
+    let layer = doc.active_layer;
+    paint(
+        &mut doc,
+        layer,
+        DocRect::new(20, 20, 60, 60),
+        [0, 0, 0, 255],
+    );
+    doc.set_tool(Tool::Rect);
+    assert!(doc.set_tool(Tool::Transform));
+    assert!(doc.transform_active);
+    assert_eq!(doc.tool, Tool::Rect);
+
+    assert!(doc.set_tool(Tool::Move));
+    assert_eq!(doc.tool, Tool::Move);
+    assert!(
+        doc.transform_active,
+        "Move keeps the handles it is about to use"
+    );
+    assert!(doc.transform_handles().is_some());
+}
+
+#[test]
 fn switching_to_any_other_tool_leaves_transform_mode() {
     let mut doc = doc_with_viewport();
     doc.add_layer("Ink");
@@ -290,6 +333,25 @@ fn a_nudge_is_refused_on_paper_a_lock_and_an_empty_layer() {
     doc.set_layer_locked(layer, true);
     assert!(!doc.nudge_move_target(5.0, 0.0), "a lock refuses the nudge");
     assert_eq!(doc.layers[layer].transform.unwrap().offset_x, after);
+}
+
+#[test]
+fn move_tool_selects_the_layer_it_grabs() {
+    let mut doc = doc_with_viewport();
+    paint(&mut doc, 1, DocRect::new(20, 20, 60, 60), [255, 0, 0, 255]);
+    doc.add_layer("Above");
+    let top = doc.active_layer;
+    paint(
+        &mut doc,
+        top,
+        DocRect::new(120, 120, 160, 160),
+        [0, 255, 0, 255],
+    );
+    assert_eq!(doc.active_layer, top);
+    doc.set_tool(Tool::Move);
+    assert!(doc.begin_move_at(40.0, 40.0));
+    assert_eq!(doc.active_layer, 1);
+    assert!(!doc.transform_active);
 }
 
 /// A nudge outside Move and outside `⌘T` does nothing at all — arrow keys belong to whatever

@@ -103,12 +103,13 @@ while Landing is showing — that screen already *is* the create form.
   Create / delete workspaces live here.
 - **Tools / layers / canvas:** three rounded, bordered islands, full-height, separated by a
   minimal gap and window margin (`space.sm`) — each has its own `islandBorder` stroke.
-- **Tools island** (top to bottom): a 2-column tool grid (Move, Transform, Pen, Eraser, Blur,
-  Shape, Select, Fill, Eyedropper, Text). **Transform sits next to Move** and is the odd one
-  out: it is a *mode*, not a tool — it toggles `⌘T` on the active layer, leaves the selected
-  tool alone, and lights up from engine state (`CalmState.transform_active`) rather than from
-  the shell's tool. Then a contextual options section below it that changes with the
-  selected tool (shape/selection sub-picker + independent **Fill** and **Stroke** toggles for
+- **Tools island** (top to bottom): a 2-column tool grid (Move, Select, Pen, Eraser, Blur,
+  Shape, Fill, Eyedropper, Text). When **Move** is selected the options panel carries a
+  **Transform** toggle — `⌘T` on the active layer, a *mode* not a tool, lit from engine
+  state (`CalmState.transform_active`). Off, Move only drags a layer around; on, the same
+  grab shows scale/rotate handles and clicking a layer's pixels selects it. Then a
+  contextual options section below the grid that changes with the selected tool
+  (shape/selection sub-picker + independent **Fill** and **Stroke** toggles for
   the shape tools that enclose an area — Rect, Ellipse, Triangle, Pentagon; Line and Arrow are
   outlines with nothing inside them and offer neither — a **brush**
   sub-picker for the Pen, font / size / alignment for Text, brush size for the tools that use
@@ -165,7 +166,7 @@ launches.
 | --- | --- |
 | Paint / place shape | Click-drag on the board (pointer down → move → up). Engine converts **screen** coords. |
 | See the brush | Pen, Eraser and Blur draw a **ring at the pointer, the size of the brush** — document geometry, so it scales with the zoom exactly as the stamp does, with the line held at one screen pixel by `vs_overlay`. Two rings a pixel apart, light inside dark, because one colour cannot stay legible over both white paper and black ink. Under ~3px across it collapses to a dot. It is withheld exactly where a stroke would be refused — a text, vector or locked layer, or inside `⌘T` — so no ring means no stroke. `Document::brush_ring` owns every one of those rules; the shell only forwards the pointer (`calm_engine_set_pointer_hover`) and takes it away while panning or zoom-chording. |
-| Move a layer or vector item | Select **Move** on the tools island, then drag painted pixels or a vector item. Arrow keys nudge the same target. `⌘T` is still scale/rotate for a *layer*. |
+| Move a layer or vector item | Select **Move** on the tools island, then drag painted pixels or a vector item. Arrow keys nudge the same target. Turn **Transform** on (options toggle or `⌘T`) for scale/rotate of that layer; the same press selects it. |
 | Resize a vector item | Select it (Move or `⌘T`), then drag a corner of its box. Proportional by default, **Shift** frees the two axes — the same polarity as a `⌘T` corner. |
 | Constrain a shape | Hold **Shift** while dragging **Rect** or **Ellipse** (and their marquee twins) for a square or circle. Corner-anchored, and the *longer* side wins, so the shape fills the drag. Press or release Shift mid-drag and the board snaps immediately — the clamp is derived from the raw drag on every frame, not baked in on the last mouse-move. Line, Arrow, Triangle and Pentagon are unconstrained (angle snap and regular-polygon lock are different clamps, not built). |
 | Live preview | GPU stroke/shape while dragging; CPU commit into sparse tiles on pointer-up. A shape previews its fill *and* its border in their own colors, because `board.wgsl`'s `shape_ink` composites the same two parts, in the same order, that the commit does. |
@@ -398,8 +399,9 @@ live in `engine/core`; the actual PNG/JPEG/WebP/AVIF **encode** happens in the s
   scale or rotation moves but does not crop. The fields always mirror what the engine took,
   not what was typed. Values follow selection at pointer-up granularity, not live through a
   transform drag.
-- **Transform (`⌘T`):** a transient *mode* on the active layer — not a tools-island
-  button (Select tools stay for region marquee/lasso; transforming a selection region
+- **Transform (`⌘T`):** a transient *mode* on the active layer, reached from Move's options
+  toggle or `⌘T` (which selects Move so the toggle is visible). Not a tools-island button
+  of its own (Select tools stay for region marquee/lasso; transforming a selection region
   is separate). Shows scale/rotate handles around the *active* layer. Drag a corner to
   scale — proportional by default, hold **Shift** for free (non-uniform) scale, the same
   polarity Photoshop's Free Transform uses and deliberately the *opposite* of Shift while
@@ -418,9 +420,10 @@ live in `engine/core`; the actual PNG/JPEG/WebP/AVIF **encode** happens in the s
   which is tile-granular (256×256) and for a small scribble can be the whole document, so
   taking Move on every click inside it would make picking unreachable. Clicking the
   active layer's *own* pixels always keeps it, so an overlapping layer above can never
-  steal the target mid-transform. Picking only happens in transform mode — Option-click
-  and ⌘-click are both already Pan (see Pointer modifiers), so there is no free modifier
-  for a universal "pick under cursor" gesture.
+  steal the target mid-transform. Move *without* transform already selects the layer it
+  grabs (`begin_move_at`). Inside transform, picking is the retarget path above —
+  Option-click and ⌘-click are both already Pan (see Pointer modifiers), so there is no
+  free modifier for a universal "pick under cursor" gesture.
 - **Remove Background:** AI menu on the tools island → macOS Vision via `calm_engine_run_op` when available.
   Shell never mutates the stack after the op. Details: `AGENTS.md` → AI ops.
 
@@ -588,8 +591,8 @@ panel toggles are shell knobs.
 | `M` | Selection (rect / ellipse / lasso — last one used) | Yes (Ps Marquee) |
 | `G` | Fill (bucket) | Yes (Ps Paint Bucket, shared with Gradient) |
 | `I` | Eyedropper (live sample under the cursor into the active primary/secondary swatch; loupe shows color + hex; a circle shows the sample area) | Yes |
-| Move tool | Tools island — click a layer's pixels or a vector item to drag it; a selected item's corners resize it. Empty space is a no-op. `⌘T` stays for scale/rotate of the whole layer. `V` stays vector mode. | Ps `V` is Move; that key is already vector mode here |
-| `⌘T` | Transform mode on the active layer (scale/rotate/move); click another layer's pixels to retarget, click empty space or `Esc` to exit | Yes (Ps Free Transform) |
+| Move tool | Tools island — click a layer's pixels or a vector item to drag it; Transform off, that is all it does. Transform on (options toggle or `⌘T`) adds scale/rotate handles and selecting a layer's pixels makes it active. Empty space is a no-op. `V` stays vector mode. | Ps `V` is Move; that key is already vector mode here |
+| `⌘T` | Select Move and toggle transform mode on the active layer (scale/rotate/move); click another layer's pixels to retarget, click empty space or `Esc` to exit | Yes (Ps Free Transform) |
 | `⌥⌘B` `⌥⌘C` `⌥⌘V` `⌥⌘S` `⌥⌘G` | Increase brightness / contrast / vibrance / saturation / gamma on the active layer by one `limits::ADJUSTMENT_NUDGE_STEP` | — (Ps has no per-filter chord) |
 | `⇧⌥⌘` + the same letter | Decrease the same filter by one step | — |
 | `⌃⌘F` | Enter / exit full screen (re-homed from the removed View menu) | macOS standard |

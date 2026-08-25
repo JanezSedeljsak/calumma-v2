@@ -93,7 +93,7 @@ extension AppModel {
             return true
         }
         if flags.contains(.command), chars.lowercased() == "t" {
-            engine.toggleTransform()
+            toggleMoveTransform()
             return true
         }
         if flags.contains(.command), flags.contains(.option), chars.lowercased() == "l" {

@@ -161,11 +161,28 @@ final class AppModel: ObservableObject {
         enterMoveTransform()
     }
 
-    /// Move is the transform tool: picking it puts the active layer inside `⌘T` so the same
-    /// press that says "move this" hands back the handles that resize and rotate it.
+    /// Paste and drop still want the new layer grabbed with handles live. Picking Move on the
+    /// tools island does not enter transform — that is the options toggle / `⌘T`.
     func enterMoveTransform() {
         selectTool(.move)
         engine.enterTransform()
+    }
+
+    func toggleMoveTransform() {
+        if tool != .move {
+            selectTool(.move)
+            engine.enterTransform()
+            return
+        }
+        engine.toggleTransform()
+    }
+
+    func setMoveTransform(_ on: Bool) {
+        if on {
+            engine.enterTransform()
+        } else {
+            engine.exitTransform()
+        }
     }
 
     func createFromArtwork(_ artwork: ArtworkImage?) {

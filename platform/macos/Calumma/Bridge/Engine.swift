@@ -71,6 +71,7 @@ enum CalmTool: UInt32 {
     case selectEllipse = 7
     case selectLasso = 8
     case bucket = 9
+    case transform = 10
     case eyedropper = 11
     case triangle = 12
     case pentagon = 13
@@ -159,9 +160,8 @@ struct EngineState {
     /// Whether the board already shows what Fit to View would show. The engine answers it —
     /// the shell never recomputes a fit — and the zoom pill's Fit button lights up on it.
     var isFit = false
-    /// Whether the active layer is inside `⌘T`. Transform is a mode the engine owns, not a
-    /// tool the shell selects, so the Transform button reads its lit state from here rather
-    /// than from `AppModel.tool`.
+    /// Whether the active layer is inside `⌘T`. Transform is a mode the engine owns; Move's
+    /// options toggle and the `⌘T` shortcut both read this rather than `AppModel.tool`.
     var transformActive = false
 
     var accentColor: Color { Color(rgb: accent) }
@@ -646,6 +646,7 @@ final class Engine: ObservableObject, @unchecked Sendable {
         guard let ptr else { return }
         _ = calm_engine_exit_transform(ptr)
         render()
+        syncState()
     }
 
     func undo() {

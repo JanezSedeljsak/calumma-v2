@@ -244,8 +244,10 @@ pub enum LayerContent {
   a vector item or a layer's painted pixels (`Document::begin_move_at`) and
   drag. Empty space and Paper are no-ops. Arrow keys call
   `nudge_move_target` — selected vector item first, otherwise the active
-  layer's `transform.offset` when Move or transform mode is on. `V` stays
-  vector mode; `⌘T` stays scale/rotate.
+  layer's `transform.offset` when Move or transform mode is on. Transform is
+  a *toggle on Move* (options panel / `⌘T`): on, the same grab shows
+  scale/rotate handles and selects the layer; off, it only drags. `V` stays
+  vector mode.
 - **Paper** (`Layer::paper`) is an ordinary raster layer, name-matched via
   `Layer::is_paper()`, pre-filled fully opaque white at creation — not a
   cheap vector fill. It is paintable/eraseable/editable like any other
@@ -649,7 +651,7 @@ stroke together, workspaces (titlebar tabs + extend overlay), Eyedropper
 (`I` / tools island; samples the composited pixel under the cursor into the active ink
 swatch), vector layers (`V` / tool options; one item per layer, moved and scaled with
 `⌘T` and the Move tool), text layers (`T` / tools island),
-Move tool (tools island; pick-and-drag without `⌘T`). See `docs/FLOW.md`.
+Move tool (tools island; pick-and-drag, Transform toggle / `⌘T` for scale/rotate). See `docs/FLOW.md`.
 
 **Now carrying plans** in `docs/todo.md`: undo for the rest of the document (`01`),
 GPU adjustment evaluation (`23`, which grows the shipped `LayerData`

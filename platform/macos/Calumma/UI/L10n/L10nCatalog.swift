@@ -114,6 +114,7 @@ struct L10nCatalog: Equatable {
     var vectorMode: String { self["vectorMode"] }
     var vectorModeHint: String { self["vectorModeHint"] }
     var vectorModeLockedHint: String { self["vectorModeLockedHint"] }
+    var transformModeHint: String { self["transformModeHint"] }
     var toolBlockedLocked: String { self["toolBlockedLocked"] }
     var toolBlockedText: String { self["toolBlockedText"] }
     var toolBlockedVector: String { self["toolBlockedVector"] }

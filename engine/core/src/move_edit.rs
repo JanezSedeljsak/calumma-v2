@@ -11,7 +11,9 @@ impl Document {
         if next == Tool::Transform {
             return self.toggle_transform();
         }
-        self.exit_transform();
+        if next != Tool::Move {
+            self.exit_transform();
+        }
         if next.is_shape() {
             self.last_shape_tool = next;
         }

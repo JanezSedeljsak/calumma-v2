@@ -17,6 +17,7 @@ from constants import (
     ENV_AUTO_RELEASE,
     ENV_GITHUB_REF_NAME,
     ENV_GITHUB_REF_TYPE,
+    ENV_GITHUB_REPOSITORY,
     ENV_GITHUB_SHA,
     ENV_RELEASE_DMG,
     ENV_RELEASE_VERSION,
@@ -80,6 +81,44 @@ def release_exists(tag: str) -> bool:
     return result.returncode == 0
 
 
+def _repo() -> str:
+    return os.environ[ENV_GITHUB_REPOSITORY]
+
+
+def tag_ref_exists(tag: str) -> bool:
+    result = run(
+        [BIN_GH, "api", f"repos/{_repo()}/git/ref/tags/{tag}"],
+        check=False,
+        capture=True,
+    )
+    return result.returncode == 0
+
+
+def ensure_tag_ref(tag: str, sha: str) -> None:
+    """Point `tag` at `sha` before creating the GitHub release.
+
+    `gh release create --target <sha>` 403s with GITHUB_TOKEN when that SHA is no
+    longer a branch tip and `main` has since picked up workflow-file changes
+    (GITHUB_TOKEN cannot be granted `workflows: write`). An existing tag ref
+    skips that check, so the tag is created first via the Git Data API.
+    """
+    if tag_ref_exists(tag):
+        return
+    run(
+        [
+            BIN_GH,
+            "api",
+            "--method",
+            "POST",
+            f"repos/{_repo()}/git/refs",
+            "-f",
+            f"ref=refs/tags/{tag}",
+            "-f",
+            f"sha={sha}",
+        ]
+    )
+
+
 def ci_publish() -> None:
     version = os.environ[ENV_RELEASE_VERSION]
     dmg = Path(os.environ[ENV_RELEASE_DMG])
@@ -94,6 +133,7 @@ def ci_publish() -> None:
         run([BIN_GH, "release", "upload", tag, str(dmg), str(checksum), "--clobber"])
         return
 
+    ensure_tag_ref(tag, os.environ[ENV_GITHUB_SHA])
     cmd = [
         BIN_GH,
         "release",
@@ -105,8 +145,6 @@ def ci_publish() -> None:
         f"{APP_NAME} {version}",
         "--notes-file",
         str(notes_path),
-        "--target",
-        os.environ[ENV_GITHUB_SHA],
     ]
     if is_prerelease():
         cmd.append("--prerelease")
