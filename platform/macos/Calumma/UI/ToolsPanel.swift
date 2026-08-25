@@ -130,15 +130,21 @@ struct ToolsPanel: View {
     @ViewBuilder
     private var sliderOptions: some View {
         if showsBrushSize {
+            // The slider runs on 0...1 of travel and the engine places it on the size curve;
+            // the field beside it is the way to an exact size the thumb cannot resolve.
             optionSlider(
                 label: l10n.brushSize,
-                valueText: "\(Int(app.brushSize))",
                 value: Binding(
-                    get: { Double(app.brushSize) },
-                    set: { app.brushSize = Float($0) }
+                    get: { Double(Engine.brushSizeUnit(app.brushSize)) },
+                    set: { app.brushSize = Engine.brushSize(fromUnit: Float($0)) }
                 ),
-                range: 1...96
-            )
+                range: 0...1
+            ) {
+                CalmSliderValueField(
+                    value: $app.brushSize,
+                    range: Engine.brushSizeMin...Engine.brushSizeMax
+                )
+            }
         }
         if showsInkOpacity {
             optionSlider(
@@ -216,15 +222,40 @@ struct ToolsPanel: View {
             paintToggle(l10n.stroke, isOn: $app.stroke)
         }
         if showsVectorMode {
+            let pinned = app.engine.vectorModeLocked
             HStack {
                 CalmText.muted(l10n.vectorMode)
                 Spacer()
-                Toggle("", isOn: $app.vectorMode)
+                // A vector layer decides this for the pen and the shapes, so the switch shows
+                // the decision rather than a knob that is quietly overruled.
+                Toggle("", isOn: pinned ? .constant(true) : $app.vectorMode)
                     .toggleStyle(.switch)
                     .controlSize(.mini)
                     .labelsHidden()
+                    .disabled(pinned)
             }
-            .help(l10n.vectorModeHint)
+            .help(pinned ? l10n.vectorModeLockedHint : l10n.vectorModeHint)
+        }
+    }
+
+    /// A slider row is a label, a value, and the track. The value is usually printed —
+    /// a percentage or a sample size has nothing to type — but a size row hands in a field
+    /// instead, which is the only difference between the two.
+    private func optionSlider<Value: View>(
+        label: String,
+        value: Binding<Double>,
+        range: ClosedRange<Double>,
+        step: Double? = nil,
+        @ViewBuilder trailing: () -> Value
+    ) -> some View {
+        VStack(spacing: 2) {
+            HStack {
+                CalmText.muted(label)
+                Spacer()
+                trailing()
+            }
+            slider(value: value, range: range, step: step)
+                .controlSize(.mini)
         }
     }
 
@@ -235,14 +266,8 @@ struct ToolsPanel: View {
         range: ClosedRange<Double>,
         step: Double? = nil
     ) -> some View {
-        VStack(spacing: 2) {
-            HStack {
-                CalmText.muted(label)
-                Spacer()
-                CalmText.muted(valueText, mono: true)
-            }
-            slider(value: value, range: range, step: step)
-                .controlSize(.mini)
+        optionSlider(label: label, value: value, range: range, step: step) {
+            CalmText.muted(valueText, mono: true)
         }
     }
 
@@ -340,7 +365,7 @@ struct ToolsPanel: View {
                 CalmText.label(l10n.ai)
             }
             .frame(maxWidth: .infinity)
-            .frame(height: 28)
+            .frame(height: Tokens.Control.height)
             .contentShape(Rectangle())
         }
         .menuStyle(.borderlessButton)
@@ -382,8 +407,9 @@ struct ToolsPanel: View {
         return CalmToolButton(
             selected: active,
             action: { app.selectTool(app.lastShapeTool) },
-            tooltip: l10n.shapes,
-            tooltipEdge: .trailing
+            tooltip: app.engine.toolBlock(current).reason(l10n) ?? l10n.shapes,
+            tooltipEdge: .trailing,
+            enabled: !app.engine.isBlocked(current)
         ) {
             shapeIcon(current, color: active ? colors.accentTeal : colors.textMuted)
         }
@@ -423,8 +449,9 @@ struct ToolsPanel: View {
         CalmToolButton(
             selected: app.tool == tool,
             action: { app.selectTool(tool) },
-            tooltip: toolHelp(tool),
-            tooltipEdge: .trailing
+            tooltip: tooltip(tool),
+            tooltipEdge: .trailing,
+            enabled: !app.engine.isBlocked(tool)
         ) {
             shapeIcon(tool, color: app.tool == tool ? colors.accentTeal : colors.textMuted)
         }
@@ -457,8 +484,9 @@ struct ToolsPanel: View {
         return CalmToolButton(
             selected: active,
             action: { app.selectTool(app.lastSelectTool) },
-            tooltip: l10n.selectionTools,
-            tooltipEdge: .trailing
+            tooltip: app.engine.toolBlock(current).reason(l10n) ?? l10n.selectionTools,
+            tooltipEdge: .trailing,
+            enabled: !app.engine.isBlocked(current)
         ) {
             selectionIcon(current, color: active ? colors.accentTeal : colors.textMuted)
         }
@@ -468,8 +496,9 @@ struct ToolsPanel: View {
         CalmToolButton(
             selected: app.tool == tool,
             action: { app.selectTool(tool) },
-            tooltip: toolHelp(tool),
-            tooltipEdge: .trailing
+            tooltip: tooltip(tool),
+            tooltipEdge: .trailing,
+            enabled: !app.engine.isBlocked(tool)
         ) {
             selectionIcon(tool, color: app.tool == tool ? colors.accentTeal : colors.textMuted)
         }
@@ -489,9 +518,16 @@ struct ToolsPanel: View {
         CalmToolButton(
             selected: app.tool == tool,
             action: { app.selectTool(tool) },
-            tooltip: toolHelp(tool),
-            tooltipEdge: .trailing
+            tooltip: tooltip(tool),
+            tooltipEdge: .trailing,
+            enabled: !app.engine.isBlocked(tool)
         ) { icon() }
+    }
+
+    /// The tool's name, or — when the active layer refuses it — why. One string, so hovering a
+    /// dimmed icon answers the only question anyone has about it.
+    private func tooltip(_ tool: CalmTool) -> String {
+        app.engine.toolBlock(tool).reason(l10n) ?? toolHelp(tool)
     }
 
     private func toolHelp(_ tool: CalmTool) -> String {
@@ -517,6 +553,6 @@ struct ToolsPanel: View {
     }
 
     private func iconColor(_ tool: CalmTool) -> Color {
-        app.tool == tool ? colors.accentTeal : colors.textMuted
+        app.tool == tool && !app.engine.isBlocked(tool) ? colors.accentTeal : colors.textMuted
     }
 }

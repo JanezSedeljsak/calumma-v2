@@ -22,8 +22,27 @@ pub const MIN_STAMP_SPACING: f32 = 0.5;
 pub const STAMP_COVERAGE_PADDING: f32 = 1.0;
 
 pub const BRUSH_SIZE_MIN: f32 = 1.0;
-pub const BRUSH_SIZE_MAX: f32 = 96.0;
+/// A thousand document pixels, because the brush has to be able to cover a board as well as
+/// draw on it — a wash, a soft shadow, or an eraser that clears a region in one pass is a
+/// brush the size of the thing it is working on, not a 96px one dragged in rows. The cost of
+/// the ceiling is bounded by the stamp spacing (`STAMP_SPACING_RATIO`): a stamp is laid every
+/// half-diameter, so a stroke of a given screen length costs *fewer* stamps as the brush
+/// grows, and the per-stamp area is what scales.
+pub const BRUSH_SIZE_MAX: f32 = 1000.0;
 pub const BRUSH_SIZE_DEFAULT: f32 = 3.0;
+/// One press of `[` / `]`. Proportional, not a flat pixel: on a 1..1000 range a fixed step
+/// either takes a thousand presses to cross or skips every size a fine brush cares about.
+/// Ten percent crosses the whole range in under sixty presses and still moves a 3px pen by
+/// the pixel it wants — `size_curve::step_brush_size` floors the step at 1.
+pub const BRUSH_SIZE_STEP_RATIO: f32 = 0.1;
+
+/// How a size slider maps its 0..1 travel onto a size range: `min + (max - min) * unit^E`.
+/// Quadratic, because on a *linear* 1..1000 slider everything the old 96px range covered is
+/// squeezed into the first tenth of the track, and a 96pt-wide panel slider has no tenth to
+/// spare. Squared, half the travel lands under a quarter of the range — where the sizes
+/// anyone dials by hand actually are — and the far half still reaches 1000. One exponent for
+/// brush size and text size, so the two sliders feel the same under the thumb.
+pub const SIZE_CURVE_EXPONENT: f32 = 2.0;
 
 /// Blur brush strength: how far each pixel is carried from its own color toward its blurred
 /// neighbourhood. 0 is a no-op and 1 replaces the pixel outright, so the whole useful range is

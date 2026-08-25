@@ -125,9 +125,11 @@ struct CalmIsland<Content: View>: View {
     }
 }
 
-/// Text and number inputs sit on `Tokens.Control.padY` rather than the spacing scale: a
-/// control's height is a control metric, and every field in the app moves together when it
-/// changes. Horizontal padding stays on the spacing scale — only the height was overgenerous.
+/// Inputs and buttons sit on `Tokens.Control.height` rather than the spacing scale: a
+/// control's height is a control metric, and every field *and button* in the app moves
+/// together when it changes — a Create button next to a resolution field is one row, and
+/// two controls in a row that disagree by a few points read as a mistake. Horizontal
+/// padding stays on the spacing scale.
 struct CalmField: View {
     @Environment(\.themeColors) private var colors
     @Binding var text: String
@@ -138,7 +140,7 @@ struct CalmField: View {
             .textFieldStyle(.plain)
             .focused($focused)
             .padding(.horizontal, Tokens.Space.md)
-            .padding(.vertical, Tokens.Control.padY)
+            .frame(height: Tokens.Control.height)
             .calmSurface(bordered: true, focused: focused)
             .foregroundStyle(colors.text)
     }
@@ -156,9 +158,84 @@ struct CalmNumberField: View {
             .focused($focused)
             .frame(width: width)
             .padding(.horizontal, Tokens.Space.md)
-            .padding(.vertical, Tokens.Control.padY)
+            .frame(height: Tokens.Control.height)
             .calmSurface(bordered: true, focused: focused)
             .foregroundStyle(colors.text)
+    }
+}
+
+/// The number beside a slider, typed rather than dragged. A range that runs to 1000 cannot
+/// be dialled to an exact 137 on a 96pt-wide slider whatever curve it is on, so every size
+/// slider carries one of these. Deliberately *not* on `Tokens.Control.height`: it lives in
+/// the tools panel's denser scale, next to label-size type, where a form-height field would
+/// tower over the row it belongs to.
+///
+/// The text is local while it is being typed — committing on every keystroke would clamp
+/// "10" out from under someone on their way to "100" — and is written back from the value on
+/// submit, on blur, and whenever the slider moves it.
+struct CalmSliderValueField: View {
+    @Environment(\.themeColors) private var colors
+    @Binding var value: Float
+    let range: ClosedRange<Float>
+    var width: CGFloat = 38
+
+    @State private var text = ""
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        TextField("", text: $text)
+            .textFieldStyle(.plain)
+            .font(.system(size: Tokens.TypeSize.label, weight: .medium).monospacedDigit())
+            .multilineTextAlignment(.trailing)
+            .focused($focused)
+            .foregroundStyle(colors.text)
+            .frame(width: width)
+            .padding(.horizontal, Tokens.Space.xs)
+            .padding(.vertical, 2)
+            .calmSurface(radius: Tokens.Radius.sm, bordered: true, focused: focused)
+            .onSubmit { commit() }
+            .onChange(of: focused) { _, isFocused in
+                if !isFocused { commit() }
+            }
+            .onChange(of: value) { _, next in
+                if !focused { text = Self.format(next) }
+            }
+            .onAppear { text = Self.format(value) }
+    }
+
+    private func commit() {
+        if let typed = Float(text.trimmingCharacters(in: .whitespaces)) {
+            value = min(max(typed, range.lowerBound), range.upperBound)
+        }
+        text = Self.format(value)
+    }
+
+    private static func format(_ value: Float) -> String {
+        "\(Int(value.rounded()))"
+    }
+}
+
+/// Buttons are filled, bordered controls one input tall: the border is what tells you
+/// where the hit target ends, and on a card whose background is already `surface` it is
+/// the *only* thing that does. Hover shifts luminance (`docs/STYLE.md` rule 5).
+private struct CalmButtonSurface: ViewModifier {
+    @State private var hovering = false
+    var padX: CGFloat = Tokens.Space.md
+    var enabled = true
+    /// Buttons laid out in a grid or a column fill their slot so the edges line up;
+    /// a button sitting next to a field keeps its intrinsic width.
+    var fill = false
+
+    func body(content: Content) -> some View {
+        content
+            .lineLimit(1)
+            .minimumScaleFactor(0.85)
+            .padding(.horizontal, padX)
+            .frame(maxWidth: fill ? .infinity : nil)
+            .frame(height: Tokens.Control.height)
+            .calmSurface(hover: hovering && enabled, bordered: true)
+            .contentShape(Rectangle())
+            .onHover { hovering = $0 }
     }
 }
 
@@ -172,9 +249,7 @@ struct CalmAccentButton: View {
             Text(title)
                 .font(.system(size: Tokens.TypeSize.body, weight: .bold))
                 .foregroundStyle(colors.accentTeal)
-                .padding(.horizontal, Tokens.Space.lg)
-                .padding(.vertical, Tokens.Space.md)
-                .calmSurface()
+                .modifier(CalmButtonSurface(padX: Tokens.Space.lg))
         }
         .buttonStyle(.plain)
         .calmPointer()
@@ -186,6 +261,7 @@ struct CalmPlainButton: View {
     let title: String
     var enabled = true
     var accent = false
+    var fill = false
     /// An explicit color for the few buttons that are neither ordinary nor the accent —
     /// today just Delete, which is `color.danger` per `docs/STYLE.md`'s hierarchy table.
     var tint: Color?
@@ -197,6 +273,7 @@ struct CalmPlainButton: View {
                 .foregroundStyle(
                     tint ?? (accent ? colors.accentTeal : (enabled ? colors.text : colors.textMuted))
                 )
+                .modifier(CalmButtonSurface(enabled: enabled, fill: fill))
         }
         .buttonStyle(.plain)
         .disabled(!enabled)
@@ -206,6 +283,9 @@ struct CalmPlainButton: View {
 
 enum CalmToolButtonLayout {
     static let size: CGFloat = 32
+    /// How far a tool the layer cannot take drops out of the grid. Enough to read as off at a
+    /// glance, not so far that the icon stops being identifiable.
+    static let disabledOpacity: CGFloat = 0.35
 }
 
 struct CalmToolButton<Icon: View>: View {
@@ -213,6 +293,10 @@ struct CalmToolButton<Icon: View>: View {
     let action: () -> Void
     var tooltip: String? = nil
     var tooltipEdge: CalmTooltipEdge = .trailing
+    /// A tool the active layer cannot take is off, not hidden — the grid keeps its shape, and
+    /// the tooltip carries the reason. A luminance drop, per `docs/STYLE.md`: no badge, no
+    /// second colour, nothing red.
+    var enabled: Bool = true
     let icon: Icon
 
     init(
@@ -220,12 +304,14 @@ struct CalmToolButton<Icon: View>: View {
         action: @escaping () -> Void,
         tooltip: String? = nil,
         tooltipEdge: CalmTooltipEdge = .trailing,
+        enabled: Bool = true,
         @ViewBuilder icon: () -> Icon
     ) {
         self.selected = selected
         self.action = action
         self.tooltip = tooltip
         self.tooltipEdge = tooltipEdge
+        self.enabled = enabled
         self.icon = icon()
     }
 
@@ -235,9 +321,11 @@ struct CalmToolButton<Icon: View>: View {
                 .padding(Tokens.Space.xs)
                 .frame(width: CalmToolButtonLayout.size, height: CalmToolButtonLayout.size)
                 .calmSurface(hover: selected, radius: Tokens.Radius.sm)
+                .opacity(enabled ? 1 : CalmToolButtonLayout.disabledOpacity)
         }
         .buttonStyle(.plain)
-        .calmPointer()
+        .disabled(!enabled)
+        .calmPointer(enabled)
         .modifier(OptionalCalmTooltip(text: tooltip, edge: tooltipEdge))
     }
 }

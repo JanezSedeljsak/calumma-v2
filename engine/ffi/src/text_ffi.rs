@@ -55,6 +55,17 @@ pub extern "C" fn calm_text_size_default() -> f32 {
     TEXT_SIZE_DEFAULT
 }
 
+/// Text size rides the same slider curve as brush size — see `calm_brush_size_unit`.
+#[no_mangle]
+pub extern "C" fn calm_text_size_unit(size: f32) -> f32 {
+    calumma_core::text_size_unit(size)
+}
+
+#[no_mangle]
+pub extern "C" fn calm_text_size_from_unit(unit: f32) -> f32 {
+    calumma_core::text_size_from_unit(unit)
+}
+
 #[no_mangle]
 pub extern "C" fn calm_text_line_height_min() -> f32 {
     TEXT_LINE_HEIGHT_MIN
@@ -239,24 +250,6 @@ pub unsafe extern "C" fn calm_engine_set_text_line_height(
     with_inner(engine, |inner| {
         let doc = inner.doc.as_mut().context("no project is open")?;
         doc.set_text_line_height(line_height);
-        edited(inner);
-        Ok(())
-    })
-}
-
-/// Turns a text layer into ordinary pixels. One way, and the only thing that lets a paint
-/// tool touch it — until then strokes on a text layer are refused, not silently discarded on
-/// the next keystroke.
-#[no_mangle]
-pub unsafe extern "C" fn calm_engine_rasterize_text_layer(
-    engine: *mut CalmEngine,
-    index: u32,
-) -> CalmStatus {
-    with_inner(engine, |inner| {
-        let doc = inner.doc.as_mut().context("no project is open")?;
-        if !doc.rasterize_text_layer(index as usize) {
-            bail!("layer {index} is not a text layer");
-        }
         edited(inner);
         Ok(())
     })

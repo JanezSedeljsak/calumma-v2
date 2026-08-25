@@ -54,6 +54,10 @@ extension Engine {
         calm_text_size_min()...calm_text_size_max()
     }
 
+    /// See `Engine.brushSizeUnit` — text size is on the same engine-owned curve.
+    static func textSizeUnit(_ size: Float) -> Float { calm_text_size_unit(size) }
+    static func textSize(fromUnit unit: Float) -> Float { calm_text_size_from_unit(unit) }
+
     static var textLineHeightRange: ClosedRange<Float> {
         calm_text_line_height_min()...calm_text_line_height_max()
     }
@@ -179,16 +183,6 @@ extension Engine {
         guard let ptr else { return }
         _ = calm_engine_set_text_line_height(ptr, lineHeight)
         syncTextState()
-    }
-
-    /// Turns a text layer into ordinary pixels so paint tools can reach it. One way — the
-    /// run is gone afterwards, which is why it is an explicit action and not a side effect
-    /// of picking up a brush.
-    func rasterizeTextLayer(_ index: Int) {
-        guard let ptr else { return }
-        _ = calm_engine_rasterize_text_layer(ptr, UInt32(index))
-        syncState()
-        refreshLayers()
     }
 
     /// Caret position in board-view coordinates, for anchoring the IME candidate window.

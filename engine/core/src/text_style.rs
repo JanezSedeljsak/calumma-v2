@@ -1,8 +1,8 @@
 use crate::document::Document;
-use crate::layer::LayerContent;
 use calumma_text::TextAlign;
 
-/// The knobs the Text tool exposes, and the one-way door out of a text layer.
+/// The knobs the Text tool exposes. The one-way door out of a text layer moved to
+/// `rasterize.rs`, which a vector layer now walks through too.
 ///
 /// Each setter writes the session's run when there is one *and* the document's own
 /// `text_style` always, so the next text layer starts where the last one left off.
@@ -37,28 +37,6 @@ impl Document {
             run.line_height = line_height;
             *run = std::mem::take(run).clamped();
         });
-    }
-
-    /// Turns a text layer into ordinary pixels, keeping exactly what is on screen. The run is
-    /// dropped, so this is one-way — but it is also the only way a paint tool can ever touch
-    /// a headline, since a text layer's tiles are a cache that the next keystroke overwrites.
-    pub fn rasterize_text_layer(&mut self, index: usize) -> bool {
-        if self.text_edit_layer() == Some(index) {
-            self.commit_text();
-        }
-        let (width, height) = (self.width, self.height);
-        let Some(layer) = self.layers.get_mut(index) else {
-            return false;
-        };
-        if !layer.is_text() {
-            return false;
-        }
-        let content = std::mem::replace(&mut layer.content, LayerContent::raster(width, height));
-        if let LayerContent::Text { tiles, .. } = content {
-            layer.content = LayerContent::Raster(tiles);
-        }
-        layer.mark_all_dirty();
-        true
     }
 
     pub fn set_text_size(&mut self, size: f32) {

@@ -42,6 +42,7 @@
 		BD131AAE0516C961970E766F /* EngineText.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9B60794A98312CE885682C7 /* EngineText.swift */; };
 		C4C7A58D94824E00B253707E /* icons in Resources */ = {isa = PBXBuildFile; fileRef = 1D71706379045E8B7E735105 /* icons */; };
 		C565C035F7E02991B99F1697 /* EngineSmokeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7059AFA6095E58E7AB86069 /* EngineSmokeTests.swift */; };
+		C5CDA6E0CB05ED41325CF2F5 /* EngineToolGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11A55B25235660DB4260588 /* EngineToolGate.swift */; };
 		D220BB681118C1CBBE954A5D /* translations in Resources */ = {isa = PBXBuildFile; fileRef = 80FFB98EB115FF0399DB79FF /* translations */; };
 		D2C480A100F61CE66310AF98 /* ImageEncode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73B27E8AC4A6063E13D35EE5 /* ImageEncode.swift */; };
 		D8928EDB95C0B122F7C03701 /* NewProjectView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE709E2E9424992120C350AD /* NewProjectView.swift */; };
@@ -88,6 +89,7 @@
 		88CB056FB322D551B39916BA /* EngineClipboard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EngineClipboard.swift; sourceTree = "<group>"; };
 		8A68AB27B47F3D877681F5A5 /* PasteArtworkIsland.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PasteArtworkIsland.swift; sourceTree = "<group>"; };
 		922F3BA26E2EF9E7A344668F /* ArtworkImport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtworkImport.swift; sourceTree = "<group>"; };
+		A11A55B25235660DB4260588 /* EngineToolGate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EngineToolGate.swift; sourceTree = "<group>"; };
 		A14A1D292C2FDA030B798F55 /* ToolsPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolsPanel.swift; sourceTree = "<group>"; };
 		A259FF110DE306B5F4001C98 /* Engine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Engine.swift; sourceTree = "<group>"; };
 		A9B60794A98312CE885682C7 /* EngineText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EngineText.swift; sourceTree = "<group>"; };
@@ -115,6 +117,7 @@
 				88CB056FB322D551B39916BA /* EngineClipboard.swift */,
 				4CEBBDC14295A09843C610B5 /* EngineGuides.swift */,
 				A9B60794A98312CE885682C7 /* EngineText.swift */,
+				A11A55B25235660DB4260588 /* EngineToolGate.swift */,
 				73B27E8AC4A6063E13D35EE5 /* ImageEncode.swift */,
 				CEC7EF79AFCFCA58FBB65691 /* VisionPlatformOps.swift */,
 			);
@@ -385,6 +388,7 @@
 				044AC973DA0486186FD98643 /* EngineClipboard.swift in Sources */,
 				7805565381ACFCB4E8BF5FAD /* EngineGuides.swift in Sources */,
 				BD131AAE0516C961970E766F /* EngineText.swift in Sources */,
+				C5CDA6E0CB05ED41325CF2F5 /* EngineToolGate.swift in Sources */,
 				7AE274FD18EAA2171ABD2734 /* Icons.swift in Sources */,
 				D2C480A100F61CE66310AF98 /* ImageEncode.swift in Sources */,
 				4BAE76E9B75FCA7CAB639C21 /* L10nCatalog.swift in Sources */,

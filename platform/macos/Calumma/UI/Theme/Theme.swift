@@ -104,8 +104,10 @@ extension View {
         )
     }
 
-    func calmPointer() -> some View {
-        modifier(CalmPointerCursor())
+    /// `active: false` for a control that is switched off — a hand cursor over something
+    /// that will not respond is the same false promise a lit-up icon would be.
+    func calmPointer(_ active: Bool = true) -> some View {
+        modifier(CalmPointerCursor(active: active))
     }
 
     /// Every scrollable area in the app floats its scroll indicator over the content and
@@ -117,8 +119,11 @@ extension View {
 }
 
 private struct CalmPointerCursor: ViewModifier {
+    var active = true
+
     func body(content: Content) -> some View {
         content.onHover { hovering in
+            guard active else { return }
             if hovering {
                 NSCursor.pointingHand.push()
             } else {

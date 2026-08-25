@@ -19,7 +19,7 @@ enum Tokens {
     }
 
     enum Control {
-        static let padY: CGFloat = 6.0
+        static let height: CGFloat = 28.0
     }
 
     enum TypeSize {

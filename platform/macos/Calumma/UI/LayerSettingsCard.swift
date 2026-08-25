@@ -64,9 +64,9 @@ struct LayerSettingsCard: View {
                         app.engine.mergeLayerDown(index)
                     }
                 }
-                if app.engine.isLayerText(index: index) {
-                    actionButton(l10n.layerRasterizeText) {
-                        app.engine.rasterizeTextLayer(index)
+                if app.engine.isLayerRasterizable(index: index) {
+                    actionButton(l10n.layerRasterize) {
+                        app.engine.rasterizeLayer(index)
                     }
                 }
                 actionButton(l10n.resetTransform) {
@@ -137,8 +137,12 @@ struct LayerSettingsCard: View {
                 CalmDivider()
                 // Last and on its own, away from Duplicate — the two are one slip apart
                 // otherwise, and this one is the destructive half.
-                CalmPlainButton(title: l10n.deleteLayer, tint: colors.danger, action: onDelete)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                CalmPlainButton(
+                    title: l10n.deleteLayer,
+                    fill: true,
+                    tint: colors.danger,
+                    action: onDelete
+                )
             }
         }
         .padding(Tokens.Space.md)
@@ -174,8 +178,7 @@ struct LayerSettingsCard: View {
         enabled: Bool = true,
         action: @escaping () -> Void
     ) -> some View {
-        CalmPlainButton(title: title, enabled: enabled, action: action)
-            .frame(maxWidth: .infinity, alignment: .leading)
+        CalmPlainButton(title: title, enabled: enabled, fill: true, action: action)
     }
 
     private var opacity: Float {

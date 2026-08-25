@@ -19,6 +19,7 @@ use crate::selection::{Selection, SelectionShape};
 use crate::shape::{ink_sample, Shape, Tool};
 use crate::text_edit::TextEdit;
 use crate::tile::{blend_over, blend_with_mode, DirtyChannel, DocRect, TileCoord, TileSet};
+use crate::tool_gate::{accepts_pixels, ToolBlock};
 use crate::transform::{bounds_center, clipped_pixel_span, corner_scale, LayerTransform};
 use crate::vector;
 use crate::vector_edit::{VectorItemDrag, VectorPick};
@@ -371,6 +372,11 @@ pub struct Document {
     /// Whether the shape tools and the pen commit as resolution-independent vector items
     /// instead of stamping pixels. A shell knob, like `fill`.
     pub vector_mode: bool,
+    /// The reason the last board press did nothing, waiting to be said out loud, and the
+    /// (layer, tool) pair it was already said for. It lives on the document because the
+    /// document is the only thing that knows a press was refused.
+    pub(crate) blocked_notice: Option<ToolBlock>,
+    pub(crate) blocked_notice_key: Option<(usize, Tool)>,
     vector_revision: u64,
     pub(crate) selected_vector: Option<VectorPick>,
     pub(crate) vector_drag: Option<VectorItemDrag>,
@@ -550,6 +556,8 @@ impl Document {
             guide_drag: None,
             shift_held: false,
             vector_mode: false,
+            blocked_notice: None,
+            blocked_notice_key: None,
             vector_revision: 0,
             selected_vector: None,
             vector_drag: None,
@@ -600,16 +608,13 @@ impl Document {
         self.active_layer = self.layers.len() - 1;
     }
 
-    /// Whether paint tools may write into the active layer.
-    ///
-    /// A text layer's tiles are a cache of its run — `text_layer::resync` clears and rebuilds
-    /// them on the next keystroke, so a stroke committed there would disappear without a
-    /// trace. Painting is refused until the layer is turned into ordinary pixels with
-    /// `rasterize_text_layer`, the same bargain every editor with live text makes.
+    /// Whether the active layer can take pixels, for the commands that are not a tool press —
+    /// paste, clear, clear-selection. Anything reached for *through a tool* asks `tool_block`
+    /// instead, so it gets a reason it can show rather than a bare `false`.
     pub fn active_layer_accepts_paint(&self) -> bool {
         self.layers
             .get(self.active_layer)
-            .is_some_and(|layer| layer.tiles().is_some() && !layer.is_text() && !layer.locked)
+            .is_some_and(accepts_pixels)
     }
 
     pub fn place_image(&mut self, rgba: &[u8], width: u32, height: u32) -> bool {
@@ -778,10 +783,7 @@ impl Document {
     }
 
     pub fn enter_transform(&mut self) -> bool {
-        let Some(layer) = self.layers.get(self.active_layer) else {
-            return false;
-        };
-        if layer.content.is_text() || layer.locked || layer.content_bounds().is_none() {
+        if self.tool_blocked(Tool::Transform) {
             return false;
         }
         self.transform_active = true;
@@ -1299,11 +1301,23 @@ impl Document {
             self.begin_move_at(dx, dy);
             return;
         }
+        // The one place a refusal is worth interrupting for: the user has just asked for
+        // something and nothing happened. Every guard further down is the same rule again,
+        // reached by callers that are not a board press. Text is asked first because its
+        // branch never reaches the common one, and an open session is committed either way —
+        // being refused a press is still leaving the text behind.
         if self.tool == Tool::Text {
+            if self.press_blocked(Tool::Text) {
+                self.commit_text();
+                return;
+            }
             self.begin_text_at(dx, dy);
             return;
         }
         self.commit_text();
+        if self.press_blocked(self.tool) {
+            return;
+        }
         if self.tool == Tool::Fill {
             self.commit_fill(dx, dy);
             return;
@@ -1504,7 +1518,7 @@ impl Document {
             return false;
         }
         match self.tool {
-            Tool::Pen => !self.vector_mode,
+            Tool::Pen => !self.effective_vector_mode(),
             Tool::Eraser => true,
             _ => false,
         }
@@ -1534,7 +1548,7 @@ impl Document {
         if self.tool != Tool::Blur || !self.stroke_active {
             return false;
         }
-        if !self.active_layer_accepts_paint() {
+        if self.tool_blocked(Tool::Blur) {
             return false;
         }
         let radius = self.brush_size * 0.5;
@@ -1599,7 +1613,7 @@ impl Document {
         if !self.stroke_active {
             return;
         }
-        if !self.vector_mode && !self.active_layer_accepts_paint() {
+        if self.tool_blocked(self.tool) {
             self.stroke_active = false;
             self.stroke_points.clear();
             return;
@@ -1614,7 +1628,7 @@ impl Document {
         if points.is_empty() {
             return;
         }
-        if self.vector_mode && self.tool == Tool::Pen {
+        if self.effective_vector_mode() && self.tool == Tool::Pen {
             let pts: Vec<(f32, f32)> = points.iter().map(|p| (p.x, p.y)).collect();
             if let Some(item) = vector::item_from_points(&pts, self.ink_rgba(), self.brush_size) {
                 self.push_vector_item(item);
@@ -1684,11 +1698,11 @@ impl Document {
     }
 
     fn commit_shape(&mut self, shape: Shape) {
-        if !self.vector_mode && !self.active_layer_accepts_paint() {
+        if self.tool_blocked(self.tool) {
             return;
         }
         let (fill_color, stroke_color) = self.shape_paint(shape.tool);
-        if self.vector_mode {
+        if self.effective_vector_mode() {
             if let Some(item) = vector::item_from_shape(shape, fill_color, stroke_color) {
                 self.push_vector_item(item);
                 return;
@@ -1741,6 +1755,9 @@ impl Document {
     }
 
     fn commit_selection_shape(&mut self, shape: Shape) {
+        if self.tool_blocked(self.tool) {
+            return;
+        }
         let selection_shape = match shape.tool {
             Tool::Rect => SelectionShape::Rect {
                 start: shape.start,
@@ -1770,6 +1787,9 @@ impl Document {
     /// thing being edited: clicking a sketch's white background selects the background of that
     /// layer, not of the Paper showing through it.
     fn commit_magic_wand(&mut self, doc_x: f32, doc_y: f32) {
+        if self.tool_blocked(Tool::MagicWand) {
+            return;
+        }
         let x = doc_x.floor() as i32;
         let y = doc_y.floor() as i32;
         let scope = self.bounds();
@@ -1788,6 +1808,10 @@ impl Document {
 
     fn commit_lasso_selection(&mut self) {
         self.stroke_active = false;
+        if self.tool_blocked(Tool::SelectLasso) {
+            self.stroke_points.clear();
+            return;
+        }
         let points: Vec<(f32, f32)> = std::mem::take(&mut self.stroke_points)
             .into_iter()
             .map(|p| (p.x, p.y))
@@ -1840,7 +1864,7 @@ impl Document {
     }
 
     fn commit_fill(&mut self, doc_x: f32, doc_y: f32) {
-        if !self.active_layer_accepts_paint() {
+        if self.tool_blocked(Tool::Fill) {
             return;
         }
         let x = doc_x.floor() as i32;

@@ -192,6 +192,14 @@ final class Engine: ObservableObject, @unchecked Sendable {
     @Published var layerBlendModes: [CalmBlendMode] = []
     @Published var layerAdjustments: [LayerAdjustments] = []
     @Published var layerIsText: [Bool] = []
+    /// Why each tool cannot run on the active layer, indexed by `CalmTool.rawValue` — the
+    /// engine's whole rule table, read once per sync. See `EngineToolGate.swift`.
+    @Published var toolBlocks: [CalmToolBlock] = []
+    /// Set when the active layer pins vector mode on, so the toggle shows itself as decided
+    /// rather than as a knob that is quietly ignored.
+    @Published var vectorModeLocked = false
+    /// The reason the last board press did nothing. Whoever says it out loud clears it.
+    @Published var toolBlockNotice: CalmToolBlock = .none
     @Published var layerLocked: [Bool] = []
     /// Mirrors of engine-owned text state. The shell never computes any of this — it shows
     /// what `syncTextState` last read back, so a font substituted or a size clamped by the
@@ -233,6 +241,17 @@ final class Engine: ObservableObject, @unchecked Sendable {
     private var fitDeadline: CFTimeInterval = 0
     private var stateDirty = false
 
+    static var brushSizeMin: Float { calm_brush_size_min() }
+    static var brushSizeMax: Float { calm_brush_size_max() }
+    static var brushSizeDefault: Float { calm_brush_size_default() }
+    /// Brush and text size sliders run on 0...1 of travel and let the engine place the value
+    /// on its curve — the same arrangement the zoom pill has with `zoom_unit`, and for the
+    /// same reason: the curve is a product decision, not a piece of panel layout.
+    static func brushSizeUnit(_ size: Float) -> Float { calm_brush_size_unit(size) }
+    static func brushSize(fromUnit unit: Float) -> Float { calm_brush_size_from_unit(unit) }
+    static func brushSizeStep(_ size: Float, increase: Bool) -> Float {
+        calm_brush_size_step(size, increase ? 1 : 0)
+    }
     static var inkOpacityMin: Float { calm_ink_opacity_min() }
     static var inkOpacityMax: Float { calm_ink_opacity_max() }
     static var inkOpacityDefault: Float { calm_ink_opacity_default() }
@@ -567,6 +586,9 @@ final class Engine: ObservableObject, @unchecked Sendable {
     func setVectorMode(_ on: Bool) {
         guard let ptr else { return }
         _ = calm_engine_set_vector_mode(ptr, on ? 1 : 0)
+        // The one knob that changes which tools the active layer will take, so the panel has
+        // to hear about it here rather than waiting for the next state sync.
+        syncToolGate()
     }
 
     var vectorMode: Bool {
@@ -1179,6 +1201,7 @@ final class Engine: ObservableObject, @unchecked Sendable {
             transformActive: raw.transform_active != 0
         )
         syncGuideCount()
+        syncToolGate()
     }
 
     /// `guideCount` is `private(set)`, so this is the one place it moves — the guide bridge in

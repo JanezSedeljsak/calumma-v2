@@ -51,21 +51,28 @@ struct TextOptions: View {
         }
     }
 
+    /// Same arrangement as the brush size row: the track carries 0...1 of travel onto the
+    /// engine's size curve, and the field beside it takes an exact size — 4 to 1000 is far
+    /// more range than a panel-width slider can resolve on its own.
     private var sizeSlider: some View {
         VStack(spacing: 2) {
             HStack {
                 CalmText.muted(l10n.textSize)
                 Spacer()
-                CalmText.muted("\(Int(app.engine.textSize))", mono: true)
+                CalmSliderValueField(
+                    value: Binding(
+                        get: { app.engine.textSize },
+                        set: { app.engine.setTextSize($0) }
+                    ),
+                    range: Engine.textSizeRange
+                )
             }
             Slider(
                 value: Binding(
-                    get: { Double(app.engine.textSize) },
-                    set: { app.engine.setTextSize(Float($0)) }
+                    get: { Double(Engine.textSizeUnit(app.engine.textSize)) },
+                    set: { app.engine.setTextSize(Engine.textSize(fromUnit: Float($0))) }
                 ),
-                in: Double(Engine.textSizeRange.lowerBound)...Double(
-                    Engine.textSizeRange.upperBound
-                )
+                in: 0...1
             )
             .controlSize(.mini)
         }

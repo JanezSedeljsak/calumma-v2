@@ -35,6 +35,9 @@ struct EditorView: View {
                     .l10n(l10n)
             }
             .calmToast(app.toast)
+            .onChange(of: app.engine.toolBlockNotice) { _, _ in
+                app.announceToolBlock()
+            }
             .onChange(of: app.engine.aiOpBusyLayer, initial: true) { _, busyLayer in
                 if busyLayer != nil {
                     withAnimation(.easeInOut(duration: 0.55).repeatForever(autoreverses: true)) {
@@ -443,9 +446,6 @@ struct EditorView: View {
                     if locked {
                         AppIcon.lock(color: colors.accentTeal, closed: true)
                     }
-                    if !visible {
-                        AppIcon.eye(color: colors.textMuted.opacity(0.45), open: false)
-                    }
                     if app.engine.isLayerVector(index: index) {
                         CalmText.muted("\(app.engine.layerItemCount(index: index))", mono: true)
                     }
@@ -477,10 +477,28 @@ struct EditorView: View {
                         app.engine.editTextLayer(index)
                     }
                 }
+                // The way out of every block a live layer imposes, offered where the block is
+                // visible — a text or vector row — rather than only inside the settings card.
+                if app.engine.isLayerRasterizable(index: index) {
+                    Button(l10n.layerRasterize) { app.engine.rasterizeLayer(index) }
+                }
                 if renameable {
                     Button(l10n.renameLayer) { beginRename(index) }
                 }
             }
+
+            // Hiding a layer is the most frequent thing anyone does in a layers panel, so the
+            // eye is a control on every row rather than a glyph that only appears once the
+            // layer is already hidden. It sits outside the row's own button, next to `…`,
+            // because a button inside another button's label never gets the click.
+            Button {
+                app.engine.setLayerVisible(index, visible: !visible)
+            } label: {
+                AppIcon.eye(color: visible ? colors.textMuted : colors.textMuted.opacity(0.4), open: visible)
+            }
+            .buttonStyle(.plain)
+            .calmTooltip(l10n.layerVisibility, edge: .leading)
+            .calmPointer()
 
             Button {
                 layerSettingsIndex = index

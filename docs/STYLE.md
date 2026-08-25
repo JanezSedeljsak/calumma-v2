@@ -17,19 +17,22 @@ bits use `{0}`, `{1}`, … filled by `l10n.formatKey(...)`. Visual tokens stay i
    canvas, layers, Paste Artwork, the zoom pill) is stroked with `color.islandBorder` —
    a subtle, low-alpha tint of the theme's edge color, not a hard line.
 
-   **Text/number inputs and list rows** also carry a border, at `color.controlBorder`:
-   a separate, stronger token, because `islandBorder` is tuned for a large rounded
-   island edge and at control scale reads as dirt rather than as an edge. An input
-   needs a visible hit target — where do I click to type — and a list row needs an
-   edge to make a stack of rows legible as a stack. Contrast alone does neither.
-   Applied via `calmSurface(bordered: true)`; a focused input swaps in
-   `color.controlFocusBorder` (accent-tinted), because once every input has a resting
-   border, a focus ring that is *also* just a border is invisible.
+   **Text/number inputs, buttons, and list rows** also carry a border, at
+   `color.controlBorder`: a separate, stronger token, because `islandBorder` is tuned
+   for a large rounded island edge and at control scale reads as dirt rather than as an
+   edge. An input needs a visible hit target — where do I click to type — a button needs
+   one for the same reason (and a button sitting on a `surface` card has nothing else to
+   separate it from the card), and a list row needs an edge to make a stack of rows
+   legible as a stack. Contrast alone does none of the three. Applied via
+   `calmSurface(bordered: true)`; a focused input swaps in `color.controlFocusBorder`
+   (accent-tinted), because once every input has a resting border, a focus ring that is
+   *also* just a border is invisible.
 
    Everywhere else, surfaces still separate by background contrast only: **no borders
-   on buttons, chips, swatches, the tool grid, or sliders.** That is what this rule
-   still forbids, and it is why the input/row carve-out is written down rather than
-   generalised — "borders on everything" is the outcome this rule exists to prevent.
+   on chips, swatches, the tool grid, or sliders.** That is what this rule still forbids,
+   and it is why the input/button/row carve-out is written down rather than generalised —
+   "borders on everything" is the outcome this rule exists to prevent. The line is
+   *labelled controls you click or type into*; an icon in a grid is not one.
 
    Also allowed: a **section separator inside an island** (`CalmDivider`, used by the
    tools panel to split tools / tool options / color / AI): a 1px `color.islandBorder`
@@ -45,8 +48,14 @@ bits use `{0}`, `{1}`, … filled by `l10n.formatKey(...)`. Visual tokens stay i
    SF Symbols are not the product icon set (system chrome may still use them).
 4. **Light and dark.** Every color has a light and dark value in tokens. The
    shell toggles theme; the engine receives dark-paper via FFI.
-5. **Filled controls.** Inputs, buttons, and cards are solid surfaces. Hover and
-   active states shift luminance, not outline weight.
+5. **Filled controls, one height.** Inputs, buttons, and cards are solid surfaces.
+   Hover and active states shift luminance, not outline weight — never the border.
+   Every standard control is `control.height` tall (`Tokens.Control.height`), the one
+   control metric: a Create button beside a resolution field is one row, and two
+   controls in a row that disagree by a few points read as a mistake. Buttons take
+   their padding from the spacing scale horizontally only; the height is the token.
+   The tools panel keeps its own denser scale (24pt controls, label type) — it is a
+   packed island, not a form.
 6. **Inline color picker.** `QuickColorPicker` is the only color control: two equal
    quick swatches side by side, a saturation/brightness gradient field, a hue slider, and
    a hex field. Both edit the *active* quick swatch. Hue/saturation/brightness are held as
@@ -118,13 +127,18 @@ slider, `+`, percentage, a fit-to-view icon (tooltip, no label). Layer list rows
 compact; hovering a row shows a thumbnail popover. Board hover outline remains a dashed
 WGSL stroke, not a Swift overlay.
 
+A tools-panel slider row is a muted label, the value, and the track under both. Where the
+value can be *typed* — the size sliders — it is a `CalmSliderValueField` rather than printed
+text: a bordered input at the panel's own compact scale, not `control.height`, because a
+form-height field would tower over the label beside it.
+
 Islands keep their **inner** padding, plus a minimal `space.sm` gap between them and
 margin around the screen.
 
 ## Do not
 
-- Add hairline borders “for clarity” to buttons, chips, swatches, the tool grid, or
-  sliders — the `controlBorder` carve-out in rule 1 is inputs and list rows only
+- Add hairline borders “for clarity” to chips, swatches, the tool grid, or sliders — the
+  `controlBorder` carve-out in rule 1 is inputs, buttons, and list rows only
 - Import Lucide / Heroicons / Font Awesome / similar
 - Style the canvas with SwiftUI shapes on top of the Metal view
 - Duplicate token values in Swift or Rust source

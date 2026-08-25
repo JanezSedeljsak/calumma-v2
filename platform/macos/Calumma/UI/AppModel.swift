@@ -44,7 +44,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var hsb = HSBColor(Color(red: 0.1, green: 0.1, blue: 0.1))
     @Published private(set) var eyedropperLoupe: EyedropperLoupe?
     private var editingHSB = false
-    @Published var brushSize: Float = 3
+    @Published var brushSize: Float = Engine.brushSizeDefault
     @Published var eyedropperRadius: UInt32 = Engine.eyedropperRadiusDefault
     @Published var inkOpacity: Float = Engine.inkOpacityDefault
     @Published var blurStrength: Float = Engine.blurStrengthDefault
@@ -225,6 +225,15 @@ final class AppModel: ObservableObject {
                 showToast(l10n.removeBackgroundNeedsRaster, kind: .error)
             }
         }
+    }
+
+    /// The one place a refused press interrupts. The engine has already thrown away every
+    /// repeat of the same (layer, tool) question, so this fires when there is genuinely
+    /// something new to say and never on the second try.
+    func announceToolBlock() {
+        guard let reason = engine.toolBlockNotice.reason(l10n) else { return }
+        engine.clearToolBlockNotice()
+        showToast(reason, kind: .error)
     }
 
     /// Shows `text` for a few seconds, then clears itself — unless a newer toast already

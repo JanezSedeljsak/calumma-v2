@@ -306,15 +306,25 @@ fn text_layers_composite_and_export_like_any_layer() {
     assert!(doc.painted_content_bounds().is_some());
 }
 
+/// Transform is one of the three things a text layer *does* answer to — its tiles carry a
+/// layer transform like any other, and the run stays editable underneath.
 #[test]
-fn a_text_layer_is_not_a_transform_target() {
+fn a_text_layer_transforms_but_still_refuses_paint() {
     let mut doc = board();
     click(&mut doc, 100.0, 100.0);
     doc.text_insert("T");
     doc.commit_text();
     doc.set_active_layer(doc.layers.len() - 1);
-    assert!(!doc.enter_transform(), "text is edited, not transformed");
-    assert!(!doc.transform_active);
+    assert!(
+        doc.enter_transform(),
+        "text scales and rotates like any layer"
+    );
+    assert!(doc.transform_active);
+    doc.exit_transform();
+
+    assert_eq!(doc.tool_block(Tool::Pen), ToolBlock::TextLayer);
+    assert_eq!(doc.tool_block(Tool::Text), ToolBlock::None);
+    assert_eq!(doc.tool_block(Tool::Move), ToolBlock::None);
 }
 
 #[test]

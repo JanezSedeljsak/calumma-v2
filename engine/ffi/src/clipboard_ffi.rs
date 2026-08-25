@@ -203,6 +203,38 @@ pub extern "C" fn calm_pdf_default_dpi() -> f32 {
     calumma_io::PDF_DEFAULT_DPI
 }
 
+/// Brush size: the range, the slider curve, and one press of `[` / `]`. The panel owns none
+/// of it — it hands over 0..1 of slider travel and prints whatever size comes back.
+#[no_mangle]
+pub extern "C" fn calm_brush_size_min() -> f32 {
+    calumma_core::limits::BRUSH_SIZE_MIN
+}
+
+#[no_mangle]
+pub extern "C" fn calm_brush_size_max() -> f32 {
+    calumma_core::limits::BRUSH_SIZE_MAX
+}
+
+#[no_mangle]
+pub extern "C" fn calm_brush_size_default() -> f32 {
+    calumma_core::limits::BRUSH_SIZE_DEFAULT
+}
+
+#[no_mangle]
+pub extern "C" fn calm_brush_size_unit(size: f32) -> f32 {
+    calumma_core::brush_size_unit(size)
+}
+
+#[no_mangle]
+pub extern "C" fn calm_brush_size_from_unit(unit: f32) -> f32 {
+    calumma_core::brush_size_from_unit(unit)
+}
+
+#[no_mangle]
+pub extern "C" fn calm_brush_size_step(size: f32, increase: u8) -> f32 {
+    calumma_core::step_brush_size(size, increase != 0)
+}
+
 #[no_mangle]
 pub extern "C" fn calm_ink_opacity_min() -> f32 {
     calumma_core::limits::INK_OPACITY_MIN

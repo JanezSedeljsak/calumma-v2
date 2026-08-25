@@ -98,7 +98,7 @@ fn knob_setters_reject_a_null_engine() {
 /// a control, and a default outside the range would open it in an unreachable position.
 #[test]
 fn limit_accessors_bracket_their_defaults() {
-    let checks: [(f32, f32, f32, &str); 3] = [
+    let checks: [(f32, f32, f32, &str); 4] = [
         (
             calm_blur_strength_min(),
             calm_blur_strength_max(),
@@ -116,6 +116,12 @@ fn limit_accessors_bracket_their_defaults() {
             calm_ink_opacity_max(),
             calm_ink_opacity_default(),
             "ink opacity",
+        ),
+        (
+            calm_brush_size_min(),
+            calm_brush_size_max(),
+            calm_brush_size_default(),
+            "brush size",
         ),
     ];
     for (min, max, default, what) in checks {
@@ -216,4 +222,42 @@ fn blur_takes_a_size_but_no_ink() {
     assert_eq!(calm_tool_takes_brush_size(Tool::Blur as u32), 1);
     assert_eq!(calm_tool_takes_ink_opacity(Tool::Blur as u32), 0);
     assert_eq!(calm_tool_takes_brush(Tool::Blur as u32), 0);
+}
+
+/// The size sliders hand over travel, not a size, so the two directions of the curve have to
+/// agree across the FFI boundary — a thumb that lands somewhere other than the value the
+/// field just committed is the failure this guards.
+#[test]
+fn size_curves_round_trip_across_the_boundary() {
+    for size in [1.0f32, 3.0, 96.0, 500.0, 1000.0] {
+        let back = calm_brush_size_from_unit(calm_brush_size_unit(size));
+        assert!(
+            (back - size).abs() <= 0.5,
+            "brush {size} came back as {back}"
+        );
+    }
+    for size in [4.0f32, 48.0, 512.0, 1000.0] {
+        let back = calm_text_size_from_unit(calm_text_size_unit(size));
+        assert!(
+            (back - size).abs() <= 0.5,
+            "text {size} came back as {back}"
+        );
+    }
+    assert_eq!(calm_brush_size_from_unit(0.0), calm_brush_size_min());
+    assert_eq!(calm_brush_size_from_unit(1.0), calm_brush_size_max());
+}
+
+/// `[` and `]` reach both ends of a range the shell no longer knows the size of.
+#[test]
+fn brush_size_steps_reach_both_ends() {
+    assert_eq!(
+        calm_brush_size_step(calm_brush_size_min(), 0),
+        calm_brush_size_min()
+    );
+    assert_eq!(
+        calm_brush_size_step(calm_brush_size_max(), 1),
+        calm_brush_size_max()
+    );
+    assert!(calm_brush_size_step(3.0, 1) > 3.0);
+    assert!(calm_brush_size_step(3.0, 0) < 3.0);
 }

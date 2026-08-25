@@ -213,6 +213,22 @@ live in `engine/core`; the actual PNG/JPEG/WebP/AVIF **encode** happens in the s
 
 ## Text
 
+- **Size sliders** (brush size, text size). Both run **1–1000 px** (text from 4), because a
+  brush that covers a region and a headline set across a board are what those knobs are for.
+  A range that wide cannot be linear on a 96pt-wide panel: the slider carries **0…1 of
+  travel** and the engine places it on a **quadratic** curve (`size_curve::size_from_unit`,
+  `limits::SIZE_CURVE_EXPONENT`), so half the track lands under a quarter of the range —
+  where the sizes anyone dials by hand actually are — and the far half still reaches 1000.
+  The shell never computes the curve, exactly as it never computes the log zoom curve.
+  Beside every size slider is a **number field**: the exact way to 137px, which no
+  panel-width slider can resolve. It clamps to the range on commit, not per keystroke, so
+  typing on the way to a larger number is not clamped out from under you. `[` / `]` step the
+  brush **proportionally** (`size_curve::step_brush_size`, 10% and never less than a pixel),
+  so the whole range is reachable by key in under sixty presses. The slider always lands on
+  whole pixels, so the number printed and the number typed are the same number.
+  The **blur** brush is the one tool whose cost scales with the square of the size — it reads
+  and rewrites its whole disc per pointer event, where the pen and eraser only commit at
+  pointer-up — so the top of its range is deliberately expensive rather than free.
 - **Brushes** (Pen sub-picker, Pen only). Four ways the pen lays ink down — **Pen**,
   **Marker**, **Crayon**, **Airbrush** — chosen from a 2×2 grid under the tool. They change
   the *character* of the ink, not how much of it there is: size and opacity stay their own

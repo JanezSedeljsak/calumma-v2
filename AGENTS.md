@@ -198,11 +198,11 @@ pub enum LayerContent {
   code: branch on `layer.tiles().is_none()` rather than `!is_raster()` when you mean "has no
   pixels" (`is_raster()` is **false** for text), and never write text tiles to SQLite — the
   run is the source of truth (`layers.text_data`, `content_kind = 2`).
-  The same cache is why **paint tools refuse a text layer**
-  (`Document::active_layer_accepts_paint`): anything a brush, shape, fill or clear committed
-  there would be wiped by the next `resync`. `Document::rasterize_text_layer` drops the run
-  and keeps the tiles, and `merge_layer_down` calls it on the destination first. Structural
-  edits (remove/duplicate/merge/resize, switching layers, undo/redo) `commit_text()` first —
+  The same cache is why **paint tools refuse a text layer** (`Document::tool_block`, below):
+  anything a brush, shape, fill or clear committed there would be wiped by the next `resync`.
+  `Document::rasterize_text_layer` drops the run and keeps the tiles, and `merge_layer_down`
+  calls it on the destination first. Structural edits (remove/duplicate/merge/resize,
+  switching layers, undo/redo) `commit_text()` first —
   a session indexes a layer by position, so it must not outlive a stack that moved.
 - Glyph work lives in **`engine/text`**, a leaf crate over `cosmic-text` (system font
   discovery via `fontdb`, shaping, layout, caret and hit-testing, rasterizing to RGBA).
@@ -222,8 +222,10 @@ pub enum LayerContent {
   Per-keystroke history would flood the budget for no benefit.
 
 - `layer.transform: Option<LayerTransform>` (`engine/core/src/transform.rs`)
-  — offset/scale/rotation around the layer's `content_bounds()` center, raster
-  layers only (`⌘T` transform *mode*, not a toolbar tool). Same non-destructive contract as
+  — offset/scale/rotation around the layer's `content_bounds()` center, on any layer that
+  has content bounds — text included, since its tiles carry a transform row like any other
+  and the run stays editable underneath (`⌘T` transform *mode*, not a toolbar tool). Same
+  non-destructive contract as
   everything else on `Layer`: never baked into tile bytes. Live view applies
   it as a per-layer GPU uniform in `vs_tile` (`board.wgsl`); flattening
   (`composite_rgba`/`layer_rgba`/PSD + SVG export, all via
@@ -269,6 +271,16 @@ pub enum LayerContent {
   `limits::ADJUSTMENT_NUDGE_STEP` / `GAMMA_NUDGE_STEP` through
   `calm_engine_nudge_layer_adjustment` — the step and clamp are core, so the
   shell never does the arithmetic.
+- **Which tools a layer accepts is one question with one answer**
+  (`engine/core/src/tool_gate.rs`). `Document::tool_block(tool) -> ToolBlock` is the only
+  rule set — the shell greys a button out on it, the engine refuses a press on it, and the
+  brush ring stands down on it, so none of the three can drift. A text layer leaves Move,
+  `⌘T` and the Text tool; a vector layer leaves those plus the pen and the shapes, because
+  `vector_mode_locked` pins vector mode on and their result becomes a new layer under the 1:1
+  limit; a locked layer leaves the eyedropper and Move, both of which pick their own target.
+  `Document::rasterize_layer` (`rasterize.rs`) is the way out of the first two. Do not add a
+  second predicate: `active_layer_accepts_paint` survives only for the commands that are not
+  a tool press (paste, clear), because they have no tool to name and so nothing to explain.
 - `Document::duplicate_layer`/`merge_layer_down`/`resize` are **not**
   undo-tracked, matching the existing precedent that `add_layer`/
   `remove_layer` aren't either — structural layer-list/document edits sit
@@ -407,15 +419,16 @@ Compose `CalmText`, `CalmField`, `CalmRow`, `calmSurface()`, `CalmChip`, etc. Th
 via `@Environment(\.themeColors)`; copy via `@Environment(\.l10n)`.
 
 1. Islands (`CalmIsland`) carry a thin `Tokens.Light/Dark.islandBorder` stroke. Text/number
-   inputs and list rows carry a stronger `controlBorder` (focused inputs:
-   `controlFocusBorder`) via `calmSurface(bordered:focused:)`. Everywhere else — buttons,
-   chips, swatches, the tool grid, sliders — separate surfaces by background contrast only.
+   inputs, buttons, and list rows carry a stronger `controlBorder` (focused inputs:
+   `controlFocusBorder`) via `calmSurface(bordered:focused:)`. Everywhere else — chips,
+   swatches, the tool grid, sliders — separate surfaces by background contrast only.
 2. Controls use `Tokens.Radius.sm` / `md`. Islands use `Tokens.Radius.island` (rounded) and
    sit apart with a minimal gap and window margin (`Tokens.Space.sm`), not flush.
 3. Custom Canvas/`AppIcon` drawings only — no icon packs / SF Symbols as product icons.
 4. Light and dark from tokens; push desk / grid / paper-border into the engine via
    `calm_engine_set_board_colors`. Never hardcode a color in `.rs` or `.wgsl`.
-5. Filled controls; hover = luminance shift.
+5. Filled controls; hover = luminance shift. One height for inputs and buttons alike:
+   `Tokens.Control.height` (tools panel keeps its own denser 24pt scale).
 6. Inline color picker (`QuickColorPicker`) — overlapping swatches, HSB field, hue, hex.
 7. Nothing **drawn on the board** may be a SwiftUI view — paper, strokes, grid, and the
    layer hover outline are WGSL. Small chrome *controls* may float over the canvas island

@@ -16,15 +16,18 @@ pub mod memory;
 pub mod move_edit;
 pub mod names;
 pub mod palette;
+pub mod rasterize;
 pub mod ruler;
 pub mod selection;
 pub mod selection_edit;
 pub mod selection_mask;
 pub mod shape;
+pub mod size_curve;
 pub mod text_edit;
 pub mod text_layer;
 pub mod text_style;
 pub mod tile;
+pub mod tool_gate;
 pub mod transform;
 pub mod vector;
 pub mod vector_edit;
@@ -51,8 +54,8 @@ pub use history::History;
 pub use history_tile::HistoryTile;
 pub use layer::{BlendMode, Layer, LayerContent};
 pub use limits::{
-    CRISP_PIXEL_ZOOM, IMPORT_MAX_SIDE, LOSSY_EXPORT_QUALITY, MAX_ZOOM_HARD, MIN_VISIBLE_DOC_SIDE,
-    MIN_ZOOM_FILL,
+    BRUSH_SIZE_DEFAULT, BRUSH_SIZE_MAX, BRUSH_SIZE_MIN, CRISP_PIXEL_ZOOM, IMPORT_MAX_SIDE,
+    LOSSY_EXPORT_QUALITY, MAX_ZOOM_HARD, MIN_VISIBLE_DOC_SIDE, MIN_ZOOM_FILL,
 };
 pub use names::{LAYER_ONE, PAPER, UNTITLED};
 pub use palette::{project_color, random_project_color, BoardColors, PROJECT_COLORS};
@@ -60,11 +63,16 @@ pub use ruler::{ruler_ticks, RulerTick};
 pub use selection::{Selection, SelectionShape};
 pub use selection_mask::{OutlineEdge, SelectionMask};
 pub use shape::{Shape, Tool};
+pub use size_curve::{
+    brush_size_from_unit, brush_size_unit, size_from_unit, step_brush_size, text_size_from_unit,
+    text_size_unit, unit_from_size,
+};
 pub use text_edit::TextEdit;
 pub use tile::{
     blend_over, blend_with_mode, unpremultiply_rgba, DirtyChannel, DocRect, TileCoord, TileGrid,
     TILE_SIZE,
 };
+pub use tool_gate::ToolBlock;
 pub use transform::LayerTransform;
 pub use vector::{VectorItem, VectorPath, VectorShape};
 pub use vector_edit::VectorPick;

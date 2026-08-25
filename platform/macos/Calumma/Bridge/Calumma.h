@@ -169,10 +169,27 @@ uint8_t calm_tool_takes_tolerance(uint32_t tool);
 uint8_t calm_tool_takes_eyedropper_radius(uint32_t tool);
 uint8_t calm_tool_takes_brush(uint32_t tool);
 uint8_t calm_tool_takes_eraser_hardness(uint32_t tool);
+
+// Why a tool cannot run on the active layer: 0 none, 1 locked, 2 text layer, 3 vector layer,
+// 4 nothing to work on. `calm_engine_tool_blocks` fills `out[tool]` for every tool below
+// `len` and returns how many it wrote.
+uint32_t calm_engine_tool_blocks(CalmEngine *engine, uint32_t *out, uint32_t len);
+uint32_t calm_engine_tool_block(CalmEngine *engine, uint32_t tool);
+CalmStatus calm_engine_take_tool_block_notice(CalmEngine *engine, uint32_t *out);
+int calm_engine_vector_mode_locked(CalmEngine *engine);
+int calm_engine_layer_is_rasterizable(CalmEngine *engine, uint32_t index);
+CalmStatus calm_engine_rasterize_layer(CalmEngine *engine, uint32_t index);
 CalmStatus calm_parse_hex_rgb(const char *s, uint32_t *out_rgb);
 char *calm_format_hex_rgb(uint32_t rgb);
 float calm_lossy_export_quality(void);
 float calm_pdf_default_dpi(void);
+// Brush size: range, slider curve (0..1 travel <-> size), and one `[` / `]` press.
+float calm_brush_size_min(void);
+float calm_brush_size_max(void);
+float calm_brush_size_default(void);
+float calm_brush_size_unit(float size);
+float calm_brush_size_from_unit(float unit);
+float calm_brush_size_step(float size, uint8_t increase);
 float calm_ink_opacity_min(void);
 float calm_ink_opacity_max(void);
 float calm_ink_opacity_default(void);
@@ -298,6 +315,8 @@ uint32_t calm_font_family_styles(uint32_t index);
 float calm_text_size_min(void);
 float calm_text_size_max(void);
 float calm_text_size_default(void);
+float calm_text_size_unit(float size);
+float calm_text_size_from_unit(float unit);
 float calm_text_line_height_min(void);
 float calm_text_line_height_max(void);
 float calm_text_line_height_default(void);
@@ -316,7 +335,6 @@ CalmStatus calm_engine_set_text_align(CalmEngine *engine, uint32_t align);
 CalmStatus calm_engine_set_text_bold(CalmEngine *engine, int bold);
 CalmStatus calm_engine_set_text_italic(CalmEngine *engine, int italic);
 CalmStatus calm_engine_set_text_line_height(CalmEngine *engine, float line_height);
-CalmStatus calm_engine_rasterize_text_layer(CalmEngine *engine, uint32_t index);
 char *calm_engine_text_family(CalmEngine *engine);
 float calm_engine_text_size(CalmEngine *engine);
 uint32_t calm_engine_text_align(CalmEngine *engine);

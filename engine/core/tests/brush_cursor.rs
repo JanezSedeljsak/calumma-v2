@@ -108,7 +108,17 @@ fn a_layer_that_refuses_paint_shows_no_ring() {
             stroke_width: 2.0,
         }),
     );
-    assert_eq!(doc.brush_ring(), None, "a vector layer has no pixels");
+    assert!(
+        doc.brush_ring().is_some(),
+        "a vector layer pins vector mode on, so the pen still lands something"
+    );
+
+    doc.tool = Tool::Eraser;
+    assert_eq!(
+        doc.brush_ring(),
+        None,
+        "an eraser has no vector form and no pixels to take away"
+    );
 }
 
 /// Vector mode draws into a layer of its own, so the active layer's refusal does not apply —
@@ -117,18 +127,10 @@ fn a_layer_that_refuses_paint_shows_no_ring() {
 fn vector_mode_keeps_the_ring_over_a_layer_that_could_not_take_pixels() {
     let mut doc = board();
     hover(&mut doc, 40.0, 40.0);
-    doc.add_vector_layer(
-        "V",
-        VectorItem::Path(VectorPath {
-            points: vec![(0.0, 0.0), (10.0, 10.0)],
-            closed: false,
-            fill: false,
-            color: [0, 0, 0, 255],
-            stroke: true,
-            stroke_color: [0, 0, 0, 255],
-            stroke_width: 2.0,
-        }),
-    );
+    doc.begin_text_at(20.0, 20.0);
+    doc.text_insert("hi");
+    doc.commit_text();
+    doc.tool = Tool::Pen;
     assert_eq!(doc.brush_ring(), None);
 
     doc.set_vector_mode(true);

@@ -9,6 +9,7 @@ mod memory_ffi;
 mod platform;
 mod ruler_ffi;
 mod text_ffi;
+mod tool_ffi;
 mod vector_ffi;
 mod workspace_ffi;
 
@@ -19,5 +20,6 @@ pub use memory_ffi::*;
 pub use platform::*;
 pub use ruler_ffi::*;
 pub use text_ffi::*;
+pub use tool_ffi::*;
 pub use vector_ffi::*;
 pub use workspace_ffi::*;

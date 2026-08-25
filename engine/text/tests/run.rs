@@ -5,7 +5,10 @@
 //! an IME composition spliced in at the caret — because a slice off a boundary is a panic,
 //! not a wrong pixel.
 
-use calumma_text::{TextAlign, TextRun};
+use calumma_text::{
+    TextAlign, TextRun, TEXT_LINE_HEIGHT_DEFAULT, TEXT_LINE_HEIGHT_MAX, TEXT_LINE_HEIGHT_MIN,
+    TEXT_SIZE_MAX, TEXT_SIZE_MIN,
+};
 
 /// Four bytes, one char: an index in the middle of it is not a place a string can be split.
 const EMOJI: &str = "a🙂b";
@@ -152,8 +155,8 @@ fn clamping_pulls_every_knob_back_into_range() {
         ..TextRun::default()
     }
     .clamped();
-    assert_eq!(tiny.size, 4.0);
-    assert_eq!(tiny.line_height, 0.5);
+    assert_eq!(tiny.size, TEXT_SIZE_MIN);
+    assert_eq!(tiny.line_height, TEXT_LINE_HEIGHT_MIN);
 
     let huge = TextRun {
         size: 9_000.0,
@@ -161,15 +164,15 @@ fn clamping_pulls_every_knob_back_into_range() {
         ..TextRun::default()
     }
     .clamped();
-    assert_eq!(huge.size, 512.0);
-    assert_eq!(huge.line_height, 4.0);
+    assert_eq!(huge.size, TEXT_SIZE_MAX);
+    assert_eq!(huge.line_height, TEXT_LINE_HEIGHT_MAX);
 
     let nan_height = TextRun {
         line_height: f32::NAN,
         ..TextRun::default()
     }
     .clamped();
-    assert_eq!(nan_height.line_height, 1.25);
+    assert_eq!(nan_height.line_height, TEXT_LINE_HEIGHT_DEFAULT);
 }
 
 #[test]

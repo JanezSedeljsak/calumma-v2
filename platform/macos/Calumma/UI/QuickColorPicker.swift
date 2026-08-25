@@ -205,7 +205,7 @@ struct QuickColorPicker: View {
         }
         .padding(.horizontal, Tokens.Space.xs)
         .padding(.vertical, 3)
-        .calmSurface(radius: Tokens.Radius.sm)
+        .calmSurface(radius: Tokens.Radius.sm, bordered: true, focused: hexFocused)
         .help(l10n.hex)
         .onChange(of: hexFocused) { _, focused in
             if !focused {

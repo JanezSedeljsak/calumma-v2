@@ -113,6 +113,11 @@ struct L10nCatalog: Equatable {
     var memoryUsed: String { self["memoryUsed"] }
     var vectorMode: String { self["vectorMode"] }
     var vectorModeHint: String { self["vectorModeHint"] }
+    var vectorModeLockedHint: String { self["vectorModeLockedHint"] }
+    var toolBlockedLocked: String { self["toolBlockedLocked"] }
+    var toolBlockedText: String { self["toolBlockedText"] }
+    var toolBlockedVector: String { self["toolBlockedVector"] }
+    var toolBlockedEmpty: String { self["toolBlockedEmpty"] }
     var shapes: String { self["shapes"] }
     var zoom: String { self["zoom"] }
     var ai: String { self["ai"] }
@@ -199,7 +204,8 @@ struct L10nCatalog: Equatable {
     var textLineHeight: String { self["textLineHeight"] }
     var textBold: String { self["textBold"] }
     var textItalic: String { self["textItalic"] }
-    var layerRasterizeText: String { self["layerRasterizeText"] }
+    var layerRasterize: String { self["layerRasterize"] }
+    var layerRasterizeHint: String { self["layerRasterizeHint"] }
     var exportLayer: String { self["exportLayer"] }
     var editText: String { self["editText"] }
     var toolLine: String { self["toolLine"] }

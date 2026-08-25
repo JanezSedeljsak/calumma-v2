@@ -1,5 +1,11 @@
 pub const TEXT_SIZE_MIN: f32 = 4.0;
-pub const TEXT_SIZE_MAX: f32 = 512.0;
+/// Matches `BRUSH_SIZE_MAX`: a headline set across a large board is the same ask as a brush
+/// that covers one, and two "how big can it get" ceilings that disagree is a question nobody
+/// should have to answer. A single line at this size still sits well under
+/// `TEXT_RASTER_MAX_SIDE` on any document Calumma will open; a run stacked tall enough to
+/// pass it — many lines at the maximum line height — is refused a raster, which was already
+/// reachable at the old 512 and is why that guard exists.
+pub const TEXT_SIZE_MAX: f32 = 1000.0;
 pub const TEXT_SIZE_DEFAULT: f32 = 48.0;
 
 pub const TEXT_LINE_HEIGHT_MIN: f32 = 0.5;

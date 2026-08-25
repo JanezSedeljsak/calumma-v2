@@ -97,7 +97,7 @@ COLOR_KEYS = (
 
 RADIUS_KEYS = ("sm", "md", "lg", "window", "island")
 SPACE_KEYS = ("xs", "sm", "md", "lg", "xl", "xxl")
-CONTROL_KEYS = ("padY",)
+CONTROL_KEYS = ("height",)
 WINDOW_KEYS = (
     "mainWidth",
     "mainHeight",

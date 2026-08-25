@@ -3,7 +3,7 @@
 //! Brush size is a slider number until you can see it on the paper. The ring is drawn from the
 //! same two values the stamp is — `brush_size` and the pointer — so it cannot disagree with
 //! what the next stroke will lay down, and it is refused in exactly the cases a stroke would
-//! be: a text or vector layer, a locked one, or while `⌘T` owns the pointer.
+//! be: `Document::tool_block` says no, or `⌘T` owns the pointer.
 
 use crate::document::Document;
 use crate::shape::Tool;
@@ -29,10 +29,10 @@ impl Document {
         if self.transform_active {
             return None;
         }
-        // A vector-mode pen draws into a new layer of its own, so the active layer's opinion
-        // does not apply to it. Everything else has to be able to paint where it is pointing,
-        // or the ring would promise a stroke that the engine then silently refuses.
-        if !self.vector_mode && !self.active_layer_accepts_paint() {
+        // The same predicate the press itself will run, so the ring never promises a stroke
+        // the engine then refuses. A vector-mode pen draws into a layer of its own, which is
+        // why `tool_block` — not the active layer's content — is what decides.
+        if self.tool_blocked(self.tool) {
             return None;
         }
         let centre = self.pointer_hover?;

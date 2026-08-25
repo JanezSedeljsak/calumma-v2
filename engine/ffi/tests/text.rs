@@ -409,7 +409,7 @@ fn a_text_layer_is_rasterized_on_request() {
     engine.type_text("pixels");
     let index = engine.text_layer_index();
     assert_eq!(
-        unsafe { calm_engine_rasterize_text_layer(engine.ptr, index) },
+        calm_engine_rasterize_layer(engine.ptr, index),
         CalmStatus::Ok
     );
     assert_eq!(
@@ -419,7 +419,7 @@ fn a_text_layer_is_rasterized_on_request() {
     );
     assert!(engine.layer_text(index).is_none());
     assert_eq!(
-        unsafe { calm_engine_rasterize_text_layer(engine.ptr, index) },
+        calm_engine_rasterize_layer(engine.ptr, index),
         CalmStatus::Error,
         "there is nothing left to rasterize"
     );
@@ -441,7 +441,7 @@ fn the_new_text_calls_are_null_safe() {
             CalmStatus::Null
         );
         assert_eq!(
-            calm_engine_rasterize_text_layer(ptr::null_mut(), 0),
+            calm_engine_rasterize_layer(ptr::null_mut(), 0),
             CalmStatus::Null
         );
         assert_eq!(calm_engine_text_styles(ptr::null_mut()), 0);

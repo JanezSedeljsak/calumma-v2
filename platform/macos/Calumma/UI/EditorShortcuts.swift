@@ -101,20 +101,20 @@ extension AppModel {
             return true
         }
         switch chars.lowercased() {
-        case "p": selectTool(.pen)
-        case "l": selectTool(.line)
-        case "r": selectTool(.rect)
-        case "o": selectTool(.ellipse)
-        case "a": selectTool(.arrow)
-        case "t": selectTool(.text)
-        case "3": selectTool(.triangle)
-        case "5": selectTool(.pentagon)
-        case "e": selectTool(.eraser)
-        case "u": selectTool(.blur)
-        case "m": selectTool(lastSelectTool)
-        case "w": selectTool(.magicWand)
-        case "g": selectTool(.bucket)
-        case "i": selectTool(.eyedropper)
+        case "p": pickTool(.pen)
+        case "l": pickTool(.line)
+        case "r": pickTool(.rect)
+        case "o": pickTool(.ellipse)
+        case "a": pickTool(.arrow)
+        case "t": pickTool(.text)
+        case "3": pickTool(.triangle)
+        case "5": pickTool(.pentagon)
+        case "e": pickTool(.eraser)
+        case "u": pickTool(.blur)
+        case "m": pickTool(lastSelectTool)
+        case "w": pickTool(.magicWand)
+        case "g": pickTool(.bucket)
+        case "i": pickTool(.eyedropper)
         case "f": fill.toggle()
         case "s": stroke.toggle()
         case "v": vectorMode.toggle()
@@ -125,7 +125,7 @@ extension AppModel {
                     eyedropperRadius -= 1
                 }
             } else {
-                brushSize = max(1, brushSize - 1)
+                brushSize = Engine.brushSizeStep(brushSize, increase: false)
             }
         case "]":
             if tool.takesEyedropperRadius {
@@ -133,11 +133,25 @@ extension AppModel {
                     eyedropperRadius += 1
                 }
             } else {
-                brushSize = min(96, brushSize + 1)
+                brushSize = Engine.brushSizeStep(brushSize, increase: true)
             }
         default: return false
         }
         return true
+    }
+
+    /// A shortcut asks the same question the tools panel does before it switches: a key that
+    /// selects a tool the active layer refuses would put the user in a state the panel already
+    /// shows as unusable. The refusal is said out loud rather than swallowed, because unlike a
+    /// greyed-out button a key press has nothing to look at.
+    @MainActor
+    private func pickTool(_ next: CalmTool) {
+        let block = engine.toolBlock(next)
+        guard !block.blocks else {
+            engine.toolBlockNotice = block
+            return
+        }
+        selectTool(next)
     }
 
     /// Arrow keys as one step each, in the engine's step units — the shell names a direction
