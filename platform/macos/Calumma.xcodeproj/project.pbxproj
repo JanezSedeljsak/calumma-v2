@@ -12,6 +12,7 @@
 		172AB3B35B9A43CC638AEF65 /* RulerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 841BE8081B1CD6392825EAFD /* RulerView.swift */; };
 		22FD5D2BC31EF4DCDBDE5C44 /* PasteArtworkIsland.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A68AB27B47F3D877681F5A5 /* PasteArtworkIsland.swift */; };
 		271D05E9C3C1712DD26F4358 /* MenuBarChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D3C37748893CB5EC5112010 /* MenuBarChrome.swift */; };
+		3330E3B90133B093966EDE0D /* CalmDeferredSlider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06C04ABB73D8A39B73D40DF2 /* CalmDeferredSlider.swift */; };
 		42B7FBCF7FFC086EA1AEA0F0 /* WorkspaceSettingsCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2BBA741ED8F2E775A39D449 /* WorkspaceSettingsCard.swift */; };
 		439C1853EC6CE0C2FA36F8CE /* ToolsPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A14A1D292C2FDA030B798F55 /* ToolsPanel.swift */; };
 		457103E8669325D73966619A /* ProjectSettingsCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8785BD6BC0D2FF8DDBFB7CD2 /* ProjectSettingsCard.swift */; };
@@ -62,6 +63,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		06C04ABB73D8A39B73D40DF2 /* CalmDeferredSlider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalmDeferredSlider.swift; sourceTree = "<group>"; };
 		19DFAFAA7AD5666942643F1A /* SvgIcon.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SvgIcon.swift; sourceTree = "<group>"; };
 		1D3C37748893CB5EC5112010 /* MenuBarChrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarChrome.swift; sourceTree = "<group>"; };
 		1D71706379045E8B7E735105 /* icons */ = {isa = PBXFileReference; lastKnownFileType = folder; name = icons; path = ../../design/icons; sourceTree = SOURCE_ROOT; };
@@ -194,6 +196,7 @@
 			isa = PBXGroup;
 			children = (
 				84F6D524731F2D8CD1FB6BBA /* AppModel.swift */,
+				06C04ABB73D8A39B73D40DF2 /* CalmDeferredSlider.swift */,
 				C8C335FD29B637F4717C54D3 /* CalmToast.swift */,
 				CB8067B80D342F0E64ADE69F /* CalmTooltip.swift */,
 				67686C7F92215B7F5788DDCA /* Components.swift */,
@@ -378,6 +381,7 @@
 				AD89BE3B8450233B07A11855 /* ArtworkImport.swift in Sources */,
 				5532C71BBF3A5EED57200013 /* BoardCanvas.swift in Sources */,
 				6ADA5AEBA5C0A054FDE4BC52 /* BoardTextInput.swift in Sources */,
+				3330E3B90133B093966EDE0D /* CalmDeferredSlider.swift in Sources */,
 				52B6693AA18F7FAEEABDAFFC /* CalmToast.swift in Sources */,
 				7746F3F65DB4F153EA3B8EAB /* CalmTooltip.swift in Sources */,
 				DDC892B0235664E0FC2816FC /* CalummaApp.swift in Sources */,

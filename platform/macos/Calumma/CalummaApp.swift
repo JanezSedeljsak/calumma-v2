@@ -76,24 +76,6 @@ struct CalummaApp: App {
                     .keyboardShortcut("f", modifiers: [.control, .command])
                     .disabled(app.showLanding)
             }
-            CommandMenu(app.l10n.filtersMenu) {
-                ForEach(CalmAdjustment.allCases) { kind in
-                    let label = app.l10n[kind.labelKey]
-                    Button(app.l10n.formatKey("filterIncrease", label)) {
-                        app.nudgeActiveLayerFilter(kind, steps: 1)
-                    }
-                    .keyboardShortcut(kind.shortcutKey, modifiers: [.command, .option])
-                    .disabled(!app.canFilterActiveLayer)
-                    Button(app.l10n.formatKey("filterDecrease", label)) {
-                        app.nudgeActiveLayerFilter(kind, steps: -1)
-                    }
-                    .keyboardShortcut(kind.shortcutKey, modifiers: [.command, .option, .shift])
-                    .disabled(!app.canFilterActiveLayer)
-                    Divider()
-                }
-                Button(app.l10n.resetFilters) { app.resetActiveLayerFilters() }
-                    .disabled(!app.canFilterActiveLayer)
-            }
         }
     }
 }

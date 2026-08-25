@@ -267,12 +267,17 @@ pub enum LayerContent {
 - `layer.adjustments: Option<Adjustments>` (`engine/core/src/filters.rs`) —
   brightness/contrast/vibrance/saturation/levels, `None` = neutral. Also
   applied at CPU upload time, no shader involvement (unlike blend mode,
-  adjustments only ever read the source layer's own pixels). Two entry points:
-  the sliders in `LayerSettingsCard` (`calm_engine_set_layer_adjustments`) and
-  the menu-bar Filters menu, which **nudges** by
-  `limits::ADJUSTMENT_NUDGE_STEP` / `GAMMA_NUDGE_STEP` through
-  `calm_engine_nudge_layer_adjustment` — the step and clamp are core, so the
-  shell never does the arithmetic.
+  adjustments only ever read the source layer's own pixels). One entry point:
+  the sliders in `LayerSettingsCard` (`calm_engine_set_layer_adjustments`).
+  They ride `CalmDeferredSlider`, which keeps the knob local and hands the
+  engine only the value still standing after 100ms of quiet — a rebake per
+  emitted value is what a CPU-baked adjustment costs, and a drag emits a lot
+  of them. The engine-side `nudge_layer_adjustment`
+  (`limits::ADJUSTMENT_NUDGE_STEP` / `GAMMA_NUDGE_STEP`,
+  `calm_engine_nudge_layer_adjustment`) is still there and still tested, but
+  the menu-bar Filters menu that was its only caller is **gone** — a menu of
+  Increase/Decrease pairs next to a panel of sliders was clutter, and the
+  chrome stays minimal.
 - **Which tools a layer accepts is one question with one answer**
   (`engine/core/src/tool_gate.rs`). `Document::tool_block(tool) -> ToolBlock` is the only
   rule set — the shell greys a button out on it, the engine refuses a press on it, and the
@@ -283,8 +288,20 @@ pub enum LayerContent {
   `Document::rasterize_layer` (`rasterize.rs`) is the way out of the first two. Do not add a
   second predicate: `active_layer_accepts_paint` survives only for the commands that are not
   a tool press (paste, clear), because they have no tool to name and so nothing to explain.
-- `Document::duplicate_layer`/`merge_layer_down`/`resize` are **not**
-  undo-tracked, matching the existing precedent that `add_layer`/
+- **Clipping is destructive, and that is the whole design**
+  (`engine/core/src/merge.rs`). `clip_layer_down` is `merge_layer_down` with
+  the source's alpha first multiplied by the base's raw tile alpha —
+  `merge_down_inner` is literally one function with a `clip` flag. There is no
+  `clipped` state, no clip group, no schema column, and the renderer never
+  learns the word: after the action there is one ordinary layer, so export is
+  free and there is no CPU/GPU rule pair to keep identical. The base's *raw*
+  alpha is what clips, because the base keeps its own opacity/mask/adjustments
+  afterwards and those then govern the merged result once — Photoshop's
+  clipping-group semantics. It stands down on a base carrying a transform:
+  the source bakes into document space while the base's tiles sit in its own,
+  so the alpha would be misaligned by exactly that transform.
+- `Document::duplicate_layer`/`merge_layer_down`/`clip_layer_down`/`resize`
+  are **not** undo-tracked, matching the existing precedent that `add_layer`/
   `remove_layer` aren't either — structural layer-list/document edits sit
   outside the tile-diff history model on purpose, not as an oversight.
 - **Vector layers** (`core/src/vector.rs`, `core/src/vector_edit.rs`,

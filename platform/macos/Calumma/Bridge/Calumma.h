@@ -244,6 +244,8 @@ CalmStatus calm_engine_set_layer_locked(CalmEngine *engine, uint32_t index, uint
 int calm_engine_layer_locked(CalmEngine *engine, uint32_t index);
 int calm_engine_layer_is_paper(CalmEngine *engine, uint32_t index);
 CalmStatus calm_engine_merge_layer_down(CalmEngine *engine, uint32_t index);
+CalmStatus calm_engine_clip_layer_down(CalmEngine *engine, uint32_t index);
+int calm_engine_layer_can_clip_down(CalmEngine *engine, uint32_t index);
 CalmStatus calm_engine_set_layer_opacity(CalmEngine *engine, uint32_t index, float opacity);
 float calm_engine_layer_opacity(CalmEngine *engine, uint32_t index);
 CalmStatus calm_engine_set_layer_blend_mode(CalmEngine *engine, uint32_t index, uint32_t mode);

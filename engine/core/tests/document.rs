@@ -716,21 +716,6 @@ fn opacity_and_adjustments_dirty_render_not_store() {
 }
 
 #[test]
-fn merge_layer_down_bakes_pixels_and_removes_source() {
-    let mut doc = Document::new("p".into(), "t", 32, 32);
-    doc.add_layer("Top");
-    let top = doc.active_layer;
-    doc.layers[top]
-        .tiles_mut()
-        .unwrap()
-        .set_pixel(3, 3, [10, 20, 30, 255]);
-    let before = doc.layers.len();
-    assert!(doc.merge_layer_down(top));
-    assert_eq!(doc.layers.len(), before - 1);
-    assert_eq!(pixel(&doc, doc.active_layer, 3, 3), [10, 20, 30, 255]);
-}
-
-#[test]
 fn move_layer_up_and_down_reorders_the_stack() {
     let mut doc = Document::new("p".into(), "t", 32, 32);
     doc.add_layer("Mid");
@@ -804,32 +789,6 @@ fn identity_transform_flattens_like_an_untransformed_layer() {
     let (_, _, rgba) = doc.layer_rgba(idx).expect("paint layer");
     let i = (8 * 64 + 12) * 4;
     assert_eq!(&rgba[i..i + 4], &[9, 8, 7, 255]);
-}
-
-#[test]
-fn merge_layer_down_bakes_transform_into_destination_pixels() {
-    let mut doc = Document::new("p".into(), "t", 64, 64);
-    doc.add_layer("Top");
-    let top = doc.active_layer;
-    doc.layers[top]
-        .tiles_mut()
-        .unwrap()
-        .set_pixel(10, 10, [10, 20, 30, 255]);
-    doc.layers[top].transform = Some(LayerTransform {
-        offset_x: 15.0,
-        offset_y: 0.0,
-        ..LayerTransform::default()
-    });
-    assert!(doc.merge_layer_down(top));
-    assert_eq!(pixel(&doc, doc.active_layer, 25, 10), [10, 20, 30, 255]);
-    assert_eq!(pixel(&doc, doc.active_layer, 10, 10), [0, 0, 0, 0]);
-}
-
-#[test]
-fn merge_layer_into_paper_is_disallowed() {
-    let mut doc = Document::new("p".into(), "t", 16, 16);
-    let paint_index = doc.active_layer;
-    assert!(!doc.merge_layer_down(paint_index));
 }
 
 #[test]

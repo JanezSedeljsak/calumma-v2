@@ -8,6 +8,7 @@ struct LayerSettingsCard: View {
     let canMoveUp: Bool
     let canMoveDown: Bool
     let canMergeDown: Bool
+    let canClipDown: Bool
     let canRename: Bool
     let canDelete: Bool
     /// Renaming happens inline in the row, and deleting has to close this popover before the
@@ -62,6 +63,11 @@ struct LayerSettingsCard: View {
                 if canMergeDown {
                     actionButton(l10n.mergeLayerDown) {
                         app.engine.mergeLayerDown(index)
+                    }
+                }
+                if canClipDown {
+                    actionButton(l10n.clipLayerDown) {
+                        app.engine.clipLayerDown(index)
                     }
                 }
                 if app.engine.isLayerRasterizable(index: index) {
@@ -211,11 +217,7 @@ struct LayerSettingsCard: View {
     ) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             CalmText.muted(label)
-            Slider(value: Binding(
-                get: { Double(value) },
-                set: { onChange(Float($0)) }
-            ), in: Double(range.lowerBound)...Double(range.upperBound))
-            .controlSize(.mini)
+            CalmDeferredSlider(value: value, range: range, onSettled: onChange)
         }
     }
 }

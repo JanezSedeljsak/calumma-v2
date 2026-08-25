@@ -11,36 +11,6 @@ enum CalmBlendMode: UInt32, CaseIterable, Identifiable {
     var id: UInt32 { rawValue }
 }
 
-enum CalmAdjustment: UInt32, CaseIterable, Identifiable {
-    case brightness = 0
-    case contrast = 1
-    case vibrance = 2
-    case saturation = 3
-    case levelsGamma = 4
-
-    var id: UInt32 { rawValue }
-
-    var labelKey: String {
-        switch self {
-        case .brightness: return "brightness"
-        case .contrast: return "contrast"
-        case .vibrance: return "vibrance"
-        case .saturation: return "saturation"
-        case .levelsGamma: return "levelsGamma"
-        }
-    }
-
-    var shortcutKey: KeyEquivalent {
-        switch self {
-        case .brightness: return "b"
-        case .contrast: return "c"
-        case .vibrance: return "v"
-        case .saturation: return "s"
-        case .levelsGamma: return "g"
-        }
-    }
-}
-
 struct LayerAdjustments: Equatable {
     var brightness: Float = 0
     var contrast: Float = 0
@@ -741,6 +711,24 @@ final class Engine: ObservableObject, @unchecked Sendable {
         render()
     }
 
+    /// Bakes the layer through the alpha of the one below it and merges the two. Destructive the
+    /// moment it is pressed — there is no clipped state afterwards, which is the whole reason the
+    /// renderer never has to know the word.
+    func clipLayerDown(_ index: Int) {
+        guard let ptr else { return }
+        _ = calm_engine_clip_layer_down(ptr, UInt32(index))
+        syncState()
+        refreshLayers()
+        render()
+    }
+
+    /// Merge Down's rules plus a raster base carrying no transform, all answered by the engine so
+    /// the greyed-out button and the refused call can never disagree.
+    func canClipLayerDown(index: Int) -> Bool {
+        guard let ptr, index >= 0 else { return false }
+        return calm_engine_layer_can_clip_down(ptr, UInt32(index)) != 0
+    }
+
     func setLayerOpacity(_ index: Int, _ opacity: Float) {
         guard let ptr else { return }
         _ = calm_engine_set_layer_opacity(ptr, UInt32(index), opacity)
@@ -766,13 +754,6 @@ final class Engine: ObservableObject, @unchecked Sendable {
             adjustments.saturation,
             adjustments.levelsGamma
         )
-        refreshLayers()
-        render()
-    }
-
-    func nudgeLayerAdjustment(_ index: Int, _ kind: CalmAdjustment, steps: Float) {
-        guard let ptr else { return }
-        _ = calm_engine_nudge_layer_adjustment(ptr, UInt32(index), kind.rawValue, steps)
         refreshLayers()
         render()
     }

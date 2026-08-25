@@ -100,6 +100,10 @@ extension AppModel {
             layersOpen.toggle()
             return true
         }
+        if flags.contains(.command), flags.contains(.option), chars.lowercased() == "g" {
+            clipActiveLayerDown()
+            return true
+        }
         switch chars.lowercased() {
         case "p": pickTool(.pen)
         case "l": pickTool(.line)
@@ -138,6 +142,16 @@ extension AppModel {
         default: return false
         }
         return true
+    }
+
+    /// Clip to Layer Below on the *active* layer, which is the only thing a chord can mean — the
+    /// card's button names a row, a key press has only the layer you are working on. Refused the
+    /// same way the greyed-out button is, since both ask the engine.
+    @MainActor
+    private func clipActiveLayerDown() {
+        let index = Int(engine.state.activeLayer)
+        guard engine.canClipLayerDown(index: index) else { return }
+        engine.clipLayerDown(index)
     }
 
     /// A shortcut asks the same question the tools panel does before it switches: a key that

@@ -1455,24 +1455,6 @@ pub unsafe extern "C" fn calm_engine_layer_locked(engine: *mut CalmEngine, index
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn calm_engine_merge_layer_down(
-    engine: *mut CalmEngine,
-    index: u32,
-) -> CalmStatus {
-    with_inner(engine, |inner| {
-        let doc = inner.doc.as_mut().context("no project is open")?;
-        if !doc.merge_layer_down(index as usize) {
-            bail!("layer {index} cannot be merged down");
-        }
-        inner.dirty_save = true;
-        if let Some(r) = &mut inner.renderer {
-            r.invalidate();
-        }
-        Ok(())
-    })
-}
-
-#[no_mangle]
 pub unsafe extern "C" fn calm_engine_set_layer_opacity(
     engine: *mut CalmEngine,
     index: u32,

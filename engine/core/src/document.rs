@@ -64,7 +64,7 @@ pub fn stroke_stamps(points: &[StrokePoint], radius: f32) -> Vec<StrokePoint> {
     out
 }
 
-fn apply_mask(rgba: &mut [u8], mask: Option<&[u8]>) {
+pub(crate) fn apply_mask(rgba: &mut [u8], mask: Option<&[u8]>) {
     let Some(mask) = mask else {
         return;
     };
@@ -222,7 +222,7 @@ fn layer_composited_pixel(
     px
 }
 
-fn copy_layer_into_rgba(layer: &Layer, buf: &mut [u8], w: u32, h: u32) {
+pub(crate) fn copy_layer_into_rgba(layer: &Layer, buf: &mut [u8], w: u32, h: u32) {
     if let Some(item) = layer.content.item() {
         vector::rasterize_into_rgba(item, layer.transform, buf, w, h);
         return;
@@ -261,7 +261,7 @@ fn copy_layer_into_rgba(layer: &Layer, buf: &mut [u8], w: u32, h: u32) {
         });
 }
 
-fn apply_layer_effects(rgba: &mut [u8], layer: &Layer, lut: Option<&AdjustmentLut>) {
+pub(crate) fn apply_layer_effects(rgba: &mut [u8], layer: &Layer, lut: Option<&AdjustmentLut>) {
     let lut = lut.filter(|l| !l.is_neutral());
     let opacity = layer.opacity;
     if lut.is_none() && opacity >= 1.0 {
@@ -1174,53 +1174,6 @@ impl Document {
                 i
             }
         });
-        true
-    }
-
-    pub fn merge_layer_down(&mut self, index: usize) -> bool {
-        if index == 0 || index >= self.layers.len() {
-            return false;
-        }
-        if self.layers[index - 1].is_paper() {
-            return false;
-        }
-        self.commit_text();
-        self.rasterize_text_layer(index - 1);
-        if self.layers[index].tiles().is_none() && self.layers[index].content.item().is_none() {
-            return false;
-        }
-        if self.layers[index - 1].tiles().is_none() {
-            return false;
-        }
-        self.clear_vector_selection();
-        let mode = self.layers[index].blend_mode;
-        let w = self.width.max(1);
-        let h = self.height.max(1);
-        let mut src_buf = vec![0u8; (w as usize) * (h as usize) * 4];
-        copy_layer_into_rgba(&self.layers[index], &mut src_buf, w, h);
-        let lut = self.layers[index].adjustments.map(|a| a.lut());
-        apply_layer_effects(&mut src_buf, &self.layers[index], lut.as_ref());
-
-        let Some(dst) = self.layers[index - 1].tiles_mut() else {
-            return false;
-        };
-        dst.paint_rect(DocRect::from_size(w, h), |x, y, dst_px| {
-            let i = ((y as usize) * (w as usize) + (x as usize)) * 4;
-            let src_px = [src_buf[i], src_buf[i + 1], src_buf[i + 2], src_buf[i + 3]];
-            if src_px[3] == 0 {
-                return None;
-            }
-            Some(blend_with_mode(dst_px, src_px, mode))
-        });
-
-        self.layers.remove(index);
-        if self.active_layer >= self.layers.len() {
-            self.active_layer = self.layers.len().saturating_sub(1);
-        } else if self.active_layer > index {
-            self.active_layer -= 1;
-        } else {
-            self.active_layer = index - 1;
-        }
         true
     }
 

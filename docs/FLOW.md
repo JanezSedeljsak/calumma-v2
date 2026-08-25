@@ -347,15 +347,34 @@ live in `engine/core`; the actual PNG/JPEG/WebP/AVIF **encode** happens in the s
   frequent action in any layers panel — which is why it is the first thing in the card, under
   the pointer as the popover opens. The rest of the card: **Rename**, **Copy** (PNG, or SVG if
   the layer is vector content), **Duplicate** (cheap, shares tile data via `Arc` until edited),
-  **Merge Down** (composites onto the layer below respecting opacity/blend mode/adjustments,
-  then removes the source — disabled when the layer below is Paper), **Reset Transform**, an
+  **Merge Down** (composites onto the layer below respecting mask/opacity/blend
+  mode/adjustments, then removes the source — disabled when the layer below is Paper),
+  **Clip to Below** (below), **Reset Transform**, an
   **Opacity** slider, a **Blend Mode** picker (Normal / Multiply / Screen — see `AGENTS.md` → Layers for
   why only these three), and five **Filter** sliders (brightness, contrast, vibrance,
   saturation, gamma — levels black/white points were removed as redundant with
   brightness/contrast) with a reset button. All of it is live on the canvas
   and non-destructive — nothing here is undo-tracked (matches add/remove layer), and there is
-  no explicit "bake into pixels" action; `merge_layer_down` and PSD export are the only two
-  places any of it gets baked into concrete bytes today.
+  no explicit "bake into pixels" action; `merge_layer_down`, `clip_layer_down` and PSD export
+  are the only places any of it gets baked into concrete bytes today.
+- **The filter sliders are deferred, the opacity slider is not.** An adjustment is baked on
+  the CPU at upload time, so every value a drag emits costs a full-layer rebake;
+  `CalmDeferredSlider` keeps the knob local and tells the engine only the value still
+  standing after 100ms of quiet, which turns a drag into a handful of bakes. Opacity keeps
+  its direct binding because its `%` readout reads the engine value and would stutter behind
+  the knob.
+- **Clip to Below** (`⌥⌘G`, or the card's button) bakes the layer through the alpha of the one
+  underneath it and merges the two, right then. It is Photoshop's clipping mask as a
+  **destructive action**, not a live compositing rule: there is no clipped flag, no clipping
+  group, no schema column, and no layer whose rendering depends on another layer's contents
+  (`AGENTS.md` → STRICT SCOPE). Clipping into a group of three means doing it twice — each
+  apply leaves an ordinary layer that can be clipped into again. The base keeps its own
+  opacity, mask and adjustments, which then govern the merged result once, so the clip reads
+  the base's **raw** tile alpha rather than its composited alpha. Offered only where it can be
+  honest: greyed out with no layer below, with Paper below, with a vector layer below, or with
+  a base carrying a transform — the source bakes into document space while the base's tiles
+  sit in its own, so the alpha would be off by exactly that transform. Not undo-tracked, same
+  as Merge Down.
 - **The list uses the height it has:** the stack takes every point the header above it and the
   Layer bounds fields below it do not, and scrolls once it runs out, rather than stopping at a
   fixed share of the island with dead space underneath. A floor keeps it from collapsing
@@ -372,8 +391,8 @@ live in `engine/core`; the actual PNG/JPEG/WebP/AVIF **encode** happens in the s
   menu. Double-click on a *text* layer still opens the text for editing (that came first), so
   the context menu is the path for those. `Enter` commits, `Esc` abandons. Names are trimmed
   and an all-whitespace name is refused. **Paper cannot be renamed, and nothing else can be
-  renamed *to* Paper** — `Layer::is_paper` is name-matched, so merge-down, click-to-pick and
-  the Filters menu all key off that string; letting it move would break all three silently.
+  renamed *to* Paper** — `Layer::is_paper` is name-matched, so merge-down, clip-down and
+  click-to-pick all key off that string; letting it move would break all three silently.
 - **Lock** (the padlock beside the eye): refuses everything that would change the layer's
   pixels or where they sit — paint, fill, clear, transform (`⌘T` and Reset Transform), Move,
   arrow-key nudge, the bounds strip, and vector item drags. A locked layer is also invisible
@@ -532,17 +551,13 @@ the clipboard) does the same split: SVG for vector layers, PNG for everything el
 menu's Settings above:
 
 - **Board** — Fit to View (`0`), Toggle Layers (`⌥⌘L`), Enter Full Screen (`⌃⌘F`).
-- **Filters** — Increase / Decrease per filter (brightness, contrast, vibrance,
-  saturation, gamma) plus Reset. A menu is discrete and an adjustment is continuous, so
-  the menu is a **nudge** surface, not a second slider panel: each item steps the active
-  layer by one `limits::ADJUSTMENT_NUDGE_STEP` (gamma: `GAMMA_NUDGE_STEP`) through
-  `calm_engine_nudge_layer_adjustment`. The step and the clamp live in the engine — the
-  shell does no arithmetic, it only names the item. `LayerSettingsCard` stays the one
-  place filter *UI* lives, so nothing is duplicated. Acts on the active layer only,
-  matching that card, and is disabled on Landing and when the active layer is Paper.
-  Like the sliders, nudges are **not** undo-tracked (same precedent as add/remove layer,
-  duplicate, merge and resize) — worth revisiting for all of them together rather than
-  making the menu path alone undoable.
+- **Filters is removed.** It carried an Increase / Decrease pair per filter plus Reset,
+  which is a discrete menu standing next to a panel of continuous sliders that already
+  said the same thing — clutter, against the minimal-chrome rule, and the sliders were
+  always the surface people used. The engine half it drove (`nudge_layer_adjustment`,
+  `limits::ADJUSTMENT_NUDGE_STEP` / `GAMMA_NUDGE_STEP`, `calm_engine_nudge_layer_adjustment`)
+  is still there and still tested; nothing in the shell calls it today. Its `⌥⌘G` is now
+  Clip to Below.
 - **View is removed.** AppKit synthesises it for every app and SwiftUI cannot declare it
   away, so `MenuBarPruner` (`UI/MenuBarChrome.swift`) deletes it from `NSApp.mainMenu`
   after launch — matching on the selectors its items send, not their titles, which the
@@ -593,8 +608,7 @@ panel toggles are shell knobs.
 | `I` | Eyedropper (live sample under the cursor into the active primary/secondary swatch; loupe shows color + hex; a circle shows the sample area) | Yes |
 | Move tool | Tools island — click a layer's pixels or a vector item to drag it; Transform off, that is all it does. Transform on (options toggle or `⌘T`) adds scale/rotate handles and selecting a layer's pixels makes it active. Empty space is a no-op. `V` stays vector mode. | Ps `V` is Move; that key is already vector mode here |
 | `⌘T` | Select Move and toggle transform mode on the active layer (scale/rotate/move); click another layer's pixels to retarget, click empty space or `Esc` to exit | Yes (Ps Free Transform) |
-| `⌥⌘B` `⌥⌘C` `⌥⌘V` `⌥⌘S` `⌥⌘G` | Increase brightness / contrast / vibrance / saturation / gamma on the active layer by one `limits::ADJUSTMENT_NUDGE_STEP` | — (Ps has no per-filter chord) |
-| `⇧⌥⌘` + the same letter | Decrease the same filter by one step | — |
+| `⌥⌘G` | Clip to Below on the active layer — see Layers | Yes (Ps Create Clipping Mask, though ours merges rather than clipping live) |
 | `⌃⌘F` | Enter / exit full screen (re-homed from the removed View menu) | macOS standard |
 | `F` | Toggle shape fill | — |
 | `S` | Toggle shape stroke — independent of fill, so a shape can carry both | — (Figma has both by default) |

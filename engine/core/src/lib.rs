@@ -13,6 +13,7 @@ pub mod history_tile;
 pub mod layer;
 pub mod limits;
 pub mod memory;
+pub mod merge;
 pub mod move_edit;
 pub mod names;
 pub mod palette;

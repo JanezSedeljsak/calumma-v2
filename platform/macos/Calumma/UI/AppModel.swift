@@ -515,25 +515,6 @@ final class AppModel: ObservableObject {
         workspaceExtendOpen = false
     }
 
-    /// Filters act on the active layer, matching `LayerSettingsCard`. Paper is excluded the
-    /// same way merge-down and transform already exclude it.
-    var canFilterActiveLayer: Bool {
-        guard !showLanding, activeProjectId != nil else { return false }
-        let index = Int(engine.state.activeLayer)
-        guard engine.layerNames.indices.contains(index) else { return false }
-        return engine.layerNames[index] != l10n.paper
-    }
-
-    func nudgeActiveLayerFilter(_ kind: CalmAdjustment, steps: Float) {
-        guard canFilterActiveLayer else { return }
-        engine.nudgeLayerAdjustment(Int(engine.state.activeLayer), kind, steps: steps)
-    }
-
-    func resetActiveLayerFilters() {
-        guard canFilterActiveLayer else { return }
-        engine.setLayerAdjustments(Int(engine.state.activeLayer), LayerAdjustments())
-    }
-
     func toggleFullScreen() {
         mainWindow?.toggleFullScreen(nil)
     }

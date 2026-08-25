@@ -432,7 +432,7 @@ fn layer_crud_opacity_blend_and_adjustments() {
     );
     let duplicated = engine.state().active_layer;
     assert_eq!(
-        unsafe { calm_engine_merge_layer_down(engine.ptr, duplicated) },
+        calm_engine_merge_layer_down(engine.ptr, duplicated),
         CalmStatus::Ok
     );
     assert_eq!(

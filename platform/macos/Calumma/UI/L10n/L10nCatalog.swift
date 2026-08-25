@@ -134,7 +134,6 @@ struct L10nCatalog: Equatable {
     var themeLight: String { self["themeLight"] }
     var themeDark: String { self["themeDark"] }
     var boardMenu: String { self["boardMenu"] }
-    var filtersMenu: String { self["filtersMenu"] }
     var enterFullScreen: String { self["enterFullScreen"] }
     var newProjectMenu: String { self["newProjectMenu"] }
     var fitToView: String { self["fitToView"] }
@@ -165,6 +164,7 @@ struct L10nCatalog: Equatable {
     var moveLayerUp: String { self["moveLayerUp"] }
     var moveLayerDown: String { self["moveLayerDown"] }
     var mergeLayerDown: String { self["mergeLayerDown"] }
+    var clipLayerDown: String { self["clipLayerDown"] }
     var opacity: String { self["opacity"] }
     var blendMode: String { self["blendMode"] }
     var blendNormal: String { self["blendNormal"] }
