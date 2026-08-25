@@ -14,6 +14,7 @@ struct NewProjectView: View {
     @State private var colorPickerOpen = false
     @State private var pendingDelete: ProjectInfo?
     @State private var pendingClearAll = false
+    @State private var hoveredRecent: String?
 
     var body: some View {
         GeometryReader { geo in
@@ -120,7 +121,7 @@ struct NewProjectView: View {
     }
 
     private var presetsColumn: some View {
-        CalmSection(title: l10n.presets, accent: colors.accentTeal) {
+        CalmSection(title: l10n.presets, accent: colors.accentTeal, contentSpacing: Tokens.Space.sm) {
             ForEach(Tokens.presets) { preset in
                 CalmRowButton {
                     app.create(name: preset.label, width: preset.width, height: preset.height, accent: accent)
@@ -137,7 +138,7 @@ struct NewProjectView: View {
     }
 
     private var recentsColumn: some View {
-        CalmSection(title: l10n.recents, accent: colors.accentOrange) {
+        CalmSection(title: l10n.recents, accent: colors.accentOrange, contentSpacing: Tokens.Space.sm) {
             if !app.engine.recents.isEmpty {
                 Button(l10n.clearAllRecents) {
                     pendingClearAll = true
@@ -155,6 +156,7 @@ struct NewProjectView: View {
                     .calmSurface(bordered: true)
             } else {
                 ForEach(app.engine.recents.prefix(5)) { project in
+                    let hovered = hoveredRecent == project.id
                     HStack(spacing: Tokens.Space.sm) {
                         Button {
                             app.openRecent(project)
@@ -176,6 +178,10 @@ struct NewProjectView: View {
                         .buttonStyle(.plain)
                         .calmPointer()
 
+                        // Revealed by hover like the layer rows, and holding its slot either
+                        // way so the card does not reflow under the pointer. Unlike a layer,
+                        // a deleted project is gone from SQLite for good — so this one keeps
+                        // its confirmation.
                         Button {
                             pendingDelete = project
                         } label: {
@@ -183,11 +189,16 @@ struct NewProjectView: View {
                         }
                         .buttonStyle(.plain)
                         .help(l10n.deleteProject)
-                        .calmPointer()
+                        .calmPointer(hovered)
+                        .opacity(hovered ? 1 : 0)
+                        .allowsHitTesting(hovered)
+                        .animation(.easeOut(duration: 0.12), value: hovered)
                     }
-                    .padding(Tokens.Space.md)
+                    .padding(.horizontal, Tokens.Space.md)
+                    .padding(.vertical, Tokens.Space.sm)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .calmSurface(bordered: true)
+                    .onHover { hoveredRecent = $0 ? project.id : nil }
                 }
             }
         }

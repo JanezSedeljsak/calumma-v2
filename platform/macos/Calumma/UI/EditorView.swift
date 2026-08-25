@@ -24,7 +24,7 @@ struct EditorView: View {
     var body: some View {
         editorLayout
             .background(ShortcutCatcher(app: app))
-            .sheet(isPresented: $app.newProjectOpen) {
+            .calmModal(isPresented: $app.newProjectOpen) {
                 NewProjectView(isLanding: false)
                     .frame(
                         width: Tokens.Window.newProjectWidth,
@@ -269,6 +269,10 @@ struct EditorView: View {
     /// and leave the island as nothing but its header and the bounds fields.
     private static let layerListMinHeight: CGFloat = 96
 
+    /// The side of every glyph-sized control on a layer row — what `SvgIcon` draws at, and so
+    /// what the delete button's reserved slot has to measure.
+    private static let rowIconSide: CGFloat = 18
+
     private var layersIsland: some View {
         CalmIsland {
             VStack(alignment: .leading, spacing: Tokens.Space.md) {
@@ -288,7 +292,7 @@ struct EditorView: View {
                 // not, and scrolls once it runs out — rather than stopping at a fixed share of
                 // the island with dead space underneath it.
                 ScrollView(.vertical) {
-                    VStack(alignment: .leading, spacing: Tokens.Space.md) {
+                    VStack(alignment: .leading, spacing: Tokens.Space.sm) {
                         ForEach((0..<app.engine.layerNames.count).reversed(), id: \.self) {
                             index in
                             layerRow(index)
@@ -449,8 +453,13 @@ struct EditorView: View {
                     if app.engine.isLayerVector(index: index) {
                         CalmText.muted("\(app.engine.layerItemCount(index: index))", mono: true)
                     }
+                    // The delete button's slot, held open whether or not it is showing. The
+                    // button itself cannot live in here — a button inside another button's
+                    // label never receives the click — so it is overlaid on the row below.
+                    Color.clear.frame(width: Self.rowIconSide, height: Self.rowIconSide)
                 }
-                .padding(Tokens.Space.sm)
+                .padding(.horizontal, Tokens.Space.sm)
+                .padding(.vertical, Tokens.Space.xs)
                 .calmSurface(
                     hover: selected || dropTargetRow == row,
                     radius: Tokens.Radius.sm,
@@ -460,6 +469,10 @@ struct EditorView: View {
             }
             .buttonStyle(.plain)
             .calmPointer()
+            .overlay(alignment: .trailing) {
+                deleteButton(index, shown: hoveredLayer == index && !isPaper)
+                    .padding(.trailing, Tokens.Space.sm)
+            }
             .simultaneousGesture(
                 TapGesture(count: 2).onEnded {
                     if app.engine.isLayerText(index: index) {
@@ -559,6 +572,28 @@ struct EditorView: View {
                 move: { from, to in app.engine.moveLayerRow(from: from, to: to) }
             )
         )
+    }
+
+    /// Inside the card outline and revealed by hover, so the destructive control is never the
+    /// one sitting under a stray click, and the row keeps its width for the layer's name. The
+    /// slot is reserved rather than inserted — rows that shuffle their controls around as the
+    /// pointer crosses them are the reason a mis-click happens in the first place. No
+    /// confirmation: bringing a layer back is undo's job ([[01-document-undo]]), not a dialog's.
+    private func deleteButton(_ index: Int, shown: Bool) -> some View {
+        Button {
+            app.engine.removeLayer(index)
+            if hoveredLayer == index {
+                hoveredLayer = nil
+            }
+        } label: {
+            AppIcon.trash(color: colors.danger)
+        }
+        .buttonStyle(.plain)
+        .calmTooltip(l10n.deleteLayer, edge: .leading)
+        .calmPointer(shown)
+        .opacity(shown ? 1 : 0)
+        .allowsHitTesting(shown)
+        .animation(.easeOut(duration: 0.12), value: shown)
     }
 
     /// Dropping *onto* a row means "take the row you are dragging and put it here", which is a

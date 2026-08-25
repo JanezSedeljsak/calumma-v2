@@ -357,16 +357,21 @@ struct CalmDivider: View {
 struct CalmSection<Content: View, Trailing: View>: View {
     let title: String
     var accent: Color? = nil
+    /// The gap between the section's own rows, separately from the gap under its title — a
+    /// list of cards wants tighter, more even spacing than the header does.
+    var contentSpacing: CGFloat = Tokens.Space.md
     @ViewBuilder let trailing: () -> Trailing
     @ViewBuilder let content: () -> Content
 
     init(
         title: String,
         accent: Color? = nil,
+        contentSpacing: CGFloat = Tokens.Space.md,
         @ViewBuilder content: @escaping () -> Content
     ) where Trailing == EmptyView {
         self.title = title
         self.accent = accent
+        self.contentSpacing = contentSpacing
         self.trailing = { EmptyView() }
         self.content = content
     }
@@ -374,11 +379,13 @@ struct CalmSection<Content: View, Trailing: View>: View {
     init(
         title: String,
         accent: Color? = nil,
+        contentSpacing: CGFloat = Tokens.Space.md,
         @ViewBuilder trailing: @escaping () -> Trailing,
         @ViewBuilder content: @escaping () -> Content
     ) {
         self.title = title
         self.accent = accent
+        self.contentSpacing = contentSpacing
         self.trailing = trailing
         self.content = content
     }
@@ -395,7 +402,9 @@ struct CalmSection<Content: View, Trailing: View>: View {
                 Spacer(minLength: Tokens.Space.sm)
                 trailing()
             }
-            content()
+            VStack(alignment: .leading, spacing: contentSpacing) {
+                content()
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -408,7 +417,8 @@ struct CalmRowButton<Content: View>: View {
     var body: some View {
         Button(action: action) {
             content()
-                .padding(Tokens.Space.md)
+                .padding(.horizontal, Tokens.Space.md)
+                .padding(.vertical, Tokens.Space.sm)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .calmSurface(bordered: true)
         }
@@ -536,5 +546,50 @@ struct CalmPaletteRow: View {
                 .calmPointer()
             }
         }
+    }
+}
+
+/// A modal that behaves the way people expect one to: a dimmed scrim you can click to leave,
+/// and Esc.
+///
+/// This is an overlay rather than a `.sheet` because a macOS sheet offers neither — it blocks
+/// the parent window, so there is no "outside" left to click. The scrim is the affordance; a
+/// floating `×` pinned over the card's corner belongs to whatever the card is, not to the
+/// wrapper, so a view that wants one puts it in its own header where it can be laid out.
+struct CalmModal<Modal: View>: ViewModifier {
+    @Binding var isPresented: Bool
+    @ViewBuilder let modal: () -> Modal
+
+    func body(content: Content) -> some View {
+        content.overlay {
+            if isPresented {
+                ZStack {
+                    Rectangle()
+                        .fill(Color.black.opacity(0.35))
+                        .ignoresSafeArea()
+                        .contentShape(Rectangle())
+                        .onTapGesture { isPresented = false }
+
+                    modal()
+                        .clipShape(
+                            RoundedRectangle(cornerRadius: Tokens.Radius.window, style: .continuous)
+                        )
+                        .shadow(color: .black.opacity(0.3), radius: 24, y: 8)
+                        .onExitCommand { isPresented = false }
+                }
+                .transition(.opacity)
+                .zIndex(500)
+            }
+        }
+        .animation(.easeOut(duration: 0.15), value: isPresented)
+    }
+}
+
+extension View {
+    func calmModal<Modal: View>(
+        isPresented: Binding<Bool>,
+        @ViewBuilder modal: @escaping () -> Modal
+    ) -> some View {
+        modifier(CalmModal(isPresented: isPresented, modal: modal))
     }
 }

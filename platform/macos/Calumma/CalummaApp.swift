@@ -22,7 +22,7 @@ struct CalummaApp: App {
             .themeColors(app.colors)
             .l10n(app.l10n)
             .preferredColorScheme(app.theme.isDark ? .dark : .light)
-            .sheet(isPresented: $app.settingsOpen) {
+            .calmModal(isPresented: $app.settingsOpen) {
                 SettingsView()
                     .environmentObject(app)
                     .themeColors(app.colors)

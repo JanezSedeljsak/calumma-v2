@@ -4,7 +4,6 @@ import SwiftUI
 struct SettingsView: View {
     @EnvironmentObject private var app: AppModel
     @Environment(\.l10n) private var l10n
-    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         VStack(alignment: .leading, spacing: Tokens.Space.xl) {
@@ -12,7 +11,7 @@ struct SettingsView: View {
                 CalmText.title(l10n.settings, strong: true)
                 Spacer()
                 Button {
-                    dismiss()
+                    app.settingsOpen = false
                 } label: {
                     Text("×")
                         .foregroundStyle(app.colors.textMuted)

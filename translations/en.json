@@ -46,7 +46,7 @@
   "artworkImportFailed": "That image could not be read",
   "layers": "Layers",
   "fill": "Fill",
-  "stroke": "Stroke",
+  "stroke": "Outline",
   "memoryUsed": "Memory",
   "vectorMode": "Vector",
   "vectorModeHint": "Commit shapes and strokes as editable vectors instead of pixels.",
@@ -159,6 +159,6 @@
   "primaryColor": "Primary Color",
   "secondaryColor": "Secondary Color",
   "tertiaryColor": "Tertiary Color",
-  "strokeColor": "Stroke Color",
+  "strokeColor": "Outline Color",
   "hex": "Hex"
 }

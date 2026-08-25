@@ -23,6 +23,17 @@ struct WorkspaceExtendOverlay: View {
                         app.createEmptyWorkspace(name: newName)
                         newName = ""
                     }
+                    Button {
+                        app.workspaceExtendOpen = false
+                    } label: {
+                        Text("×")
+                            .font(.system(size: Tokens.TypeSize.title, weight: .medium))
+                            .foregroundStyle(colors.textMuted)
+                            .frame(width: 24, height: 24)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .calmPointer()
                 }
             }
 
