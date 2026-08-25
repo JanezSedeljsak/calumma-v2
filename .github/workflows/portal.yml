@@ -1,0 +1,51 @@
+name: portal
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'portal/**'
+      - '.github/workflows/portal.yml'
+  workflow_dispatch:
+
+# The three Pages needs: read the repo, publish the artifact, and prove who we are to the
+# deployment API.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deploy at a time, and never cancel one half-way — a cancelled Pages deploy leaves the
+# site on whatever it managed to swap in.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: portal
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - uses: actions/configure-pages@v5
+      - run: bun install --frozen-lockfile
+      - run: bun run build
+      # Paths here are repo-relative, not `working-directory`-relative.
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: portal/dist
+
+  deploy:
+    name: deploy
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@v4

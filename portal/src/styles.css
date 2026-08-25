@@ -1,0 +1,300 @@
+/* Values mirror design/tokens.json. The desktop shell generates its theme from that file;
+   this page is the one place they are transcribed, because a static site has no build step
+   reaching into the Swift token pipeline. Keep the two in sync by hand — there are few. */
+:root {
+  --bg: #e8eef2;
+  --surface: #f4f7f9;
+  --surface-hover: #e2e8ee;
+  --text: #12181c;
+  --text-muted: #5c6b75;
+  --teal: #2bb8c8;
+  --orange: #e8873a;
+  --island-border: #0f1b241f;
+  --control-border: #0f1b2440;
+
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-island: 10px;
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 12px;
+  --space-lg: 16px;
+  --space-xl: 24px;
+  --space-xxl: 32px;
+  --label-size: 10px;
+  --label-tracking: 0.08em;
+  --body-size: 13px;
+  --title-size: 15px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #161c20;
+    --surface: #1a2024;
+    --surface-hover: #242c32;
+    --text: #f2f5f7;
+    --text-muted: #8a97a0;
+    --teal: #3cc9d6;
+    --orange: #f0944a;
+    --island-border: #ffffff1f;
+    --control-border: #ffffff33;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  font-size: var(--body-size);
+  -webkit-font-smoothing: antialiased;
+}
+
+.page {
+  max-width: 880px;
+  min-height: 100vh;
+  margin: 0 auto;
+  padding: var(--space-xxl) var(--space-lg) var(--space-xl);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: var(--space-xxl);
+}
+
+/* Brand wordmark: bold, gradient teal to orange, per docs/STYLE.md § Type. `inline-block`
+   is load-bearing — a block-level heading stretches the gradient across the whole column, so
+   a seven-letter word would only ever show the teal end of it. */
+.brand {
+  display: inline-block;
+  font-size: 44px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  background: linear-gradient(to right, var(--teal), var(--orange));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  margin: 0;
+}
+
+.tagline {
+  text-transform: uppercase;
+  font-size: var(--label-size);
+  font-weight: 600;
+  letter-spacing: 1.2px;
+  color: var(--text-muted);
+  margin: var(--space-sm) 0 0;
+}
+
+.lede {
+  margin: var(--space-lg) 0 0;
+  max-width: 46em;
+  font-size: var(--title-size);
+  line-height: 1.6;
+  color: var(--text-muted);
+}
+
+.label {
+  text-transform: uppercase;
+  font-size: var(--label-size);
+  font-weight: 600;
+  letter-spacing: var(--label-tracking);
+  color: var(--text-muted);
+}
+
+.section-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-md);
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--teal);
+}
+
+/* Teal marks the primary section, orange the secondary one — the same pairing the app's
+   landing screen uses for Presets and Recents. */
+.dot.orange {
+  background: var(--orange);
+}
+
+/* Contrast only, no borders: the active page is a luminance step, not an outline. */
+.nav {
+  display: flex;
+  gap: var(--space-lg);
+  margin-top: var(--space-xl);
+}
+
+.nav a {
+  text-transform: uppercase;
+  font-size: var(--label-size);
+  font-weight: 600;
+  letter-spacing: var(--label-tracking);
+  color: var(--text-muted);
+  text-decoration: none;
+}
+
+.nav a:hover,
+.nav a.active {
+  color: var(--text);
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-sm);
+}
+
+@media (max-width: 720px) {
+  .grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* An island: surface fill, island radius, the thin low-alpha edge — never a hard line. */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--island-border);
+  border-radius: var(--radius-island);
+  padding: var(--space-lg);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.card-icon {
+  color: var(--text-muted);
+  height: 28px;
+  display: flex;
+  align-items: center;
+}
+
+.card-name {
+  font-size: var(--title-size);
+  font-weight: 600;
+  margin: 0;
+}
+
+.card-note {
+  font-size: var(--body-size);
+  color: var(--text-muted);
+  margin: 0;
+  min-height: 2.6em;
+  line-height: 1.4;
+}
+
+/* Filled, bordered control. Hover shifts luminance, never the border (rule 5). */
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 36px;
+  padding: 0 var(--space-lg);
+  border: 1px solid var(--control-border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+
+.button:hover {
+  background: var(--surface-hover);
+}
+
+.button.primary {
+  color: var(--teal);
+}
+
+.button:disabled,
+.button.pending {
+  color: var(--text-muted);
+  cursor: default;
+  opacity: 0.6;
+}
+
+.button.pending:hover {
+  background: var(--surface);
+}
+
+.checksum {
+  font-size: var(--label-size);
+  color: var(--text-muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  word-break: break-all;
+}
+
+.checksum a {
+  color: inherit;
+}
+
+.release-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.release-head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+}
+
+.release-date {
+  margin-left: auto;
+  font-size: var(--label-size);
+  color: var(--text-muted);
+}
+
+.badge {
+  text-transform: uppercase;
+  font-size: var(--label-size);
+  font-weight: 600;
+  letter-spacing: var(--label-tracking);
+  color: var(--orange);
+}
+
+.release-assets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+}
+
+/* A release row's buttons size to their filenames rather than filling the card, unlike the
+   one-choice download cards. */
+.release-assets .button {
+  width: auto;
+}
+
+.footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-md);
+  align-items: center;
+  justify-content: space-between;
+  border-top: 1px solid var(--island-border);
+  padding-top: var(--space-lg);
+  color: var(--text-muted);
+  font-size: var(--label-size);
+}
+
+.footer a {
+  color: var(--text-muted);
+}
+
+.footer a:hover {
+  color: var(--text);
+}
