@@ -2,6 +2,7 @@ use crate::active_renderer::ActiveRenderer;
 use crate::platform::{parse_op_kind, CalmPlatformOps, PlatformOp};
 use anyhow::{anyhow, bail, Context};
 use calumma_core::limits::{AUTOSAVE_INTERVAL_MS, BRUSH_SIZE_MAX, BRUSH_SIZE_MIN, IMPORT_MAX_SIDE};
+use calumma_core::paste::PasteFit;
 use calumma_core::{
     pack_rgba, project_color, unpack_rgba, unpremultiply_rgba, AdjustmentKind, Adjustments,
     BlendMode, BoardColors, Brush, Document, Tool, PROJECT_COLORS,
@@ -53,6 +54,9 @@ pub struct CalmState {
     /// Whether the active layer is inside `⌘T`. The shell mirrors it on the Transform tool
     /// button, which is a mode the engine owns rather than a tool the shell selects.
     pub transform_active: u8,
+    /// What an oversized paste does (`calumma_core::paste::PasteFit`). Core owns the default;
+    /// the shell reads this to know which of the two it is offering to switch away from.
+    pub paste_fit: u32,
 }
 
 #[repr(C)]
@@ -1692,6 +1696,7 @@ pub unsafe extern "C" fn calm_engine_state(
                     last_select_tool: inner.last_select_tool as u32,
                     is_fit: 0,
                     transform_active: 0,
+                    paste_fit: PasteFit::default().into(),
                 };
             }
             return Ok(());
@@ -1718,6 +1723,7 @@ pub unsafe extern "C" fn calm_engine_state(
                 last_select_tool: doc.last_select_tool as u32,
                 is_fit: doc.camera.is_fit(dw, dh) as u8,
                 transform_active: doc.transform_active as u8,
+                paste_fit: doc.paste_fit().into(),
             };
         }
         Ok(())
@@ -2213,34 +2219,6 @@ pub unsafe extern "C" fn calm_engine_selection_clear_pixels(engine: *mut CalmEng
             if let Some(r) = &mut inner.renderer {
                 r.invalidate();
             }
-        }
-        Ok(())
-    })
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn calm_engine_paste_image(
-    engine: *mut CalmEngine,
-    premultiplied_rgba: *const u8,
-    len: usize,
-    width: u32,
-    height: u32,
-) -> CalmStatus {
-    if engine.is_null() || premultiplied_rgba.is_null() {
-        return CalmStatus::Null;
-    }
-    with_inner(engine, |inner| {
-        let doc = inner.doc.as_mut().context("no project is open")?;
-        let mut rgba = unsafe { std::slice::from_raw_parts(premultiplied_rgba, len) }.to_vec();
-        unpremultiply_rgba(&mut rgba);
-        let n = doc.layers.len() + 1;
-        let name = calumma_core::names::numbered_pasted_layer(n);
-        if !doc.paste_image_as_layer(name, &rgba, width, height) {
-            bail!("pasting a {width}x{height} image as a new layer failed");
-        }
-        inner.dirty_save = true;
-        if let Some(r) = &mut inner.renderer {
-            r.invalidate();
         }
         Ok(())
     })

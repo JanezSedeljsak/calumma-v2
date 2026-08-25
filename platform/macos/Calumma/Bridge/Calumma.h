@@ -74,6 +74,7 @@ typedef struct CalmState {
     uint32_t last_select_tool;
     uint8_t is_fit;
     uint8_t transform_active;
+    uint32_t paste_fit;
 } CalmState;
 
 typedef struct CalmRulerTick {
@@ -287,7 +288,8 @@ CalmStatus calm_engine_deselect(CalmEngine *engine);
 CalmStatus calm_engine_select_all(CalmEngine *engine);
 CalmStatus calm_engine_invert_selection(CalmEngine *engine);
 CalmStatus calm_engine_selection_clear_pixels(CalmEngine *engine);
-CalmStatus calm_engine_paste_image(CalmEngine *engine, const uint8_t *premultiplied_rgba, size_t len, uint32_t width, uint32_t height);
+CalmStatus calm_engine_paste_image(CalmEngine *engine, const uint8_t *premultiplied_rgba, size_t len, uint32_t width, uint32_t height, uint32_t *out_outcome);
+CalmStatus calm_engine_set_paste_fit(CalmEngine *engine, uint32_t fit);
 
 typedef enum CalmCaretStep {
     CalmCaretStepLeft = 0,

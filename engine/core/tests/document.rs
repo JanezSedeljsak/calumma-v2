@@ -215,23 +215,6 @@ fn clear_selection_pixels_only_touches_selection_and_is_undoable() {
 }
 
 #[test]
-fn paste_image_creates_new_layer_at_selection_origin() {
-    let mut doc = Document::new("p".into(), "t", 64, 64);
-    doc.selection = Some(Selection {
-        shape: SelectionShape::Rect {
-            start: (10.0, 10.0),
-            end: (12.0, 12.0),
-        },
-    });
-    let rgba = vec![5u8, 6, 7, 255, 5, 6, 7, 255, 5, 6, 7, 255, 5, 6, 7, 255];
-    let before = doc.layers.len();
-    assert!(doc.paste_image_as_layer("Pasted", &rgba, 2, 2));
-    assert_eq!(doc.layers.len(), before + 1);
-    assert_eq!(pixel(&doc, doc.active_layer, 10, 10), [5, 6, 7, 255]);
-    assert_eq!(pixel(&doc, doc.active_layer, 0, 0), [0, 0, 0, 0]);
-}
-
-#[test]
 fn lasso_selection_commits_from_stroke_points() {
     let mut doc = Document::new("p".into(), "t", 64, 64);
     doc.tool = Tool::SelectLasso;

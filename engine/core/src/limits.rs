@@ -203,9 +203,9 @@ pub const TOLERANCE_MIN: u8 = 0;
 pub const TOLERANCE_MAX: u8 = 128;
 pub const TOLERANCE_DEFAULT: u8 = 24;
 
-/// One press of a Filters-menu Increase / Decrease item. Menus are discrete and
-/// adjustments are continuous, so the step is a product constant and lives here — not
-/// in the shell, which only names the menu item.
+/// One step of `Document::nudge_layer_adjustment`. Adjustments are continuous and a discrete
+/// caller has to choose a step, so the step is a product constant and lives here — not in the
+/// shell. The menu that used to call it is gone; the engine-side step is not.
 pub const ADJUSTMENT_NUDGE_STEP: f32 = 0.05;
 /// Gamma is a multiplier around 1.0 on a 0.1–4.0 range, not a −1..1 offset, so it needs
 /// a coarser step than the other four to move a visible amount per press.
@@ -218,6 +218,23 @@ pub const MAX_SCALE: f32 = 50.0;
 /// hairline stroke stays grabbable at every zoom. Converted to document units by the camera
 /// in `Document::vector_item_at`, never by the shell.
 pub const VECTOR_PICK_SLACK_PX: f32 = 6.0;
+/// The same question for a *raster* layer, which had no answer at all until picking got one:
+/// a one-pixel stroke at the 20% zoom floor is thinner than the cursor that is trying to hit
+/// it. Deliberately still a second constant rather than an alias of `VECTOR_PICK_SLACK_PX` —
+/// that number is tuned and shipped against parametric distance functions, and this one is
+/// sampled against pixels, so they are free to diverge before anyone merges them.
+pub const LAYER_PICK_SLACK_PX: f32 = 6.0;
+/// Ceiling on that slack in *document* pixels. Six screen pixels at the 20% zoom floor on a
+/// large board is a hundred document pixels, and a pick reaching that far is grabbing
+/// something nobody pointed at — it also sets how much work one click can ask for, since the
+/// probe scans a document-pixel grid. Past this the honest answer is to zoom in.
+pub const LAYER_PICK_MAX_SLACK: f32 = 16.0;
+/// The alpha a pixel needs before it is allowed to claim a click. Comparing against zero let
+/// the invisible tail of a soft brush grab a layer well outside its apparent edge; this is
+/// roughly where a falloff stops being something you can see and start being something you
+/// would be surprised to hit. Applied to the *composited* alpha (mask and opacity already
+/// folded in), because a layer at 3% opacity should be as hard to grab as it is to see.
+pub const LAYER_PICK_MIN_ALPHA: u8 = 8;
 /// One arrow-key nudge of the selected vector item, in document pixels.
 pub const VECTOR_NUDGE_STEP: f32 = 1.0;
 /// Same step for a Move-tool / transform-mode layer offset nudge.

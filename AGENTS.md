@@ -161,6 +161,11 @@ have to be read together.
   the image with the pixels in the first paint layer. Decode is ImageIO in the shell; the
   engine takes **premultiplied** RGBA over FFI and unpremultiplies in Rust
   (`calm_project_create_from_image`). Cap is `limits::IMPORT_MAX_SIDE`.
+- Pasting into an *open* project is a different path and has its own rule
+  (`engine/core/src/paste.rs`): an image bigger than the paper is **scaled to fit** by
+  default, or grows the paper on `PasteFit::GrowCanvas`. It is never cropped — that was the
+  bug. Core owns the modes, the default and the box downsample (`core/src/resample.rs`); the
+  shell only names which one the user pressed and shows what `PasteOutcome` reports.
 - Every project carries an **accent color** (`Document.accent`, `projects.accent` in SQLite).
   Core picks one from `palette::PROJECT_COLORS` at create time; the shell shows it on
   landing recents and project thumbs. Workspaces also carry an accent for their titlebar
@@ -221,6 +226,13 @@ pub enum LayerContent {
   stores — restoring only pixels would let the undone text come back on the next open.
   Per-keystroke history would flood the budget for no benefit.
 
+- **`Layer::content_bounds()` is the one answer to "where is this layer"** — the transform
+  frame and handles, the transform pivot on both the CPU and the GPU, the hover outline, Move,
+  the pick reject and the bounds readout all read it, so it cannot have a coarse variant for
+  the hot path and a tight one for the UI. It is **tight to non-transparent pixels** (a vector
+  layer's is its parametric box), cached per *tile* inside `TileGrid` and invalidated through
+  `mark_dirty` / `mark_all_dirty` / `set_size`. Do not add a second bounds function; if you
+  need a different box, it is a transform of this one.
 - `layer.transform: Option<LayerTransform>` (`engine/core/src/transform.rs`)
   — offset/scale/rotation around the layer's `content_bounds()` center, on any layer that
   has content bounds — text included, since its tiles carry a transform row like any other
@@ -278,6 +290,15 @@ pub enum LayerContent {
   the menu-bar Filters menu that was its only caller is **gone** — a menu of
   Increase/Decrease pairs next to a panel of sliders was clutter, and the
   chrome stays minimal.
+- **Picking a layer is a region test, not a pixel test** (`engine/core/src/pick.rs`).
+  `Document::layer_at` probes a neighbourhood sized by `limits::LAYER_PICK_SLACK_PX` in
+  *screen* pixels (camera-converted, never shell-converted) and capped by
+  `LAYER_PICK_MAX_SLACK` in document pixels, and it compares against
+  `LAYER_PICK_MIN_ALPHA` rather than zero so an invisible falloff stops claiming clicks.
+  `active_layer_covers` reads the same probe, so the retarget path and the pick path cannot
+  disagree about where a layer's pixels are. A locked layer stays unpickable and the click
+  falls through, but `locked_layer_at` reports it through the existing `blocked_notice`
+  channel — the same toast a blocked tool press uses, rather than UI of its own.
 - **Which tools a layer accepts is one question with one answer**
   (`engine/core/src/tool_gate.rs`). `Document::tool_block(tool) -> ToolBlock` is the only
   rule set — the shell greys a button out on it, the engine refuses a press on it, and the

@@ -84,12 +84,15 @@ fn layer_at_skips_hidden_layers() {
     assert_eq!(doc.layer_at(20.0, 20.0), None);
 }
 
+/// Picking has always answered against pixels rather than against the tiles holding them, and
+/// still does now that the bounds agree with it: a click in the same tile as an eleven-pixel
+/// square but a hundred pixels away from it is a miss.
 #[test]
 fn layer_at_is_pixel_accurate_not_tile_accurate() {
     let mut doc = doc_with_viewport();
     paint(&mut doc, 1, DocRect::new(10, 10, 20, 20), [255, 0, 0, 255]);
     let bounds = doc.layers[1].content_bounds().expect("content bounds");
-    assert!(bounds.2 - bounds.0 >= 200.0, "bounds are tile-granular");
+    assert_eq!(bounds, (10.0, 10.0, 21.0, 21.0), "tight to the pixels");
     assert_eq!(doc.layer_at(15.0, 15.0), Some(1));
     assert_eq!(doc.layer_at(120.0, 120.0), None);
 }
@@ -97,12 +100,29 @@ fn layer_at_is_pixel_accurate_not_tile_accurate() {
 #[test]
 fn layer_at_respects_a_mask() {
     let mut doc = doc_with_viewport();
+    paint(&mut doc, 1, DocRect::new(10, 10, 90, 90), [255, 0, 0, 255]);
+    let mut mask = vec![255u8; (DOC as usize) * (DOC as usize)];
+    for y in 20..70u32 {
+        for x in 20..70u32 {
+            mask[(y * DOC + x) as usize] = 0;
+        }
+    }
+    doc.layers[1].set_mask(Some(mask));
+    assert_eq!(doc.layer_at(45.5, 45.5), None, "well inside the hole");
+    assert_eq!(doc.layer_at(85.5, 85.5), Some(1), "well outside it");
+}
+
+/// The mask hole above has to be bigger than the pick slack to hide the layer, which is the
+/// point: a single masked-out pixel is a pinhole nobody aimed at, and it used to be enough to
+/// make a click pass straight through a layer that visibly fills the cursor.
+#[test]
+fn a_one_pixel_mask_hole_does_not_swallow_a_click() {
+    let mut doc = doc_with_viewport();
     paint(&mut doc, 1, DocRect::new(10, 10, 40, 40), [255, 0, 0, 255]);
     let mut mask = vec![255u8; (DOC as usize) * (DOC as usize)];
     mask[(20 * DOC + 20) as usize] = 0;
     doc.layers[1].set_mask(Some(mask));
-    assert_eq!(doc.layer_at(20.5, 20.5), None);
-    assert_eq!(doc.layer_at(25.5, 25.5), Some(1));
+    assert_eq!(doc.layer_at(20.5, 20.5), Some(1));
 }
 
 #[test]
@@ -213,20 +233,42 @@ fn transform_click_outside_the_box_exits_even_with_other_layers_around() {
     assert_eq!(doc.active_layer, top);
 }
 
-/// Retargeting must not cost the pre-existing behaviour it shares a code path with:
-/// an empty spot inside the (tile-granular) box with nothing else under it is still a
-/// Move drag, not an exit.
+/// Retargeting must not cost the pre-existing behaviour it shares a code path with: an empty
+/// spot *inside* the box with nothing else under it is still a Move drag, not an exit.
+///
+/// The box used to be tile-granular, so "inside the box but on nothing" was most of a 256px
+/// cell. It is tight to the pixels now, so the case has to be built rather than fallen into —
+/// two dots far apart on one layer, clicked between. That gap is the real shape of this rule:
+/// the hole in a donut, or the space between two strokes.
 #[test]
 fn transform_click_on_empty_space_inside_the_box_still_moves() {
     let mut doc = doc_with_viewport();
-    paint(&mut doc, 1, DocRect::new(10, 10, 40, 40), [255, 0, 0, 255]);
+    paint(&mut doc, 1, DocRect::new(10, 10, 20, 20), [255, 0, 0, 255]);
+    paint(
+        &mut doc,
+        1,
+        DocRect::new(150, 150, 160, 160),
+        [255, 0, 0, 255],
+    );
     assert!(doc.enter_transform());
-    click(&mut doc, 150.0, 150.0);
+    click(&mut doc, 85.0, 85.0);
     assert!(doc.transform_active);
     assert_eq!(doc.active_layer, 1);
-    let (sx, sy) = doc.camera.to_screen(160.0, 150.0);
+    let (sx, sy) = doc.camera.to_screen(95.0, 85.0);
     doc.pointer_move(sx, sy);
     assert!((doc.layer_transform(1).offset_x - 10.0).abs() < 1.0);
+}
+
+/// The other half of that, which the coarse box used to hide: clicking well clear of the
+/// content now leaves transform mode instead of grabbing a box that reached most of a tile
+/// past anything visible.
+#[test]
+fn transform_click_well_outside_the_tight_box_exits() {
+    let mut doc = doc_with_viewport();
+    paint(&mut doc, 1, DocRect::new(10, 10, 20, 20), [255, 0, 0, 255]);
+    assert!(doc.enter_transform());
+    click(&mut doc, 150.0, 150.0);
+    assert!(!doc.transform_active);
 }
 
 #[test]

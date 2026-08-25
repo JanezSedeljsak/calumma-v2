@@ -153,12 +153,39 @@ final class AppModel: ObservableObject {
     /// selected, the new layer inside `⌘T` with its corners live. Dropping onto an open board
     /// is the same gesture by another route, so it goes through here too.
     private func pasteIntoBoard(_ artwork: ArtworkImage) {
-        engine.pasteImage(
+        let outcome = engine.pasteImage(
             premultipliedRGBA: artwork.premultipliedRGBA,
             width: artwork.width,
             height: artwork.height
         )
+        guard outcome != .failed else {
+            showToast(l10n.pasteFailed, kind: .error)
+            return
+        }
         enterMoveTransform()
+        announcePaste(outcome, artwork)
+    }
+
+    /// An oversized paste is downsampled by default, which is lossy — so it says so, and
+    /// offers the other mode for as long as the toast is up. Only `scaled` interrupts:
+    /// growing the canvas is visible on its own, and an image that fit needs no explanation.
+    private func announcePaste(_ outcome: CalmPasteOutcome, _ artwork: ArtworkImage) {
+        guard outcome.lostDetail else { return }
+        showToast(l10n.pasteScaledToFit, kind: .success, actionTitle: l10n.pasteGrowCanvas) {
+            [weak self] in
+            self?.repasteGrowingTheCanvas(artwork)
+        }
+    }
+
+    /// Takes the scaled paste back out and does it again with the paper growing instead.
+    /// The layer add is not undo-tracked, so this removes it directly rather than pretending
+    /// `⌘Z` could — and the knob stays switched, because choosing this once is also a way of
+    /// saying how you want oversized pastes handled.
+    private func repasteGrowingTheCanvas(_ artwork: ArtworkImage) {
+        toast = nil
+        engine.removeLayer(Int(engine.state.activeLayer))
+        engine.setPasteFit(.growCanvas)
+        pasteIntoBoard(artwork)
     }
 
     /// Paste and drop still want the new layer grabbed with handles live. Picking Move on the
@@ -256,8 +283,13 @@ final class AppModel: ObservableObject {
     /// Shows `text` for a few seconds, then clears itself — unless a newer toast already
     /// replaced it, which comparing `toast?.id` against the one this call scheduled guards
     /// against.
-    private func showToast(_ text: String, kind: ToastKind) {
-        let message = ToastMessage(text: text, kind: kind)
+    private func showToast(
+        _ text: String,
+        kind: ToastKind,
+        actionTitle: String? = nil,
+        action: (() -> Void)? = nil
+    ) {
+        let message = ToastMessage(text: text, kind: kind, actionTitle: actionTitle, action: action)
         toast = message
         toastDismissWork?.cancel()
         let work = DispatchWorkItem { [weak self] in

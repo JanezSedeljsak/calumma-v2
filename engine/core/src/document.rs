@@ -173,15 +173,6 @@ pub(crate) fn layer_alpha_at(layer: &Layer, doc_x: f32, doc_y: f32, doc_w: u32, 
     }
 }
 
-fn layer_pickable_at(layer: &Layer, doc_x: f32, doc_y: f32, doc_w: u32, doc_h: u32) -> bool {
-    layer.visible
-        && !layer.locked
-        && !layer.is_paper()
-        && layer.opacity > 0.0
-        && (layer.tiles().is_some() || layer.content.item().is_some())
-        && layer_alpha_at(layer, doc_x, doc_y, doc_w, doc_h) != 0
-}
-
 /// A layer paired with the document-space box it can paint into — what
 /// `Document::contributing_layers` hands the per-pixel composite so the loop can skip a layer
 /// without touching its pixels.
@@ -377,6 +368,9 @@ pub struct Document {
     /// document is the only thing that knows a press was refused.
     pub(crate) blocked_notice: Option<ToolBlock>,
     pub(crate) blocked_notice_key: Option<(usize, Tool)>,
+    /// What an oversized paste does. A product rule, so it lives here and defaults here —
+    /// see `paste.rs`.
+    pub(crate) paste_fit: crate::paste::PasteFit,
     vector_revision: u64,
     pub(crate) selected_vector: Option<VectorPick>,
     pub(crate) vector_drag: Option<VectorItemDrag>,
@@ -558,6 +552,7 @@ impl Document {
             vector_mode: false,
             blocked_notice: None,
             blocked_notice_key: None,
+            paste_fit: crate::paste::PasteFit::default(),
             vector_revision: 0,
             selected_vector: None,
             vector_drag: None,
@@ -902,42 +897,13 @@ impl Document {
         self.transform_drag.is_some()
     }
 
-    pub fn layer_at(&self, doc_x: f32, doc_y: f32) -> Option<usize> {
-        if doc_x < 0.0 || doc_y < 0.0 || doc_x >= self.width as f32 || doc_y >= self.height as f32 {
-            return None;
-        }
-        self.layers
-            .iter()
-            .enumerate()
-            .rev()
-            .find(|(_, layer)| layer_pickable_at(layer, doc_x, doc_y, self.width, self.height))
-            .map(|(index, _)| index)
-    }
-
-    pub fn pick_layer(&mut self, doc_x: f32, doc_y: f32) -> Option<usize> {
-        let index = self.layer_at(doc_x, doc_y)?;
-        self.active_layer = index;
-        Some(index)
-    }
-
     fn retarget_transform(&mut self, doc_x: f32, doc_y: f32) -> bool {
         if self.pick_layer(doc_x, doc_y).is_none() {
+            self.note_locked_pick(doc_x, doc_y);
             return false;
         }
         self.begin_transform_drag(doc_x, doc_y);
         true
-    }
-
-    /// Same rule as picking a layer from the stack (`layer_pickable_at`): a layer that is
-    /// hidden, has no opacity, or has nothing painted here does not get to claim the click.
-    /// Without the `visible` check, hiding the active layer while it still has paint under
-    /// the cursor made every later click there grab the invisible layer instead of falling
-    /// through to whatever visible layer is actually underneath — dragging looked like a
-    /// no-op because the layer that moved couldn't be seen.
-    fn active_layer_covers(&self, doc_x: f32, doc_y: f32) -> bool {
-        self.layers
-            .get(self.active_layer)
-            .is_some_and(|l| layer_pickable_at(l, doc_x, doc_y, self.width, self.height))
     }
 
     /// The transform box is `content_bounds()`, which is tile-granular — for a small
@@ -1191,8 +1157,7 @@ impl Document {
             let Some(tiles) = layer.tiles_mut() else {
                 continue;
             };
-            tiles.width = new_width;
-            tiles.height = new_height;
+            tiles.set_size(new_width, new_height);
             if !is_paper {
                 continue;
             }
@@ -2123,7 +2088,7 @@ impl Document {
             if !layer.visible || layer.is_paper() {
                 continue;
             }
-            let Some(raw) = layer.opaque_pixel_bounds() else {
+            let Some(raw) = layer.content_bounds() else {
                 continue;
             };
             let corners = match layer.transform {
@@ -2269,32 +2234,6 @@ impl Document {
         true
     }
 
-    pub fn paste_image_as_layer(
-        &mut self,
-        name: impl Into<String>,
-        rgba: &[u8],
-        width: u32,
-        height: u32,
-    ) -> bool {
-        let expected = (width as usize) * (height as usize) * 4;
-        if width == 0 || height == 0 || rgba.len() < expected {
-            return false;
-        }
-        let (ox, oy) = self
-            .selection
-            .as_ref()
-            .map(|s| {
-                let b = s.bounds();
-                (b.min_x, b.min_y)
-            })
-            .unwrap_or((0, 0));
-        self.add_layer(name);
-        let Some(tiles) = self.active_mut().and_then(|l| l.tiles_mut()) else {
-            return false;
-        };
-        tiles.blit_rgba_at(rgba, width, height, ox, oy) > 0
-    }
-
     pub fn undo(&mut self) -> bool {
         self.commit_text();
         let mut active = self.active_layer;
@@ -2341,25 +2280,14 @@ impl Document {
 
     /// A layer's box in document space, tight to what is actually painted.
     ///
-    /// This deliberately uses `opaque_bounds` rather than the `content_bounds` the hover
-    /// outline draws from. `content_bounds` is tile-granular, so a ten-pixel stroke reports a
-    /// 256-pixel box — fine for an outline the eye reads as approximate, useless as a number
-    /// in a panel and actively wrong as the thing a crop is measured against. The two can
-    /// disagree by up to a tile; the readout is the exact one.
+    /// This used to have to reach past `content_bounds` for its own tile scan, because
+    /// `content_bounds` was tile-granular and a ten-pixel stroke reported a 256-pixel box —
+    /// fine for an outline the eye reads as approximate, useless as a number in a panel. Now
+    /// that `content_bounds` is the tight box everywhere, the readout and the frame on the
+    /// board are the same rectangle, and they cannot drift by up to a tile any more.
     pub fn layer_bounds(&self, index: usize) -> Option<(f32, f32, f32, f32)> {
         let layer = self.layers.get(index)?;
-        let raw = match layer.tiles() {
-            Some(grid) => {
-                let r = grid.opaque_bounds()?;
-                (
-                    r.min_x as f32,
-                    r.min_y as f32,
-                    (r.max_x + 1) as f32,
-                    (r.max_y + 1) as f32,
-                )
-            }
-            None => layer.content_bounds()?,
-        };
+        let raw = layer.content_bounds()?;
         let t = layer.transform.unwrap_or_default();
         Some(t.transformed_aabb(raw))
     }

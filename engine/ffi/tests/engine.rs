@@ -52,6 +52,7 @@ impl TestEngine {
             last_select_tool: 0,
             is_fit: 0,
             transform_active: 0,
+            paste_fit: 0,
         };
         let status = unsafe { calm_engine_state(self.ptr, &mut out) };
         assert_eq!(status, CalmStatus::Ok);
@@ -138,6 +139,7 @@ fn autosave_persists_off_the_render_path() {
         last_select_tool: 0,
         is_fit: 0,
         transform_active: 0,
+        paste_fit: 0,
     };
     let status = unsafe { calm_engine_state(reader, &mut state) };
     assert_eq!(status, CalmStatus::Ok);
@@ -490,7 +492,9 @@ fn selection_copy_cut_paste() {
     let mut rgba = [9u8, 8, 7, 255].repeat((w * h) as usize);
     unpremultiply_rgba(&mut rgba);
     assert_eq!(
-        unsafe { calm_engine_paste_image(engine.ptr, rgba.as_ptr(), rgba.len(), w, h) },
+        unsafe {
+            calm_engine_paste_image(engine.ptr, rgba.as_ptr(), rgba.len(), w, h, ptr::null_mut())
+        },
         CalmStatus::Ok
     );
 }
@@ -638,6 +642,7 @@ fn null_engine_pointer_is_handled_everywhere() {
         last_select_tool: 0,
         is_fit: 0,
         transform_active: 0,
+        paste_fit: 0,
     };
     // A null engine is rejected before the out-param is touched, same as everywhere else.
     assert_eq!(
@@ -1165,7 +1170,9 @@ fn entering_transform_twice_stays_in_transform() {
     let mut rgba = [9u8, 8, 7, 255].repeat((w * h) as usize);
     unpremultiply_rgba(&mut rgba);
     assert_eq!(
-        unsafe { calm_engine_paste_image(engine.ptr, rgba.as_ptr(), rgba.len(), w, h) },
+        unsafe {
+            calm_engine_paste_image(engine.ptr, rgba.as_ptr(), rgba.len(), w, h, ptr::null_mut())
+        },
         CalmStatus::Ok
     );
     assert_eq!(engine.state().transform_active, 0);

@@ -1,7 +1,7 @@
 use crate::filters::Adjustments;
 use crate::history::TileSnapshot;
 use crate::limits::PAPER_WHITE;
-use crate::tile::{DirtyChannel, DocRect, TileGrid, TileSet, TILE_SIZE};
+use crate::tile::{DirtyChannel, DocRect, TileGrid, TileSet};
 use crate::transform::LayerTransform;
 use crate::vector::VectorItem;
 use calumma_text::TextRun;
@@ -282,40 +282,23 @@ impl Layer {
         snap
     }
 
+    /// The box the layer actually occupies: tight to its non-transparent pixels for anything
+    /// with tiles, and the item's parametric bounds for a vector.
+    ///
+    /// **This used to be tile-granular** — the union of the 256×256 cells that held anything —
+    /// which meant a pasted 300×200 photo reported a 512×256 box and the `⌘T` frame drew
+    /// visibly wider than the picture inside it. Worse, the transform *pivot* is the centre of
+    /// this box on both the CPU and the GPU, so scaling and rotation turned about a point that
+    /// depended on where the content happened to fall against the tile grid.
+    ///
+    /// Everything that answers "where is this layer" reads this one function — the transform
+    /// frame and its handles, the pivot in `vs_tile` and in the flatten walk, the hover
+    /// outline, the pick reject, `Move`. They have to agree, so there is one definition rather
+    /// than a cheap one for the hot path and a tight one for the UI.
+    ///
+    /// A layer whose tiles exist but hold nothing opaque now reports `None`, the same as an
+    /// empty one. That is the honest answer: there is nothing there to frame, transform or pick.
     pub fn content_bounds(&self) -> Option<(f32, f32, f32, f32)> {
-        match &self.content {
-            LayerContent::Raster(tiles) | LayerContent::Text { tiles, .. } => {
-                if tiles.is_empty() {
-                    return None;
-                }
-                let ts = TILE_SIZE as i32;
-                let mut acc: Option<DocRect> = None;
-                for coord in tiles.coords() {
-                    let (ox, oy) = coord.origin();
-                    let cell = DocRect::new(ox, oy, ox + ts, oy + ts);
-                    acc = Some(match acc {
-                        None => cell,
-                        Some(r) => DocRect::new(
-                            r.min_x.min(cell.min_x),
-                            r.min_y.min(cell.min_y),
-                            r.max_x.max(cell.max_x),
-                            r.max_y.max(cell.max_y),
-                        ),
-                    });
-                }
-                let r = acc?;
-                Some((
-                    r.min_x.max(0) as f32,
-                    r.min_y.max(0) as f32,
-                    r.max_x.min(tiles.width as i32) as f32,
-                    r.max_y.min(tiles.height as i32) as f32,
-                ))
-            }
-            LayerContent::Vector(item) => item.bounds(),
-        }
-    }
-
-    pub fn opaque_pixel_bounds(&self) -> Option<(f32, f32, f32, f32)> {
         match &self.content {
             LayerContent::Raster(tiles) | LayerContent::Text { tiles, .. } => {
                 let r = tiles.opaque_bounds()?;
@@ -326,7 +309,7 @@ impl Layer {
                     r.max_y as f32 + 1.0,
                 ))
             }
-            LayerContent::Vector(_) => self.content_bounds(),
+            LayerContent::Vector(item) => item.bounds(),
         }
     }
 }

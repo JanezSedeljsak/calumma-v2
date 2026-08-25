@@ -1,7 +1,7 @@
 use crate::document::layer_alpha_at;
 use crate::document::{point_dist, Document, TransformHandle, HANDLE_HIT_RADIUS_PX};
 use crate::layer::Layer;
-use crate::limits::{VECTOR_NUDGE_STEP, VECTOR_PICK_SLACK_PX};
+use crate::limits::{LAYER_PICK_MIN_ALPHA, VECTOR_NUDGE_STEP, VECTOR_PICK_SLACK_PX};
 use crate::transform::{bounds_center, corner_scale, LayerTransform};
 use crate::vector::VectorItem;
 
@@ -93,7 +93,8 @@ impl Document {
                 }
                 continue;
             }
-            if layer_alpha_at(layer, doc_x, doc_y, self.width, self.height) != 0 {
+            if layer_alpha_at(layer, doc_x, doc_y, self.width, self.height) >= LAYER_PICK_MIN_ALPHA
+            {
                 return None;
             }
         }

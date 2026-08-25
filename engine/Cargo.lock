@@ -109,6 +109,7 @@ version = "0.6.1"
 dependencies = [
  "calumma-text",
  "num_enum",
+ "parking_lot",
  "proptest",
  "rayon",
  "rustc-hash 2.1.3",

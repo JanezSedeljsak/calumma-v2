@@ -3,6 +3,27 @@ import Foundation
 import QuartzCore
 import SwiftUI
 
+/// What an oversized paste does. Core owns both the modes and the default; the shell only
+/// names which one the user pressed.
+enum CalmPasteFit: UInt32 {
+    case scaleToFit = 0
+    case growCanvas = 1
+}
+
+/// What a paste actually did. The shell never works this out by comparing sizes — the engine
+/// decided, so the engine reports.
+enum CalmPasteOutcome: UInt32 {
+    case failed = 0
+    case native = 1
+    case scaled = 2
+    case grown = 3
+    case grownAndScaled = 4
+
+    /// Whether the image lost resolution to fit, which is the one outcome worth interrupting
+    /// for: it is lossy, and the other mode is not.
+    var lostDetail: Bool { self == .scaled || self == .grownAndScaled }
+}
+
 enum CalmBlendMode: UInt32, CaseIterable, Identifiable {
     case normal = 0
     case multiply = 1
@@ -133,6 +154,9 @@ struct EngineState {
     /// Whether the active layer is inside `⌘T`. Transform is a mode the engine owns; Move's
     /// options toggle and the `⌘T` shortcut both read this rather than `AppModel.tool`.
     var transformActive = false
+    /// What the next oversized paste will do (`paste.rs`). Sticky, so choosing "grow the
+    /// canvas instead" once is also a way of saying how you want them handled.
+    var pasteFit: CalmPasteFit = .scaleToFit
 
     var accentColor: Color { Color(rgb: accent) }
 }
@@ -1180,7 +1204,8 @@ final class Engine: ObservableObject, @unchecked Sendable {
             lastShapeTool: CalmTool(rawValue: raw.last_shape_tool) ?? .rect,
             lastSelectTool: CalmTool(rawValue: raw.last_select_tool) ?? .selectRect,
             isFit: raw.is_fit != 0,
-            transformActive: raw.transform_active != 0
+            transformActive: raw.transform_active != 0,
+            pasteFit: CalmPasteFit(rawValue: raw.paste_fit) ?? .scaleToFit
         )
         syncGuideCount()
         syncToolGate()
@@ -1548,17 +1573,27 @@ final class Engine: ObservableObject, @unchecked Sendable {
         render()
     }
 
-    func pasteImage(premultipliedRGBA: Data, width: Int, height: Int) {
-        guard let ptr else { return }
-        premultipliedRGBA.withUnsafeBytes { raw in
-            guard let base = raw.bindMemory(to: UInt8.self).baseAddress else { return }
+    /// Pastes and reports what the engine had to do to make it fit, so the caller can say so.
+    @discardableResult
+    func pasteImage(premultipliedRGBA: Data, width: Int, height: Int) -> CalmPasteOutcome {
+        guard let ptr else { return .failed }
+        var raw: UInt32 = 0
+        premultipliedRGBA.withUnsafeBytes { bytes in
+            guard let base = bytes.bindMemory(to: UInt8.self).baseAddress else { return }
             _ = calm_engine_paste_image(
-                ptr, base, premultipliedRGBA.count, UInt32(width), UInt32(height)
+                ptr, base, premultipliedRGBA.count, UInt32(width), UInt32(height), &raw
             )
         }
         syncState()
         refreshLayers()
         render()
+        return CalmPasteOutcome(rawValue: raw) ?? .failed
+    }
+
+    func setPasteFit(_ fit: CalmPasteFit) {
+        guard let ptr else { return }
+        _ = calm_engine_set_paste_fit(ptr, fit.rawValue)
+        syncState()
     }
 
     var canRemoveBackground: Bool {

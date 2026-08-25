@@ -107,6 +107,9 @@ struct L10nCatalog: Equatable {
     var artworkFormats: String { self["artworkFormats"] }
     var chooseArtwork: String { self["chooseArtwork"] }
     var artworkImportFailed: String { self["artworkImportFailed"] }
+    var pasteScaledToFit: String { self["pasteScaledToFit"] }
+    var pasteGrowCanvas: String { self["pasteGrowCanvas"] }
+    var pasteFailed: String { self["pasteFailed"] }
     var layers: String { self["layers"] }
     var fill: String { self["fill"] }
     var stroke: String { self["stroke"] }

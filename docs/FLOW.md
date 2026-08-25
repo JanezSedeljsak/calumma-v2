@@ -408,9 +408,10 @@ live in `engine/core`; the actual PNG/JPEG/WebP/AVIF **encode** happens in the s
   data, so growing back restores it exactly.
 - **Layer bounds:** X / Y / W / H for the *active* layer (never the hovered one — hover
   already has the outline), in document pixels, in the same fixed strip above canvas resize.
-  The numbers are `Document::layer_bounds`: tight to painted pixels (`opaque_bounds`), not
-  the tile-granular `content_bounds()` the hover outline draws from, so the readout can read
-  smaller than the box on the board by up to a tile. The transform is baked in, so it is a
+  The numbers are `Document::layer_bounds`, which is `content_bounds()` with the transform
+  applied — the same rectangle the `⌘T` frame and the hover outline draw, so the readout and
+  the board agree exactly. (They used to disagree by up to a tile: the readout was tight and
+  the frame was not.) The transform is baked in, so it is a
   document-space AABB — a rotated layer's W/H grow as it rotates. Editable, commit on Enter:
   **position moves** (a `LayerTransform` offset, non-destructive, same as the Move tool) and
   **size only ever crops** — a number larger than the layer clamps rather than scaling the
@@ -431,18 +432,66 @@ live in `engine/core`; the actual PNG/JPEG/WebP/AVIF **encode** happens in the s
   clears it back to identity.
 - **Click-to-pick a layer**, inside transform mode: clicking a layer's *painted pixels*
   on the board makes it the transform target, so you can walk a stack without going back
-  to the layers panel, and the same press starts a move drag. Picking is pixel-accurate
-  (`Document::layer_at` — respects the layer's transform, mask, opacity and visibility)
-  and skips Paper, the same way merge-down does. Resolution order on a press is:
+  to the layers panel, and the same press starts a move drag. Picking respects the layer's
+  transform, mask, opacity and visibility (`Document::layer_at`, `core/src/pick.rs`) and
+  skips Paper, the same way merge-down does. Resolution order on a press is:
   corner/rotate handle → **another layer's pixels** → move-inside-the-box → exit. The
-  layer-stack step sits above "move" on purpose: the transform box is `content_bounds()`,
-  which is tile-granular (256×256) and for a small scribble can be the whole document, so
-  taking Move on every click inside it would make picking unreachable. Clicking the
+  layer-stack step sits above "move" on purpose: a click inside the frame but on nothing the
+  active layer painted — the hole in a donut, the gap between two strokes — should offer the
+  stack a chance rather than always taking Move. Clicking the
   active layer's *own* pixels always keeps it, so an overlapping layer above can never
   steal the target mid-transform. Move *without* transform already selects the layer it
   grabs (`begin_move_at`). Inside transform, picking is the retarget path above —
   Option-click and ⌘-click are both already Pan (see Pointer modifiers), so there is no
   free modifier for a universal "pick under cursor" gesture.
+- **A layer's box is tight to its pixels** (`Layer::content_bounds`). It used to be the union
+  of the 256×256 tiles holding anything, so a pasted 300×200 photo reported a 512×256 box and
+  the `⌘T` frame drew visibly wider than the picture inside it. The transform **pivot** is the
+  centre of that box on both the CPU and the GPU, so scaling and rotation turned about a point
+  that depended on where the content happened to fall against the tile grid.
+  - One definition, read by everything that answers "where is this layer": the transform frame
+    and handles, the pivot in `vs_tile` and in the flatten walk, the hover outline, `Move`, the
+    pick reject, the bounds readout. A cheap-but-coarse version for the hot path and a tight
+    one for the UI is exactly the drift this removes.
+  - It is a **cache** on `TileGrid`, because `content_bounds` is read for every layer whenever
+    the draw list is rebuilt — every frame of a pan, every stroke commit — and a tight box means
+    scanning pixels. Per *tile*, not per layer: an edit invalidates the tiles it touched and
+    nothing else, so a one-pixel change on a 4096×3072 layer costs ~150 µs instead of the
+    ~3.5 ms a full rescan takes. Invalidation hangs off `mark_dirty` / `mark_all_dirty`, which
+    every pixel write already funnels through, plus `TileGrid::set_size`, since the scan is
+    clipped to the document and a shrink changes the answer without touching a pixel.
+  - A layer whose tiles exist but hold nothing opaque now reports **no bounds**, the same as an
+    empty one — there is nothing there to frame, transform or pick.
+  - Two behaviours follow from the tighter box and are the point rather than side effects:
+    clicking well clear of the content now **exits** transform mode instead of grabbing a frame
+    that reached most of a tile past anything visible, and a layer erased to nothing stops
+    offering `⌘T`.
+- **A click is a region, not a pixel** (`core/src/pick.rs`). Picking used to test exactly one
+  document pixel with `alpha != 0`, which made three separate things go wrong and all read as
+  "sometimes clicking a layer just doesn't select it":
+  - **Pick slack.** `limits::LAYER_PICK_SLACK_PX` (6, the same number vectors have always had)
+    is measured in *screen* pixels and converted to document units by the camera — never by
+    the shell — so a hairline stays as grabbable zoomed out as it is zoomed in. The probe
+    scans a **one-document-pixel grid** outward from the click rather than a ring, because
+    painted content can be a single pixel wide and anything coarser has gaps it falls into.
+    `limits::LAYER_PICK_MAX_SLACK` (16 doc px) caps the reach: at the 20% zoom floor six screen
+    pixels is a hundred document pixels, and a pick reaching that far is grabbing something
+    nobody pointed at. It also bounds the work one click can ask for, alongside a cheap
+    transformed-AABB reject that keeps layers nowhere near the click from paying at all.
+  - **An alpha threshold.** `limits::LAYER_PICK_MIN_ALPHA` (8) replaces `!= 0`, so the
+    invisible tail of a soft brush stops claiming clicks well past its visible edge. It is
+    applied to the *composited* alpha, mask and opacity folded in, so a layer at 3% opacity is
+    as hard to grab as it is to see.
+  - **A locked layer says so.** It stays unpickable and the click still falls through to what
+    is underneath, which is what lock means and what Photoshop does — but the refusal is no
+    longer silent: `Document::locked_layer_at` names the layer that swallowed it and the
+    reason goes out through the same `blocked_notice` channel a blocked tool press uses, so it
+    lands in the same toast with no new UI. Throttled the same way, once per (layer, tool).
+
+  The **Select** tools still do not pick layers, deliberately: they build a `Document.selection`
+  region, and Move is the tool that picks. That is Photoshop's split rather than Figma's, and
+  overloading marquee-click to also pick would make an empty-space click ambiguous when it
+  currently starts a region drag.
 - **Remove Background:** AI menu on the tools island → macOS Vision via `calm_engine_run_op` when available.
   Shell never mutates the stack after the op. Details: `AGENTS.md` → AI ops.
 
@@ -508,6 +557,37 @@ Selection-scoped copy/cut only ever reads/writes the **active layer**, matching 
 default `⌘C` (not "Copy Merged"). Paste always adds a new layer at the top of the stack
 ("forward") rather than inserting directly above whatever was active — a deliberate
 simplification, not a real "insert above" primitive.
+
+### Pasting something bigger than the canvas
+
+An oversized paste used to be **cropped and unrecoverable**: the blit was anchored top-left
+and `TileGrid::paint_rect` intersects with the grid, which is always exactly document-sized,
+so the right and bottom of a big photo were never written anywhere. Not a clipped view a move
+could recover — the pixels were gone.
+
+Core decides what happens instead (`engine/core/src/paste.rs`), never the shell:
+
+- **Scale to fit** (the default) area-downsamples the image so the whole thing lands on the
+  paper, centred. Lossy in exactly the way the crop was, but it loses *detail* rather than
+  *content*, and what is left is on the board where it can be acted on. The resampler is a
+  box/area filter (`core/src/resample.rs`), not the nearest-neighbour one thumbnails use —
+  4096 → 1000 through nearest aliases badly enough to read as broken.
+- **Grow canvas** grows the paper to hold the image at native size first, **top-left anchored
+  exactly like a manual canvas resize**, so nothing already on the board moves. Past
+  `MAX_CANVAS_SIDE` the two compose: the paper grows as far as it may and the remainder is
+  scaled, rather than the mode failing outright.
+
+**An image that already fits is untouched by any of this** and still lands at the selection's
+origin. The choice is offered where it is relevant rather than buried in Settings: a scaled
+paste raises a toast saying so with a **Grow canvas instead** action, which takes the scaled
+layer back out and redoes the paste. That also switches the knob, so saying it once is a way
+of saying how you want oversized pastes handled — `CalmState.paste_fit` reports which mode is
+live. Neither mode is undo-tracked, same as every other structural edit.
+
+**Not in scope, deliberately:** letting a `TileGrid` hold tiles outside the document, which is
+what Photoshop and Figma do and would make the question disappear. It is a change to
+`paint_rect`, `tile_in_bounds`, every composite and export walk, the mask model, thumbnails
+and the atlas residency math — its own plan, not something to smuggle in behind a paste bug.
 
 ## Export
 

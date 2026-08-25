@@ -51,6 +51,7 @@ fn every_status_entry_point_rejects_a_null_engine() {
         last_select_tool: 0,
         is_fit: 0,
         transform_active: 0,
+        paste_fit: 0,
     };
     let mut buf: *mut u8 = ptr::null_mut();
     let mut w = 0u32;
@@ -129,7 +130,7 @@ fn every_status_entry_point_rejects_a_null_engine() {
             CalmStatus::Null
         );
         assert_eq!(
-            calm_engine_paste_image(e, ptr::null(), 0, 1, 1),
+            calm_engine_paste_image(e, ptr::null(), 0, 1, 1, ptr::null_mut()),
             CalmStatus::Null
         );
         assert_eq!(calm_project_save(e), CalmStatus::Null);
@@ -385,15 +386,15 @@ fn paste_image_validates_its_buffer_length() {
     let rgba = [255u8; 4 * 4];
     unsafe {
         assert_ne!(
-            calm_engine_paste_image(e, rgba.as_ptr(), rgba.len(), 100, 100),
+            calm_engine_paste_image(e, rgba.as_ptr(), rgba.len(), 100, 100, ptr::null_mut()),
             CalmStatus::Ok
         );
         assert_ne!(
-            calm_engine_paste_image(e, ptr::null(), 0, 2, 2),
+            calm_engine_paste_image(e, ptr::null(), 0, 2, 2, ptr::null_mut()),
             CalmStatus::Ok
         );
         assert_eq!(
-            calm_engine_paste_image(e, rgba.as_ptr(), rgba.len(), 2, 2),
+            calm_engine_paste_image(e, rgba.as_ptr(), rgba.len(), 2, 2, ptr::null_mut()),
             CalmStatus::Ok
         );
         calm_engine_free(e);

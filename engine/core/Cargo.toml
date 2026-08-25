@@ -8,6 +8,7 @@ license.workspace = true
 calumma-text = { path = "../text" }
 uuid = { workspace = true, features = ["v4"] }
 rayon = { workspace = true }
+parking_lot = { workspace = true }
 num_enum = { workspace = true }
 rustc-hash = { workspace = true }
 zstd = { workspace = true }

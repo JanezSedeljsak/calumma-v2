@@ -361,6 +361,95 @@ fn opaque_bounds_ignores_pixels_past_the_document_edge() {
     assert_eq!((b.min_x, b.min_y, b.max_x, b.max_y), (3, 5, far, far));
 }
 
+/// The box is a cache, so every one of these is really asking whether the cache noticed. A
+/// stale answer here is a transform frame drawn in the wrong place and a pivot that scales
+/// about the wrong point, so the invalidation has to cover every way pixels move.
+#[test]
+fn opaque_bounds_follows_paint_erase_and_undo() {
+    let mut grid = TileGrid::new(1024, 1024);
+    assert_eq!(grid.opaque_bounds(), None);
+
+    grid.set_pixel(100, 100, [1, 2, 3, 255]);
+    assert_eq!(grid.opaque_bounds(), Some(DocRect::new(100, 100, 100, 100)));
+
+    grid.set_pixel(700, 400, [1, 2, 3, 255]);
+    assert_eq!(
+        grid.opaque_bounds(),
+        Some(DocRect::new(100, 100, 700, 400)),
+        "painting into a second tile grows the box"
+    );
+
+    let snapshot = grid.snapshot_tiles(&[TileCoord::from_doc_i32(700, 400)]);
+    grid.set_pixel(700, 400, [0, 0, 0, 0]);
+    assert_eq!(
+        grid.opaque_bounds(),
+        Some(DocRect::new(100, 100, 100, 100)),
+        "erasing shrinks it back"
+    );
+
+    grid.restore_tiles(&snapshot);
+    assert_eq!(
+        grid.opaque_bounds(),
+        Some(DocRect::new(100, 100, 700, 400)),
+        "and undo puts it back"
+    );
+
+    grid.clear();
+    assert_eq!(grid.opaque_bounds(), None);
+}
+
+/// A tile nothing touched keeps its cached scan, which is the whole reason an edit on a large
+/// layer is cheap — but it must not keep a *stale* one when its own pixels change.
+#[test]
+fn a_second_edit_in_one_tile_still_moves_the_box() {
+    let mut grid = TileGrid::new(1024, 1024);
+    grid.set_pixel(300, 300, [1, 2, 3, 255]);
+    grid.set_pixel(900, 900, [1, 2, 3, 255]);
+    assert_eq!(grid.opaque_bounds(), Some(DocRect::new(300, 300, 900, 900)));
+    grid.set_pixel(310, 290, [1, 2, 3, 255]);
+    assert_eq!(
+        grid.opaque_bounds(),
+        Some(DocRect::new(300, 290, 900, 900)),
+        "the edited tile was rescanned"
+    );
+}
+
+/// The scan is clipped to the document, so shrinking one changes the answer without a pixel
+/// being touched — the case a dirty-tile invalidation would miss entirely.
+#[test]
+fn resizing_the_grid_reclips_the_box() {
+    let mut grid = TileGrid::new(1024, 1024);
+    grid.set_pixel(10, 10, [1, 2, 3, 255]);
+    grid.set_pixel(900, 900, [1, 2, 3, 255]);
+    assert_eq!(grid.opaque_bounds(), Some(DocRect::new(10, 10, 900, 900)));
+    grid.set_size(512, 512);
+    assert_eq!(
+        grid.opaque_bounds(),
+        Some(DocRect::new(10, 10, 10, 10)),
+        "the far pixel is off-canvas now, though it is still stored"
+    );
+    grid.set_size(1024, 1024);
+    assert_eq!(
+        grid.opaque_bounds(),
+        Some(DocRect::new(10, 10, 900, 900)),
+        "and growing back finds it again"
+    );
+}
+
+/// History clones grids constantly; a clone that shared a cache with its original by accident
+/// would answer for the wrong pixels the moment either one was painted on.
+#[test]
+fn a_cloned_grid_keeps_its_own_box() {
+    let mut grid = TileGrid::new(512, 512);
+    grid.set_pixel(50, 50, [1, 2, 3, 255]);
+    let before = grid.opaque_bounds();
+    let mut copy = grid.clone();
+    assert_eq!(copy.opaque_bounds(), before);
+    copy.set_pixel(400, 400, [1, 2, 3, 255]);
+    assert_eq!(copy.opaque_bounds(), Some(DocRect::new(50, 50, 400, 400)));
+    assert_eq!(grid.opaque_bounds(), before, "the original is untouched");
+}
+
 #[test]
 fn content_revision_moves_only_when_pixels_do() {
     let mut grid = TileGrid::new(256, 256);

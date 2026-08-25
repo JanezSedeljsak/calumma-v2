@@ -5,13 +5,24 @@ enum ToastKind {
     case error
 }
 
-/// A one-shot status message — `Engine` is the only thing that creates these (an AI op
+/// A one-shot status message — `AppModel` is the only thing that creates these (an AI op
 /// finishing, say), and only ever holds one at a time. `id` exists so a dismiss timer can
 /// tell "the toast I scheduled" apart from "a newer toast that replaced it" without a race.
+///
+/// `action` is the undo-shaped half: a default that already happened, plus the other option,
+/// for the few seconds anyone is still thinking about it. It is deliberately not a dialog —
+/// the work is done either way, and a modal in front of a paste would be worse than the crop
+/// this replaced.
 struct ToastMessage: Identifiable, Equatable {
     let id = UUID()
     let text: String
     let kind: ToastKind
+    var actionTitle: String?
+    var action: (() -> Void)?
+
+    static func == (lhs: ToastMessage, rhs: ToastMessage) -> Bool {
+        lhs.id == rhs.id
+    }
 }
 
 /// A transient status banner, shown for a few seconds and then gone on its own — for
@@ -28,6 +39,9 @@ struct CalmToastView: View {
             Text(toast.text)
                 .font(.system(size: Tokens.TypeSize.body, weight: .medium))
                 .foregroundStyle(colors.text)
+            if let title = toast.actionTitle, let action = toast.action {
+                CalmPlainButton(title: title, action: action)
+            }
         }
         .padding(.horizontal, Tokens.Space.md)
         .padding(.vertical, Tokens.Space.sm)
@@ -57,7 +71,7 @@ extension View {
                 CalmToastView(toast: toast)
                     .padding(.top, Tokens.Space.lg)
                     .transition(.move(edge: .top).combined(with: .opacity))
-                    .allowsHitTesting(false)
+                    .allowsHitTesting(toast.action != nil)
                     .zIndex(200)
             }
         }

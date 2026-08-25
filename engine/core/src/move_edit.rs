@@ -30,6 +30,7 @@ impl Document {
         }
         self.clear_vector_selection();
         let Some(index) = self.layer_at(doc_x, doc_y) else {
+            self.note_locked_pick(doc_x, doc_y);
             return false;
         };
         self.active_layer = index;

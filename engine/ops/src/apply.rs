@@ -84,8 +84,8 @@ pub fn layer_input(doc: &Document, layer_index: usize) -> Result<OpInput, OpErro
     let layer = doc.layers.get(layer_index).ok_or(OpError::BadLayer)?;
     match &layer.content {
         LayerContent::Raster(tiles) | LayerContent::Text { tiles, .. } => {
-            let w = tiles.width;
-            let h = tiles.height;
+            let w = tiles.width();
+            let h = tiles.height();
             let mut rgba = vec![0u8; (w as usize) * (h as usize) * 4];
             tiles.copy_into_rgba(&mut rgba, w, h);
             Ok(OpInput::Raster { rgba, w, h })

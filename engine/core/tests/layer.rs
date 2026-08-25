@@ -94,16 +94,41 @@ fn resize_mask_crops_when_shrinking_and_is_a_no_op_without_a_mask() {
     assert!(bare.mask().is_none());
 }
 
+/// The box is tight to the pixels, not to the tiles that hold them. Two dots 590 pixels apart
+/// live in different tiles; the box is the 591-pixel span between them, not the 1024-pixel
+/// union of their four 256-pixel cells.
 #[test]
-fn content_bounds_spans_every_painted_tile() {
+fn content_bounds_is_tight_to_the_painted_pixels() {
     let mut layer = Layer::new("c", 1024, 1024);
     assert!(layer.content_bounds().is_none());
     let grid = layer.tiles_mut().unwrap();
     grid.set_pixel(10, 10, [1, 1, 1, 255]);
     grid.set_pixel(600, 700, [1, 1, 1, 255]);
-    let (min_x, min_y, max_x, max_y) = layer.content_bounds().unwrap();
-    assert!(min_x <= 10.0 && min_y <= 10.0);
-    assert!(max_x >= 600.0 && max_y >= 700.0);
+    assert_eq!(layer.content_bounds(), Some((10.0, 10.0, 601.0, 701.0)));
+}
+
+/// The case that sent this back: a paste fills a rectangle that does not line up with the tile
+/// grid, and the `⌘T` frame used to be drawn around the tiles instead of around the picture.
+#[test]
+fn a_paste_sized_rectangle_reports_its_own_size_not_its_tiles() {
+    let mut layer = Layer::new("p", 1024, 1024);
+    let grid = layer.tiles_mut().unwrap();
+    grid.fill_uniform(DocRect::new(40, 30, 339, 229), [9, 9, 9, 255]);
+    assert_eq!(layer.content_bounds(), Some((40.0, 30.0, 340.0, 230.0)));
+}
+
+/// Tiles full of nothing are not content. A layer that was painted and then erased has no box
+/// to frame, transform or pick — the tiles it left behind do not keep it alive.
+#[test]
+fn tiles_holding_only_transparent_pixels_are_not_bounds() {
+    let mut layer = Layer::new("e", 512, 512);
+    let grid = layer.tiles_mut().unwrap();
+    grid.set_pixel(100, 100, [1, 1, 1, 255]);
+    assert!(layer.content_bounds().is_some());
+    let grid = layer.tiles_mut().unwrap();
+    grid.set_pixel(100, 100, [0, 0, 0, 0]);
+    assert!(!grid.is_empty(), "the tile is still allocated");
+    assert_eq!(layer.content_bounds(), None);
 }
 
 fn text_layer() -> Layer {
@@ -161,13 +186,12 @@ fn set_run_is_refused_by_a_layer_that_holds_no_run() {
     assert!(vector.content.is_vector());
 }
 
-/// A vector layer has no pixels to measure, so its tight bounds fall back to the same
-/// parametric box the hover outline uses — the numbers in the bounds strip still mean
-/// something for a layer of shapes.
+/// A vector layer has no pixels to measure, so its box is the item's parametric one — already
+/// tight, and unchanged by any of this.
 #[test]
-fn a_vector_layers_tight_bounds_fall_back_to_its_parametric_box() {
+fn a_vector_layers_bounds_are_its_parametric_box() {
     let layer = Layer::vector("V", stroked_path());
-    assert_eq!(layer.opaque_pixel_bounds(), layer.content_bounds());
+    assert_eq!(layer.content_bounds(), stroked_path().bounds());
 }
 
 #[test]
