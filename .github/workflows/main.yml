@@ -5,10 +5,14 @@ on:
     paths-ignore:
       - '**.md'
       - 'portal/**'
+      - '**.yml'
+      - '**/.gitignore'
   pull_request:
     paths-ignore:
       - '**.md'
       - 'portal/**'
+      - '**.yml'
+      - '**/.gitignore'
   workflow_dispatch:
     inputs:
       version:
