@@ -235,6 +235,10 @@ pub const LAYER_PICK_MAX_SLACK: f32 = 16.0;
 /// would be surprised to hit. Applied to the *composited* alpha (mask and opacity already
 /// folded in), because a layer at 3% opacity should be as hard to grab as it is to see.
 pub const LAYER_PICK_MIN_ALPHA: u8 = 8;
+/// Move auto-pick samples a fixed window centred on the click, in document pixels — five
+/// across and five down. If every sample is transparent the layer is skipped, so a masked-out
+/// hole or a soft falloff outside the window cannot claim a grab the user did not aim at.
+pub const MOVE_PICK_HALF: i32 = 5;
 /// One arrow-key nudge of the selected vector item, in document pixels.
 pub const VECTOR_NUDGE_STEP: f32 = 1.0;
 /// Same step for a Move-tool / transform-mode layer offset nudge.

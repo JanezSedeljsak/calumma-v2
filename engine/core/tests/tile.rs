@@ -414,10 +414,11 @@ fn a_second_edit_in_one_tile_still_moves_the_box() {
     );
 }
 
-/// The scan is clipped to the document, so shrinking one changes the answer without a pixel
-/// being touched — the case a dirty-tile invalidation would miss entirely.
+/// Shrinking the document does not throw away what falls outside it — `Document::resize` has
+/// always promised that — and now that a layer is allowed to overflow, the box says so instead
+/// of pretending the pixels went away. The storage only ever grows.
 #[test]
-fn resizing_the_grid_reclips_the_box() {
+fn shrinking_the_document_keeps_the_pixels_and_the_box() {
     let mut grid = TileGrid::new(1024, 1024);
     grid.set_pixel(10, 10, [1, 2, 3, 255]);
     grid.set_pixel(900, 900, [1, 2, 3, 255]);
@@ -425,14 +426,31 @@ fn resizing_the_grid_reclips_the_box() {
     grid.set_size(512, 512);
     assert_eq!(
         grid.opaque_bounds(),
-        Some(DocRect::new(10, 10, 10, 10)),
-        "the far pixel is off-canvas now, though it is still stored"
-    );
-    grid.set_size(1024, 1024);
-    assert_eq!(
-        grid.opaque_bounds(),
         Some(DocRect::new(10, 10, 900, 900)),
-        "and growing back finds it again"
+        "the far pixel is off-canvas now, and still there"
+    );
+    assert_eq!(grid.get_pixel(900, 900)[3], 255);
+    grid.set_size(1024, 1024);
+    assert_eq!(grid.opaque_bounds(), Some(DocRect::new(10, 10, 900, 900)));
+}
+
+/// A fresh grid holds exactly the document and nothing more, so ordinary painting still cannot
+/// scribble outside the canvas — only a deliberate `grow_extent` opens that up.
+#[test]
+fn painting_still_cannot_write_outside_the_canvas() {
+    let mut grid = TileGrid::new(512, 512);
+    grid.set_pixel(-40, -40, [1, 2, 3, 255]);
+    grid.set_pixel(600, 600, [1, 2, 3, 255]);
+    assert_eq!(grid.opaque_bounds(), None, "both were clipped away");
+
+    grid.grow_extent(DocRect::new(-100, -100, 700, 700));
+    grid.set_pixel(-40, -40, [1, 2, 3, 255]);
+    grid.set_pixel(600, 600, [1, 2, 3, 255]);
+    assert_eq!(grid.opaque_bounds(), Some(DocRect::new(-40, -40, 600, 600)));
+    assert_eq!(
+        grid.doc_bounds(),
+        DocRect::from_size(512, 512),
+        "the canvas did not move"
     );
 }
 

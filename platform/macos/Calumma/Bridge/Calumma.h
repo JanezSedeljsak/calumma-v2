@@ -74,7 +74,6 @@ typedef struct CalmState {
     uint32_t last_select_tool;
     uint8_t is_fit;
     uint8_t transform_active;
-    uint32_t paste_fit;
 } CalmState;
 
 typedef struct CalmRulerTick {
@@ -289,7 +288,6 @@ CalmStatus calm_engine_select_all(CalmEngine *engine);
 CalmStatus calm_engine_invert_selection(CalmEngine *engine);
 CalmStatus calm_engine_selection_clear_pixels(CalmEngine *engine);
 CalmStatus calm_engine_paste_image(CalmEngine *engine, const uint8_t *premultiplied_rgba, size_t len, uint32_t width, uint32_t height, uint32_t *out_outcome);
-CalmStatus calm_engine_set_paste_fit(CalmEngine *engine, uint32_t fit);
 
 typedef enum CalmCaretStep {
     CalmCaretStepLeft = 0,
@@ -363,6 +361,9 @@ char *calm_project_create_from_image(CalmEngine *engine, const char *name, uint3
 CalmStatus calm_project_open(CalmEngine *engine, const char *id);
 CalmStatus calm_project_close(CalmEngine *engine);
 size_t calm_project_list(CalmEngine *engine, CalmProjectInfo *out, size_t cap);
+CalmStatus calm_project_get(CalmEngine *engine, const char *id, CalmProjectInfo *out);
+size_t calm_open_project_tabs(CalmEngine *engine, char **out, size_t cap);
+CalmStatus calm_set_open_project_tabs(CalmEngine *engine, const char *const *ids, size_t count);
 CalmStatus calm_project_delete(CalmEngine *engine, const char *id);
 CalmStatus calm_project_delete_all(CalmEngine *engine);
 CalmStatus calm_project_save(CalmEngine *engine);

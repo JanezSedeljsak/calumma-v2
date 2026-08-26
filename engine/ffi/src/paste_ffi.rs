@@ -1,13 +1,13 @@
 use crate::engine::{with_inner, CalmEngine, CalmStatus};
 use anyhow::{bail, Context};
-use calumma_core::paste::{PasteFit, PasteOutcome};
+use calumma_core::paste::PasteOutcome;
 use calumma_core::unpremultiply_rgba;
 
-/// Pastes an image as a new layer, reporting what it had to do to make it fit.
+/// Pastes an image as a new layer at native size, reporting whether it fit on the paper.
 ///
 /// `out_outcome` is optional and receives a `calumma_core::paste::PasteOutcome` discriminant.
-/// The shell needs it because "scaled to fit" is worth saying out loud and worth offering the
-/// other option for — and because it must never work that out by comparing sizes itself.
+/// The shell needs it because an image that overflows is worth saying out loud — half of it is
+/// off the canvas — and because it must never work that out by comparing sizes itself.
 #[no_mangle]
 pub unsafe extern "C" fn calm_engine_paste_image(
     engine: *mut CalmEngine,
@@ -34,18 +34,6 @@ pub unsafe extern "C" fn calm_engine_paste_image(
             bail!("pasting a {width}x{height} image as a new layer failed");
         }
         inner.edited();
-        Ok(())
-    })
-}
-
-/// Sets what an oversized paste does. The two modes and the default are core's
-/// (`calumma_core::paste::PasteFit`); this only carries the user's choice across.
-#[no_mangle]
-pub extern "C" fn calm_engine_set_paste_fit(engine: *mut CalmEngine, fit: u32) -> CalmStatus {
-    with_inner(engine, |inner| {
-        let doc = inner.doc.as_mut().context("no project is open")?;
-        let fit = PasteFit::from_u32(fit).with_context(|| format!("unknown paste fit {fit}"))?;
-        doc.set_paste_fit(fit);
         Ok(())
     })
 }

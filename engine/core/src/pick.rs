@@ -19,7 +19,9 @@
 
 use crate::document::{layer_alpha_at, Document};
 use crate::layer::Layer;
-use crate::limits::{LAYER_PICK_MAX_SLACK, LAYER_PICK_MIN_ALPHA, LAYER_PICK_SLACK_PX};
+use crate::limits::{
+    LAYER_PICK_MAX_SLACK, LAYER_PICK_MIN_ALPHA, LAYER_PICK_SLACK_PX, MOVE_PICK_HALF,
+};
 use crate::tool_gate::ToolBlock;
 
 /// A click widened into the region it actually means, in document units.
@@ -56,6 +58,17 @@ impl PickProbe {
                         return true;
                     }
                     dx += step;
+                }
+            }
+        }
+        false
+    }
+
+    fn hits_move(&self, layer: &Layer) -> bool {
+        for dy in -MOVE_PICK_HALF..MOVE_PICK_HALF {
+            for dx in -MOVE_PICK_HALF..MOVE_PICK_HALF {
+                if self.sample(layer, dx, dy) {
+                    return true;
                 }
             }
         }
@@ -101,6 +114,21 @@ fn eligible(layer: &Layer) -> bool {
         && (layer.tiles().is_some() || layer.content.item().is_some())
 }
 
+#[derive(Clone, Copy)]
+enum PickScan {
+    Slack,
+    Move,
+}
+
+impl PickScan {
+    fn hits(self, probe: &PickProbe, layer: &Layer) -> bool {
+        match self {
+            Self::Slack => probe.hits(layer),
+            Self::Move => probe.hits_move(layer),
+        }
+    }
+}
+
 impl Document {
     /// Screen pixels into document units, then clamped. Without the clamp, the 20% zoom floor
     /// on a large board turns six screen pixels into a hundred document pixels, and a pick
@@ -122,16 +150,30 @@ impl Document {
     /// (`Camera::paper_scissor`), so content pushed outside it is not visible, and refusing to
     /// pick it is right rather than stingy.
     pub fn layer_at(&self, doc_x: f32, doc_y: f32) -> Option<usize> {
-        self.topmost(doc_x, doc_y, false)
+        self.topmost(doc_x, doc_y, false, PickScan::Slack)
+    }
+
+    pub fn layer_at_for_move(&self, doc_x: f32, doc_y: f32) -> Option<usize> {
+        self.topmost(doc_x, doc_y, false, PickScan::Move)
     }
 
     /// The topmost *locked* layer under the point. Nothing picks with this — it exists so a
     /// click that fell through a locked layer can name what it fell through.
     pub fn locked_layer_at(&self, doc_x: f32, doc_y: f32) -> Option<usize> {
-        self.topmost(doc_x, doc_y, true)
+        self.topmost(doc_x, doc_y, true, PickScan::Slack)
     }
 
-    fn topmost(&self, doc_x: f32, doc_y: f32, locked: bool) -> Option<usize> {
+    pub fn locked_layer_at_for_move(&self, doc_x: f32, doc_y: f32) -> Option<usize> {
+        self.topmost(doc_x, doc_y, true, PickScan::Move)
+    }
+
+    fn topmost(
+        &self,
+        doc_x: f32,
+        doc_y: f32,
+        locked: bool,
+        scan: PickScan,
+    ) -> Option<usize> {
         if doc_x < 0.0 || doc_y < 0.0 || doc_x >= self.width as f32 || doc_y >= self.height as f32 {
             return None;
         }
@@ -144,7 +186,7 @@ impl Document {
                 layer.locked == locked
                     && eligible(layer)
                     && probe.may_reach(layer)
-                    && probe.hits(layer)
+                    && scan.hits(&probe, layer)
             })
             .map(|(index, _)| index)
     }
@@ -155,12 +197,18 @@ impl Document {
         Some(index)
     }
 
+    pub fn pick_layer_for_move(&mut self, doc_x: f32, doc_y: f32) -> Option<usize> {
+        let index = self.layer_at_for_move(doc_x, doc_y)?;
+        self.active_layer = index;
+        Some(index)
+    }
+
     /// Called when a pick found nothing. If a locked layer is what the click landed on, that is
     /// the answer the user needs — routed through `blocked_notice` so it arrives as the same
     /// toast a blocked tool press produces, and keyed the same way so a run of presses on the
     /// same locked layer says it once rather than every time.
-    pub(crate) fn note_locked_pick(&mut self, doc_x: f32, doc_y: f32) {
-        let Some(index) = self.locked_layer_at(doc_x, doc_y) else {
+    pub(crate) fn note_locked_pick_for_move(&mut self, doc_x: f32, doc_y: f32) {
+        let Some(index) = self.locked_layer_at_for_move(doc_x, doc_y) else {
             return;
         };
         let key = (index, self.tool);
@@ -168,15 +216,5 @@ impl Document {
             self.blocked_notice_key = Some(key);
             self.blocked_notice = Some(ToolBlock::LayerLocked);
         }
-    }
-
-    /// Whether the *active* layer is what is under the point, on the same rule and the same
-    /// slack the stack walk uses — so "clicking the active layer's own pixels keeps it" and
-    /// "clicking a layer picks it" can never disagree about where a layer's pixels are.
-    pub(crate) fn active_layer_covers(&self, doc_x: f32, doc_y: f32) -> bool {
-        let probe = self.pick_probe(doc_x, doc_y);
-        self.layers.get(self.active_layer).is_some_and(|layer| {
-            !layer.locked && eligible(layer) && probe.may_reach(layer) && probe.hits(layer)
-        })
     }
 }

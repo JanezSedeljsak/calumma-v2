@@ -811,7 +811,7 @@ impl Renderer {
                 }
                 continue;
             }
-            for coord in grid.coords_intersecting(visible) {
+            for coord in grid.coords_intersecting(layer.doc_rect_to_grid(visible)) {
                 let key: TileKey = (*slot, coord.x, coord.y);
                 if !self.tiles.contains_key(&key) {
                     return true;
@@ -837,7 +837,9 @@ impl Renderer {
                 count += 1;
                 continue;
             }
-            count += grid.coords_intersecting(visible).count();
+            count += grid
+                .coords_intersecting(layer.doc_rect_to_grid(visible))
+                .count();
         }
         count
     }
@@ -968,6 +970,7 @@ impl Renderer {
         self.cached_retained_span = None;
         self.cached_visible_span = None;
         self.cached_tile_draw_count = None;
+        self.clear_layer_cache();
         self.overview.mark_dirty();
         self.pan_cache.invalidate();
     }
@@ -1121,6 +1124,8 @@ impl Renderer {
             };
             let slot = self.layer_slot(&layer.id);
             let dirty = grid.dirty_tiles(DirtyChannel::Render);
+            let visible_grid = layer.doc_rect_to_grid(visible);
+            let retained_grid = layer.doc_rect_to_grid(retained);
 
             if layer.is_paper() && grid.whole_tiles_share_one_arc() {
                 let coord = TileCoord { x: 0, y: 0 };
@@ -1134,11 +1139,11 @@ impl Renderer {
                 continue;
             }
 
-            for coord in grid.coords_intersecting(retained) {
+            for coord in grid.coords_intersecting(retained_grid) {
                 let cell = TileGrid::tile_rect(coord);
                 let key: TileKey = (slot, coord.x, coord.y);
                 live.insert(key);
-                if !cell.intersects(visible) {
+                if !cell.intersects(visible_grid) {
                     continue;
                 }
                 visible_keys.insert(key);
@@ -1361,8 +1366,9 @@ impl Renderer {
                 }
                 continue;
             }
+            let visible_grid = layer.doc_rect_to_grid(visible);
             let start = tiles.len() as u32;
-            for coord in grid.coords_intersecting(visible) {
+            for coord in grid.coords_intersecting(visible_grid) {
                 let key: TileKey = (slot, coord.x, coord.y);
                 let Some(gpu) = self.tiles.get(&key) else {
                     continue;

@@ -2,12 +2,17 @@ use crate::filters::Adjustments;
 use crate::history::TileSnapshot;
 use crate::limits::PAPER_WHITE;
 use crate::tile::{DirtyChannel, DocRect, TileGrid, TileSet};
-use crate::transform::LayerTransform;
+use crate::transform::{bounds_center, LayerTransform};
 use crate::vector::VectorItem;
 use calumma_text::TextRun;
+use parking_lot::Mutex;
+use rayon::prelude::*;
+use std::sync::Arc;
 use uuid::Uuid;
 
 use num_enum::{IntoPrimitive, TryFromPrimitive};
+
+type MaskedBoundsCache = Arc<Mutex<Option<(DocRect, Option<DocRect>)>>>;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, IntoPrimitive, TryFromPrimitive)]
 #[repr(u32)]
@@ -107,7 +112,7 @@ impl LayerContent {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug)]
 pub struct Layer {
     pub id: String,
     pub name: String,
@@ -123,6 +128,73 @@ pub struct Layer {
     /// stray stroke, not against a deliberate press of the button next to it.
     pub locked: bool,
     mask: Option<Vec<u8>>,
+    masked_bounds: MaskedBoundsCache,
+}
+
+fn fresh_masked_bounds_cache() -> MaskedBoundsCache {
+    Arc::new(Mutex::new(None))
+}
+
+pub(crate) fn scan_masked_bounds(
+    tiles: &TileGrid,
+    mask: &[u8],
+    transform: Option<LayerTransform>,
+) -> Option<DocRect> {
+    let crop = tiles.opaque_bounds()?;
+    let doc_w = tiles.width();
+    let doc_h = tiles.height();
+    let pivot = bounds_center((
+        crop.min_x as f32,
+        crop.min_y as f32,
+        crop.max_x as f32 + 1.0,
+        crop.max_y as f32 + 1.0,
+    ));
+    let t = transform.unwrap_or_default();
+    let has_transform = transform.is_some_and(|t| !t.is_identity());
+    let rows: Vec<_> = (crop.min_y..=crop.max_y)
+        .into_par_iter()
+        .filter_map(|y| {
+            let mut min_x = i32::MAX;
+            let mut max_x = i32::MIN;
+            let mut any = false;
+            for x in crop.min_x..=crop.max_x {
+                let px = tiles.get_pixel(x, y);
+                if px[3] == 0 {
+                    continue;
+                }
+                let (doc_x, doc_y) = if has_transform {
+                    t.forward(pivot, (x as f32, y as f32))
+                } else {
+                    (x as f32, y as f32)
+                };
+                let ix = doc_x.floor() as i32;
+                let iy = doc_y.floor() as i32;
+                if ix < 0 || iy < 0 || (ix as u32) >= doc_w || (iy as u32) >= doc_h {
+                    continue;
+                }
+                let index = (iy as u32 * doc_w + ix as u32) as usize;
+                let m = mask.get(index).copied().unwrap_or(255);
+                if m == 0 {
+                    continue;
+                }
+                if ((px[3] as u32 * m as u32) / 255) == 0 {
+                    continue;
+                }
+                any = true;
+                min_x = min_x.min(x);
+                max_x = max_x.max(x);
+            }
+            any.then_some((y, min_x, max_x))
+        })
+        .collect();
+    if rows.is_empty() {
+        return None;
+    }
+    let min_y = rows.iter().map(|(y, _, _)| *y).min()?;
+    let max_y = rows.iter().map(|(y, _, _)| *y).max()?;
+    let min_x = rows.iter().map(|(_, x0, _)| *x0).min()?;
+    let max_x = rows.iter().map(|(_, _, x1)| *x1).max()?;
+    Some(DocRect::new(min_x, min_y, max_x, max_y))
 }
 
 impl Layer {
@@ -142,6 +214,7 @@ impl Layer {
             transform: None,
             locked: false,
             mask: None,
+            masked_bounds: fresh_masked_bounds_cache(),
         }
     }
 
@@ -157,6 +230,7 @@ impl Layer {
             transform: None,
             locked: false,
             mask: None,
+            masked_bounds: fresh_masked_bounds_cache(),
         }
     }
 
@@ -181,6 +255,7 @@ impl Layer {
             transform: None,
             locked: false,
             mask: None,
+            masked_bounds: fresh_masked_bounds_cache(),
         };
         crate::text_layer::resync(&mut layer);
         layer
@@ -226,6 +301,7 @@ impl Layer {
 
     pub fn set_mask(&mut self, mask: Option<Vec<u8>>) {
         self.mask = mask;
+        *self.masked_bounds.lock() = None;
         self.mark_all_dirty();
     }
 
@@ -255,6 +331,7 @@ impl Layer {
     }
 
     pub fn mark_all_dirty(&mut self) {
+        *self.masked_bounds.lock() = None;
         if let Some(tiles) = self.tiles_mut() {
             tiles.mark_all_dirty();
         }
@@ -282,6 +359,45 @@ impl Layer {
         snap
     }
 
+    /// The part of this layer's own grid that a document-space rectangle is showing.
+    ///
+    /// A transform moves where a layer's tiles *land*, so "which tiles are on screen" is a
+    /// different question from "which document coordinates are on screen" the moment a layer
+    /// has been dragged. Without this the renderer enumerates tiles by document coordinate and
+    /// uploads the wrong ones — invisible while transforms were small nudges inside the paper,
+    /// and immediately visible now that a pasted layer can be mostly off-canvas and dragged in.
+    ///
+    /// The AABB of the inverse-mapped corners, so a rotation returns the whole span it could
+    /// have come from rather than a rotated rectangle nothing can iterate.
+    pub fn doc_rect_to_grid(&self, doc_rect: DocRect) -> DocRect {
+        let Some(t) = self.transform.filter(|t| !t.is_identity()) else {
+            return doc_rect;
+        };
+        let Some(raw) = self.content_bounds() else {
+            return doc_rect;
+        };
+        let pivot = crate::transform::bounds_center(raw);
+        let (x0, y0) = (doc_rect.min_x as f32, doc_rect.min_y as f32);
+        let (x1, y1) = (doc_rect.max_x as f32 + 1.0, doc_rect.max_y as f32 + 1.0);
+        let corners = [
+            t.inverse(pivot, (x0, y0)),
+            t.inverse(pivot, (x1, y0)),
+            t.inverse(pivot, (x0, y1)),
+            t.inverse(pivot, (x1, y1)),
+        ];
+        let min_x = corners.iter().map(|c| c.0).fold(f32::INFINITY, f32::min);
+        let min_y = corners.iter().map(|c| c.1).fold(f32::INFINITY, f32::min);
+        let max_x = corners
+            .iter()
+            .map(|c| c.0)
+            .fold(f32::NEG_INFINITY, f32::max);
+        let max_y = corners
+            .iter()
+            .map(|c| c.1)
+            .fold(f32::NEG_INFINITY, f32::max);
+        DocRect::from_floats(min_x, min_y, max_x, max_y)
+    }
+
     /// The box the layer actually occupies: tight to its non-transparent pixels for anything
     /// with tiles, and the item's parametric bounds for a vector.
     ///
@@ -301,7 +417,27 @@ impl Layer {
     pub fn content_bounds(&self) -> Option<(f32, f32, f32, f32)> {
         match &self.content {
             LayerContent::Raster(tiles) | LayerContent::Text { tiles, .. } => {
-                let r = tiles.opaque_bounds()?;
+                let r = if let Some(mask) = self.mask.as_deref() {
+                    let opaque = tiles.opaque_bounds()?;
+                    let mut cache = self.masked_bounds.lock();
+                    if let Some((key, answer)) = *cache {
+                        if key == opaque {
+                            return answer.map(|r| {
+                                (
+                                    r.min_x as f32,
+                                    r.min_y as f32,
+                                    r.max_x as f32 + 1.0,
+                                    r.max_y as f32 + 1.0,
+                                )
+                            });
+                        }
+                    }
+                    let answer = scan_masked_bounds(tiles, mask, self.transform);
+                    *cache = Some((opaque, answer));
+                    answer?
+                } else {
+                    tiles.opaque_bounds()?
+                };
                 Some((
                     r.min_x as f32,
                     r.min_y as f32,
@@ -311,5 +447,20 @@ impl Layer {
             }
             LayerContent::Vector(item) => item.bounds(),
         }
+    }
+}
+
+impl PartialEq for Layer {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+            && self.name == other.name
+            && self.visible == other.visible
+            && self.content == other.content
+            && self.opacity == other.opacity
+            && self.blend_mode == other.blend_mode
+            && self.adjustments == other.adjustments
+            && self.transform == other.transform
+            && self.locked == other.locked
+            && self.mask == other.mask
     }
 }

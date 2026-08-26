@@ -211,7 +211,7 @@ struct NewProjectView: View {
             presenting: pendingDelete
         ) { project in
             Button(l10n.delete, role: .destructive) {
-                app.engine.deleteProject(id: project.id)
+                app.deleteProject(id: project.id)
             }
             Button(l10n.cancel, role: .cancel) {}
         } message: { project in

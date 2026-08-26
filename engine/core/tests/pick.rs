@@ -150,11 +150,10 @@ fn a_click_on_nothing_at_all_says_nothing() {
     assert_eq!(doc.take_tool_block_notice(), None);
 }
 
-/// `active_layer_covers` decides whether a click inside the transform box belongs to the
-/// active layer or is offered to the stack, so it has to answer with the same slack the stack
-/// walk uses — otherwise a near miss keeps the layer *and* would have picked it.
+/// Transform mode keeps the active layer for any click inside its frame, including on pixels
+/// the mask has cleared — the stack is only consulted once the click lands outside the box.
 #[test]
-fn the_transform_retarget_path_uses_the_same_slack() {
+fn transform_keeps_the_active_layer_inside_the_frame_without_pixel_slack() {
     let mut doc = doc_with_viewport();
     hairline(&mut doc, 1);
     doc.add_layer("Above");

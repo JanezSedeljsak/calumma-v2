@@ -110,7 +110,7 @@ struct EditorView: View {
                     .padding(Tokens.Space.md)
             }
             .onDrop(of: ArtworkImport.dropTypes, isTargeted: $artworkDropTargeted) { providers in
-                app.dropArtworkIntoWorkspace(providers: providers)
+                app.dropArtworkIntoBoard(providers: providers)
             }
     }
 
@@ -261,7 +261,7 @@ struct EditorView: View {
     @ToolbarContentBuilder
     private var editorToolbar: some ToolbarContent {
         ToolbarItem(placement: .navigation) {
-            WorkspaceTitlebarTabs(editingTab: $editingTab)
+            ProjectTitlebarTabs(editingTab: $editingTab)
         }
     }
 

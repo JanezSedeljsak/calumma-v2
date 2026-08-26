@@ -196,7 +196,7 @@ fn failed_op_leaves_document_and_history_untouched() {
 }
 
 #[test]
-fn mask_attach_does_not_mutate_pixels() {
+fn remove_background_bakes_mask_into_pixels() {
     let mut doc = Document::new("p".into(), "P", 32, 32);
     let layer = doc.active_layer;
     doc.layers[layer]
@@ -208,7 +208,8 @@ fn mask_attach_does_not_mutate_pixels() {
     apply_output(&mut doc, layer, mask_output(32, 32)).unwrap();
 
     assert_eq!(doc.layers[layer].tiles().unwrap().get_pixel(4, 4), pixel);
-    assert_eq!(doc.layers[layer].mask().map(|m| m.len()), Some(32 * 32));
+    assert!(doc.layers[layer].mask().is_none());
+    assert!(doc.history.can_undo());
 }
 
 #[test]

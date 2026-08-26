@@ -9,13 +9,11 @@ final class AppModel: ObservableObject {
     @Published var theme: AppTheme = .dark
     @Published var language: AppLanguage = .en
     @Published private(set) var l10n: L10nCatalog = .load(.en)
-    @Published var openWorkspaces: [WorkspaceInfo] = []
-    @Published var activeWorkspaceId: String?
+    @Published var openProjects: [ProjectInfo] = []
     @Published var activeProjectId: String?
     @Published var showLanding = true
     @Published var newProjectOpen = false
     @Published var settingsOpen = false
-    @Published var workspaceExtendOpen = false
     @Published var artworkError: String?
     @Published private(set) var toast: ToastMessage?
     private var toastDismissWork: DispatchWorkItem?
@@ -83,26 +81,33 @@ final class AppModel: ObservableObject {
                 MainActor.assumeIsolated { self?.endSpacePan() }
             }
             .store(in: &cancellables)
-        restoreOpenWorkspaceTabs()
+        restoreOpenProjectTabs()
     }
 
-    private func restoreOpenWorkspaceTabs() {
-        let ids = engine.loadOpenWorkspaceTabs()
+    private func restoreOpenProjectTabs() {
+        let ids = engine.loadOpenProjectTabs()
         guard !ids.isEmpty else { return }
-        openWorkspaces = ids.compactMap { engine.workspace(id: $0) }
-        if let first = openWorkspaces.first {
-            switchToWorkspace(id: first.id)
+        openProjects = ids.compactMap { engine.project(id: $0) }
+        if let first = openProjects.first {
+            switchToProject(id: first.id)
         }
     }
 
     private func persistTabs() {
-        engine.persistOpenWorkspaceTabs(openWorkspaces.map(\.id))
+        engine.persistOpenProjectTabs(openProjects.map(\.id))
     }
 
-    private func refreshOpenWorkspace(_ id: String) {
-        guard let updated = engine.workspace(id: id) else { return }
-        if let index = openWorkspaces.firstIndex(where: { $0.id == id }) {
-            openWorkspaces[index] = updated
+    private func refreshOpenProject(_ id: String) {
+        guard let updated = engine.project(id: id) else { return }
+        if let index = openProjects.firstIndex(where: { $0.id == id }) {
+            openProjects[index] = updated
+        }
+    }
+
+    private func openProjectTab(_ project: ProjectInfo) {
+        if !openProjects.contains(where: { $0.id == project.id }) {
+            openProjects.append(project)
+            persistTabs()
         }
     }
 
@@ -163,29 +168,11 @@ final class AppModel: ObservableObject {
             return
         }
         enterMoveTransform()
-        announcePaste(outcome, artwork)
-    }
-
-    /// An oversized paste is downsampled by default, which is lossy — so it says so, and
-    /// offers the other mode for as long as the toast is up. Only `scaled` interrupts:
-    /// growing the canvas is visible on its own, and an image that fit needs no explanation.
-    private func announcePaste(_ outcome: CalmPasteOutcome, _ artwork: ArtworkImage) {
-        guard outcome.lostDetail else { return }
-        showToast(l10n.pasteScaledToFit, kind: .success, actionTitle: l10n.pasteGrowCanvas) {
-            [weak self] in
-            self?.repasteGrowingTheCanvas(artwork)
+        if outcome == .overflowing {
+            // Worth one line, because half the picture is off the paper and the layer is
+            // already inside `⌘T` — which is how you scale or drag the rest of it into view.
+            showToast(l10n.pasteOverflows, kind: .success)
         }
-    }
-
-    /// Takes the scaled paste back out and does it again with the paper growing instead.
-    /// The layer add is not undo-tracked, so this removes it directly rather than pretending
-    /// `⌘Z` could — and the knob stays switched, because choosing this once is also a way of
-    /// saying how you want oversized pastes handled.
-    private func repasteGrowingTheCanvas(_ artwork: ArtworkImage) {
-        toast = nil
-        engine.removeLayer(Int(engine.state.activeLayer))
-        engine.setPasteFit(.growCanvas)
-        pasteIntoBoard(artwork)
     }
 
     /// Paste and drop still want the new layer grabbed with handles live. Picking Move on the
@@ -246,7 +233,7 @@ final class AppModel: ObservableObject {
         }
     }
 
-    func dropArtworkIntoWorkspace(providers: [NSItemProvider]) -> Bool {
+    func dropArtworkIntoBoard(providers: [NSItemProvider]) -> Bool {
         ArtworkImport.load(providers: providers) { [weak self] artwork in
             guard let artwork else { return }
             self?.pasteIntoBoard(artwork)
@@ -306,7 +293,7 @@ final class AppModel: ObservableObject {
         {
             return project.name
         }
-        return openWorkspaces.first { $0.id == activeWorkspaceId }?.name ?? l10n.untitled
+        return l10n.untitled
     }
 
     func exportComposite(as format: ExportFormat) {
@@ -386,104 +373,31 @@ final class AppModel: ObservableObject {
     }
 
     private func adoptProject(id: String, name: String) {
-        if let workspaceId = activeWorkspaceId, !showLanding {
-            engine.addProjectToWorkspace(workspaceId: workspaceId, projectId: id)
-            engine.setWorkspaceActiveProject(workspaceId: workspaceId, projectId: id)
-            activeProjectId = id
-            showLanding = false
-            newProjectOpen = false
-            refreshOpenWorkspace(workspaceId)
-            applyKnobs()
-            engine.fitToScreen()
-            maximizeMainWindow()
-            return
-        }
-        if let existing = engine.workspaceForProject(projectId: id),
-           let ws = engine.workspace(id: existing)
-        {
-            openWorkspaceTab(ws)
-            switchToProject(workspaceId: ws.id, projectId: id)
-            return
-        }
-        guard let workspaceId = engine.createWorkspaceForProject(projectId: id, name: name),
-              let ws = engine.workspace(id: workspaceId)
-        else {
-            return
-        }
-        openWorkspaceTab(ws)
-        switchToProject(workspaceId: workspaceId, projectId: id)
-    }
-
-    private func openWorkspaceTab(_ ws: WorkspaceInfo) {
-        if !openWorkspaces.contains(where: { $0.id == ws.id }) {
-            openWorkspaces.append(ws)
-            persistTabs()
-        }
+        guard let project = engine.project(id: id) else { return }
+        openProjectTab(project)
+        switchToProject(id: id)
     }
 
     func openRecent(_ project: ProjectInfo) {
-        if let existing = engine.workspaceForProject(projectId: project.id),
-           let ws = engine.workspace(id: existing)
-        {
-            openWorkspaceTab(ws)
-            switchToProject(workspaceId: ws.id, projectId: project.id)
+        openProjectTab(project)
+        switchToProject(id: project.id)
+    }
+
+    func switchToProject(id: String) {
+        if activeProjectId == id, !showLanding {
             return
         }
-        guard let workspaceId = engine.createWorkspaceForProject(
-            projectId: project.id,
-            name: project.name
-        ),
-            let ws = engine.workspace(id: workspaceId)
+        guard let project = openProjects.first(where: { $0.id == id })
+            ?? engine.project(id: id)
         else {
             return
         }
-        openWorkspaceTab(ws)
-        switchToProject(workspaceId: workspaceId, projectId: project.id)
-    }
-
-    func switchToWorkspace(id: String) {
-        if activeWorkspaceId == id, !showLanding {
-            return
-        }
-        guard let ws = openWorkspaces.first(where: { $0.id == id })
-            ?? engine.workspace(id: id)
-        else {
-            return
-        }
-        openWorkspaceTab(ws)
-        engine.touchWorkspace(id: id)
-        refreshOpenWorkspace(id)
-        let projectId = ws.activeProjectId
-            ?? engine.workspaceProjects(workspaceId: id).first?.id
-        if let projectId {
-            switchToProject(workspaceId: id, projectId: projectId)
-        } else {
-            engine.switchWorkspace(workspaceId: id, projectId: nil)
-            activeWorkspaceId = id
-            activeProjectId = nil
-            showLanding = false
-            newProjectOpen = false
-            workspaceExtendOpen = false
-            applyKnobs()
-            maximizeMainWindow()
-        }
-    }
-
-    func switchToProject(workspaceId: String, projectId: String) {
-        if activeWorkspaceId == workspaceId, activeProjectId == projectId, !showLanding {
-            workspaceExtendOpen = false
-            return
-        }
-        engine.switchWorkspace(workspaceId: workspaceId, projectId: projectId)
-        if let ws = engine.workspace(id: workspaceId) {
-            openWorkspaceTab(ws)
-            refreshOpenWorkspace(workspaceId)
-        }
-        activeWorkspaceId = workspaceId
-        activeProjectId = projectId
+        openProjectTab(project)
+        engine.openProject(id: id)
+        activeProjectId = id
         showLanding = false
         newProjectOpen = false
-        workspaceExtendOpen = false
+        refreshOpenProject(id)
         applyKnobs()
         engine.fitToScreen()
         engine.syncState()
@@ -491,60 +405,40 @@ final class AppModel: ObservableObject {
         maximizeMainWindow()
     }
 
-    func closeWorkspaceTab(_ id: String) {
-        openWorkspaces.removeAll { $0.id == id }
+    func closeProjectTab(_ id: String) {
+        openProjects.removeAll { $0.id == id }
         persistTabs()
-        if activeWorkspaceId == id {
+        if activeProjectId == id {
             engine.save()
             engine.closeProject()
-            if let next = openWorkspaces.last {
-                switchToWorkspace(id: next.id)
+            if let next = openProjects.last {
+                switchToProject(id: next.id)
             } else {
-                activeWorkspaceId = nil
                 activeProjectId = nil
                 showLanding = true
             }
         }
     }
 
-    func createEmptyWorkspace(name: String) {
-        let resolved = name.isEmpty ? l10n.untitledWorkspace : name
-        guard let id = engine.createWorkspace(name: resolved),
-              let ws = engine.workspace(id: id)
-        else {
-            return
+    func deleteProject(id: String) {
+        openProjects.removeAll { $0.id == id }
+        persistTabs()
+        if activeProjectId == id {
+            engine.save()
+            engine.closeProject()
+            activeProjectId = nil
+            showLanding = true
         }
-        openWorkspaceTab(ws)
-        switchToWorkspace(id: id)
-    }
-
-    func renameWorkspace(id: String, to name: String) {
-        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        engine.renameWorkspace(id: id, to: trimmed)
-        refreshOpenWorkspace(id)
-    }
-
-    func setWorkspaceAccent(id: String, color: Color) {
-        engine.setWorkspaceAccent(id: id, color: color)
-        refreshOpenWorkspace(id)
-    }
-
-    func deleteWorkspace(id: String) {
-        engine.deleteWorkspace(id: id)
-        closeWorkspaceTab(id)
-        engine.refreshWorkspaces()
+        engine.deleteProject(id: id)
     }
 
     func deleteAllRecents() {
         engine.deleteAllProjects()
-        openWorkspaces = []
-        activeWorkspaceId = nil
+        openProjects = []
         activeProjectId = nil
         persistTabs()
         showLanding = true
         newProjectOpen = false
-        workspaceExtendOpen = false
     }
 
     func toggleFullScreen() {
@@ -625,10 +519,12 @@ final class AppModel: ObservableObject {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         engine.rename(projectId: projectId, to: trimmed)
+        refreshOpenProject(projectId)
     }
 
     func setAccent(projectId: String, color: Color) {
         engine.setAccent(projectId: projectId, color: color)
+        refreshOpenProject(projectId)
     }
 
     func selectTool(_ next: CalmTool) {

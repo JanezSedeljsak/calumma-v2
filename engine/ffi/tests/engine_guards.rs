@@ -51,7 +51,6 @@ fn every_status_entry_point_rejects_a_null_engine() {
         last_select_tool: 0,
         is_fit: 0,
         transform_active: 0,
-        paste_fit: 0,
     };
     let mut buf: *mut u8 = ptr::null_mut();
     let mut w = 0u32;

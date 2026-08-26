@@ -29,8 +29,8 @@ impl Document {
             return true;
         }
         self.clear_vector_selection();
-        let Some(index) = self.layer_at(doc_x, doc_y) else {
-            self.note_locked_pick(doc_x, doc_y);
+        let Some(index) = self.layer_at_for_move(doc_x, doc_y) else {
+            self.note_locked_pick_for_move(doc_x, doc_y);
             return false;
         };
         self.active_layer = index;

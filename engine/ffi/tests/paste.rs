@@ -5,7 +5,7 @@
 //! needs (so it can say "scaled to fit" and offer the other mode) has to survive the trip out
 //! through a raw pointer that is allowed to be null.
 
-use calumma_core::paste::{PasteFit, PasteOutcome};
+use calumma_core::paste::PasteOutcome;
 use calumma_ffi::*;
 use std::ffi::CString;
 use std::ptr;
@@ -49,29 +49,17 @@ fn an_image_that_fits_reports_native() {
 }
 
 #[test]
-fn an_oversized_image_scales_by_default_and_says_so() {
+fn an_oversized_image_overflows_and_says_so() {
     let (_dir, e) = engine_with_project();
-    assert_eq!(state(e).paste_fit, PasteFit::ScaleToFit.into());
     let (status, outcome) = paste(e, 400, 400);
     assert_eq!(status, CalmStatus::Ok);
-    assert_eq!(outcome, PasteOutcome::Scaled.into());
-    assert_eq!(state(e).width, SIDE, "scaling never touches the paper");
-    unsafe { calm_engine_free(e) };
-}
-
-#[test]
-fn switching_the_knob_grows_the_paper_instead() {
-    let (_dir, e) = engine_with_project();
-    assert_eq!(
-        calm_engine_set_paste_fit(e, PasteFit::GrowCanvas.into()),
-        CalmStatus::Ok
-    );
-    assert_eq!(state(e).paste_fit, PasteFit::GrowCanvas.into());
-    let (status, outcome) = paste(e, 200, 200);
-    assert_eq!(status, CalmStatus::Ok);
-    assert_eq!(outcome, PasteOutcome::Grown.into());
+    assert_eq!(outcome, PasteOutcome::Overflowing.into());
     let after = state(e);
-    assert_eq!((after.width, after.height), (200, 200));
+    assert_eq!(
+        (after.width, after.height),
+        (SIDE, SIDE),
+        "a paste never resizes the canvas"
+    );
     unsafe { calm_engine_free(e) };
 }
 
@@ -97,22 +85,6 @@ fn a_failed_paste_reports_failed_rather_than_leaving_the_slot_alone() {
         unsafe { calm_engine_paste_image(e, rgba.as_ptr(), rgba.len(), 64, 64, &mut outcome) };
     assert_eq!(status, CalmStatus::Error);
     assert_eq!(outcome, PasteOutcome::Failed.into());
-    unsafe { calm_engine_free(e) };
-}
-
-#[test]
-fn an_unknown_paste_fit_is_an_error_not_a_silent_default() {
-    let (_dir, e) = engine_with_project();
-    assert_eq!(calm_engine_set_paste_fit(e, 99), CalmStatus::Error);
-    assert_eq!(
-        state(e).paste_fit,
-        PasteFit::ScaleToFit.into(),
-        "and the knob is untouched"
-    );
-    assert_eq!(
-        calm_engine_set_paste_fit(ptr::null_mut(), 0),
-        CalmStatus::Null
-    );
     unsafe { calm_engine_free(e) };
 }
 

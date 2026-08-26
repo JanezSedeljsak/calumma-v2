@@ -36,6 +36,39 @@ fn paint_index(doc: &Document) -> usize {
         .expect("raster layer")
 }
 
+/// A pasted image bigger than the paper stores tiles outside the document rectangle. A fresh
+/// grid holds only the document, so unless the loader widens it first, reopening the project is
+/// exactly where that overflow disappears — the same silent data loss the crop used to cause,
+/// just deferred to the next launch.
+#[test]
+fn an_overflowing_layer_survives_a_reopen() {
+    let (_dir, store) = store();
+    let mut doc = store.create("Overflow", 128, 128).unwrap();
+    let rgba = [7u8, 8, 9, 255].repeat(400 * 400);
+    assert_eq!(
+        doc.paste_image_as_layer("Pasted", &rgba, 400, 400),
+        calumma_core::paste::PasteOutcome::Overflowing
+    );
+    let before = doc.layers[doc.active_layer]
+        .content_bounds()
+        .expect("the pasted layer has a box");
+    assert!(before.0 < 0.0, "it hangs off the top-left: {before:?}");
+    store.save(&mut doc).unwrap();
+
+    let reopened = store.open_project(&doc.id).unwrap();
+    let pasted = reopened
+        .layers
+        .iter()
+        .find(|l| l.name == "Pasted")
+        .expect("the pasted layer came back");
+    assert_eq!(pasted.content_bounds(), Some(before));
+    assert_eq!(
+        (reopened.width, reopened.height),
+        (128, 128),
+        "and the canvas is still the canvas"
+    );
+}
+
 #[test]
 fn create_open_round_trip() {
     let (_dir, store) = store();
@@ -464,6 +497,22 @@ fn workspace_crud_membership_and_open_tabs() {
 }
 
 #[test]
+fn open_project_tabs_persist_and_cascade_on_delete() {
+    let (_dir, store) = store();
+    let doc_a = store.create("A", 32, 32).unwrap();
+    let doc_b = store.create("B", 32, 32).unwrap();
+    store
+        .set_open_project_tabs(&[doc_a.id.clone(), doc_b.id.clone()])
+        .unwrap();
+    assert_eq!(
+        store.open_project_tabs().unwrap(),
+        vec![doc_a.id.clone(), doc_b.id.clone()]
+    );
+    store.delete(&doc_a.id).unwrap();
+    assert_eq!(store.open_project_tabs().unwrap(), vec![doc_b.id.clone()]);
+}
+
+#[test]
 fn delete_all_projects_clears_store() {
     let dir = tempfile::tempdir().unwrap();
     let store = ProjectStore::open(dir.path().join("t.sqlite")).unwrap();
@@ -482,6 +531,7 @@ fn delete_all_projects_clears_store() {
     assert!(store.list_recent(8).unwrap().is_empty());
     assert!(store.list_workspaces(8).unwrap().is_empty());
     assert!(store.open_workspace_tabs().unwrap().is_empty());
+    assert!(store.open_project_tabs().unwrap().is_empty());
     assert!(store.open_project(&doc_b.id).is_err());
 }
 

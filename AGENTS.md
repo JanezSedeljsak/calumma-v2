@@ -161,11 +161,15 @@ have to be read together.
   the image with the pixels in the first paint layer. Decode is ImageIO in the shell; the
   engine takes **premultiplied** RGBA over FFI and unpremultiplies in Rust
   (`calm_project_create_from_image`). Cap is `limits::IMPORT_MAX_SIDE`.
-- Pasting into an *open* project is a different path and has its own rule
-  (`engine/core/src/paste.rs`): an image bigger than the paper is **scaled to fit** by
-  default, or grows the paper on `PasteFit::GrowCanvas`. It is never cropped — that was the
-  bug. Core owns the modes, the default and the box downsample (`core/src/resample.rs`); the
-  shell only names which one the user pressed and shows what `PasteOutcome` reports.
+- Pasting into an *open* project is a different path (`engine/core/src/paste.rs`): an image
+  bigger than the paper is placed at **native size, centred, and the layer overflows**. It is
+  never cropped (that was the bug) and the canvas is never resized. `TileGrid` carries an
+  `extent` — what it may hold — alongside `width`/`height`, which stay the **document**: masks
+  are sized to the document, export walks it, `paper_scissor` clips to it. A fresh grid's
+  extent *is* the document, so painting still cannot go past the paper; only a deliberate
+  `grow_extent` opens it, and it only ever grows. `Document::resize`, the SQLite loader and
+  `Renderer::sync_tiles` all have to respect it — see `docs/FLOW.md` → Pasting something bigger
+  than the canvas for why each one would otherwise lose the overflow.
 - Every project carries an **accent color** (`Document.accent`, `projects.accent` in SQLite).
   Core picks one from `palette::PROJECT_COLORS` at create time; the shell shows it on
   landing recents and project thumbs. Workspaces also carry an accent for their titlebar
@@ -269,7 +273,9 @@ pub enum LayerContent {
   until it is painted on (see Residency below). `merge_layer_down` refuses to
   merge anything into Paper.
 - Optional `layer.mask: Option<Vec<u8>>` (full-document coverage 0–255). Masks do **not**
-  mutate tile bytes; the renderer multiplies alpha when uploading GPU tiles.
+  mutate tile bytes; the renderer multiplies alpha when uploading GPU tiles. **Remove
+  Background is the only writer** and authoring one is deferred (see below), so the dense
+  buffer stays dense — do not rebuild it on `TileGrid` speculatively.
 - `layer.opacity: f32` (0–1, default 1) and `layer.blend_mode: BlendMode`
   (Normal/Multiply/Screen) — same non-destructive contract as masks: never
   baked into tile bytes, applied at GPU-upload time (opacity, via the same
@@ -677,7 +683,10 @@ Vector *rotation* on the GPU (see Layers; per-item undo is planned with document
 history, `docs/plans/01-document-undo.md`), BiRefNet / `ort`,
 GenerateTexture model manager, SuggestShape,
 Vectorize (`vtracer`), font embedding in PDF export (the exporter is shipped and layered, but
-text rides as pixels), layered PSD import (import is flattened composite only;
+text rides as pixels), **authoring a layer mask** (`layer.mask` composites, persists and
+undoes, but Remove Background is its only writer — no mask painting, invert, toggle, apply or
+thumbnail; cancelled 2026-08-26 with the same call that made clipping masks merge-on-apply),
+layered PSD import (import is flattened composite only;
 PSD, SVG *and PDF export* are layered and shipped — see `docs/FLOW.md`), picking a layer by clicking it outside
 transform mode as a *modifier* (the Move tool on the tools island is the path; Option-click and ⌘-click are
 both already Pan), text *selection*

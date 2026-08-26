@@ -24,21 +24,6 @@ extension Engine {
         return Self.takeClipboard(status: status, bytesPtr: bytesPtr, len: len, kind: kind)
     }
 
-    func switchWorkspace(workspaceId: String, projectId: String?) {
-        guard let ptr else { return }
-        _ = workspaceId.withCString { wsPtr in
-            if let projectId {
-                projectId.withCString { calm_workspace_switch(ptr, wsPtr, $0) }
-            } else {
-                calm_workspace_switch(ptr, wsPtr, nil)
-            }
-        }
-        syncState()
-        refreshLayers()
-        refreshRecents()
-        refreshWorkspaces()
-    }
-
     func nudgeMoveTarget(x: Float, y: Float) -> Bool {
         guard let ptr else { return false }
         return calm_engine_nudge_move_target(ptr, x, y) != 0

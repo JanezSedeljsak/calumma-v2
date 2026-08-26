@@ -1315,3 +1315,196 @@ fn a_vector_shape_carries_both_colors_into_the_item() {
     assert_eq!(shape.stroke_color, [0, 0, 0, 255]);
     assert!(shape.shape.fill && shape.shape.stroke);
 }
+
+/// The frame's top edge and the grip that hangs off it — everything the grip's placement is
+/// supposed to be a function of.
+struct TopEdge {
+    /// Unit vector along the top edge, left corner to right corner.
+    along: (f32, f32),
+    mid: (f32, f32),
+    center: (f32, f32),
+    handle: (f32, f32),
+}
+
+impl TopEdge {
+    fn of(doc: &Document) -> Self {
+        let (_, corners, handle) = doc.transform_handles().expect("handles");
+        let edge = (corners[1].0 - corners[0].0, corners[1].1 - corners[0].1);
+        let len = (edge.0 * edge.0 + edge.1 * edge.1).sqrt();
+        Self {
+            along: (edge.0 / len, edge.1 / len),
+            mid: (
+                (corners[0].0 + corners[1].0) * 0.5,
+                (corners[0].1 + corners[1].1) * 0.5,
+            ),
+            center: (
+                (corners[0].0 + corners[2].0) * 0.5,
+                (corners[0].1 + corners[2].1) * 0.5,
+            ),
+            handle,
+        }
+    }
+
+    /// The grip's offset from the middle of the top edge.
+    fn arm(&self) -> (f32, f32) {
+        (self.handle.0 - self.mid.0, self.handle.1 - self.mid.1)
+    }
+}
+
+fn transformed_doc(t: LayerTransform) -> Document {
+    let mut doc = Document::new("p".into(), "t", 200, 200);
+    doc.resize_viewport(200.0, 200.0, 1.0);
+    doc.fit_to_view();
+    paint_transform_target(&mut doc);
+    assert!(doc.enter_transform());
+    let idx = doc.active_layer;
+    doc.layers[idx].transform = Some(t);
+    doc
+}
+
+/// The grip sits a fixed screen distance straight off the middle of the top edge, whatever
+/// the layer has been moved, turned, stretched or flipped to. It used to be placed along
+/// `pivot -> top edge`, and `pivot` is the box centre *before* translation — so a moved layer
+/// slid its grip sideways along the top edge by the offset.
+#[test]
+fn rotate_handle_stays_square_to_the_top_edge() {
+    let cases = [
+        ("identity", LayerTransform::default()),
+        (
+            "moved",
+            LayerTransform {
+                offset_x: 40.0,
+                offset_y: 25.0,
+                ..LayerTransform::default()
+            },
+        ),
+        (
+            "moved far",
+            LayerTransform {
+                offset_x: -160.0,
+                offset_y: 90.0,
+                ..LayerTransform::default()
+            },
+        ),
+        (
+            "moved, turned and stretched",
+            LayerTransform {
+                offset_x: 37.0,
+                offset_y: -12.0,
+                scale_x: 1.7,
+                scale_y: 0.4,
+                rotation: 0.6,
+            },
+        ),
+        (
+            "flipped vertically",
+            LayerTransform {
+                offset_x: 20.0,
+                offset_y: 10.0,
+                scale_y: -1.0,
+                ..LayerTransform::default()
+            },
+        ),
+        (
+            "flipped both ways and turned",
+            LayerTransform {
+                offset_x: -30.0,
+                offset_y: 45.0,
+                scale_x: -1.2,
+                scale_y: -0.8,
+                rotation: -2.1,
+            },
+        ),
+    ];
+    for (name, t) in cases {
+        let doc = transformed_doc(t);
+        let top = TopEdge::of(&doc);
+        let arm = top.arm();
+        assert!(
+            (arm.0 * top.along.0 + arm.1 * top.along.1).abs() < 1e-3,
+            "{name}: grip is not perpendicular to the top edge"
+        );
+        let reach = (arm.0 * arm.0 + arm.1 * arm.1).sqrt();
+        assert!(
+            (reach - 24.0 / doc.camera.zoom).abs() < 1e-2,
+            "{name}: grip is {reach} from the edge, not the fixed screen offset"
+        );
+        // Outside the frame, not tucked into it — the failure a flip used to cause.
+        let out = (top.mid.0 - top.center.0, top.mid.1 - top.center.1);
+        assert!(
+            arm.0 * out.0 + arm.1 * out.1 > 0.0,
+            "{name}: grip points into the box"
+        );
+    }
+}
+
+/// Grabbing the grip where it is drawn starts a rotate on a moved layer, and the turn
+/// follows the pointer about the centre the user can see rather than the untranslated pivot.
+#[test]
+fn rotate_drag_turns_about_the_visible_centre() {
+    let t = LayerTransform {
+        offset_x: 45.0,
+        offset_y: -20.0,
+        ..LayerTransform::default()
+    };
+    let mut doc = transformed_doc(t);
+    let idx = doc.active_layer;
+    let top = TopEdge::of(&doc);
+    let (sx, sy) = doc.camera.to_screen(top.handle.0, top.handle.1);
+    doc.pointer_down(sx, sy);
+    // A quarter turn clockwise about the visible centre: straight up becomes straight right.
+    let target = (
+        top.center.0 + (top.handle.1 - top.center.1).abs(),
+        top.center.1,
+    );
+    let (sx2, sy2) = doc.camera.to_screen(target.0, target.1);
+    doc.pointer_move(sx2, sy2);
+    let rotation = doc.layer_transform(idx).rotation;
+    assert!(
+        (rotation - std::f32::consts::FRAC_PI_2).abs() < 0.02,
+        "expected a quarter turn, got {rotation}"
+    );
+    // And the grip is still square to the (now vertical) top edge.
+    let top = TopEdge::of(&doc);
+    let arm = top.arm();
+    assert!((arm.0 * top.along.0 + arm.1 * top.along.1).abs() < 1e-2);
+}
+
+/// Taking a corner of a moved layer and not moving the pointer must not resize anything.
+/// Corner scale measured its reach from the untranslated pivot too, so the box used to jump
+/// out from under the cursor by the offset the moment it was grabbed.
+#[test]
+fn corner_grab_does_not_jump_a_moved_layer() {
+    let t = LayerTransform {
+        offset_x: 60.0,
+        offset_y: -35.0,
+        ..LayerTransform::default()
+    };
+    let mut doc = transformed_doc(t);
+    let idx = doc.active_layer;
+    let (_, corners, _) = doc.transform_handles().expect("handles");
+    let br = corners[2];
+    let (sx, sy) = doc.camera.to_screen(br.0, br.1);
+    doc.pointer_down(sx, sy);
+    doc.pointer_move(sx, sy);
+    let after = doc.layer_transform(idx);
+    assert!(
+        (after.scale_x - 1.0).abs() < 1e-3,
+        "scale_x jumped to {}",
+        after.scale_x
+    );
+    assert!(
+        (after.scale_y - 1.0).abs() < 1e-3,
+        "scale_y jumped to {}",
+        after.scale_y
+    );
+    let (_, corners, _) = doc.transform_handles().expect("handles");
+    assert!(
+        point_dist_test(corners[2], br) < 1e-2,
+        "the grabbed corner moved"
+    );
+}
+
+fn point_dist_test(a: (f32, f32), b: (f32, f32)) -> f32 {
+    ((a.0 - b.0).powi(2) + (a.1 - b.1).powi(2)).sqrt()
+}

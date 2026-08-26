@@ -1,13 +1,12 @@
-//! Pasting into an open document, and the data loss that used to be the answer when it did
-//! not fit.
+//! Pasting into an open document, and the data loss that used to be the answer when it did not
+//! fit.
 //!
-//! `everything_outside_the_paper_used_to_be_destroyed` is the regression that matters: the
-//! old path anchored the blit top-left and let `paint_rect`'s bounds intersect eat the rest,
-//! so the bottom-right of an oversized image was never written anywhere.
+//! `an_oversized_paste_keeps_every_pixel` is the regression that matters: the old path anchored
+//! the blit top-left and let `paint_rect`'s bounds intersect eat the rest, so the bottom-right
+//! of an oversized image was never written anywhere.
 
 use calumma_core::document::*;
-use calumma_core::limits;
-use calumma_core::paste::{PasteFit, PasteOutcome};
+use calumma_core::paste::PasteOutcome;
 use calumma_core::selection::{Selection, SelectionShape};
 use calumma_core::tile::DocRect;
 
@@ -62,7 +61,7 @@ fn paste_image_creates_new_layer_at_selection_origin() {
 }
 
 #[test]
-fn an_image_that_fits_is_not_scaled_or_moved() {
+fn an_image_that_fits_is_not_moved_and_does_not_overflow() {
     let mut doc = Document::new("p".into(), "t", 64, 64);
     let rgba = two_tone(32, 32);
     assert_eq!(
@@ -71,101 +70,93 @@ fn an_image_that_fits_is_not_scaled_or_moved() {
     );
     let b = opaque_bounds(&doc, doc.active_layer);
     assert_eq!((b.min_x, b.min_y, b.max_x, b.max_y), (0, 0, 31, 31));
+    let grid = doc.layers[doc.active_layer].tiles().unwrap();
+    assert_eq!(
+        grid.bounds(),
+        grid.doc_bounds(),
+        "storage is still the canvas"
+    );
 }
 
-/// The bug, stated as the thing that must not happen again: every corner of the source has to
-/// be somewhere on the pasted layer.
+/// The bug, stated as the thing that must not happen again: every corner of the source is
+/// somewhere on the pasted layer, at the resolution it arrived in.
 #[test]
-fn everything_outside_the_paper_used_to_be_destroyed() {
+fn an_oversized_paste_keeps_every_pixel() {
     let mut doc = Document::new("p".into(), "t", 64, 64);
     let rgba = two_tone(200, 200);
-    let outcome = doc.paste_image_as_layer("Pasted", &rgba, 200, 200);
-    assert_eq!(outcome, PasteOutcome::Scaled);
+    assert_eq!(
+        doc.paste_image_as_layer("Pasted", &rgba, 200, 200),
+        PasteOutcome::Overflowing
+    );
     let layer = doc.active_layer;
     let b = opaque_bounds(&doc, layer);
-    assert!(b.max_x - b.min_x >= 60, "the whole width landed: {b:?}");
+    assert_eq!(
+        (b.max_x - b.min_x + 1, b.max_y - b.min_y + 1),
+        (200, 200),
+        "native size, not resampled: {b:?}"
+    );
     let mid_y = (b.min_y + b.max_y) / 2;
     assert_eq!(
-        pixel(&doc, layer, b.min_x + 2, mid_y),
+        pixel(&doc, layer, b.min_x, mid_y),
         [255, 0, 0, 255],
-        "the left half is there"
+        "the left edge is there"
     );
     assert_eq!(
-        pixel(&doc, layer, b.max_x - 2, mid_y),
+        pixel(&doc, layer, b.max_x, mid_y),
         [0, 0, 255, 255],
-        "and so is the right half, which is what the crop threw away"
+        "and so is the right edge, which is what the crop threw away"
     );
 }
 
+/// Centred, so the middle of the picture is the part on the paper — which means a negative
+/// origin, the thing a document-sized grid could not express at all.
 #[test]
-fn scale_to_fit_centres_and_keeps_the_aspect_ratio() {
+fn an_oversized_paste_is_centred_on_the_canvas() {
     let mut doc = Document::new("p".into(), "t", 100, 100);
     let rgba = two_tone(400, 200);
     assert_eq!(
         doc.paste_image_as_layer("Pasted", &rgba, 400, 200),
-        PasteOutcome::Scaled
+        PasteOutcome::Overflowing
     );
     let b = opaque_bounds(&doc, doc.active_layer);
-    let (w, h) = (b.max_x - b.min_x + 1, b.max_y - b.min_y + 1);
-    assert_eq!((w, h), (100, 50), "2:1 stays 2:1 and fills the long side");
-    assert_eq!(b.min_x, 0);
-    assert_eq!(b.min_y, 25, "centred on the short axis");
+    assert_eq!((b.min_x, b.min_y), (-150, -50));
+    assert_eq!((b.max_x, b.max_y), (249, 149));
 }
 
 #[test]
-fn grow_canvas_takes_the_image_at_native_size() {
+fn the_canvas_is_never_resized_by_a_paste() {
     let mut doc = Document::new("p".into(), "t", 64, 64);
-    doc.set_paste_fit(PasteFit::GrowCanvas);
-    let rgba = two_tone(200, 120);
-    assert_eq!(
-        doc.paste_image_as_layer("Pasted", &rgba, 200, 120),
-        PasteOutcome::Grown
-    );
-    assert_eq!((doc.width, doc.height), (200, 120));
-    let b = opaque_bounds(&doc, doc.active_layer);
-    assert_eq!((b.max_x - b.min_x + 1, b.max_y - b.min_y + 1), (200, 120));
+    let rgba = two_tone(500, 300);
+    doc.paste_image_as_layer("Pasted", &rgba, 500, 300);
+    assert_eq!((doc.width, doc.height), (64, 64));
 }
 
-/// Growing is top-left anchored, exactly like a manual canvas resize, so nothing that was
-/// already on the board moves out from under the user.
+/// Overflow is per layer and opt-in. Pasting something huge must not quietly let a brush
+/// scribble off the paper on the layer that was already there.
 #[test]
-fn grow_canvas_leaves_existing_artwork_where_it_was() {
+fn overflow_belongs_to_the_pasted_layer_alone() {
     let mut doc = Document::new("p".into(), "t", 64, 64);
-    doc.set_paste_fit(PasteFit::GrowCanvas);
     let existing = doc.active_layer;
-    doc.layers[existing]
-        .tiles_mut()
-        .unwrap()
-        .set_pixel(5, 5, [9, 9, 9, 255]);
     let rgba = two_tone(200, 200);
-    assert_eq!(
-        doc.paste_image_as_layer("Pasted", &rgba, 200, 200),
-        PasteOutcome::Grown
-    );
-    assert_eq!(pixel(&doc, existing, 5, 5), [9, 9, 9, 255]);
+    doc.paste_image_as_layer("Pasted", &rgba, 200, 200);
+    let grid = doc.layers[existing].tiles().unwrap();
+    assert_eq!(grid.bounds(), grid.doc_bounds());
+    let pasted = doc.layers[doc.active_layer].tiles().unwrap();
+    assert!(pasted.bounds().min_x < 0);
 }
 
-/// The two modes compose rather than one of them failing: past `MAX_CANVAS_SIDE` the paper
-/// grows as far as it is allowed and the remainder is scaled.
+/// The composite is the canvas, so what hangs off the paper contributes nothing to it — the
+/// same thing `Camera::paper_scissor` does on the board.
 #[test]
-fn an_image_past_the_canvas_ceiling_grows_then_scales() {
+fn what_overflows_stays_off_the_composite() {
     let mut doc = Document::new("p".into(), "t", 64, 64);
-    doc.set_paste_fit(PasteFit::GrowCanvas);
-    let side = limits::MAX_CANVAS_SIDE + 400;
-    let rgba = vec![255u8; (side as usize) * 4 * 4];
-    let outcome = doc.paste_image_as_layer("Pasted", &rgba, side, 4);
-    assert_eq!(outcome, PasteOutcome::GrownAndScaled);
-    assert_eq!(doc.width, limits::MAX_CANVAS_SIDE);
+    let rgba = two_tone(200, 200);
+    doc.paste_image_as_layer("Pasted", &rgba, 200, 200);
+    let (w, h, out) = doc.composite_rgba();
+    assert_eq!((w, h), (64, 64));
+    assert_eq!(out.len(), 64 * 64 * 4);
 }
 
-#[test]
-fn the_default_is_scale_to_fit() {
-    let doc = Document::new("p".into(), "t", 64, 64);
-    assert_eq!(doc.paste_fit(), PasteFit::ScaleToFit);
-}
-
-/// A paste that writes nothing takes its layer back out rather than leaving an empty one
-/// behind to explain a failure.
 #[test]
 fn a_fully_transparent_image_leaves_no_layer_behind() {
     let mut doc = Document::new("p".into(), "t", 64, 64);

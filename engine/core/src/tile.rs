@@ -128,6 +128,15 @@ impl DocRect {
     }
 }
 
+fn union(a: DocRect, b: DocRect) -> DocRect {
+    DocRect::new(
+        a.min_x.min(b.min_x),
+        a.min_y.min(b.min_y),
+        a.max_x.max(b.max_x),
+        a.max_y.max(b.max_y),
+    )
+}
+
 pub fn blend_over(dst: [u8; 4], src: [u8; 4]) -> [u8; 4] {
     let src_a = src[3] as u32;
     if src_a == 0 {
@@ -237,7 +246,7 @@ fn tile_local_opaque_rect(tile: &[u8]) -> Option<LocalRect> {
     acc
 }
 
-fn tile_opaque_rect(coord: TileCoord, tile: &[u8], width: i32, height: i32) -> Option<DocRect> {
+fn tile_opaque_rect(coord: TileCoord, tile: &[u8], extent: DocRect) -> Option<DocRect> {
     let (ox, oy) = coord.origin();
     let mut acc: Option<DocRect> = None;
     for ly in 0..TILE_SIZE as i32 {
@@ -248,7 +257,7 @@ fn tile_opaque_rect(coord: TileCoord, tile: &[u8], width: i32, height: i32) -> O
             }
             let x = ox + lx;
             let y = oy + ly;
-            if x < 0 || y < 0 || x >= width || y >= height {
+            if !extent.contains(x, y) {
                 continue;
             }
             acc = Some(match acc {
@@ -388,6 +397,19 @@ pub struct TileGrid {
     content_revision: u64,
     width: u32,
     height: u32,
+    /// What this grid is **allowed to hold**, which is the document rectangle until something
+    /// widens it.
+    ///
+    /// It exists so a pasted image can keep the pixels that fall outside the paper instead of
+    /// having them clipped away by `paint_rect` and lost. A layer that overflows still *draws*
+    /// only inside the paper — `Camera::paper_scissor` sees to that, and `visible_doc_rect` is
+    /// clamped to the board so the off-paper tiles are never even uploaded — but they are there
+    /// to be dragged back into view.
+    ///
+    /// Deliberately not the same thing as `width`/`height`: those stay the **document** size,
+    /// which is what masks are sized to, what export walks, and what a paste is measured
+    /// against. Only the storage grew.
+    extent: DocRect,
 }
 
 impl PartialEq for TileGrid {
@@ -406,7 +428,31 @@ impl TileGrid {
             content_revision: 0,
             width,
             height,
+            extent: DocRect::from_size(width, height),
         }
+    }
+
+    /// The document rectangle — the canvas, not the storage.
+    pub fn doc_bounds(&self) -> DocRect {
+        DocRect::from_size(self.width, self.height)
+    }
+
+    /// Widens the storage so `rect` can be written. Only ever grows: a grid that has been
+    /// given room for an overflowing paste keeps it, because the pixels out there are the
+    /// whole point and nothing else knows to put them back.
+    pub fn grow_extent(&mut self, rect: DocRect) {
+        let next = union(self.extent, rect);
+        if next == self.extent {
+            return;
+        }
+        self.extent = next;
+        self.bounds.invalidate_all();
+    }
+
+    /// Room for one tile, for the loader: tiles come back one row at a time and an off-paper
+    /// one has to be admitted before `insert_shared` asks whether it is in bounds.
+    pub fn grow_extent_to_tile(&mut self, coord: TileCoord) {
+        self.grow_extent(Self::tile_rect(coord));
     }
 
     #[inline]
@@ -419,15 +465,20 @@ impl TileGrid {
         self.height
     }
 
-    /// The one way a grid's dimensions move. `opaque_bounds` clips its scan to them, so a
+    /// The one way a grid's dimensions move. `opaque_bounds` clips its scan to the extent, so a
     /// document that shrinks changes the answer without a single pixel being touched — which is
     /// exactly the case a dirty-tile invalidation would miss.
+    ///
+    /// The extent only ever grows to meet the new document. A shrink keeps whatever room the
+    /// grid already had, which is what makes "shrinking never discards off-canvas tile data"
+    /// true for overflowing layers as well as for the tiles that merely straddle the edge.
     pub fn set_size(&mut self, width: u32, height: u32) {
         if self.width == width && self.height == height {
             return;
         }
         self.width = width;
         self.height = height;
+        self.extent = union(self.extent, DocRect::from_size(width, height));
         self.bounds.invalidate_all();
     }
 
@@ -439,8 +490,9 @@ impl TileGrid {
         self.tiles.len()
     }
 
+    /// What the grid can hold — the document, widened by any overflow it was given.
     pub fn bounds(&self) -> DocRect {
-        DocRect::from_size(self.width, self.height)
+        self.extent
     }
 
     pub fn coords(&self) -> impl Iterator<Item = TileCoord> + '_ {
@@ -509,11 +561,7 @@ impl TileGrid {
     }
 
     pub fn tile_in_bounds(&self, coord: TileCoord) -> bool {
-        let (ox, oy) = coord.origin();
-        ox < self.width as i32
-            && oy < self.height as i32
-            && ox + TILE_SIZE as i32 > 0
-            && oy + TILE_SIZE as i32 > 0
+        Self::tile_rect(coord).intersects(self.extent)
     }
 
     pub fn ensure_mut(&mut self, coord: TileCoord) -> Option<&mut Vec<u8>> {
@@ -571,7 +619,7 @@ impl TileGrid {
 
     #[inline]
     pub fn contains_doc_point(&self, x: i32, y: i32) -> bool {
-        x >= 0 && y >= 0 && x < self.width as i32 && y < self.height as i32
+        self.extent.contains(x, y)
     }
 
     pub fn paint_rect<F>(&mut self, rect: DocRect, mut paint: F) -> usize
@@ -749,12 +797,10 @@ impl TileGrid {
     /// clips — but `Document::resize` keeps them on purpose, so the clip has to be exact
     /// rather than an intersection applied afterwards.
     fn rescan_opaque_bounds(&self) -> Option<DocRect> {
-        let width = self.width as i32;
-        let height = self.height as i32;
-        if width <= 0 || height <= 0 {
+        let extent = self.extent;
+        if extent.is_empty() {
             return None;
         }
-        let ts = TILE_SIZE as i32;
         let mut cache = self.bounds.tiles.lock();
         cache.retain(|coord, _| self.tiles.contains_key(coord));
 
@@ -766,8 +812,7 @@ impl TileGrid {
             if cache.contains_key(&coord) {
                 continue;
             }
-            let (ox, oy) = coord.origin();
-            if ox < 0 || oy < 0 || ox + ts > width || oy + ts > height {
+            if !extent.contains_rect(Self::tile_rect(coord)) {
                 clipped.push((coord, pixels));
                 continue;
             }
@@ -803,24 +848,12 @@ impl TileGrid {
             .collect();
         let edges: Vec<(TileCoord, Option<DocRect>)> = clipped
             .par_iter()
-            .map(|(coord, pixels)| {
-                (
-                    *coord,
-                    tile_opaque_rect(*coord, pixels.as_slice(), width, height),
-                )
-            })
+            .map(|(coord, pixels)| (*coord, tile_opaque_rect(*coord, pixels.as_slice(), extent)))
             .collect();
         cache.extend(placed);
         cache.extend(edges);
 
-        cache.values().flatten().copied().reduce(|a, b| {
-            DocRect::new(
-                a.min_x.min(b.min_x),
-                a.min_y.min(b.min_y),
-                a.max_x.max(b.max_x),
-                a.max_y.max(b.max_y),
-            )
-        })
+        cache.values().flatten().copied().reduce(union)
     }
 
     /// The cached [`Preview`] of this grid, rebuilt only when a tile has changed since the last
@@ -848,9 +881,7 @@ impl TileGrid {
     /// resolution every call.
     pub fn thumbnail(&self, max_side: u32) -> (u32, u32, Vec<u8>) {
         let max_side = max_side.max(1);
-        let dw = self.width.max(1);
-        let dh = self.height.max(1);
-        let crop = self.opaque_bounds().unwrap_or(DocRect::from_size(dw, dh));
+        let crop = self.opaque_bounds().unwrap_or(self.extent);
         let crop_w = (crop.max_x - crop.min_x + 1).max(1) as u32;
         let crop_h = (crop.max_y - crop.min_y + 1).max(1) as u32;
         let scale = (max_side as f32 / crop_w as f32)

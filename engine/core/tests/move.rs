@@ -214,6 +214,30 @@ fn selecting_transform_toggles_the_mode_and_leaves_the_tool_alone() {
 }
 
 #[test]
+fn move_transform_stays_on_until_manually_turned_off() {
+    let mut doc = doc_with_viewport();
+    doc.add_layer("Ink");
+    let layer = doc.active_layer;
+    paint(
+        &mut doc,
+        layer,
+        DocRect::new(20, 20, 60, 60),
+        [0, 0, 0, 255],
+    );
+    doc.set_tool(Tool::Move);
+    assert!(doc.enter_transform());
+    let (sx, sy) = doc.camera.to_screen(-40.0, -40.0);
+    doc.pointer_down(sx, sy);
+    assert!(
+        doc.transform_active,
+        "empty clicks on Move must not drop transform mode"
+    );
+    assert!(doc.transform_handles().is_some());
+    assert!(!doc.set_tool(Tool::Transform));
+    assert!(!doc.transform_active);
+}
+
+#[test]
 fn selecting_move_does_not_enter_transform() {
     let mut doc = doc_with_viewport();
     doc.add_layer("Ink");

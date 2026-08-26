@@ -137,6 +137,7 @@ fn a_command_with_no_diffs_at_all_is_not_pushed() {
         diffs: Vec::new(),
         masks: Vec::new(),
         runs: Vec::new(),
+        transforms: Vec::new(),
         active_layer_index: Some(0),
         bytes: 0,
     });

@@ -426,7 +426,9 @@ live in `engine/core`; the actual PNG/JPEG/WebP/AVIF **encode** happens in the s
   scale — proportional by default, hold **Shift** for free (non-uniform) scale, the same
   polarity Photoshop's Free Transform uses and deliberately the *opposite* of Shift while
   drawing a shape, where it constrains; drag the
-  handle above top-center to rotate; drag inside the box to move. Click outside the
+  grip standing off the top edge to rotate — it is always square to that edge and a fixed
+  screen distance clear of it, at any rotation, scale or flip, and the turn is taken about
+  the centre of the box as drawn; drag inside the box to move. Click outside the
   handles, press `Esc`, or pick another tool to exit the mode. Fully live and
   non-destructive on the canvas; a "Reset Transform" action in the layer's `…` popover
   clears it back to identity.
@@ -494,6 +496,11 @@ live in `engine/core`; the actual PNG/JPEG/WebP/AVIF **encode** happens in the s
   currently starts a region drag.
 - **Remove Background:** AI menu on the tools island → macOS Vision via `calm_engine_run_op` when available.
   Shell never mutates the stack after the op. Details: `AGENTS.md` → AI ops.
+  It needs **a raster layer** — the engine's `Layer::is_raster()`, which is deliberately false
+  for a text layer as well as a vector one — and says so in a toast rather than running Vision
+  over a text layer's tile cache or a vector layer that has no pixels at all. The menu item
+  stays pressable and explains itself, which is the same shape as the tool-block notice; it is
+  not greyed out, because the reason is worth reading once rather than guessing at.
 
 ## Selection
 
@@ -560,34 +567,48 @@ simplification, not a real "insert above" primitive.
 
 ### Pasting something bigger than the canvas
 
-An oversized paste used to be **cropped and unrecoverable**: the blit was anchored top-left
-and `TileGrid::paint_rect` intersects with the grid, which is always exactly document-sized,
-so the right and bottom of a big photo were never written anywhere. Not a clipped view a move
-could recover — the pixels were gone.
+An oversized paste used to be **cropped and unrecoverable**: the blit was anchored top-left and
+`TileGrid::paint_rect` intersects with the grid, which was always exactly document-sized, so the
+right and bottom of a big photo were never written anywhere. Not a clipped view a move could
+recover — the pixels were gone.
 
-Core decides what happens instead (`engine/core/src/paste.rs`), never the shell:
+**The layer overflows instead.** The image is blitted at native resolution, centred on the
+canvas, into a layer whose storage was widened to hold it (`TileGrid::grow_extent`). The middle
+of the picture is on the paper; the rest hangs off the edges until it is dragged or scaled into
+view — and the paste drops straight into `⌘T` so that is one gesture away. Nothing is resampled,
+nothing is lost, and **the canvas is never resized**: the document keeps the dimensions the user
+chose for it.
 
-- **Scale to fit** (the default) area-downsamples the image so the whole thing lands on the
-  paper, centred. Lossy in exactly the way the crop was, but it loses *detail* rather than
-  *content*, and what is left is on the board where it can be acted on. The resampler is a
-  box/area filter (`core/src/resample.rs`), not the nearest-neighbour one thumbnails use —
-  4096 → 1000 through nearest aliases badly enough to read as broken.
-- **Grow canvas** grows the paper to hold the image at native size first, **top-left anchored
-  exactly like a manual canvas resize**, so nothing already on the board moves. Past
-  `MAX_CANVAS_SIDE` the two compose: the paper grows as far as it may and the remainder is
-  scaled, rather than the mode failing outright.
+Only the *storage* grew, and only for that layer:
 
-**An image that already fits is untouched by any of this** and still lands at the selection's
-origin. The choice is offered where it is relevant rather than buried in Settings: a scaled
-paste raises a toast saying so with a **Grow canvas instead** action, which takes the scaled
-layer back out and redoes the paste. That also switches the knob, so saying it once is a way
-of saying how you want oversized pastes handled — `CalmState.paste_fit` reports which mode is
-live. Neither mode is undo-tracked, same as every other structural edit.
+- `TileGrid` carries an `extent` (what it may hold) alongside `width`/`height` (the document).
+  A fresh grid's extent **is** the document, so ordinary painting still cannot scribble past the
+  paper — `paint_rect` clips to the extent, and only a deliberate `grow_extent` opens it.
+- **Masks stay document-sized.** They are authored against the canvas, so what overflows is
+  simply unmasked.
+- **Export and the composite are the canvas**, so what hangs off contributes nothing —
+  `composite_rgba` walks a document-sized buffer, the same clip `Camera::paper_scissor` applies
+  on the board.
+- **The board draws only what is on the paper.** `visible_doc_rect` is clamped to the board, so
+  off-paper tiles are not uploaded at all until a transform brings them in — at which point
+  `Layer::doc_rect_to_grid` maps the retained rect back through the layer's transform so
+  `sync_tiles` enumerates the tiles that are *actually* coming into view. (Enumerating by
+  document coordinate was a latent bug before overflow existed: a layer dragged far enough
+  uploaded the wrong tiles. Nothing hit it while transforms were small nudges inside the paper.)
+- **It survives a reopen.** Tiles are stored by coordinate and a fresh grid holds only the
+  document, so the loader calls `grow_extent_to_tile` before inserting each one — otherwise
+  reopening the project is where the overflow would quietly disappear.
+- **A shrink keeps it.** `Document::resize` only ever grows the extent to meet the new document,
+  which is what makes "shrinking never discards off-canvas tile data" true for an overflowing
+  layer and not just for tiles straddling the edge.
+- The layer's `⌘T` frame is `content_bounds()`, which is tight to the pixels wherever they are —
+  so it wraps the whole image, including the parts off the paper, which is what you grab to move
+  it back.
 
-**Not in scope, deliberately:** letting a `TileGrid` hold tiles outside the document, which is
-what Photoshop and Figma do and would make the question disappear. It is a change to
-`paint_rect`, `tile_in_bounds`, every composite and export walk, the mask model, thumbnails
-and the atlas residency math — its own plan, not something to smuggle in behind a paste bug.
+Size is bounded by the decoder, not by this: the shell caps an incoming image at
+`limits::IMPORT_MAX_SIDE` (4096) on the way in, so the widest a layer can overflow to is one
+4096² image, and an image that **fits** is untouched by any of this — it still lands at the
+selection's origin the way it always has.
 
 ## Export
 

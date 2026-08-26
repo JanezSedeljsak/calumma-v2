@@ -37,15 +37,13 @@ pub fn apply_output(
             if mask.len() != expected {
                 return Err(OpError::BadInput);
             }
-            let layer = &mut doc.layers[layer_index];
+            let layer = &doc.layers[layer_index];
             if !layer.content.is_raster() {
                 return Err(OpError::BadLayer);
             }
-            let before = layer.mask_owned();
-            let layer_id = layer.id.clone();
-            layer.set_mask(Some(mask));
-            doc.history
-                .push_layer_mask(layer_id, before, Some(layer_index));
+            if !doc.apply_remove_background_mask(layer_index, mask) {
+                return Err(OpError::BadInput);
+            }
             Ok(())
         }
         OpOutput::Raster { rgba, w, h } => {

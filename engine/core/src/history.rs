@@ -4,6 +4,7 @@ use crate::limits::{
     HISTORY_COMPACT_TILES_PER_SWEEP, HISTORY_HOT_COMMANDS, HISTORY_MEMORY_BUDGET_BYTES,
 };
 use crate::tile::{TileMap, TILE_BYTES};
+use crate::transform::LayerTransform;
 use calumma_text::TextRun;
 use std::sync::Arc;
 
@@ -31,10 +32,17 @@ pub struct RunDiff {
 }
 
 #[derive(Clone, Debug)]
+pub struct TransformDiff {
+    pub layer_id: String,
+    pub transform: Option<LayerTransform>,
+}
+
+#[derive(Clone, Debug)]
 pub struct HistoryCommand {
     pub diffs: Vec<TileDiff>,
     pub masks: Vec<MaskDiff>,
     pub runs: Vec<RunDiff>,
+    pub transforms: Vec<TransformDiff>,
     pub active_layer_index: Option<usize>,
     pub bytes: usize,
 }
@@ -138,7 +146,11 @@ impl History {
     }
 
     pub fn push(&mut self, command: HistoryCommand) {
-        if command.diffs.is_empty() && command.masks.is_empty() && command.runs.is_empty() {
+        if command.diffs.is_empty()
+            && command.masks.is_empty()
+            && command.runs.is_empty()
+            && command.transforms.is_empty()
+        {
             return;
         }
         self.clear_redo();
@@ -164,6 +176,31 @@ impl History {
             diffs: vec![TileDiff { layer_id, tiles }],
             masks: Vec::new(),
             runs: Vec::new(),
+            transforms: Vec::new(),
+            active_layer_index,
+            bytes,
+        });
+    }
+
+    pub fn push_remove_background(
+        &mut self,
+        layer_id: String,
+        tiles: TileSnapshot,
+        transform: Option<LayerTransform>,
+        active_layer_index: Option<usize>,
+    ) {
+        let bytes = snapshot_bytes(&tiles);
+        self.push(HistoryCommand {
+            diffs: vec![TileDiff {
+                layer_id: layer_id.clone(),
+                tiles,
+            }],
+            masks: Vec::new(),
+            runs: Vec::new(),
+            transforms: vec![TransformDiff {
+                layer_id,
+                transform,
+            }],
             active_layer_index,
             bytes,
         });
@@ -186,6 +223,7 @@ impl History {
             }],
             masks: Vec::new(),
             runs: vec![RunDiff { layer_id, run }],
+            transforms: Vec::new(),
             active_layer_index,
             bytes,
         });
@@ -205,6 +243,7 @@ impl History {
                 mask: before,
             }],
             runs: Vec::new(),
+            transforms: Vec::new(),
             active_layer_index,
             bytes,
         });
@@ -299,6 +338,11 @@ fn apply_command(command: &HistoryCommand, layers: &mut [Layer]) {
             layer.set_mask(diff.mask.clone());
         }
     }
+    for diff in &command.transforms {
+        if let Some(layer) = layers.iter_mut().find(|l| l.id == diff.layer_id) {
+            layer.transform = diff.transform;
+        }
+    }
 }
 
 fn invert_command(
@@ -309,6 +353,7 @@ fn invert_command(
     let mut diffs = Vec::new();
     let mut masks = Vec::new();
     let mut runs = Vec::new();
+    let mut transforms = Vec::new();
     let mut bytes = 0;
     for diff in &command.diffs {
         if let Some(layer) = layers.iter().find(|l| l.id == diff.layer_id) {
@@ -347,10 +392,19 @@ fn invert_command(
             });
         }
     }
+    for diff in &command.transforms {
+        if let Some(layer) = layers.iter().find(|l| l.id == diff.layer_id) {
+            transforms.push(TransformDiff {
+                layer_id: diff.layer_id.clone(),
+                transform: layer.transform,
+            });
+        }
+    }
     HistoryCommand {
         diffs,
         masks,
         runs,
+        transforms,
         active_layer_index,
         bytes,
     }

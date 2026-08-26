@@ -13,7 +13,6 @@
 		22FD5D2BC31EF4DCDBDE5C44 /* PasteArtworkIsland.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A68AB27B47F3D877681F5A5 /* PasteArtworkIsland.swift */; };
 		271D05E9C3C1712DD26F4358 /* MenuBarChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D3C37748893CB5EC5112010 /* MenuBarChrome.swift */; };
 		3330E3B90133B093966EDE0D /* CalmDeferredSlider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06C04ABB73D8A39B73D40DF2 /* CalmDeferredSlider.swift */; };
-		42B7FBCF7FFC086EA1AEA0F0 /* WorkspaceSettingsCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2BBA741ED8F2E775A39D449 /* WorkspaceSettingsCard.swift */; };
 		439C1853EC6CE0C2FA36F8CE /* ToolsPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A14A1D292C2FDA030B798F55 /* ToolsPanel.swift */; };
 		457103E8669325D73966619A /* ProjectSettingsCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8785BD6BC0D2FF8DDBFB7CD2 /* ProjectSettingsCard.swift */; };
 		4BAE76E9B75FCA7CAB639C21 /* L10nCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5684C95544F7D3CCEAFB2DA7 /* L10nCatalog.swift */; };
@@ -26,14 +25,12 @@
 		6FBFB2280DF99421D6C40CA1 /* Engine.swift in Sources */ = {isa = PBXBuildFile; fileRef = A259FF110DE306B5F4001C98 /* Engine.swift */; };
 		73A5E53754D26728ADB855A6 /* VisionPlatformOps.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEC7EF79AFCFCA58FBB65691 /* VisionPlatformOps.swift */; };
 		7746F3F65DB4F153EA3B8EAB /* CalmTooltip.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB8067B80D342F0E64ADE69F /* CalmTooltip.swift */; };
-		77CD4350A32310FF3F59A749 /* WorkspaceExtendOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = DBABB8BBAC99327416864435 /* WorkspaceExtendOverlay.swift */; };
 		7805565381ACFCB4E8BF5FAD /* EngineGuides.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CEBBDC14295A09843C610B5 /* EngineGuides.swift */; };
 		7A7467919BDC8A4BEF1466AC /* WindowChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21E774F5B09444C6679E12D2 /* WindowChrome.swift */; };
 		7AE274FD18EAA2171ABD2734 /* Icons.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5373C498C69FB0F7E4616689 /* Icons.swift */; };
 		87755761F779CE9B1C56775F /* EditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5253321F872EAF646F41752 /* EditorView.swift */; };
 		886AAE0E29829132AD1302AD /* TextOptions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D335745961202E495414F3E /* TextOptions.swift */; };
 		89DDEA5E4C05424EE3BCEDEE /* LayerSettingsCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6CA77DF5B64A985BACFD3D5F /* LayerSettingsCard.swift */; };
-		8C4B469D4D34F6AD90015CD6 /* WorkspaceTitlebarTabs.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD89DACE5CE2493C16CAC321 /* WorkspaceTitlebarTabs.swift */; };
 		8DD0E9DE87A11ABC42AE933E /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = DFCCF8AEDB1712EE79B5A875 /* Assets.xcassets */; };
 		8EFC1F5633FB04D55BA323AB /* Tokens.generated.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACA3D649974787064B7F4E57 /* Tokens.generated.swift */; };
 		98D7BC93FC54FD64A9C6285E /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B5E7EEC191F5C7229542B29 /* SettingsView.swift */; };
@@ -50,6 +47,7 @@
 		DDC892B0235664E0FC2816FC /* CalummaApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7DCA78B24B6AD85210634C47 /* CalummaApp.swift */; };
 		E1BA85C44692027425973C63 /* L10nEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = D488F0962728FB92355DF3E4 /* L10nEnvironment.swift */; };
 		EBF6F8C722173971A6B44925 /* EditorShortcuts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C94D8D05B75D28AA4D7C234 /* EditorShortcuts.swift */; };
+		FA2EA917E0317107C66F44D5 /* ProjectTitlebarTabs.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8DDDEE92F4617DBE2926291 /* ProjectTitlebarTabs.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -100,14 +98,12 @@
 		B5253321F872EAF646F41752 /* EditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorView.swift; sourceTree = "<group>"; };
 		C8C335FD29B637F4717C54D3 /* CalmToast.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalmToast.swift; sourceTree = "<group>"; };
 		CB8067B80D342F0E64ADE69F /* CalmTooltip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalmTooltip.swift; sourceTree = "<group>"; };
-		CD89DACE5CE2493C16CAC321 /* WorkspaceTitlebarTabs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceTitlebarTabs.swift; sourceTree = "<group>"; };
 		CE709E2E9424992120C350AD /* NewProjectView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewProjectView.swift; sourceTree = "<group>"; };
 		CEC7EF79AFCFCA58FBB65691 /* VisionPlatformOps.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisionPlatformOps.swift; sourceTree = "<group>"; };
 		D488F0962728FB92355DF3E4 /* L10nEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = L10nEnvironment.swift; sourceTree = "<group>"; };
 		D7059AFA6095E58E7AB86069 /* EngineSmokeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EngineSmokeTests.swift; sourceTree = "<group>"; };
-		DBABB8BBAC99327416864435 /* WorkspaceExtendOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceExtendOverlay.swift; sourceTree = "<group>"; };
+		D8DDDEE92F4617DBE2926291 /* ProjectTitlebarTabs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectTitlebarTabs.swift; sourceTree = "<group>"; };
 		DFCCF8AEDB1712EE79B5A875 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
-		F2BBA741ED8F2E775A39D449 /* WorkspaceSettingsCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSettingsCard.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -208,15 +204,13 @@
 				CE709E2E9424992120C350AD /* NewProjectView.swift */,
 				8A68AB27B47F3D877681F5A5 /* PasteArtworkIsland.swift */,
 				8785BD6BC0D2FF8DDBFB7CD2 /* ProjectSettingsCard.swift */,
+				D8DDDEE92F4617DBE2926291 /* ProjectTitlebarTabs.swift */,
 				325DCF49B2075A1668143925 /* QuickColorPicker.swift */,
 				6B5E7EEC191F5C7229542B29 /* SettingsView.swift */,
 				19DFAFAA7AD5666942643F1A /* SvgIcon.swift */,
 				2D335745961202E495414F3E /* TextOptions.swift */,
 				A14A1D292C2FDA030B798F55 /* ToolsPanel.swift */,
 				21E774F5B09444C6679E12D2 /* WindowChrome.swift */,
-				DBABB8BBAC99327416864435 /* WorkspaceExtendOverlay.swift */,
-				F2BBA741ED8F2E775A39D449 /* WorkspaceSettingsCard.swift */,
-				CD89DACE5CE2493C16CAC321 /* WorkspaceTitlebarTabs.swift */,
 				8285B9E7F19A010757F350E0 /* L10n */,
 				6B79FEB7792F22AECCE42DAE /* Theme */,
 			);
@@ -403,6 +397,7 @@
 				D8928EDB95C0B122F7C03701 /* NewProjectView.swift in Sources */,
 				22FD5D2BC31EF4DCDBDE5C44 /* PasteArtworkIsland.swift in Sources */,
 				457103E8669325D73966619A /* ProjectSettingsCard.swift in Sources */,
+				FA2EA917E0317107C66F44D5 /* ProjectTitlebarTabs.swift in Sources */,
 				003758EFE9AFCEC31EBE0916 /* QuickColorPicker.swift in Sources */,
 				172AB3B35B9A43CC638AEF65 /* RulerView.swift in Sources */,
 				98D7BC93FC54FD64A9C6285E /* SettingsView.swift in Sources */,
@@ -413,9 +408,6 @@
 				439C1853EC6CE0C2FA36F8CE /* ToolsPanel.swift in Sources */,
 				73A5E53754D26728ADB855A6 /* VisionPlatformOps.swift in Sources */,
 				7A7467919BDC8A4BEF1466AC /* WindowChrome.swift in Sources */,
-				77CD4350A32310FF3F59A749 /* WorkspaceExtendOverlay.swift in Sources */,
-				42B7FBCF7FFC086EA1AEA0F0 /* WorkspaceSettingsCard.swift in Sources */,
-				8C4B469D4D34F6AD90015CD6 /* WorkspaceTitlebarTabs.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -444,7 +436,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 0.6.1;
+				CURRENT_PROJECT_VERSION = 0.7.0;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				HEADER_SEARCH_PATHS = (
@@ -461,7 +453,7 @@
 				LIBRARY_SEARCH_PATHS = (
 					"$(SRCROOT)/../../engine/target/release",
 				);
-				MARKETING_VERSION = 0.6.1;
+				MARKETING_VERSION = 0.7.0;
 				OTHER_LDFLAGS = (
 					"-lcalumma_ffi",
 					"-lc++",
@@ -575,7 +567,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 0.6.1;
+				CURRENT_PROJECT_VERSION = 0.7.0;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				HEADER_SEARCH_PATHS = (
@@ -592,7 +584,7 @@
 				LIBRARY_SEARCH_PATHS = (
 					"$(SRCROOT)/../../engine/target/release",
 				);
-				MARKETING_VERSION = 0.6.1;
+				MARKETING_VERSION = 0.7.0;
 				OTHER_LDFLAGS = (
 					"-lcalumma_ffi",
 					"-lc++",

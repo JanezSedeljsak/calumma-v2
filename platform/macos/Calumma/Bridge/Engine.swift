@@ -3,25 +3,13 @@ import Foundation
 import QuartzCore
 import SwiftUI
 
-/// What an oversized paste does. Core owns both the modes and the default; the shell only
-/// names which one the user pressed.
-enum CalmPasteFit: UInt32 {
-    case scaleToFit = 0
-    case growCanvas = 1
-}
-
 /// What a paste actually did. The shell never works this out by comparing sizes — the engine
 /// decided, so the engine reports.
 enum CalmPasteOutcome: UInt32 {
     case failed = 0
     case native = 1
-    case scaled = 2
-    case grown = 3
-    case grownAndScaled = 4
-
-    /// Whether the image lost resolution to fit, which is the one outcome worth interrupting
-    /// for: it is lossy, and the other mode is not.
-    var lostDetail: Bool { self == .scaled || self == .grownAndScaled }
+    /// The image was bigger than the paper, so the layer holds more than the canvas shows.
+    case overflowing = 2
 }
 
 enum CalmBlendMode: UInt32, CaseIterable, Identifiable {
@@ -154,9 +142,6 @@ struct EngineState {
     /// Whether the active layer is inside `⌘T`. Transform is a mode the engine owns; Move's
     /// options toggle and the `⌘T` shortcut both read this rather than `AppModel.tool`.
     var transformActive = false
-    /// What the next oversized paste will do (`paste.rs`). Sticky, so choosing "grow the
-    /// canvas instead" once is also a way of saying how you want them handled.
-    var pasteFit: CalmPasteFit = .scaleToFit
 
     var accentColor: Color { Color(rgb: accent) }
 }
@@ -268,7 +253,6 @@ final class Engine: ObservableObject, @unchecked Sendable {
             VisionPlatformOps.install(into: ptr)
         }
         refreshRecents()
-        refreshWorkspaces()
     }
 
     deinit {
@@ -864,6 +848,70 @@ final class Engine: ObservableObject, @unchecked Sendable {
         textEditing = false
     }
 
+    func project(id: String) -> ProjectInfo? {
+        guard let ptr else { return nil }
+        var info = CalmProjectInfo(
+            id: nil,
+            name: nil,
+            width: 0,
+            height: 0,
+            opened_at: 0,
+            accent: 0
+        )
+        let status = id.withCString { calm_project_get(ptr, $0, &info) }
+        guard status == CalmStatusOk, let idPtr = info.id, let namePtr = info.name else {
+            return nil
+        }
+        let item = ProjectInfo(
+            id: String(cString: idPtr),
+            name: String(cString: namePtr),
+            width: Int(info.width),
+            height: Int(info.height),
+            openedAt: info.opened_at,
+            accent: info.accent
+        )
+        calm_string_free(idPtr)
+        calm_string_free(namePtr)
+        return item
+    }
+
+    func loadOpenProjectTabs() -> [String] {
+        guard let ptr else { return [] }
+        var buffer = Array(repeating: Optional<UnsafeMutablePointer<CChar>>.none, count: 64)
+        let count = buffer.withUnsafeMutableBufferPointer {
+            calm_open_project_tabs(ptr, $0.baseAddress, 64)
+        }
+        var ids: [String] = []
+        for i in 0..<count {
+            guard let idPtr = buffer[i] else { continue }
+            ids.append(String(cString: idPtr))
+            calm_string_free(idPtr)
+        }
+        return ids
+    }
+
+    func persistOpenProjectTabs(_ ids: [String]) {
+        guard let ptr else { return }
+        if ids.isEmpty {
+            _ = calm_set_open_project_tabs(ptr, nil, 0)
+            return
+        }
+        var owned = ids.map { strdup($0) }
+        defer {
+            for item in owned {
+                if let item { free(item) }
+            }
+        }
+        owned.withUnsafeMutableBufferPointer { buffer in
+            buffer.baseAddress?.withMemoryRebound(
+                to: UnsafePointer<CChar>?.self,
+                capacity: ids.count
+            ) { rebound in
+                _ = calm_set_open_project_tabs(ptr, rebound, ids.count)
+            }
+        }
+    }
+
     func save() {
         guard let ptr else { return }
         _ = calm_project_save(ptr)
@@ -1204,8 +1252,7 @@ final class Engine: ObservableObject, @unchecked Sendable {
             lastShapeTool: CalmTool(rawValue: raw.last_shape_tool) ?? .rect,
             lastSelectTool: CalmTool(rawValue: raw.last_select_tool) ?? .selectRect,
             isFit: raw.is_fit != 0,
-            transformActive: raw.transform_active != 0,
-            pasteFit: CalmPasteFit(rawValue: raw.paste_fit) ?? .scaleToFit
+            transformActive: raw.transform_active != 0
         )
         syncGuideCount()
         syncToolGate()
@@ -1506,6 +1553,13 @@ final class Engine: ObservableObject, @unchecked Sendable {
         return calm_engine_layer_is_vector(ptr, UInt32(index)) == 1
     }
 
+    /// An ordinary layer of pixels — the engine's `Layer::is_raster()`, which is deliberately
+    /// **false** for a text layer as well as a vector one: text tiles are a cache of the run
+    /// and the run is the source of truth.
+    func isLayerRaster(index: Int) -> Bool {
+        !isLayerVector(index: index) && !isLayerText(index: index)
+    }
+
     func isLayerPaper(index: Int) -> Bool {
         guard let ptr else { return false }
         return calm_engine_layer_is_paper(ptr, UInt32(index)) == 1
@@ -1573,7 +1627,7 @@ final class Engine: ObservableObject, @unchecked Sendable {
         render()
     }
 
-    /// Pastes and reports what the engine had to do to make it fit, so the caller can say so.
+    /// Pastes at native size and reports whether it fit on the paper, so the caller can say so.
     @discardableResult
     func pasteImage(premultipliedRGBA: Data, width: Int, height: Int) -> CalmPasteOutcome {
         guard let ptr else { return .failed }
@@ -1588,12 +1642,6 @@ final class Engine: ObservableObject, @unchecked Sendable {
         refreshLayers()
         render()
         return CalmPasteOutcome(rawValue: raw) ?? .failed
-    }
-
-    func setPasteFit(_ fit: CalmPasteFit) {
-        guard let ptr else { return }
-        _ = calm_engine_set_paste_fit(ptr, fit.rawValue)
-        syncState()
     }
 
     var canRemoveBackground: Bool {
@@ -1614,7 +1662,7 @@ final class Engine: ObservableObject, @unchecked Sendable {
     func removeBackground(onFinished: @escaping (AiOpResult) -> Void) {
         guard let ptr, aiOpBusyLayer == nil else { return }
         let layerIndex = Int(state.activeLayer)
-        guard !isLayerVector(index: layerIndex) else {
+        guard isLayerRaster(index: layerIndex) else {
             onFinished(.ineligibleLayer)
             return
         }

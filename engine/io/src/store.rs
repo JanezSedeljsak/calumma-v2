@@ -178,7 +178,8 @@ impl ProjectStore {
     fn migrate(&self) -> Result<(), StoreError> {
         self.migrate_projects()?;
         self.migrate_layers()?;
-        self.migrate_workspaces()
+        self.migrate_workspaces()?;
+        self.migrate_open_project_tabs()
     }
 
     fn migrate_projects(&self) -> Result<(), StoreError> {
@@ -302,6 +303,92 @@ impl ProjectStore {
             out.push(row?);
         }
         Ok(out)
+    }
+
+    pub fn project(&self, id: &str) -> Result<ProjectListItem, StoreError> {
+        self.conn
+            .query_row(
+                "SELECT id, name, width, height, opened_at, created_at, accent FROM projects WHERE id = ?1",
+                params![id],
+                |row| {
+                    let id: String = row.get(0)?;
+                    Ok(ProjectListItem {
+                        id: id.clone(),
+                        name: row.get(1)?,
+                        width: row.get::<_, i64>(2)? as u32,
+                        height: row.get::<_, i64>(3)? as u32,
+                        opened_at: row.get(4)?,
+                        created_at: row.get(5)?,
+                        accent: accent_or_seed(row.get::<_, Option<i64>>(6)?, &id),
+                    })
+                },
+            )
+            .optional()?
+            .ok_or(StoreError::NotFound)
+    }
+
+    pub fn open_project_tabs(&self) -> Result<Vec<String>, StoreError> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT project_id FROM open_project_tabs ORDER BY position ASC")?;
+        let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row?);
+        }
+        Ok(out)
+    }
+
+    pub fn set_open_project_tabs(&self, ids: &[String]) -> Result<(), StoreError> {
+        let tx = self.conn.unchecked_transaction()?;
+        tx.execute("DELETE FROM open_project_tabs", [])?;
+        {
+            let mut insert = tx.prepare(
+                "INSERT INTO open_project_tabs (position, project_id) VALUES (?1, ?2)",
+            )?;
+            for (i, id) in ids.iter().enumerate() {
+                insert.execute(params![i as i64, id])?;
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    fn migrate_open_project_tabs(&self) -> Result<(), StoreError> {
+        self.conn.execute_batch(
+            "
+            CREATE TABLE IF NOT EXISTS open_project_tabs (
+                position INTEGER PRIMARY KEY,
+                project_id TEXT NOT NULL UNIQUE,
+                FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+            );
+            ",
+        )?;
+        let count: i64 = self
+            .conn
+            .query_row("SELECT COUNT(*) FROM open_project_tabs", [], |r| r.get(0))?;
+        if count == 0 {
+            self.conn.execute(
+                "INSERT OR IGNORE INTO open_project_tabs (position, project_id)
+                 SELECT owt.position,
+                        COALESCE(
+                            w.active_project_id,
+                            (SELECT wp.project_id FROM workspace_projects wp
+                             WHERE wp.workspace_id = owt.workspace_id
+                             ORDER BY wp.position ASC LIMIT 1)
+                        )
+                 FROM open_workspace_tabs owt
+                 INNER JOIN workspaces w ON w.id = owt.workspace_id
+                 WHERE COALESCE(
+                     w.active_project_id,
+                     (SELECT wp.project_id FROM workspace_projects wp
+                      WHERE wp.workspace_id = owt.workspace_id
+                      ORDER BY wp.position ASC LIMIT 1)
+                 ) IS NOT NULL",
+                [],
+            )?;
+        }
+        Ok(())
     }
 
     pub fn create(&self, name: &str, width: u32, height: u32) -> Result<Document, StoreError> {
@@ -471,6 +558,11 @@ impl ProjectStore {
                     let Some(grid) = layer.tiles_mut() else {
                         continue;
                     };
+                    // A layer that overflows the canvas — a pasted image bigger than the paper —
+                    // stores tiles outside the document rectangle, and a fresh grid holds only
+                    // the document. Widen it to admit the tile before asking to insert it,
+                    // otherwise reopening a project is where the overflow quietly disappears.
+                    grid.grow_extent_to_tile(coord);
                     // Paper comes back as hundreds of identical white blobs; giving them one
                     // shared allocation costs a scan that mixed tiles abandon immediately.
                     match tile::uniform_color(&pixels) {
@@ -674,6 +766,7 @@ impl ProjectStore {
 
     pub fn delete_all_projects(&self) -> Result<(), StoreError> {
         let tx = self.conn.unchecked_transaction()?;
+        tx.execute("DELETE FROM open_project_tabs", [])?;
         tx.execute("DELETE FROM open_workspace_tabs", [])?;
         tx.execute("DELETE FROM workspaces", [])?;
         tx.execute("DELETE FROM projects", [])?;

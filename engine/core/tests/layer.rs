@@ -1,6 +1,8 @@
 use calumma_core::layer::*;
 use calumma_core::tile::*;
+use calumma_core::transform::LayerTransform;
 use calumma_core::vector::{VectorItem, VectorPath};
+use calumma_core::DocRect;
 
 fn unbound_item() -> VectorItem {
     VectorItem::Path(VectorPath {
@@ -210,6 +212,25 @@ fn a_blend_mode_round_trips_through_its_wire_value_and_refuses_anything_else() {
     assert_eq!(BlendMode::from_u32(3), None);
     assert_eq!(BlendMode::from_u32(u32::MAX), None);
     assert_eq!(BlendMode::default(), BlendMode::Normal);
+}
+
+#[test]
+fn doc_rect_to_grid_follows_layer_transform() {
+    let mut layer = Layer::new("L", 100, 100);
+    let mut tiles = layer.tiles_mut().unwrap();
+    tiles.grow_extent(DocRect::new(200, 10, 260, 60));
+    tiles.paint_rect(DocRect::new(200, 10, 260, 60), |_, _, _| Some([255, 0, 0, 255]));
+    layer.transform = Some(LayerTransform {
+        offset_x: -150.0,
+        offset_y: 0.0,
+        ..LayerTransform::default()
+    });
+    let visible = DocRect::from_size(100, 100);
+    let grid_rect = layer.doc_rect_to_grid(visible);
+    assert!(
+        grid_rect.max_x >= 200,
+        "tiles parked off-canvas must map into the viewport once the layer is dragged in"
+    );
 }
 
 /// Paper is name-matched, and merge-down, click-to-pick and the Filters menu all key off

@@ -2,7 +2,6 @@ use crate::active_renderer::ActiveRenderer;
 use crate::platform::{parse_op_kind, CalmPlatformOps, PlatformOp};
 use anyhow::{anyhow, bail, Context};
 use calumma_core::limits::{AUTOSAVE_INTERVAL_MS, BRUSH_SIZE_MAX, BRUSH_SIZE_MIN, IMPORT_MAX_SIDE};
-use calumma_core::paste::PasteFit;
 use calumma_core::{
     pack_rgba, project_color, unpack_rgba, unpremultiply_rgba, AdjustmentKind, Adjustments,
     BlendMode, BoardColors, Brush, Document, Tool, PROJECT_COLORS,
@@ -54,9 +53,6 @@ pub struct CalmState {
     /// Whether the active layer is inside `⌘T`. The shell mirrors it on the Transform tool
     /// button, which is a mode the engine owns rather than a tool the shell selects.
     pub transform_active: u8,
-    /// What an oversized paste does (`calumma_core::paste::PasteFit`). Core owns the default;
-    /// the shell reads this to know which of the two it is offering to switch away from.
-    pub paste_fit: u32,
 }
 
 #[repr(C)]
@@ -1696,7 +1692,6 @@ pub unsafe extern "C" fn calm_engine_state(
                     last_select_tool: inner.last_select_tool as u32,
                     is_fit: 0,
                     transform_active: 0,
-                    paste_fit: PasteFit::default().into(),
                 };
             }
             return Ok(());
@@ -1723,7 +1718,6 @@ pub unsafe extern "C" fn calm_engine_state(
                 last_select_tool: doc.last_select_tool as u32,
                 is_fit: doc.camera.is_fit(dw, dh) as u8,
                 transform_active: doc.transform_active as u8,
-                paste_fit: doc.paste_fit().into(),
             };
         }
         Ok(())
@@ -2373,6 +2367,89 @@ fn write_projects(out: *mut CalmProjectInfo, items: &[ProjectListItem], cap: usi
         }
     }
     n
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn calm_project_get(
+    engine: *mut CalmEngine,
+    id: *const c_char,
+    out: *mut CalmProjectInfo,
+) -> CalmStatus {
+    if id.is_null() || out.is_null() {
+        return CalmStatus::Null;
+    }
+    with_inner(engine, |inner| {
+        let id = unsafe { CStr::from_ptr(id) }
+            .to_str()
+            .context("project id is not valid UTF-8")?;
+        let item = inner.store.project(id).context("loading project")?;
+        unsafe {
+            *out = CalmProjectInfo {
+                id: cstring(&item.id),
+                name: cstring(&item.name),
+                width: item.width,
+                height: item.height,
+                opened_at: item.opened_at,
+                accent: pack_rgb(item.accent),
+            };
+        }
+        Ok(())
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn calm_open_project_tabs(
+    engine: *mut CalmEngine,
+    out: *mut *mut c_char,
+    cap: usize,
+) -> usize {
+    if engine.is_null() || out.is_null() || cap == 0 {
+        return 0;
+    }
+    catch_unwind(AssertUnwindSafe(|| {
+        let mutex = unsafe { &*(engine as *const Mutex<Inner>) };
+        let inner = mutex.lock();
+        let ids = inner.store.open_project_tabs().unwrap_or_default();
+        let n = ids.len().min(cap);
+        for (i, id) in ids.iter().take(n).enumerate() {
+            unsafe {
+                *out.add(i) = cstring(id);
+            }
+        }
+        Some(n)
+    }))
+    .ok()
+    .flatten()
+    .unwrap_or_default()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn calm_set_open_project_tabs(
+    engine: *mut CalmEngine,
+    ids: *const *const c_char,
+    count: usize,
+) -> CalmStatus {
+    if ids.is_null() && count > 0 {
+        return CalmStatus::Null;
+    }
+    with_inner(engine, |inner| {
+        let mut owned = Vec::with_capacity(count);
+        for i in 0..count {
+            let ptr = unsafe { *ids.add(i) };
+            if ptr.is_null() {
+                continue;
+            }
+            let id = unsafe { CStr::from_ptr(ptr) }
+                .to_str()
+                .context("project tab id is not valid UTF-8")?;
+            owned.push(id.to_string());
+        }
+        inner
+            .store
+            .set_open_project_tabs(&owned)
+            .context("persisting open project tabs")?;
+        Ok(())
+    })
 }
 
 #[no_mangle]
