@@ -105,7 +105,7 @@ dependencies = [
 
 [[package]]
 name = "calumma-core"
-version = "0.7.1"
+version = "0.7.2"
 dependencies = [
  "calumma-text",
  "num_enum",
@@ -119,7 +119,7 @@ dependencies = [
 
 [[package]]
 name = "calumma-ffi"
-version = "0.7.1"
+version = "0.7.2"
 dependencies = [
  "anyhow",
  "bytemuck",
@@ -136,7 +136,7 @@ dependencies = [
 
 [[package]]
 name = "calumma-io"
-version = "0.7.1"
+version = "0.7.2"
 dependencies = [
  "calumma-core",
  "dirs",
@@ -152,7 +152,7 @@ dependencies = [
 
 [[package]]
 name = "calumma-ops"
-version = "0.7.1"
+version = "0.7.2"
 dependencies = [
  "calumma-core",
  "rustc-hash 2.1.3",
@@ -160,7 +160,7 @@ dependencies = [
 
 [[package]]
 name = "calumma-render"
-version = "0.7.1"
+version = "0.7.2"
 dependencies = [
  "bytemuck",
  "calumma-core",
@@ -173,7 +173,7 @@ dependencies = [
 
 [[package]]
 name = "calumma-text"
-version = "0.7.1"
+version = "0.7.2"
 dependencies = [
  "cosmic-text",
  "num_enum",

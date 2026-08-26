@@ -217,7 +217,7 @@ fn a_blend_mode_round_trips_through_its_wire_value_and_refuses_anything_else() {
 #[test]
 fn doc_rect_to_grid_follows_layer_transform() {
     let mut layer = Layer::new("L", 100, 100);
-    let mut tiles = layer.tiles_mut().unwrap();
+    let tiles = layer.tiles_mut().unwrap();
     tiles.grow_extent(DocRect::new(200, 10, 260, 60));
     tiles.paint_rect(DocRect::new(200, 10, 260, 60), |_, _, _| {
         Some([255, 0, 0, 255])
