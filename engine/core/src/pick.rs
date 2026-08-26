@@ -167,13 +167,7 @@ impl Document {
         self.topmost(doc_x, doc_y, true, PickScan::Move)
     }
 
-    fn topmost(
-        &self,
-        doc_x: f32,
-        doc_y: f32,
-        locked: bool,
-        scan: PickScan,
-    ) -> Option<usize> {
+    fn topmost(&self, doc_x: f32, doc_y: f32, locked: bool, scan: PickScan) -> Option<usize> {
         if doc_x < 0.0 || doc_y < 0.0 || doc_x >= self.width as f32 || doc_y >= self.height as f32 {
             return None;
         }

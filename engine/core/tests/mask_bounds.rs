@@ -8,7 +8,9 @@ fn content_bounds_shrinks_to_the_mask() {
     doc.layers[1]
         .tiles_mut()
         .unwrap()
-        .paint_rect(DocRect::new(10, 10, 90, 90), |_, _, _| Some([255, 0, 0, 255]));
+        .paint_rect(DocRect::new(10, 10, 90, 90), |_, _, _| {
+            Some([255, 0, 0, 255])
+        });
     let before = doc.layers[1].content_bounds().expect("full rect");
     assert_eq!(before, (10.0, 10.0, 91.0, 91.0));
 
@@ -34,7 +36,9 @@ fn remove_background_bakes_and_keeps_document_position() {
     doc.layers[1]
         .tiles_mut()
         .unwrap()
-        .paint_rect(DocRect::new(10, 10, 90, 90), |_, _, _| Some([255, 0, 0, 255]));
+        .paint_rect(DocRect::new(10, 10, 90, 90), |_, _, _| {
+            Some([255, 0, 0, 255])
+        });
     let before = doc.layer_bounds(1).expect("full rect");
     assert_eq!(before, (10.0, 10.0, 91.0, 91.0));
 
@@ -51,7 +55,10 @@ fn remove_background_bakes_and_keeps_document_position() {
     assert!(doc.layers[1].mask().is_none());
     let after = doc.layer_bounds(1).expect("visible rect");
     assert_eq!(after, (40.0, 40.0, 60.0, 60.0));
-    assert_eq!(doc.layers[1].content_bounds().unwrap(), (40.0, 40.0, 60.0, 60.0));
+    assert_eq!(
+        doc.layers[1].content_bounds().unwrap(),
+        (40.0, 40.0, 60.0, 60.0)
+    );
 
     doc.set_tool(Tool::Move);
     assert!(doc.begin_move_at(50.0, 50.0));
@@ -63,7 +70,9 @@ fn remove_background_undo_restores_pixels_and_transform() {
     doc.layers[1]
         .tiles_mut()
         .unwrap()
-        .paint_rect(DocRect::new(10, 10, 90, 90), |_, _, _| Some([255, 0, 0, 255]));
+        .paint_rect(DocRect::new(10, 10, 90, 90), |_, _, _| {
+            Some([255, 0, 0, 255])
+        });
     doc.layers[1].transform = Some(LayerTransform {
         offset_x: 12.0,
         offset_y: -8.0,
@@ -116,7 +125,9 @@ fn move_tool_picks_through_a_mask_hole_with_a_10x10_window() {
     doc.layers[1]
         .tiles_mut()
         .unwrap()
-        .paint_rect(DocRect::new(10, 10, 90, 90), |_, _, _| Some([255, 0, 0, 255]));
+        .paint_rect(DocRect::new(10, 10, 90, 90), |_, _, _| {
+            Some([255, 0, 0, 255])
+        });
     let mut mask = vec![255u8; (DOC as usize) * (DOC as usize)];
     for y in 25..=35u32 {
         for x in 25..=35u32 {
@@ -144,7 +155,9 @@ fn transform_keeps_the_layer_on_transparent_pixels_inside_the_box() {
     doc.layers[1]
         .tiles_mut()
         .unwrap()
-        .paint_rect(DocRect::new(10, 10, 90, 90), |_, _, _| Some([255, 0, 0, 255]));
+        .paint_rect(DocRect::new(10, 10, 90, 90), |_, _, _| {
+            Some([255, 0, 0, 255])
+        });
     let mut mask = vec![255u8; (DOC as usize) * (DOC as usize)];
     for y in 28..=32u32 {
         for x in 28..=32u32 {
@@ -157,13 +170,18 @@ fn transform_keeps_the_layer_on_transparent_pixels_inside_the_box() {
     doc.layers[below]
         .tiles_mut()
         .unwrap()
-        .paint_rect(DocRect::new(10, 10, 90, 90), |_, _, _| Some([0, 255, 0, 255]));
+        .paint_rect(DocRect::new(10, 10, 90, 90), |_, _, _| {
+            Some([0, 255, 0, 255])
+        });
     doc.set_active_layer(1);
     assert!(doc.enter_transform());
 
     let (sx, sy) = doc.camera.to_screen(30.0, 30.0);
     doc.pointer_down(sx, sy);
-    assert_eq!(doc.active_layer, 1, "inside the frame keeps the masked layer");
+    assert_eq!(
+        doc.active_layer, 1,
+        "inside the frame keeps the masked layer"
+    );
     assert!(doc.transform_active);
     let (mx, my) = doc.camera.to_screen(40.0, 40.0);
     doc.pointer_move(mx, my);

@@ -143,8 +143,12 @@ impl Document {
             return true;
         }
         let Some(before_doc) = visible_doc_bounds_for_mask(
-            tiles_ref, &mask, self.width, self.height, before_transform)
-        else {
+            tiles_ref,
+            &mask,
+            self.width,
+            self.height,
+            before_transform,
+        ) else {
             return false;
         };
         let Some(crop) = tiles_ref.opaque_bounds() else {
@@ -165,12 +169,8 @@ impl Document {
         }
         layer.set_mask(None);
         preserve_doc_bounds(layer, before_doc, before_transform);
-        self.history.push_remove_background(
-            layer_id,
-            snap,
-            before_transform,
-            Some(layer_index),
-        );
+        self.history
+            .push_remove_background(layer_id, snap, before_transform, Some(layer_index));
         true
     }
 }
@@ -188,7 +188,9 @@ mod tests {
         doc.layers[1]
             .tiles_mut()
             .unwrap()
-            .paint_rect(DocRect::new(10, 10, 90, 90), |_, _, _| Some([255, 0, 0, 255]));
+            .paint_rect(DocRect::new(10, 10, 90, 90), |_, _, _| {
+                Some([255, 0, 0, 255])
+            });
         doc.layers[1].transform = Some(LayerTransform {
             offset_x: 12.0,
             offset_y: -8.0,
@@ -207,14 +209,8 @@ mod tests {
         assert_eq!(t.offset_x, 12.0);
         assert_eq!(t.offset_y, -8.0);
         assert!(!t.is_identity());
-        let bounds = visible_doc_bounds_for_mask(
-            layer.tiles().unwrap(),
-            &mask,
-            DOC,
-            DOC,
-            Some(t),
-        )
-        .unwrap();
+        let bounds =
+            visible_doc_bounds_for_mask(layer.tiles().unwrap(), &mask, DOC, DOC, Some(t)).unwrap();
         assert_eq!(bounds, (52.0, 32.0, 72.0, 52.0));
     }
 }

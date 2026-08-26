@@ -343,9 +343,8 @@ impl ProjectStore {
         let tx = self.conn.unchecked_transaction()?;
         tx.execute("DELETE FROM open_project_tabs", [])?;
         {
-            let mut insert = tx.prepare(
-                "INSERT INTO open_project_tabs (position, project_id) VALUES (?1, ?2)",
-            )?;
+            let mut insert =
+                tx.prepare("INSERT INTO open_project_tabs (position, project_id) VALUES (?1, ?2)")?;
             for (i, id) in ids.iter().enumerate() {
                 insert.execute(params![i as i64, id])?;
             }
@@ -364,9 +363,9 @@ impl ProjectStore {
             );
             ",
         )?;
-        let count: i64 = self
-            .conn
-            .query_row("SELECT COUNT(*) FROM open_project_tabs", [], |r| r.get(0))?;
+        let count: i64 =
+            self.conn
+                .query_row("SELECT COUNT(*) FROM open_project_tabs", [], |r| r.get(0))?;
         if count == 0 {
             self.conn.execute(
                 "INSERT OR IGNORE INTO open_project_tabs (position, project_id)
