@@ -177,10 +177,6 @@ pub fn guide_instances(doc: &Document) -> Vec<GuideInstance> {
 const BRUSH_RING_LIGHT: [f32; 4] = [1.0, 1.0, 1.0, 0.9];
 const BRUSH_RING_DARK: [f32; 4] = [0.0, 0.0, 0.0, 0.5];
 const BRUSH_RING_WIDTH_PX: f32 = 1.0;
-/// Under this the ring is smaller than its own line weight and reads as a smudge, so it
-/// becomes a single dot instead — Photoshop's rule for the same reason.
-const BRUSH_RING_MIN_SCREEN_DIAMETER: f32 = 3.0;
-const BRUSH_RING_DOT_RADIUS_PX: f32 = 1.0;
 const BRUSH_RING_MIN_SEGMENTS: usize = 24;
 const BRUSH_RING_MAX_SEGMENTS: usize = 96;
 
@@ -190,20 +186,19 @@ const BRUSH_RING_MAX_SEGMENTS: usize = 96;
 /// that the hover outline splits the same way.
 ///
 /// Empty whenever the engine says there is no ring to draw (`Document::brush_ring` owns every
-/// rule about that: which tools, which layers, and `⌘T`), so the renderer asks unconditionally.
+/// rule about that: which tools, which layers, `⌘T`, and whether a stamp reaches this far), so
+/// the renderer asks unconditionally.
+///
+/// There is no "too small to draw" case to handle here any more: `Document::effective_brush_size`
+/// holds the brush at `BRUSH_MIN_SCREEN_PX` across however far the board is zoomed out, so a ring
+/// is always wider than the line it is drawn with. This used to collapse to a dot below three
+/// screen pixels — the same threshold, stated twice in two crates.
 pub fn brush_ring_instances(doc: &Document) -> Vec<StrokeInstance> {
     let Some((centre, radius)) = doc.brush_ring() else {
         return Vec::new();
     };
     let zoom = doc.camera.zoom.max(f32::MIN_POSITIVE);
     let screen_radius = radius * zoom;
-    if screen_radius * 2.0 < BRUSH_RING_MIN_SCREEN_DIAMETER {
-        return vec![StrokeInstance {
-            segment: [centre.0, centre.1, centre.0, centre.1],
-            color: BRUSH_RING_LIGHT,
-            brush: brush_params(BRUSH_RING_DOT_RADIUS_PX, &BrushProfile::HARD),
-        }];
-    }
     // A screen pixel in document units — the same conversion the marching ants make, and what
     // keeps the two rings exactly one pixel apart at every zoom.
     let pixel = 1.0 / zoom;

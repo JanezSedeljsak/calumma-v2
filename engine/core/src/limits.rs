@@ -277,8 +277,9 @@ pub const GUIDE_PICK_SLACK_PX: f32 = 5.0;
 /// one on top of another leaves one rather than a stack nothing can pull apart again.
 pub const GUIDE_MIN_SEPARATION: f32 = 0.5;
 /// Ceiling on guides per document. Guides are chrome, not content — a board that wants more
-/// rules than this wants a grid.
-pub const GUIDES_LIMIT: usize = 128;
+/// rules than this wants a grid. Ten is also what the guides card can list without scrolling,
+/// which is the point: a list you have to hunt through is not a list of *your* guides.
+pub const GUIDES_LIMIT: usize = 10;
 
 /// Holding Shift while dragging a guide drops it on a round number instead of wherever the
 /// pointer happens to be. Ten document pixels, the step anyone reaching for a tidy margin

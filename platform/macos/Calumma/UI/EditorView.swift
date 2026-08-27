@@ -20,7 +20,6 @@ struct EditorView: View {
     @State private var dropTargetRow: Int?
     @State private var draggingRow: Int?
     @State private var aiBlinkOn = false
-    @State private var guidesOpen = false
 
     var body: some View {
         editorLayout
@@ -40,7 +39,7 @@ struct EditorView: View {
             // `ScrollView` offers nothing, so it came out a couple of rows high whatever ceiling
             // it was given. A modal is told its size (`GuidesCard.size(in:)`) instead of
             // negotiating for one.
-            .calmModal(isPresented: $guidesOpen) {
+            .calmModal(isPresented: $app.guidesOpen) {
                 GuidesCard()
                     .frame(
                         width: guidesModalSize.width,
@@ -202,9 +201,9 @@ struct EditorView: View {
 
     private var guidesButton: some View {
         Button {
-            guidesOpen = true
+            app.guidesOpen = true
         } label: {
-            AppIcon.ruler(color: guidesOpen ? colors.accentTeal : colors.textMuted, size: 15)
+            AppIcon.ruler(color: app.guidesOpen ? colors.accentTeal : colors.textMuted, size: 15)
                 .frame(width: Self.guidesButtonSide, height: Self.guidesButtonSide)
                 .background(colors.surface, in: Circle())
                 .overlay(Circle().strokeBorder(colors.islandBorder, lineWidth: 1))

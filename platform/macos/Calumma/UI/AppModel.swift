@@ -18,6 +18,12 @@ final class AppModel: ObservableObject {
     @Published var showLanding = true
     @Published var newProjectOpen = false
     @Published var settingsOpen = false
+    @Published var guidesOpen = false
+
+    /// Whether anything is covering the board. The board dresses the cursor and rings the brush
+    /// off its own tracking area, which keeps firing underneath a SwiftUI overlay — so it has to
+    /// be told to stand down, or a modal is a panel with no pointer on it.
+    var modalPresented: Bool { newProjectOpen || settingsOpen || guidesOpen }
     @Published var artworkError: String?
     @Published private(set) var toast: ToastMessage?
     private var toastDismissWork: DispatchWorkItem?

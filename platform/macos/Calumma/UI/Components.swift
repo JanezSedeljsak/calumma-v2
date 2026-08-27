@@ -582,6 +582,13 @@ struct CalmModal<Modal: View>: ViewModifier {
                         )
                         .shadow(color: .black.opacity(0.3), radius: 24, y: 8)
                         .onExitCommand { isPresented = false }
+                        // Whatever the board left under the pointer, a modal starts with an
+                        // arrow. The board also stands its cursor down while one is up
+                        // (`AppModel.modalPresented`), but that depends on it getting another
+                        // mouse event; this does not, and it is the one place every modal goes
+                        // through. The brush cursor is deliberately blank, so getting this wrong
+                        // is a panel with no pointer on it.
+                        .onAppear { NSCursor.arrow.set() }
                 }
                 .transition(.opacity)
                 .zIndex(500)

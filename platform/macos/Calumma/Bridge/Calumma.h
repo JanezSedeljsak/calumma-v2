@@ -289,6 +289,7 @@ CalmStatus calm_engine_add_guide(CalmEngine *engine, uint8_t axis, float positio
 CalmStatus calm_engine_set_guide_position(CalmEngine *engine, size_t index, float position);
 CalmStatus calm_engine_set_guide_axis(CalmEngine *engine, size_t index, uint8_t axis);
 CalmStatus calm_engine_remove_guide(CalmEngine *engine, size_t index);
+size_t calm_guides_limit(void);
 CalmStatus calm_engine_memory(CalmEngine *engine, CalmMemory *out);
 char *calm_engine_layer_name(CalmEngine *engine, uint32_t index);
 CalmStatus calm_engine_layer_thumbnail(CalmEngine *engine, uint32_t layer_index, uint32_t max_side, uint8_t **out_rgba, uint32_t *out_w, uint32_t *out_h);

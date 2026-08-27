@@ -217,3 +217,10 @@ pub extern "C" fn calm_engine_remove_guide(engine: *mut CalmEngine, index: usize
         Ok(())
     })
 }
+
+/// How many guides one document may hold. The card greys its Add out on this rather than letting
+/// the button quietly do nothing once the list is full.
+#[no_mangle]
+pub extern "C" fn calm_guides_limit() -> usize {
+    calumma_core::limits::GUIDES_LIMIT
+}

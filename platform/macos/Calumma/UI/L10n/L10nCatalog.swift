@@ -134,6 +134,7 @@ struct L10nCatalog: Equatable {
     var guidesHint: String { self["guidesHint"] }
     var noGuides: String { self["noGuides"] }
     var addGuide: String { self["addGuide"] }
+    var guidesFull: String { self["guidesFull"] }
     var guideTop: String { self["guideTop"] }
     var guideLeft: String { self["guideLeft"] }
     var guideOffset: String { self["guideOffset"] }

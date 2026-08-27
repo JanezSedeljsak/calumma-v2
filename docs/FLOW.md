@@ -247,15 +247,20 @@ handles snap to. Two things about how they are drawn:
   refused outright if the other edge already has a guide there — the same no-duplicates rule
   `add_guide` enforces, so it shows as the toggle simply not moving.
 - Adding takes that same toggle and an offset, so a guide can be put at exactly 240 instead of
-  dragged near it. The trash icon on a row removes that guide.
+  dragged near it. The trash icon on a row removes that guide. **Ten guides per board**
+  (`GUIDES_LIMIT`) — a board wanting more rules than that wants a grid — and Add greys out at the
+  ceiling rather than answering a click with nothing, reading the limit over `calm_guides_limit`
+  rather than keeping its own copy.
 - The button is a **circle wider than the 20pt corner**, centred on where the rulers cross so it
   spills onto both strips and onto the board. Drawn as an overlay on the ruler stack rather than
   placed in it, so overflowing costs the rulers no width.
 - The card is a **modal**, not a popover off the button. The list is the point of the panel and
   wants to be tall, and an `NSPopover` sizes itself to what its content offers — a `ScrollView`
   offers nothing, so it came out two rows high whatever ceiling it was given. A modal is *told*
-  its size (`GuidesCard.size(in:)`, measured against the window: 380pt wide, up to 640 tall)
-  rather than negotiating for one, and the list then fills whatever is left. Anything else in
+  its size (`GuidesCard.size(in:)`, measured against the window: 380pt wide, up to 500 tall)
+  rather than negotiating for one, and the list then fills whatever is left. Sized to hold the
+  whole list rather than to fill the window — a board tops out at `GUIDES_LIMIT` guides, and past
+  that height the card is just empty space. Anything else in
   this shell that needs a definite height should be a modal for the same reason.
 - A typed position is **clamped onto the paper**, never discarded — unlike a *drag* released
   past the edge, which throws the guide away. Someone typing 5000 meant the far edge
@@ -869,6 +874,13 @@ itself, so wherever the ring is withheld — a locked, text or vector layer, or 
 glyph comes straight back, which is exactly where you need telling what you are holding. The
 blank cursor is an empty image, not `NSCursor.hide()`: that call is counted, and one unbalanced
 pair leaves the pointer gone for good.
+
+**A modal takes the cursor back.** The board's tracking area keeps firing underneath a SwiftUI
+overlay, so without being told to stand down it re-dresses the cursor over a panel it cannot see
+— and for the brush tools that cursor is deliberately blank, which is a dialog with no pointer on
+it. Two things stop it: `AppModel.modalPresented` (any of New Project, Settings, Guides) makes
+`refreshCursor` restore the arrow and turns the brush hover off, and `CalmModal` sets the arrow
+as it appears so the reset does not depend on the board getting another mouse event.
 
 The board dresses the cursor **only while the pointer is over the board**. `refreshCursor` also
 runs on every SwiftUI update and when the view moves to a window, neither of which knows where

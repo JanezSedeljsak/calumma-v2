@@ -75,8 +75,9 @@ extension Engine {
         }
     }
 
-    /// `limits::GUIDES_LIMIT`. One read of the whole list can never come back truncated.
-    private static let guidesCap = 128
+    /// `limits::GUIDES_LIMIT`, asked rather than written down: the card greys its Add out on it,
+    /// and a stale copy would either hide a row or offer a guide the engine then refuses.
+    static let guidesCap = calm_guides_limit()
 
     func addGuide(axis: CalmGuideAxis, position: Float) {
         guard let ptr else { return }

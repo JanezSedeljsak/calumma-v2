@@ -255,7 +255,8 @@ final class BoardMTKView: MTKView {
         guard let coordinator = boardCoordinator else { return }
         let flags = NSEvent.modifierFlags.intersection(.deviceIndependentFlagsMask)
         let zoomChord = flags.contains(.command) || flags.contains(.option)
-        guard !panning, !spaceHeld, !zoomChord else {
+        let covered = MainActor.assumeIsolated { app?.modalPresented == true }
+        guard !panning, !spaceHeld, !zoomChord, !covered else {
             coordinator.engine.clearPointerHover()
             return
         }
@@ -459,6 +460,14 @@ final class BoardMTKView: MTKView {
     }
 
     func refreshCursor() {
+        // A modal covers the board, but the board's tracking area goes on firing underneath it —
+        // so without this the board keeps re-dressing the cursor over a panel it cannot see, and
+        // for the brush tools that cursor is deliberately blank. That is a dialog with no
+        // pointer on it.
+        if MainActor.assumeIsolated({ app?.modalPresented == true }) {
+            NSCursor.arrow.set()
+            return
+        }
         // The board dresses the cursor only while the cursor is over the board. This is also
         // called from `updateNSView` on every SwiftUI update and from `viewDidMoveToWindow`,
         // neither of which knows where the pointer is — and `NSCursor.set()` applies wherever it

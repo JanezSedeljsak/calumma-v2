@@ -728,16 +728,23 @@ fn zooming_changes_how_round_the_ring_is_drawn_but_not_how_wide_its_line_is() {
     );
 }
 
-/// Under a few screen pixels a ring is smaller than its own line weight and reads as a smudge,
-/// so it becomes a dot — the same rule Photoshop applies at the same size.
+/// Zoomed far enough out that the *chosen* brush would be under a screen pixel, the ring is
+/// still a ring: `Document::effective_brush_size` lifts the brush to `BRUSH_MIN_SCREEN_PX` across
+/// first, so there is no size at which the cursor degenerates into a smudge. This used to
+/// collapse to a single dot at exactly this threshold.
 #[test]
-fn a_ring_too_small_to_read_becomes_a_single_dot() {
+fn a_ring_stays_a_ring_however_far_the_board_is_zoomed_out() {
     let doc = brush_board(0.05, 20.0);
 
     let ring = brush_ring_instances(&doc);
 
-    assert_eq!(ring.len(), 1);
-    assert_eq!(ring[0].segment, [100.0, 100.0, 100.0, 100.0]);
+    assert!(ring.len() > 2, "still a circle, not a dot: {}", ring.len());
+    let zoom = doc.camera.zoom;
+    let on_screen = doc.effective_brush_size() * zoom;
+    assert!(
+        on_screen >= calumma_core::limits::BRUSH_MIN_SCREEN_PX - 1e-3,
+        "ring drew {on_screen} screen px across"
+    );
 }
 
 #[test]

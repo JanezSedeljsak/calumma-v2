@@ -19,8 +19,10 @@ struct GuidesCard: View {
 
     /// How large the guides modal is presented at, given the window it opens over. Wants to be
     /// tall — the list is the point of the panel — and stops short of the window's own edges.
+    /// Sized to hold the whole list rather than to fill the window: a document tops out at
+    /// `Engine.guidesCap` guides, so past that height the card is empty space.
     static func size(in window: CGFloat) -> CGSize {
-        CGSize(width: 380, height: min(640, max(420, window - 220)))
+        CGSize(width: 380, height: min(500, max(360, window - 260)))
     }
 
     var body: some View {
@@ -124,11 +126,17 @@ struct GuidesCard: View {
                 CalmNumberField(value: $draftOffset, width: 64)
                     .onSubmit(add)
                 Spacer()
+                // Greyed at the ceiling rather than left to do nothing: `add_guide` refuses a
+                // full list silently, and a button that answers a click with nothing is worse
+                // than one that says it cannot.
+                let full = entries.count >= Engine.guidesCap
                 Button(l10n.addGuide, action: add)
                     .buttonStyle(.plain)
                     .font(.system(size: Tokens.TypeSize.label, weight: .semibold))
-                    .foregroundStyle(colors.accentTeal)
-                    .calmPointer()
+                    .foregroundStyle(full ? colors.textMuted : colors.accentTeal)
+                    .disabled(full)
+                    .calmPointer(!full)
+                    .help(full ? l10n.guidesFull : l10n.addGuide)
             }
         }
     }

@@ -69,6 +69,7 @@
   "guidesHint": "Drag off a ruler to add one. Hold Shift to snap to tens.",
   "noGuides": "No guides yet",
   "addGuide": "Add",
+  "guidesFull": "This board is full — remove a guide to add another",
   "guideTop": "Top",
   "guideLeft": "Left",
   "guideOffset": "Offset",
