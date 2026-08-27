@@ -5,6 +5,10 @@ enum AppIcon {
         SvgIcon(name: "settings", color: color)
     }
 
+    static func ruler(color: Color, size: CGFloat = 18) -> some View {
+        SvgIcon(name: "ruler", color: color, size: size)
+    }
+
     static func plus(color: Color, size: CGFloat = 18) -> some View {
         SvgIcon(name: "plus", color: color, size: size)
     }

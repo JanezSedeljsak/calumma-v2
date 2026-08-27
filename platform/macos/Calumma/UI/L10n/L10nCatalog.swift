@@ -130,6 +130,14 @@ struct L10nCatalog: Equatable {
     var newProjectMenu: String { self["newProjectMenu"] }
     var fitToView: String { self["fitToView"] }
     var toggleLayers: String { self["toggleLayers"] }
+    var guides: String { self["guides"] }
+    var guidesHint: String { self["guidesHint"] }
+    var noGuides: String { self["noGuides"] }
+    var addGuide: String { self["addGuide"] }
+    var guideTop: String { self["guideTop"] }
+    var guideLeft: String { self["guideLeft"] }
+    var guideOffset: String { self["guideOffset"] }
+    var deleteGuide: String { self["deleteGuide"] }
     var clearGuides: String { self["clearGuides"] }
     var toggleTheme: String { self["toggleTheme"] }
     var layerNamed: String { self["layerNamed"] }

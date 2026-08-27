@@ -570,19 +570,11 @@ final class AppModel: ObservableObject {
         // Leaving the text tool ends the session engine-side, which can drop an empty text
         // layer — the panel has to hear about that.
         let wasTyping = engine.textEditing
-        // Reaching for Move almost always means scale or rotate as well, so transform comes on
-        // with it. Only on the way *in*: picking Move while it is already selected leaves the
-        // mode alone, which is what keeps the options toggle (and `⌘T`) able to turn it off
-        // without the next click on the tool switching it straight back on.
-        let grabsHandles = next == .move && tool != .move
         tool = next
         if next != .eyedropper {
             clearEyedropperLoupe()
         }
         applyKnobs()
-        if grabsHandles {
-            engine.enterTransform()
-        }
         if wasTyping, next != .text {
             engine.syncState()
             engine.refreshLayers()

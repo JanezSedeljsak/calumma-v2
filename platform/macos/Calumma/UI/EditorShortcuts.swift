@@ -195,11 +195,15 @@ extension AppModel {
 
     /// Single exit from temporary pan mode — also called when the app loses focus, so a
     /// Space held across a ⌘-Tab cannot leave the board wedged in pan mode.
+    ///
+    /// Puts no cursor back itself: `spacePan` is published, so dropping it re-runs
+    /// `BoardCanvas.updateNSView` and the board picks the cursor for whatever tool is in hand.
+    /// Setting one here used to be harmless when every tool shared the crosshair; now it would
+    /// be the wrong picture until the next mouse-move.
     @MainActor
     func endSpacePan() {
         guard spacePan else { return }
         spacePan = false
-        NSCursor.crosshair.set()
     }
 }
 

@@ -675,6 +675,46 @@ pub unsafe extern "C" fn calm_engine_fit(engine: *mut CalmEngine) -> CalmStatus 
     })
 }
 
+/// Whether the board is drawing its brush ring right now. The shell asks so it can get its own
+/// cursor out of the way: for the tools that ring the pointer, the ring *is* the pointer, and
+/// showing a second one beside it would be two answers to the same question. `Document::brush_ring`
+/// owns every rule about when there is one — the tool, the layer, `⌘T`, and whether the pointer is
+/// even over the board.
+#[no_mangle]
+pub unsafe extern "C" fn calm_engine_brush_ring_visible(engine: *mut CalmEngine) -> c_int {
+    read_doc(engine, 0, |doc| c_int::from(doc.brush_ring().is_some()))
+}
+
+/// The desk's squared paper, in screen points, so the shell's loading placeholder can lay the
+/// same grid the board does. Takes no engine: it is a constant table, not document state.
+#[repr(C)]
+pub struct CalmDeskMetrics {
+    pub cell: f32,
+    pub line_width: f32,
+    pub cross_arm: f32,
+    pub cross_line_width: f32,
+    /// How much of the grid color the cell rules take, against full-strength crosses.
+    pub line_alpha: f32,
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn calm_desk_metrics(out: *mut CalmDeskMetrics) -> CalmStatus {
+    if out.is_null() {
+        return CalmStatus::Null;
+    }
+    let desk = calumma_core::DeskMetrics::DEFAULT;
+    unsafe {
+        *out = CalmDeskMetrics {
+            cell: desk.cell,
+            line_width: desk.line_width,
+            cross_arm: desk.cross_arm,
+            cross_line_width: desk.cross_line_width,
+            line_alpha: calumma_core::DeskMetrics::LINE_ALPHA,
+        };
+    }
+    CalmStatus::Ok
+}
+
 /// Where a document of this size lands once fitted, in viewport points. Takes no engine and
 /// no open project on purpose: the shell asks it while a project is still loading, to draw the
 /// canvas placeholder on exactly the rectangle the paper is about to occupy.

@@ -319,3 +319,105 @@ fn the_dragged_guide_reports_where_it_is() {
     doc.end_guide_drag();
     assert!(doc.dragged_guide_readout().is_none());
 }
+
+#[test]
+fn shift_drops_a_dragged_guide_on_a_round_ten() {
+    let mut doc = Document::new("t".into(), "T", 400, 400);
+    doc.camera.viewport_width = 400.0;
+    doc.camera.viewport_height = 400.0;
+    doc.camera.zoom = 1.0;
+    doc.camera.pan_x = 0.0;
+    doc.camera.pan_y = 0.0;
+
+    doc.begin_guide_drag_from_ruler(GuideAxis::Vertical, 0.0, 0.0);
+    doc.update_guide_drag(137.0, 0.0);
+    assert_eq!(doc.guides()[0].position, 137.0, "no shift, no rounding");
+
+    doc.set_shift_held(true);
+    doc.update_guide_drag(137.0, 0.0);
+    assert_eq!(doc.guides()[0].position, 140.0);
+    doc.update_guide_drag(134.0, 0.0);
+    assert_eq!(doc.guides()[0].position, 130.0);
+
+    doc.set_shift_held(false);
+    doc.update_guide_drag(134.0, 0.0);
+    assert_eq!(
+        doc.guides()[0].position,
+        134.0,
+        "releasing shift frees it again"
+    );
+}
+
+/// The step is in document pixels, so a guide put on a round number stays on it at any zoom —
+/// a step measured on screen would land somewhere different every time you zoomed.
+#[test]
+fn the_shift_step_does_not_move_with_the_zoom() {
+    let mut doc = Document::new("t".into(), "T", 400, 400);
+    doc.camera.viewport_width = 400.0;
+    doc.camera.viewport_height = 400.0;
+    doc.camera.zoom = 4.0;
+    doc.camera.pan_x = 0.0;
+    doc.camera.pan_y = 0.0;
+    doc.set_shift_held(true);
+
+    doc.begin_guide_drag_from_ruler(GuideAxis::Vertical, 0.0, 0.0);
+    // Screen 137 at 4x is document 34.25, which rounds to 30.
+    doc.update_guide_drag(137.0, 0.0);
+    assert_eq!(doc.guides()[0].position, 30.0);
+}
+
+#[test]
+fn typing_a_position_clamps_onto_the_paper_instead_of_discarding_the_guide() {
+    let mut doc = Document::new("t".into(), "T", 200, 120);
+    let index = doc.add_guide(GuideAxis::Horizontal, 10.0).unwrap();
+
+    assert!(doc.set_guide_position(index, 60.0));
+    assert_eq!(doc.guides()[index].position, 60.0);
+
+    // A horizontal guide runs along y, so its extent is the document height.
+    assert!(doc.set_guide_position(index, 5000.0));
+    assert_eq!(doc.guides()[index].position, 120.0);
+    assert!(doc.set_guide_position(index, -40.0));
+    assert_eq!(doc.guides()[index].position, 0.0);
+
+    assert!(!doc.set_guide_position(index, f32::NAN));
+    assert!(!doc.set_guide_position(99, 10.0));
+}
+
+#[test]
+fn flipping_a_guide_to_the_other_edge_keeps_its_number() {
+    let mut doc = Document::new("t".into(), "T", 200, 120);
+    let index = doc.add_guide(GuideAxis::Vertical, 60.0).unwrap();
+
+    assert!(doc.set_guide_axis(index, GuideAxis::Horizontal));
+    assert_eq!(doc.guides()[index].axis, GuideAxis::Horizontal);
+    assert_eq!(doc.guides()[index].position, 60.0);
+
+    assert!(
+        !doc.set_guide_axis(index, GuideAxis::Horizontal),
+        "already there"
+    );
+    assert!(!doc.set_guide_axis(99, GuideAxis::Vertical));
+}
+
+/// The document is not square, so a guide at x=180 has no y=180 to move to — it lands on the
+/// bottom edge rather than off the paper.
+#[test]
+fn flipping_clamps_when_the_other_edge_is_shorter() {
+    let mut doc = Document::new("t".into(), "T", 200, 120);
+    let index = doc.add_guide(GuideAxis::Vertical, 180.0).unwrap();
+    assert!(doc.set_guide_axis(index, GuideAxis::Horizontal));
+    assert_eq!(doc.guides()[index].position, 120.0);
+}
+
+/// Flipping onto a guide that is already there would leave two rules on one position, which is
+/// the thing `add_guide` refuses for the same reason.
+#[test]
+fn flipping_onto_an_existing_guide_is_refused() {
+    let mut doc = Document::new("t".into(), "T", 200, 200);
+    let moving = doc.add_guide(GuideAxis::Vertical, 60.0).unwrap();
+    doc.add_guide(GuideAxis::Horizontal, 60.0).unwrap();
+
+    assert!(!doc.set_guide_axis(moving, GuideAxis::Horizontal));
+    assert_eq!(doc.guides()[moving].axis, GuideAxis::Vertical);
+}

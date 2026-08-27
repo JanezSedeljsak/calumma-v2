@@ -48,6 +48,9 @@ struct PaperUniforms {
     _pad0: f32,
     _pad1: f32,
     _pad2: f32,
+    /// `DeskMetrics` as the shader wants it — see `calumma_core::DeskMetrics` for why the
+    /// squared paper is measured in Rust rather than in `board.wgsl`.
+    desk_metrics: [f32; 4],
     desk: [f32; 4],
     grid: [f32; 4],
     paper_border: [f32; 4],
@@ -1604,6 +1607,7 @@ impl Renderer {
             }
         }
 
+        let desk = calumma_core::DeskMetrics::DEFAULT;
         let paper = PaperUniforms {
             pan: [doc.camera.pan_x, doc.camera.pan_y],
             zoom: doc.camera.zoom,
@@ -1614,6 +1618,12 @@ impl Renderer {
             _pad0: 0.0,
             _pad1: 0.0,
             _pad2: 0.0,
+            desk_metrics: [
+                desk.cell,
+                desk.line_width,
+                desk.cross_arm,
+                desk.cross_line_width,
+            ],
             desk: rgba_unit(doc.board_colors.desk),
             grid: rgba_unit(doc.board_colors.grid),
             paper_border: rgba_unit(doc.board_colors.paper_border),
@@ -1725,7 +1735,7 @@ impl Renderer {
         let mut screen_overlay_range = 0u32..0u32;
         let mut brush_range = 0u32..0u32;
         if !camera_only {
-            let radius = doc.brush_size * 0.5;
+            let radius = doc.effective_brush_size() * 0.5;
             let stroke_color = if doc.tool == Tool::Eraser {
                 ERASER_PREVIEW_COLOR
             } else {
@@ -1983,15 +1993,21 @@ impl Renderer {
                     pass.draw(0..6, screen_overlay_range.clone());
                 }
 
-                if !brush_range.is_empty() {
-                    self.stroke_coverage.composite(&mut pass, &self.preview_bg);
-                }
-
                 if preview_shape.is_some() {
                     pass.set_pipeline(&self.shape_pipeline);
                     pass.set_bind_group(0, &self.preview_bg, &[]);
                     pass.draw(0..3, 0..1);
                 }
+            }
+
+            // The brush ring is a cursor, so it goes on top of everything and — like the guides —
+            // outside the paper scissor. `Document::brush_ring` has already decided there is a
+            // stamp to promise, and on a pasted layer that overflows the paper that stamp can
+            // land out over the desk; clipping the ring to the paper drew nothing there while
+            // the shell had already hidden its own cursor, so the pointer disappeared.
+            if !brush_range.is_empty() {
+                pass.set_scissor_rect(0, 0, self.config.width, self.config.height);
+                self.stroke_coverage.composite(&mut pass, &self.preview_bg);
             }
         }
 

@@ -16,6 +16,14 @@ const TRANSFORM_OUTLINE_COLOR: [f32; 4] = [0.24, 0.78, 0.84, 0.95];
 const TRANSFORM_OUTLINE_WIDTH_PX: f32 = 1.0;
 const TRANSFORM_HANDLE_COLOR: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
 const TRANSFORM_HANDLE_RADIUS_PX: f32 = 8.0;
+/// A white grip on white paper is not a grip. The ring is drawn as a slightly larger disc
+/// *under* the white one rather than as an outline of its own — the overlay pass has no stroked
+/// circle, and two discs is the same primitive twice instead of a new one. Grey rather than the
+/// frame's teal, so the thing you grab stays distinct from the frame it sits on, and thin enough
+/// that the grip still reads as white: the visual radius goes to 9px, which keeps it inside the
+/// 10px `HANDLE_HIT_RADIUS_PX` the grip is caught by.
+const TRANSFORM_HANDLE_BORDER_COLOR: [f32; 4] = [0.35, 0.38, 0.42, 0.9];
+const TRANSFORM_HANDLE_BORDER_PX: f32 = 1.0;
 
 const TEXT_BOX_COLOR: [f32; 4] = [0.24, 0.78, 0.84, 0.45];
 const TEXT_BOX_WIDTH_PX: f32 = 0.5;
@@ -247,7 +255,7 @@ pub fn box_overlay_instances(
     corners: [(f32, f32); 4],
     rotate_handle: Option<(f32, f32)>,
 ) -> Vec<StrokeInstance> {
-    let mut out = Vec::with_capacity(4 + 1 + 5);
+    let mut out = Vec::with_capacity(4 + 1 + 5 * 2);
     let outline = |a: (f32, f32), b: (f32, f32)| StrokeInstance {
         segment: [a.0, a.1, b.0, b.1],
         color: TRANSFORM_OUTLINE_COLOR,
@@ -264,6 +272,16 @@ pub fn box_overlay_instances(
         out.push(outline(top_mid, rotate_handle));
     }
     for p in corners.iter().chain(rotate_handle.iter()) {
+        // Border first, grip over it: instances paint in order, so the larger disc underneath
+        // shows only as the ring left around the smaller one.
+        out.push(StrokeInstance {
+            segment: [p.0, p.1, p.0, p.1],
+            color: TRANSFORM_HANDLE_BORDER_COLOR,
+            brush: brush_params(
+                TRANSFORM_HANDLE_RADIUS_PX + TRANSFORM_HANDLE_BORDER_PX,
+                &BrushProfile::HARD,
+            ),
+        });
         out.push(StrokeInstance {
             segment: [p.0, p.1, p.0, p.1],
             color: TRANSFORM_HANDLE_COLOR,

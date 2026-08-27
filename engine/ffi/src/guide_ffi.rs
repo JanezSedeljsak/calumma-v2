@@ -118,3 +118,102 @@ pub unsafe extern "C" fn calm_engine_dragged_guide(
         None => 0,
     })
 }
+
+/// One guide as the guides card lists it. Position is document pixels along the axis the rule
+/// crosses — `y` for a horizontal one, `x` for a vertical one.
+#[repr(C)]
+pub struct CalmGuide {
+    pub axis: u8,
+    pub position: f32,
+}
+
+/// Reads the whole list into `out`, returning how many were written. The card is the only
+/// caller and redraws from scratch, so there is no cursor and no partial read to reconcile.
+#[no_mangle]
+pub unsafe extern "C" fn calm_engine_guide_list(
+    engine: *mut CalmEngine,
+    out: *mut CalmGuide,
+    cap: usize,
+) -> usize {
+    if out.is_null() || cap == 0 {
+        return 0;
+    }
+    read_doc(engine, 0, |doc| {
+        let guides = doc.guides();
+        let n = guides.len().min(cap);
+        for (i, guide) in guides.iter().take(n).enumerate() {
+            unsafe {
+                *out.add(i) = CalmGuide {
+                    axis: u8::from(guide.axis),
+                    position: guide.position,
+                };
+            }
+        }
+        n
+    })
+}
+
+/// Drops a guide at an exact document position — the card's Add, as opposed to a drag.
+#[no_mangle]
+pub extern "C" fn calm_engine_add_guide(
+    engine: *mut CalmEngine,
+    axis: u8,
+    position: f32,
+) -> CalmStatus {
+    with_inner(engine, |inner| {
+        let axis = GuideAxis::from_u8(axis).context("unknown guide axis")?;
+        let doc = inner.doc.as_mut().context("no project is open")?;
+        if doc.add_guide(axis, position).is_some() {
+            inner.edited();
+        }
+        Ok(())
+    })
+}
+
+/// Moves one guide to an exact position, clamped onto the paper rather than discarded — see
+/// `Document::set_guide_position` for why typing differs from dragging here.
+#[no_mangle]
+pub extern "C" fn calm_engine_set_guide_position(
+    engine: *mut CalmEngine,
+    index: usize,
+    position: f32,
+) -> CalmStatus {
+    with_inner(engine, |inner| {
+        if let Some(doc) = &mut inner.doc {
+            if doc.set_guide_position(index, position) {
+                inner.edited();
+            }
+        }
+        Ok(())
+    })
+}
+
+/// Moves a guide to the other edge, keeping its number — the card's Top/Left toggle on a row
+/// that already exists.
+#[no_mangle]
+pub extern "C" fn calm_engine_set_guide_axis(
+    engine: *mut CalmEngine,
+    index: usize,
+    axis: u8,
+) -> CalmStatus {
+    with_inner(engine, |inner| {
+        let axis = GuideAxis::from_u8(axis).context("unknown guide axis")?;
+        let doc = inner.doc.as_mut().context("no project is open")?;
+        if doc.set_guide_axis(index, axis) {
+            inner.edited();
+        }
+        Ok(())
+    })
+}
+
+#[no_mangle]
+pub extern "C" fn calm_engine_remove_guide(engine: *mut CalmEngine, index: usize) -> CalmStatus {
+    with_inner(engine, |inner| {
+        if let Some(doc) = &mut inner.doc {
+            if doc.remove_guide(index) {
+                inner.edited();
+            }
+        }
+        Ok(())
+    })
+}

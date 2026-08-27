@@ -140,6 +140,16 @@ CalmStatus calm_engine_zoom_scroll(CalmEngine *engine, float x, float y, float d
 CalmStatus calm_engine_fit(CalmEngine *engine);
 CalmStatus calm_fit_size(float viewport_width, float viewport_height, float doc_width,
                          float doc_height, float *out_width, float *out_height);
+
+typedef struct CalmDeskMetrics {
+    float cell;
+    float line_width;
+    float cross_arm;
+    float cross_line_width;
+    float line_alpha;
+} CalmDeskMetrics;
+
+CalmStatus calm_desk_metrics(CalmDeskMetrics *out);
 CalmStatus calm_fit_camera(float viewport_width, float viewport_height, float doc_width,
                            float doc_height, float *out_zoom, float *out_pan_x, float *out_pan_y);
 CalmStatus calm_engine_viewport(CalmEngine *engine, float *out_width, float *out_height);
@@ -221,6 +231,7 @@ CalmStatus calm_engine_set_shift(CalmEngine *engine, uint8_t held);
 CalmStatus calm_engine_reset_layer_transform(CalmEngine *engine, uint32_t index);
 CalmStatus calm_engine_set_pointer_hover(CalmEngine *engine, float x, float y);
 CalmStatus calm_engine_clear_pointer_hover(CalmEngine *engine);
+int calm_engine_brush_ring_visible(CalmEngine *engine);
 CalmStatus calm_engine_toggle_transform(CalmEngine *engine);
 CalmStatus calm_engine_enter_transform(CalmEngine *engine);
 CalmStatus calm_engine_exit_transform(CalmEngine *engine);
@@ -267,6 +278,17 @@ size_t calm_engine_guide_count(CalmEngine *engine);
 int calm_engine_guide_axis_at(CalmEngine *engine, float x, float y);
 int calm_engine_dragged_guide(CalmEngine *engine, uint8_t *out_axis, float *out_position,
                               float *out_screen);
+
+typedef struct CalmGuide {
+    uint8_t axis;
+    float position;
+} CalmGuide;
+
+size_t calm_engine_guide_list(CalmEngine *engine, CalmGuide *out, size_t cap);
+CalmStatus calm_engine_add_guide(CalmEngine *engine, uint8_t axis, float position);
+CalmStatus calm_engine_set_guide_position(CalmEngine *engine, size_t index, float position);
+CalmStatus calm_engine_set_guide_axis(CalmEngine *engine, size_t index, uint8_t axis);
+CalmStatus calm_engine_remove_guide(CalmEngine *engine, size_t index);
 CalmStatus calm_engine_memory(CalmEngine *engine, CalmMemory *out);
 char *calm_engine_layer_name(CalmEngine *engine, uint32_t index);
 CalmStatus calm_engine_layer_thumbnail(CalmEngine *engine, uint32_t layer_index, uint32_t max_side, uint8_t **out_rgba, uint32_t *out_w, uint32_t *out_h);

@@ -229,7 +229,13 @@ fn blur_takes_a_size_but_no_ink() {
 /// field just committed is the failure this guards.
 #[test]
 fn size_curves_round_trip_across_the_boundary() {
-    for size in [1.0f32, 3.0, 96.0, 500.0, 1000.0] {
+    for size in [
+        calm_brush_size_min(),
+        12.0,
+        96.0,
+        500.0,
+        calm_brush_size_max(),
+    ] {
         let back = calm_brush_size_from_unit(calm_brush_size_unit(size));
         assert!(
             (back - size).abs() <= 0.5,
@@ -258,6 +264,9 @@ fn brush_size_steps_reach_both_ends() {
         calm_brush_size_step(calm_brush_size_max(), 1),
         calm_brush_size_max()
     );
-    assert!(calm_brush_size_step(3.0, 1) > 3.0);
-    assert!(calm_brush_size_step(3.0, 0) < 3.0);
+    // Taken off the floor rather than written down, so the range can move without the test
+    // quietly starting to assert something below it.
+    let mid = calm_brush_size_min() * 4.0;
+    assert!(calm_brush_size_step(mid, 1) > mid);
+    assert!(calm_brush_size_step(mid, 0) < mid);
 }

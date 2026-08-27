@@ -133,3 +133,68 @@ fn an_unknown_axis_is_refused_rather_than_guessed() {
     );
     assert_eq!(calm_engine_guide_count(e.ptr), 0);
 }
+
+fn guide_buffer<const N: usize>() -> [CalmGuide; N] {
+    std::array::from_fn(|_| CalmGuide {
+        axis: 0,
+        position: 0.0,
+    })
+}
+
+#[test]
+fn the_guides_card_can_list_add_move_and_remove() {
+    let e = GuideEngine::new();
+    unsafe {
+        assert_eq!(calm_engine_add_guide(e.ptr, 1, 40.0), CalmStatus::Ok);
+        assert_eq!(calm_engine_add_guide(e.ptr, 0, 60.0), CalmStatus::Ok);
+
+        let mut buf = guide_buffer::<8>();
+        let n = calm_engine_guide_list(e.ptr, buf.as_mut_ptr(), buf.len());
+        assert_eq!(n, 2);
+        assert_eq!(buf[0].axis, 1);
+        assert_eq!(buf[0].position, 40.0);
+        assert_eq!(buf[1].axis, 0);
+        assert_eq!(buf[1].position, 60.0);
+
+        // Typed positions clamp onto the paper rather than being discarded the way a drag off
+        // the edge is — someone typing a huge number meant the far edge.
+        assert_eq!(
+            calm_engine_set_guide_position(e.ptr, 1, 5000.0),
+            CalmStatus::Ok
+        );
+        let n = calm_engine_guide_list(e.ptr, buf.as_mut_ptr(), buf.len());
+        assert_eq!(n, 2);
+        assert_eq!(buf[1].position, SIDE as f32);
+
+        assert_eq!(calm_engine_remove_guide(e.ptr, 0), CalmStatus::Ok);
+        let n = calm_engine_guide_list(e.ptr, buf.as_mut_ptr(), buf.len());
+        assert_eq!(n, 1);
+        assert_eq!(buf[0].axis, 0);
+    }
+}
+
+#[test]
+fn guide_list_survives_a_null_buffer_and_a_zero_cap() {
+    let e = GuideEngine::new();
+    unsafe {
+        assert_eq!(calm_engine_add_guide(e.ptr, 0, 10.0), CalmStatus::Ok);
+        assert_eq!(calm_engine_guide_list(e.ptr, std::ptr::null_mut(), 4), 0);
+        let mut buf = guide_buffer::<1>();
+        assert_eq!(calm_engine_guide_list(e.ptr, buf.as_mut_ptr(), 0), 0);
+    }
+}
+
+#[test]
+fn the_card_can_flip_a_guide_to_the_other_edge() {
+    let e = GuideEngine::new();
+    unsafe {
+        assert_eq!(calm_engine_add_guide(e.ptr, 1, 60.0), CalmStatus::Ok);
+        assert_eq!(calm_engine_set_guide_axis(e.ptr, 0, 0), CalmStatus::Ok);
+
+        let mut buf = guide_buffer::<4>();
+        let n = calm_engine_guide_list(e.ptr, buf.as_mut_ptr(), buf.len());
+        assert_eq!(n, 1);
+        assert_eq!(buf[0].axis, 0);
+        assert_eq!(buf[0].position, 60.0);
+    }
+}

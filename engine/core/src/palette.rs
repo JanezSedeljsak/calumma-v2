@@ -29,6 +29,46 @@ pub fn color_for_seed(seed: &str) -> [u8; 3] {
     project_color(sum)
 }
 
+/// The desk's squared paper, in screen points. Screen-space rather than document-space on
+/// purpose: the pattern is the surface the board sits *on*, so it holds still while the paper
+/// pans and zooms over it.
+///
+/// These live here rather than as literals in `board.wgsl` because the shader is not the only
+/// thing that draws them — `CanvasSkeleton` stands in for the board while a project loads, and
+/// has to lay the same grid on the same 26pt lattice or the swap is visible. Rust is the one
+/// source: the shader reads them out of `PaperUniforms`, the shell reads them over
+/// `calm_desk_metrics`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct DeskMetrics {
+    /// Side of one square.
+    pub cell: f32,
+    /// Width of the faint rule along each cell edge.
+    pub line_width: f32,
+    /// Half-length of each arm of the cross sitting on a cell corner.
+    pub cross_arm: f32,
+    /// Thickness of those arms.
+    pub cross_line_width: f32,
+}
+
+impl DeskMetrics {
+    pub const DEFAULT: Self = Self {
+        cell: 26.0,
+        line_width: 1.0,
+        cross_arm: 3.5,
+        cross_line_width: 1.1,
+    };
+
+    /// How much of `grid` the cell rules take, against the full-strength crosses. The rules are
+    /// the quieter half of the pattern; without this they read as a table rather than as paper.
+    pub const LINE_ALPHA: f32 = 0.4;
+}
+
+impl Default for DeskMetrics {
+    fn default() -> Self {
+        Self::DEFAULT
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct BoardColors {
     pub desk: [u8; 4],

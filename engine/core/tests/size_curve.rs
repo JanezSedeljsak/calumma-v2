@@ -23,15 +23,23 @@ fn the_slider_lands_on_whole_pixels() {
 
 #[test]
 fn unit_and_size_round_trip() {
-    for size in [1.0f32, 2.0, 3.0, 12.0, 96.0, 250.0, 999.0, 1000.0] {
+    for size in [
+        BRUSH_SIZE_MIN,
+        9.0,
+        12.0,
+        96.0,
+        250.0,
+        999.0,
+        BRUSH_SIZE_MAX,
+    ] {
         let back = brush_size_from_unit(brush_size_unit(size));
         assert!((back - size).abs() < 0.05, "{size} came back as {back}");
     }
 }
 
 /// Never backwards. Not *strictly* increasing at the bottom of the track — rounding puts the
-/// first few percent of travel all on 1px, which is the price of whole-pixel sizes and is
-/// what the key steps are for down there.
+/// first few percent of travel all on `BRUSH_SIZE_MIN`, which is the price of whole-pixel sizes
+/// and is what the key steps are for down there.
 #[test]
 fn the_curve_never_goes_backwards() {
     let mut previous = f32::MIN;
@@ -53,7 +61,8 @@ fn half_the_travel_stays_in_the_low_quarter_of_the_range() {
         (half - quarter_of_range).abs() <= 0.5,
         "half the travel is {half}"
     );
-    assert!(brush_size_from_unit(0.1) < 12.0);
+    // A tenth of the track is still a fine brush — nearer the floor than the halfway size.
+    assert!(brush_size_from_unit(0.1) < 24.0);
 }
 
 #[test]
@@ -72,10 +81,24 @@ fn a_degenerate_range_answers_instead_of_dividing_by_zero() {
 
 #[test]
 fn a_step_moves_a_fine_brush_by_a_whole_pixel() {
-    assert_eq!(step_brush_size(1.0, true), 2.0);
-    assert_eq!(step_brush_size(3.0, true), 4.0);
-    assert_eq!(step_brush_size(4.0, false), 3.0);
-    assert_eq!(step_brush_size(2.0, false), BRUSH_SIZE_MIN);
+    // Ten percent of a fine brush rounds to nothing, so the step falls back to a whole pixel.
+    assert_eq!(step_brush_size(BRUSH_SIZE_MIN, true), BRUSH_SIZE_MIN + 1.0);
+    assert_eq!(step_brush_size(9.0, true), 10.0);
+    assert_eq!(step_brush_size(10.0, false), 9.0);
+    assert_eq!(
+        step_brush_size(BRUSH_SIZE_MIN, false),
+        BRUSH_SIZE_MIN,
+        "the floor holds"
+    );
+}
+
+/// A brush below the floor is not a smaller brush, it is not a brush — every way in clamps.
+#[test]
+fn nothing_lands_under_the_floor() {
+    assert_eq!(brush_size_from_unit(0.0), BRUSH_SIZE_MIN);
+    assert_eq!(step_brush_size(1.0, false), BRUSH_SIZE_MIN);
+    assert_eq!(step_brush_size(0.0, true), BRUSH_SIZE_MIN + 1.0);
+    assert_eq!(brush_size_unit(1.0), 0.0);
 }
 
 #[test]

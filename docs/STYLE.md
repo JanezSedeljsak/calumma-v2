@@ -125,9 +125,16 @@ then the name, then `×`; clicking the dot opens the rename / recolor card. Top 
 tight (`space.xs`) so the board starts close under the titlebar.
 
 While a project loads, the canvas island holds a **skeleton** rather than the outgoing
-board: the desk, and one sweeping band across the rectangle the paper is about to fill
-(`CanvasSkeleton`, rule 7). Rulers stay up with ticks for the incoming project; only the
-canvas content is covered. Luminance only — no spinner, no label.
+board: the desk with its squared paper, and one sweeping band across the rectangle the paper
+is about to fill (`CanvasSkeleton`, rule 7). Rulers stay up with ticks for the incoming
+project; only the canvas content is covered. Luminance only — no spinner, no label. Every
+measurement in it is the engine's — the rectangle from `calm_fit_size`, the grid from
+`calm_desk_metrics` — so the placeholder sits on the same lattice the shader draws on and the
+swap is invisible.
+
+Transform grips are white discs with a **thin grey ring** under them: a white grip on white
+paper is not a grip. The ring is a slightly larger disc drawn first rather than a stroked
+outline — the overlay pass has no stroked circle, and two discs is the same primitive twice.
 
 Tools, canvas, and layers are three **rounded, bordered islands**, full-height, separated
 by a minimal gap (`space.sm`) with a matching margin from the window edge (half that under

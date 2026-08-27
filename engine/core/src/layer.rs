@@ -359,6 +359,37 @@ impl Layer {
         snap
     }
 
+    /// A document-space point in this layer's own grid — the inverse of what the renderer does
+    /// when it draws the layer through its transform. Anything about to be *written* into the
+    /// grid at a place the user pointed at has to come through here first, or it lands in the
+    /// grid at the document coordinate and the transform then carries it somewhere else.
+    pub fn doc_point_to_grid(&self, p: (f32, f32)) -> (f32, f32) {
+        let Some(t) = self.transform.filter(|t| !t.is_identity()) else {
+            return p;
+        };
+        let Some(raw) = self.content_bounds() else {
+            return p;
+        };
+        t.inverse(crate::transform::bounds_center(raw), p)
+    }
+
+    /// A document-space length in this layer's grid. Scale only: an offset moves a length
+    /// nowhere and a rotation does not change it. A non-uniform scale strictly makes a round
+    /// brush an ellipse in grid space — the mean of the two axes is used instead, which is exact
+    /// for the proportional scaling `⌘T` does by default and close for anything short of a
+    /// deliberate squash.
+    pub fn doc_length_to_grid(&self, length: f32) -> f32 {
+        let Some(t) = self.transform.filter(|t| !t.is_identity()) else {
+            return length;
+        };
+        let scale = (t.scale_x.abs() + t.scale_y.abs()) * 0.5;
+        if scale > 1e-6 {
+            length / scale
+        } else {
+            length
+        }
+    }
+
     /// The part of this layer's own grid that a document-space rectangle is showing.
     ///
     /// A transform moves where a layer's tiles *land*, so "which tiles are on screen" is a

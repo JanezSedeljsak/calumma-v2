@@ -154,6 +154,9 @@ final class Engine: ObservableObject, @unchecked Sendable {
     private(set) var ptr: OpaquePointer?
     @Published var state = EngineState()
     @Published var recents: [ProjectInfo] = []
+    /// Bumped on every change to the guide list — added, moved, flipped, removed. The count
+    /// alone cannot stand in for this: two of those four leave it untouched.
+    @Published private(set) var guidesRevision: UInt64 = 0
     /// Where a guide being dragged currently sits. Deliberately *not* `@Published` on the
     /// engine: it changes on every pointer move of the drag, and an engine publish re-renders
     /// every view observing `AppModel` — the whole editor, tools and layers included. It gets
@@ -407,6 +410,20 @@ final class Engine: ObservableObject, @unchecked Sendable {
         }
         return CGSize(width: CGFloat(width), height: CGFloat(height))
     }
+
+    /// The desk's squared paper, in screen points — the same table `board.wgsl` lays the real
+    /// grid on, so the loading placeholder can put its own on the same lattice.
+    static let desk: DeskMetrics = {
+        var raw = CalmDeskMetrics(
+            cell: 26,
+            line_width: 1,
+            cross_arm: 3.5,
+            cross_line_width: 1.1,
+            line_alpha: 0.4
+        )
+        guard calm_desk_metrics(&raw) == CalmStatusOk else { return DeskMetrics(raw) }
+        return DeskMetrics(raw)
+    }()
 
     /// Fit now *and* on every resize for the next moment — see `fitGraceSeconds`. Use this
     /// wherever the board is shown for the first time (opening a project, attaching the
@@ -688,6 +705,14 @@ final class Engine: ObservableObject, @unchecked Sendable {
     func clearPointerHover() {
         guard let ptr else { return }
         _ = calm_engine_clear_pointer_hover(ptr)
+    }
+
+    /// Whether the board is ringing the pointer right now. Asked on every cursor refresh so the
+    /// shell can stand its own cursor down while the ring is the pointer — a plain read, no
+    /// publish, because it is answered on the mouse-move path.
+    var brushRingVisible: Bool {
+        guard let ptr else { return false }
+        return calm_engine_brush_ring_visible(ptr) != 0
     }
 
     func toggleTransform() {
@@ -1017,6 +1042,12 @@ final class Engine: ObservableObject, @unchecked Sendable {
 
     func bumpThumbnailRevision() {
         thumbnailRevision &+= 1
+    }
+
+    /// Bumped by `EngineGuides.syncGuides` after any change to the list — the setter stays here
+    /// with the property, the way `thumbnailRevision` does.
+    func bumpGuidesRevision() {
+        guidesRevision &+= 1
     }
 
     func projectThumbnailPNG(projectId: String) -> Data? {
@@ -1536,4 +1567,22 @@ enum AiOpResult {
     case success
     case failed
     case ineligibleLayer
+}
+
+/// `calumma_core::DeskMetrics` on the Swift side. Screen points, so the pattern holds still
+/// while the paper pans and zooms over it.
+struct DeskMetrics {
+    var cell: CGFloat
+    var lineWidth: CGFloat
+    var crossArm: CGFloat
+    var crossLineWidth: CGFloat
+    var lineAlpha: Double
+
+    init(_ raw: CalmDeskMetrics) {
+        cell = CGFloat(raw.cell)
+        lineWidth = CGFloat(raw.line_width)
+        crossArm = CGFloat(raw.cross_arm)
+        crossLineWidth = CGFloat(raw.cross_line_width)
+        lineAlpha = Double(raw.line_alpha)
+    }
 }

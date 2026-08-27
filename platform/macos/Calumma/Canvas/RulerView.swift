@@ -56,6 +56,10 @@ struct RulerView: View {
         DragGesture(minimumDistance: 0)
             .onChanged { value in
                 let point = boardPoint(value.location)
+                // A `DragGesture` carries no modifier flags, and the board's own key handling
+                // never sees this drag — so Shift is read straight off the keyboard here. It is
+                // what rounds the guide onto a whole ten (`GUIDE_SHIFT_STEP`).
+                engine.setShift(NSEvent.modifierFlags.contains(.shift))
                 if draggingGuide {
                     engine.updateGuideDrag(x: point.0, y: point.1)
                 } else {

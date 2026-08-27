@@ -257,7 +257,12 @@ fn vector_selection_instances_draws_four_edges_and_four_corner_dots() {
     assert!(doc.select_vector_item_at(20.0, 20.0));
 
     let out = vector_selection_instances(&doc);
-    assert_eq!(out.len(), 8, "four edges plus four corner dots");
+    // Four edges, then two discs per corner: the grey border and the white grip over it.
+    assert_eq!(
+        out.len(),
+        4 + 4 * 2,
+        "four edges plus four bordered corner dots"
+    );
     for dot in &out[4..] {
         assert_eq!(
             (dot.segment[0], dot.segment[1]),
@@ -288,8 +293,12 @@ fn the_item_frame_is_the_layer_frame_without_the_rotate_stalk() {
         doc.selected_vector_item_corners().unwrap(),
         Some((0.0, -30.0)),
     );
-    assert_eq!(item.len(), 8);
-    assert_eq!(layer.len(), 10, "the stalk is one edge and one handle more");
+    assert_eq!(item.len(), 4 + 4 * 2);
+    assert_eq!(
+        layer.len(),
+        4 + 1 + 5 * 2,
+        "the stalk is one edge and one handle more"
+    );
     assert_eq!(
         item[..4],
         layer[..4],
@@ -305,7 +314,9 @@ fn a_corner_handle_looks_the_same_at_both_levels() {
     let corners = doc.selected_vector_item_corners().unwrap();
     let item = vector_selection_instances(&doc);
     let layer = calumma_render::compose::box_overlay_instances(corners, Some((0.0, -30.0)));
-    for i in 0..4 {
+    // Two discs per handle now, so the corner handles start one edge later on the layer frame
+    // and run in pairs. Both halves have to match for the affordance to read the same.
+    for i in 0..8 {
         assert_eq!(item[4 + i].color, layer[5 + i].color);
         assert_eq!(item[4 + i].brush, layer[5 + i].brush);
     }
@@ -361,10 +372,12 @@ fn only_one_frame_is_ever_live_at_a_time() {
 fn a_box_with_no_rotate_handle_draws_only_its_own_corners() {
     let corners = [(0.0, 0.0), (10.0, 0.0), (10.0, 8.0), (0.0, 8.0)];
     let out = calumma_render::compose::box_overlay_instances(corners, None);
-    assert_eq!(out.len(), 8);
+    assert_eq!(out.len(), 4 + 4 * 2);
     for (i, corner) in corners.iter().enumerate() {
-        let dot = out[4 + i].segment;
-        assert_eq!((dot[0], dot[1]), (corner.0, corner.1));
-        assert_eq!((dot[2], dot[3]), (corner.0, corner.1));
+        // Border and grip, both degenerate segments on the corner itself.
+        for dot in [out[4 + i * 2].segment, out[5 + i * 2].segment] {
+            assert_eq!((dot[0], dot[1]), (corner.0, corner.1));
+            assert_eq!((dot[2], dot[3]), (corner.0, corner.1));
+        }
     }
 }

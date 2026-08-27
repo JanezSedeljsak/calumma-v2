@@ -1498,7 +1498,7 @@ impl Document {
         if self.tool_blocked(Tool::Blur) {
             return false;
         }
-        let radius = self.brush_size * 0.5;
+        let radius = self.effective_brush_size() * 0.5;
         let strength = self.blur_strength;
         if strength <= 0.0 {
             return false;
@@ -1582,7 +1582,6 @@ impl Document {
             }
             return;
         }
-        let radius = self.brush_size * 0.5;
         let erasing = self.tool == Tool::Eraser;
         let profile = self.active_brush_profile();
         let ink = if erasing {
@@ -1592,21 +1591,37 @@ impl Document {
         };
         let active = self.active_layer;
 
-        let mut coverage = CoverageGrid::new(self.bounds());
+        // The stroke was aimed at document coordinates; a layer holds its pixels in its own
+        // grid, and the renderer maps that grid into the document through the layer's transform.
+        // Everything from here down is in *grid* space — the points, the radius, and the area
+        // the coverage may cover. For an untransformed layer the two are the same thing; for a
+        // moved or scaled one this is the difference between the stroke staying where it was
+        // drawn and jumping the moment the GPU preview hands over to the commit.
+        let Some(layer) = self.layers.get(active) else {
+            return;
+        };
+        let layer_id = layer.id.clone();
+        let radius = layer.doc_length_to_grid(self.effective_brush_size() * 0.5);
+        let points: Vec<(f32, f32)> = points
+            .iter()
+            .map(|p| layer.doc_point_to_grid((p.x, p.y)))
+            .collect();
+        let Some(grid) = layer.tiles() else {
+            return;
+        };
+        // Bounded by what the grid may hold, not by the paper: a pasted image reaches past the
+        // document, and a stroke on the part hanging off it is still a stroke on the layer.
+        let area = grid.extent();
+
+        let mut coverage = CoverageGrid::new(area);
         match points.len() {
             0 => return,
             1 => {
-                let p = (points[0].x, points[0].y);
-                coverage.add_segment(p, p, radius, &profile);
+                coverage.add_segment(points[0], points[0], radius, &profile);
             }
             _ => {
                 for pair in points.windows(2) {
-                    coverage.add_segment(
-                        (pair[0].x, pair[0].y),
-                        (pair[1].x, pair[1].y),
-                        radius,
-                        &profile,
-                    );
+                    coverage.add_segment(pair[0], pair[1], radius, &profile);
                 }
             }
         }
@@ -1614,13 +1629,6 @@ impl Document {
             return;
         }
 
-        let Some(layer) = self.layers.get(active) else {
-            return;
-        };
-        let layer_id = layer.id.clone();
-        let Some(grid) = layer.tiles() else {
-            return;
-        };
         let touched: Vec<TileCoord> = coverage
             .tile_coords()
             .filter(|c| grid.tile_in_bounds(*c))

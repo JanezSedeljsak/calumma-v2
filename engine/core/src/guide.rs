@@ -1,5 +1,7 @@
 use crate::document::Document;
-use crate::limits::{GUIDES_LIMIT, GUIDE_MIN_SEPARATION, GUIDE_PICK_SLACK_PX, GUIDE_SNAP_PX};
+use crate::limits::{
+    GUIDES_LIMIT, GUIDE_MIN_SEPARATION, GUIDE_PICK_SLACK_PX, GUIDE_SHIFT_STEP, GUIDE_SNAP_PX,
+};
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 
 /// Which way a guide runs. A `Horizontal` guide is a horizontal rule at document *y*, the one
@@ -167,8 +169,68 @@ impl Document {
             return false;
         };
         let position = self.guide_position_at(guide.axis, screen_x, screen_y);
-        self.guides[drag.index].position = position;
+        self.guides[drag.index].position = self.round_guide_position(position);
         true
+    }
+
+    /// Shift lands a dragged guide on a round document pixel — the tidy margin anyone pulling a
+    /// guide by hand is aiming for. Deliberately in document units and not screen ones: a guide
+    /// at x=120 has to stay at x=120 at every zoom, and a step measured on screen would put it
+    /// somewhere different each time.
+    fn round_guide_position(&self, position: f32) -> f32 {
+        if !self.shift_held {
+            return position;
+        }
+        (position / GUIDE_SHIFT_STEP).round() * GUIDE_SHIFT_STEP
+    }
+
+    /// Moves a guide to an exact position — what typing one into the guides card does. Unlike a
+    /// drag this never discards the guide: a number outside the paper is clamped onto it, since
+    /// someone typing 5000 meant the far edge, not "throw this away".
+    pub fn set_guide_position(&mut self, index: usize, position: f32) -> bool {
+        if !position.is_finite() {
+            return false;
+        }
+        let Some(&guide) = self.guides.get(index) else {
+            return false;
+        };
+        let extent = self.guide_extent(guide.axis);
+        let clamped = position.clamp(0.0, extent);
+        if self.guides[index].position == clamped {
+            return false;
+        }
+        self.guides[index].position = clamped;
+        true
+    }
+
+    /// Flips a guide to the other edge, keeping the number it is on — Top 60 becomes Left 60,
+    /// clamped if the document is not square enough to hold it. Refused when the target edge
+    /// already has a guide there, the same rule `add_guide` enforces: two rules on one position
+    /// is one you can never separate again.
+    pub fn set_guide_axis(&mut self, index: usize, axis: GuideAxis) -> bool {
+        let Some(&guide) = self.guides.get(index) else {
+            return false;
+        };
+        if guide.axis == axis {
+            return false;
+        }
+        let position = guide.position.clamp(0.0, self.guide_extent(axis));
+        if self
+            .guide_index_near(axis, position, GUIDE_MIN_SEPARATION)
+            .is_some()
+        {
+            return false;
+        }
+        self.guides[index] = Guide { axis, position };
+        true
+    }
+
+    /// How far a guide on this axis may travel: the document's own side.
+    fn guide_extent(&self, axis: GuideAxis) -> f32 {
+        match axis {
+            GuideAxis::Horizontal => self.height as f32,
+            GuideAxis::Vertical => self.width as f32,
+        }
     }
 
     /// Ends the drag, keeping the guide only if it landed on the paper. Dragging a guide back
@@ -181,10 +243,7 @@ impl Document {
         let Some(&guide) = self.guides.get(drag.index) else {
             return false;
         };
-        let extent = match guide.axis {
-            GuideAxis::Horizontal => self.height as f32,
-            GuideAxis::Vertical => self.width as f32,
-        };
+        let extent = self.guide_extent(guide.axis);
         if guide.position < 0.0 || guide.position > extent {
             self.guides.remove(drag.index);
         }

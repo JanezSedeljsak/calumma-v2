@@ -20,6 +20,7 @@ struct EditorView: View {
     @State private var dropTargetRow: Int?
     @State private var draggingRow: Int?
     @State private var aiBlinkOn = false
+    @State private var guidesOpen = false
 
     var body: some View {
         editorLayout
@@ -29,6 +30,21 @@ struct EditorView: View {
                     .frame(
                         width: Tokens.Window.newProjectWidth,
                         height: Tokens.Window.newProjectHeight
+                    )
+                    .environmentObject(app)
+                    .themeColors(colors)
+                    .l10n(l10n)
+            }
+            // A modal rather than a popover hanging off the ruler corner: the guides list wants
+            // to be tall, and an `NSPopover` sizes itself to what its content offers — a
+            // `ScrollView` offers nothing, so it came out a couple of rows high whatever ceiling
+            // it was given. A modal is told its size (`GuidesCard.size(in:)`) instead of
+            // negotiating for one.
+            .calmModal(isPresented: $guidesOpen) {
+                GuidesCard()
+                    .frame(
+                        width: guidesModalSize.width,
+                        height: guidesModalSize.height
                     )
                     .environmentObject(app)
                     .themeColors(colors)
@@ -47,6 +63,10 @@ struct EditorView: View {
                     aiBlinkOn = false
                 }
             }
+    }
+
+    private var guidesModalSize: CGSize {
+        GuidesCard.size(in: app.mainWindow?.frame.height ?? Tokens.Window.mainHeight)
     }
 
     private var editorLayout: some View {
@@ -141,6 +161,7 @@ struct EditorView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+        .overlay(alignment: .topLeading) { guidesButton }
     }
 
     /// While a project loads the board is still showing the last one, so the skeleton covers
@@ -171,6 +192,31 @@ struct EditorView: View {
         Rectangle()
             .fill(colors.surface)
             .frame(width: RulerView.thickness, height: RulerView.thickness)
+    }
+
+    /// Wider than the corner the two rulers make, and centred on where they cross, so it spills
+    /// a little onto both strips and onto the board. The corner is the one piece of chrome that
+    /// belongs to both rulers — the natural home for the guides they produce — but at 20pt it is
+    /// too small to read as a control, so the button leaves it rather than fitting inside it.
+    private static let guidesButtonSide: CGFloat = 30
+
+    private var guidesButton: some View {
+        Button {
+            guidesOpen = true
+        } label: {
+            AppIcon.ruler(color: guidesOpen ? colors.accentTeal : colors.textMuted, size: 15)
+                .frame(width: Self.guidesButtonSide, height: Self.guidesButtonSide)
+                .background(colors.surface, in: Circle())
+                .overlay(Circle().strokeBorder(colors.islandBorder, lineWidth: 1))
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .calmTooltip(l10n.guides, edge: .trailing)
+        .calmPointer()
+        .offset(
+            x: RulerView.thickness - Self.guidesButtonSide / 2,
+            y: RulerView.thickness - Self.guidesButtonSide / 2
+        )
     }
 
     private var horizontalRuler: some View {

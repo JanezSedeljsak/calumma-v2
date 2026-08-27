@@ -19,7 +19,7 @@ extension Engine {
     func beginGuideDragFromRuler(axis: CalmGuideAxis, x: Float, y: Float) {
         guard let ptr else { return }
         _ = calm_engine_guide_drag_from_ruler(ptr, axis.rawValue, x, y)
-        syncGuideCount()
+        syncGuides()
         refreshGuideReadout()
     }
 
@@ -32,7 +32,7 @@ extension Engine {
     func endGuideDrag(x: Float, y: Float) {
         guard let ptr else { return }
         _ = calm_engine_guide_drag_end(ptr, x, y)
-        syncGuideCount()
+        syncGuides()
         refreshGuideReadout()
     }
 
@@ -57,7 +57,62 @@ extension Engine {
     func clearGuides() {
         guard let ptr else { return }
         _ = calm_engine_clear_guides(ptr)
+        syncGuides()
+    }
+
+    /// The whole list, for the guides card. Read on demand rather than mirrored in a
+    /// `@Published` array: the card is the only thing that wants it, and it is open for the few
+    /// seconds someone is editing guides.
+    func guideList() -> [GuideEntry] {
+        guard let ptr else { return [] }
+        var buffer = [CalmGuide](repeating: CalmGuide(axis: 0, position: 0), count: Self.guidesCap)
+        let count = buffer.withUnsafeMutableBufferPointer {
+            calm_engine_guide_list(ptr, $0.baseAddress, Self.guidesCap)
+        }
+        return buffer.prefix(count).enumerated().compactMap { index, raw in
+            guard let axis = CalmGuideAxis(rawValue: raw.axis) else { return nil }
+            return GuideEntry(index: index, axis: axis, position: raw.position)
+        }
+    }
+
+    /// `limits::GUIDES_LIMIT`. One read of the whole list can never come back truncated.
+    private static let guidesCap = 128
+
+    func addGuide(axis: CalmGuideAxis, position: Float) {
+        guard let ptr else { return }
+        _ = calm_engine_add_guide(ptr, axis.rawValue, position)
+        syncGuides()
+    }
+
+    func setGuidePosition(index: Int, position: Float) {
+        guard let ptr else { return }
+        _ = calm_engine_set_guide_position(ptr, index, position)
+        syncGuides()
+    }
+
+    func setGuideAxis(index: Int, axis: CalmGuideAxis) {
+        guard let ptr else { return }
+        _ = calm_engine_set_guide_axis(ptr, index, axis.rawValue)
+        syncGuides()
+    }
+
+    func removeGuide(index: Int) {
+        guard let ptr else { return }
+        _ = calm_engine_remove_guide(ptr, index)
+        syncGuides()
+    }
+
+    /// Guides changed: republish the count the Board menu reads, bump the revision the card
+    /// reloads on, and ask for a frame — none of these go through a pointer path that would have
+    /// invalidated for us.
+    ///
+    /// The revision exists because the count is not enough. Flipping a guide's axis or moving it
+    /// leaves the list exactly as long as it was, so a card watching only the count kept showing
+    /// what the guide used to be while the board drew what it had become.
+    private func syncGuides() {
         syncGuideCount()
+        bumpGuidesRevision()
+        render()
     }
 
     /// The axis of the guide under a board point, or `nil` — all the board needs to offer a
@@ -93,4 +148,14 @@ final class GuideReadoutStore: ObservableObject {
     func set(_ next: GuideReadout?) {
         if readout != next { readout = next }
     }
+}
+
+/// One row of the guides card: a guide, and the index the engine knows it by. The index is only
+/// valid until the list changes, which is why every edit re-reads it.
+struct GuideEntry: Identifiable, Equatable {
+    let index: Int
+    var axis: CalmGuideAxis
+    var position: Float
+
+    var id: Int { index }
 }

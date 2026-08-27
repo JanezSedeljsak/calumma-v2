@@ -135,6 +135,9 @@ final class BoardMTKView: MTKView {
     private var lastDrag: CGPoint?
     private var painting = false
     private var panning = false
+    /// Whether the pointer is over the board. The board may only dress the cursor while it is —
+    /// see `refreshCursor`.
+    private var pointerInside = false
     private var trackingArea: NSTrackingArea?
 
     override var acceptsFirstResponder: Bool { true }
@@ -213,11 +216,16 @@ final class BoardMTKView: MTKView {
         preferredFramesPerSecond = screen?.maximumFramesPerSecond ?? 60
     }
 
+    /// AppKit calls this exactly when the pointer is over the tracking area, which makes it the
+    /// surer of the two "inside" signals: a window becoming key with the pointer already on the
+    /// board gets a `cursorUpdate` without a `mouseEntered` to go with it.
     override func cursorUpdate(with event: NSEvent) {
+        pointerInside = true
         refreshCursor()
     }
 
     override func mouseEntered(with event: NSEvent) {
+        pointerInside = true
         refreshCursor()
     }
 
@@ -229,10 +237,15 @@ final class BoardMTKView: MTKView {
     }
 
     override func mouseExited(with event: NSEvent) {
+        pointerInside = false
         hoveredGuideAxis = nil
-        NSCursor.arrow.set()
         boardCoordinator?.engine.clearPointerHover()
         MainActor.assumeIsolated { app?.clearEyedropperLoupe() }
+        // A drag that wanders off the board is still a stroke, so the tool keeps the pointer
+        // until the button comes up. Otherwise the chrome gets its arrow back.
+        if !painting, !panning {
+            NSCursor.arrow.set()
+        }
     }
 
     /// The board draws the brush at the pointer, so the pointer has to reach the engine even
@@ -446,6 +459,12 @@ final class BoardMTKView: MTKView {
     }
 
     func refreshCursor() {
+        // The board dresses the cursor only while the cursor is over the board. This is also
+        // called from `updateNSView` on every SwiftUI update and from `viewDidMoveToWindow`,
+        // neither of which knows where the pointer is — and `NSCursor.set()` applies wherever it
+        // happens to be. Without this, picking a tool put the board's cursor over the layers
+        // panel and left it there. A drag is the exception: it keeps the pointer off the board.
+        guard pointerInside || painting || panning else { return }
         let flags = NSEvent.modifierFlags.intersection(.deviceIndependentFlagsMask)
         let zoomChord = flags.contains(.command) || flags.contains(.option)
         let cursor: NSCursor
@@ -463,8 +482,17 @@ final class BoardMTKView: MTKView {
             case .vertical: cursor = .resizeLeftRight
             case nil: cursor = .arrow
             }
+        } else if boardCoordinator?.engine.brushRingVisible == true {
+            // The board is already drawing the pointer: a ring the size of the stroke, at the
+            // stroke's own scale. Asking the engine rather than testing the tool means the glyph
+            // comes straight back wherever the ring is withheld — a locked, text or vector layer,
+            // or inside `⌘T` — which is exactly where you need to be told what you are holding.
+            cursor = ToolCursor.ring
         } else {
-            cursor = .crosshair
+            // The tool in hand, drawn beside a crosshair (`ToolCursor`). Falls back to the bare
+            // crosshair for anything without a glyph, so a new tool is never cursorless.
+            let tool = MainActor.assumeIsolated { app?.tool }
+            cursor = tool.flatMap(ToolCursor.cursor(for:)) ?? .crosshair
         }
         cursor.set()
     }

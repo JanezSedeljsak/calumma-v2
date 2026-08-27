@@ -440,6 +440,12 @@ impl TileGrid {
     /// Widens the storage so `rect` can be written. Only ever grows: a grid that has been
     /// given room for an overflowing paste keeps it, because the pixels out there are the
     /// whole point and nothing else knows to put them back.
+    /// What this grid may hold, which is the document until something deliberately opens it
+    /// wider — a paste bigger than the paper, or a stroke on a layer that has been moved off it.
+    pub fn extent(&self) -> DocRect {
+        self.extent
+    }
+
     pub fn grow_extent(&mut self, rect: DocRect) {
         let next = union(self.extent, rect);
         if next == self.extent {

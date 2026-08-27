@@ -89,7 +89,8 @@ fn transform_overlay_draws_four_edges_a_stem_and_five_handles() {
     let corners = [(0.0, 0.0), (10.0, 0.0), (10.0, 8.0), (0.0, 8.0)];
     let rotate = (5.0, -6.0);
     let out = transform_overlay_instances((0, corners, rotate));
-    assert_eq!(out.len(), 10);
+    // Four edges, the rotate stem, then two discs per grip — the border and the grip over it.
+    assert_eq!(out.len(), 4 + 1 + 5 * 2);
 
     for i in 0..4 {
         let a = corners[i];
@@ -102,7 +103,33 @@ fn transform_overlay_draws_four_edges_a_stem_and_five_handles() {
         assert_eq!(handle.segment[0], handle.segment[2]);
         assert_eq!(handle.segment[1], handle.segment[3]);
     }
-    assert_eq!(out[9].segment, [rotate.0, rotate.1, rotate.0, rotate.1]);
+    let last = out.len() - 1;
+    assert_eq!(out[last].segment, [rotate.0, rotate.1, rotate.0, rotate.1]);
+}
+
+/// A white grip is invisible on white paper, so each one is a grey disc with the white one
+/// drawn over it. The order is what makes it a ring rather than a smudge, and the border has to
+/// stay the larger of the two.
+#[test]
+fn every_grip_is_a_white_disc_over_a_larger_grey_one() {
+    let corners = [(0.0, 0.0), (10.0, 0.0), (10.0, 8.0), (0.0, 8.0)];
+    let out = transform_overlay_instances((0, corners, (5.0, -6.0)));
+
+    for pair in out[5..].chunks(2) {
+        let (border, grip) = (pair[0], pair[1]);
+        assert_eq!(
+            border.segment, grip.segment,
+            "border sits under its own grip"
+        );
+        assert!(
+            border.brush[0] > grip.brush[0],
+            "border radius {} must exceed grip radius {}",
+            border.brush[0],
+            grip.brush[0]
+        );
+        assert_eq!(grip.color, [1.0, 1.0, 1.0, 1.0]);
+        assert!(border.color[0] < 1.0 && border.color[1] < 1.0 && border.color[2] < 1.0);
+    }
 }
 
 #[test]

@@ -182,3 +182,46 @@ fn the_gate_calls_are_null_safe() {
         CalmStatus::Error
     );
 }
+
+/// The shell hides its own cursor while the ring is up, so "is there a ring" has to be exactly
+/// `Document::brush_ring` and not the shell's guess at it — a ring withheld over a locked layer
+/// has to bring the pointer back.
+#[test]
+fn brush_ring_visibility_follows_the_tool_the_layer_and_the_pointer() {
+    let e = GateEngine::new();
+    unsafe {
+        assert_eq!(
+            calm_engine_brush_ring_visible(e.ptr),
+            0,
+            "no pointer over the board yet"
+        );
+        assert_eq!(
+            calm_engine_set_tool(e.ptr, Tool::Pen as u32),
+            CalmStatus::Ok
+        );
+        assert_eq!(
+            calm_engine_set_pointer_hover(e.ptr, 20.0, 20.0),
+            CalmStatus::Ok
+        );
+        assert_eq!(calm_engine_brush_ring_visible(e.ptr), 1);
+
+        // A tool that lays no stamp has no ring to show.
+        assert_eq!(
+            calm_engine_set_tool(e.ptr, Tool::Fill as u32),
+            CalmStatus::Ok
+        );
+        assert_eq!(calm_engine_brush_ring_visible(e.ptr), 0);
+
+        assert_eq!(
+            calm_engine_set_tool(e.ptr, Tool::Pen as u32),
+            CalmStatus::Ok
+        );
+        assert_eq!(calm_engine_brush_ring_visible(e.ptr), 1);
+        assert_eq!(calm_engine_clear_pointer_hover(e.ptr), CalmStatus::Ok);
+        assert_eq!(
+            calm_engine_brush_ring_visible(e.ptr),
+            0,
+            "pointer off the board takes the ring with it"
+        );
+    }
+}

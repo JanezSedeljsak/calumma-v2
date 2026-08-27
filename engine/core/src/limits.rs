@@ -21,7 +21,17 @@ pub const STAMP_SPACING_RATIO: f32 = 0.5;
 pub const MIN_STAMP_SPACING: f32 = 0.5;
 pub const STAMP_COVERAGE_PADDING: f32 = 1.0;
 
-pub const BRUSH_SIZE_MIN: f32 = 1.0;
+/// How small the brush may get **on screen**, whatever the zoom. A size is chosen in document
+/// pixels, but at a low enough zoom any document size disappears: on a 4096px board fitted to a
+/// laptop, one document pixel is a fraction of a screen one, and a stroke you cannot see is a
+/// stroke you cannot aim. Three across is the same threshold the ring uses to stay a ring
+/// rather than a smudge (`BRUSH_RING_MIN_SCREEN_DIAMETER`), for the same reason.
+pub const BRUSH_MIN_SCREEN_PX: f32 = 3.0;
+
+/// Eight document pixels. A one-pixel brush is a hairline nobody reaches for on a board this
+/// size, and it is the size at which the ring drawn around the pointer stops being a ring —
+/// so the floor is where a stroke still reads as a stroke.
+pub const BRUSH_SIZE_MIN: f32 = 8.0;
 /// A thousand document pixels, because the brush has to be able to cover a board as well as
 /// draw on it — a wash, a soft shadow, or an eraser that clears a region in one pass is a
 /// brush the size of the thing it is working on, not a 96px one dragged in rows. The cost of
@@ -29,7 +39,9 @@ pub const BRUSH_SIZE_MIN: f32 = 1.0;
 /// half-diameter, so a stroke of a given screen length costs *fewer* stamps as the brush
 /// grows, and the per-stamp area is what scales.
 pub const BRUSH_SIZE_MAX: f32 = 1000.0;
-pub const BRUSH_SIZE_DEFAULT: f32 = 3.0;
+/// The floor, which is the fine end of the range — a new board should start on the finest brush
+/// it has, and 3.0 is no longer one of the sizes this brush can be.
+pub const BRUSH_SIZE_DEFAULT: f32 = BRUSH_SIZE_MIN;
 /// One press of `[` / `]`. Proportional, not a flat pixel: on a 1..1000 range a fixed step
 /// either takes a thousand presses to cross or skips every size a fine brush cares about.
 /// Ten percent crosses the whole range in under sixty presses and still moves a 3px pen by
@@ -267,3 +279,9 @@ pub const GUIDE_MIN_SEPARATION: f32 = 0.5;
 /// Ceiling on guides per document. Guides are chrome, not content — a board that wants more
 /// rules than this wants a grid.
 pub const GUIDES_LIMIT: usize = 128;
+
+/// Holding Shift while dragging a guide drops it on a round number instead of wherever the
+/// pointer happens to be. Ten document pixels, the step anyone reaching for a tidy margin
+/// actually wants — this is a *coarsening* of the position, not a snap to something nearby, so
+/// it is unrelated to `GUIDE_SNAP_PX`.
+pub const GUIDE_SHIFT_STEP: f32 = 10.0;

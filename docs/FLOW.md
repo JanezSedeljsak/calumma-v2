@@ -131,11 +131,11 @@ are not openable, they are open.
   key**, muted mono beside the name — except where the active layer refuses the tool, where
   the tooltip is the refusal and carries no key. When **Move** is selected the options panel
   carries a **Transform** toggle — `⌘T` on the active layer, a *mode* not a tool, lit from
-  engine state (`CalmState.transform_active`). Picking Move **turns it on**: reaching for Move
-  almost always means scale or rotate as well, so a grab shows scale/rotate handles and
-  clicking a layer's pixels selects it. The toggle (or `⌘T`) turns it back off, leaving Move
-  as a plain drag — and picking Move again while it is *already* the tool leaves the mode
-  alone, so switching it off sticks. Then a
+  engine state (`CalmState.transform_active`). Off, Move only drags a layer around; on, the same
+  grab shows scale/rotate handles and clicking a layer's pixels selects it. Picking Move leaves
+  the mode as it was: transform is asked for, never assumed. Paste and drop are the exception —
+  they hand the new layer over already inside `⌘T`, because placing it is the next thing anyone
+  does. Then a
   contextual options section below the grid that changes with the selected tool
   (shape/selection sub-picker + independent **Fill** and **Stroke** toggles for
   the shape tools that enclose an area — Rect, Ellipse, Triangle, Pentagon; Line and Arrow are
@@ -193,11 +193,14 @@ persist across launches.
 | Action | How |
 | --- | --- |
 | Paint / place shape | Click-drag on the board (pointer down → move → up). Engine converts **screen** coords. |
+| Brush size floor | The slider's floor is `BRUSH_SIZE_MIN` (8 document pixels), but the brush carries a **second floor in screen pixels** that rises as the board is zoomed out: never under `BRUSH_MIN_SCREEN_PX` (3) across. On a 4096px board fitted to a window a whole document pixel is a fraction of a screen one, so the finest brush would be invisible — and a stroke you cannot see is one you cannot aim. Zooming *in* never shrinks it below the document floor: the floor is on what can be seen, and zoomed in it can be. `Document::effective_brush_size` is the one answer, read by the ring, the GPU preview and the commit alike — two of them disagreeing is exactly how a stroke moves when the preview hands over. A brush of size 0 stays 0 (no brush, not a small one), and **vector mode is exempt**: its width is stored in the item and redrawn at every zoom, so folding today's camera into it would bake the zoom into the document. |
 | See the brush | Pen, Eraser and Blur draw a **ring at the pointer, the size of the brush** — document geometry, so it scales with the zoom exactly as the stamp does, with the line held at one screen pixel by `vs_overlay`. Two rings a pixel apart, light inside dark, because one colour cannot stay legible over both white paper and black ink. Under ~3px across it collapses to a dot. It is withheld exactly where a stroke would be refused — a text, vector or locked layer, or inside `⌘T` — so no ring means no stroke. `Document::brush_ring` owns every one of those rules; the shell only forwards the pointer (`calm_engine_set_pointer_hover`) and takes it away while panning or zoom-chording. |
-| Move a layer or vector item | Select **Move** on the tools island, then drag painted pixels or a vector item. Arrow keys nudge the same target. **Transform** comes on with Move, so scale/rotate handles are live and the press selects the layer; turn it off (options toggle or `⌘T`) for a plain drag. |
+| Move a layer or vector item | Select **Move** on the tools island, then drag painted pixels or a vector item. Arrow keys nudge the same target. Turn **Transform** on (options toggle or `⌘T`) for scale/rotate of that layer; the same press selects it. Picking Move does *not* turn it on — it is a mode you ask for. |
 | Resize a vector item | Select it (Move or `⌘T`), then drag a corner of its box. Proportional by default, **Shift** frees the two axes — the same polarity as a `⌘T` corner. |
 | Constrain a shape | Hold **Shift** while dragging **Rect** or **Ellipse** (and their marquee twins) for a square or circle. Corner-anchored, and the *longer* side wins, so the shape fills the drag. Press or release Shift mid-drag and the board snaps immediately — the clamp is derived from the raw drag on every frame, not baked in on the last mouse-move. Line, Arrow, Triangle and Pentagon are unconstrained (angle snap and regular-polygon lock are different clamps, not built). |
-| Pull a guide | Drag off the top ruler for a horizontal rule, off the left ruler for a vertical one; drag one with **Move** to reposition it, and release it back over a ruler to discard it. Layers, shapes and scale handles snap to guides within `GUIDE_SNAP_PX`. |
+| Pull a guide | Drag off the top ruler for a horizontal rule, off the left ruler for a vertical one; drag one with **Move** to reposition it, and release it back over a ruler to discard it. Hold **Shift** while dragging to land on a whole `GUIDE_SHIFT_STEP` (10 document pixels). Layers, shapes and scale handles snap to guides within `GUIDE_SNAP_PX`. |
+| Edit guides as a list | The **ruler button** where the two rulers cross opens the guides card — every guide with its edge and offset, typed rather than dragged, plus Add and Clear. |
+| Draw on a moved layer | The stroke is mapped **into the layer's own grid** before it is stamped (`Layer::doc_point_to_grid` / `doc_length_to_grid`). A layer holds its pixels in grid space and the renderer maps that grid into the document through the layer's transform, so a stroke stamped at the document coordinate would be carried somewhere else the instant the preview handed over — which is what made a stroke on a moved or scaled paste jump on pointer-up. Coverage is bounded by the grid's **extent**, not the paper, so a stroke on the part of a pasted image hanging off the canvas still lands. |
 | Live preview | GPU stroke/shape while dragging; CPU commit into sparse tiles on pointer-up. A shape previews its fill *and* its border in their own colors, because `board.wgsl`'s `shape_ink` composites the same two parts, in the same order, that the commit does. |
 | Pan | Scroll wheel / trackpad scroll; **middle-button drag**; Space-drag; or Option/⌘-drag |
 | Zoom | Pinch; ⌘ + scroll; Option + scroll; or ⌘`=` / ⌘`-` |
@@ -234,6 +237,40 @@ handles snap to. Two things about how they are drawn:
   view watching `AppModel` — the whole editor — and this updates on every pointer move. Only
   the readout label observes the store, so only the label redraws. `Engine.pointerMove` avoids
   the same cost during a stroke by syncing nothing at all; this is that rule, kept.
+
+**The guides card**, from the ruler corner, is the list view of the same guides:
+
+- Each row carries a **Top / Left toggle** and an offset. Naming the edge a guide is measured
+  from beats naming the axis it runs along, which is the part nobody keeps straight: a
+  horizontal rule is placed by how far *down* it sits. Toggling a row moves that guide to the
+  other edge keeping its number, clamped if the document is not square enough to hold it, and
+  refused outright if the other edge already has a guide there — the same no-duplicates rule
+  `add_guide` enforces, so it shows as the toggle simply not moving.
+- Adding takes that same toggle and an offset, so a guide can be put at exactly 240 instead of
+  dragged near it. The trash icon on a row removes that guide.
+- The button is a **circle wider than the 20pt corner**, centred on where the rulers cross so it
+  spills onto both strips and onto the board. Drawn as an overlay on the ruler stack rather than
+  placed in it, so overflowing costs the rulers no width.
+- The card is a **modal**, not a popover off the button. The list is the point of the panel and
+  wants to be tall, and an `NSPopover` sizes itself to what its content offers — a `ScrollView`
+  offers nothing, so it came out two rows high whatever ceiling it was given. A modal is *told*
+  its size (`GuidesCard.size(in:)`, measured against the window: 380pt wide, up to 640 tall)
+  rather than negotiating for one, and the list then fills whatever is left. Anything else in
+  this shell that needs a definite height should be a modal for the same reason.
+- A typed position is **clamped onto the paper**, never discarded — unlike a *drag* released
+  past the edge, which throws the guide away. Someone typing 5000 meant the far edge
+  (`Document::set_guide_position`).
+- The card re-reads the list after every edit rather than keeping a copy: an index only means
+  something until the list changes. It reloads on **`Engine.guidesRevision`**, bumped by every
+  guide mutation — not on `guideCount`, which is the same before and after a guide is moved or
+  flipped. Watching the count is what left a flipped row showing its old edge while the board
+  already drew the new one.
+
+**Shift while dragging** rounds the guide to a whole `GUIDE_SHIFT_STEP`. The step is in
+*document* pixels, not screen ones — a guide put on 120 has to still be on 120 at every zoom,
+and a step measured on screen would land somewhere different each time. The board already feeds
+`shift_held` from its own key handling; a ruler drag is a SwiftUI gesture that carries no
+modifiers and never reaches that path, so `RulerView` reads the flag off the keyboard itself.
 
 Camera clamping, zoom floor, and dirty-flag render live in Rust — never reimplemented in
 Swift. Pan is clamped with slack rather than pinned: the paper can be dragged around at any
@@ -771,14 +808,14 @@ panel toggles are shell knobs.
 | `M` | Selection (rect / ellipse / lasso — last one used) | Yes (Ps Marquee) |
 | `G` | Fill (bucket) | Yes (Ps Paint Bucket, shared with Gradient) |
 | `I` | Eyedropper (live sample under the cursor into the active primary/secondary swatch; loupe shows color + hex; a circle shows the sample area) | Yes |
-| Move tool | Tools island — click a layer's pixels or a vector item to drag it. Transform comes on with the tool, so scale/rotate handles are live and selecting a layer's pixels makes it active; switch Transform off (options toggle or `⌘T`) and a grab is a plain drag. Empty space is a no-op. No bare key of its own — `V` stays vector mode, so `⌘T` is the chord its tooltip prints. | Ps `V` is Move; that key is already vector mode here |
+| Move tool | Tools island — click a layer's pixels or a vector item to drag it; Transform off, that is all it does. Transform on (options toggle or `⌘T`) adds scale/rotate handles and selecting a layer's pixels makes it active. Empty space is a no-op. No bare key of its own — `V` stays vector mode, so `⌘T` is the chord its tooltip prints. | Ps `V` is Move; that key is already vector mode here |
 | `⌘T` | Select Move and toggle transform mode on the active layer (scale/rotate/move); click another layer's pixels to retarget, click empty space, `Return` or `Esc` to exit | Yes (Ps Free Transform) |
 | `Return` | Exit transform mode, leaving the selection and the layer's transform alone. Does nothing outside transform, and types a newline while a text layer is open | Yes (Ps commits Free Transform on Return) |
 | `⌥⌘G` | Clip to Below on the active layer — see Layers | Yes (Ps Create Clipping Mask, though ours merges rather than clipping live) |
 | `⌃⌘F` | Enter / exit full screen (re-homed from the removed View menu) | macOS standard |
 | `F` | Toggle shape fill | — |
 | `S` | Toggle shape stroke — independent of fill, so a shape can carry both | — (Figma has both by default) |
-| `⇧` (held while dragging) | Constrain Rect / Ellipse to a square / circle; on a `⌘T` or vector-item corner, free the two axes instead | Yes (Ps shape constrain) |
+| `⇧` (held while dragging) | Constrain Rect / Ellipse to a square / circle; on a `⌘T` or vector-item corner, free the two axes instead; on a **guide**, round its position to a whole 10 | Yes (Ps shape constrain) |
 | `V` | Toggle vector mode (shapes and the pen each commit as their own vector layer) | — (Ps has no equivalent; closest is Figma's vector tools) |
 | `←` `→` `↑` `↓` | Nudge the selected vector item, or the active layer when Move / `⌘T` is the current tool | Yes (Ps nudge) |
 | `⌫` / `⌦` | Delete the selected vector item (falls back to the old clear behaviour when none is selected) | Yes |
@@ -809,9 +846,39 @@ panel toggles are shell knobs.
 | ⌘ + scroll or Option + scroll | Zoom toward cursor |
 | Pinch | Zoom |
 
-Cursors: crosshair on the board (including Eyedropper), **open hand** while space is held
-or the middle button is armed, **closed hand** while actually panning, zoom-in while
-⌘/Option held over the board, pointing hand on chrome controls.
+Cursors: **the tool in hand** on the board — a crosshair at the hotspot with the tool's own
+glyph beside it, drawn from `design/icons` through `CalmTool.iconName` so a tool is the same
+picture under the pointer as in the tools panel (`ToolCursor`). The glyph sits down and right
+of the point rather than on it, since a glyph covering the target is the thing a crosshair
+exists to avoid; both are drawn white over a dark halo, for the reason the brush ring is
+two-tone — one colour cannot stay legible over both white paper and black ink.
+
+**The ring stops where the stamps stop.** `brush_ring` answers `None` once the pointer is off the
+active layer — measured against the layer's own **extent**, not the paper, so a pasted image that
+overflows the canvas keeps its ring out over the desk where it still takes paint. The ring is
+also drawn *outside* the paper scissor, like the guides, for the same reason. Getting either half
+wrong is visible immediately: the shell hides its own cursor for exactly as long as there is a
+ring, so a ring the renderer then clipped away left no pointer at all over the canvas island.
+Vector mode is exempt — it commits into a layer of its own and has no grid to fall off.
+
+**Where the board already rings the pointer, the shell shows nothing at all.** Pen, Eraser and
+Blur draw a ring the size of the stroke, in document units so it scales with the zoom — that
+*is* the cursor, and a glyph beside it would be a second pointer answering a question the ring
+answers better. The shell asks `calm_engine_brush_ring_visible` rather than testing the tool
+itself, so wherever the ring is withheld — a locked, text or vector layer, or inside `⌘T` — the
+glyph comes straight back, which is exactly where you need telling what you are holding. The
+blank cursor is an empty image, not `NSCursor.hide()`: that call is counted, and one unbalanced
+pair leaves the pointer gone for good.
+
+The board dresses the cursor **only while the pointer is over the board**. `refreshCursor` also
+runs on every SwiftUI update and when the view moves to a window, neither of which knows where
+the mouse is, and `NSCursor.set()` applies wherever it happens to be — so picking a tool used to
+leave the board's cursor sitting over the layers panel. A drag is the one exception: a stroke
+that wanders off the board keeps the pointer until the button comes up.
+
+Text keeps the **I-beam** and Move the **arrow** (or a resize arrow over a guide); **open hand**
+while space is held or the middle button is armed, **closed hand** while actually panning,
+zoom-in while ⌘/Option held over the board, pointing hand on chrome controls.
 
 ---
 

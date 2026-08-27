@@ -115,9 +115,9 @@ struct ToolsPanel: View {
         .calmPointer()
     }
 
-    /// Picking Move brings transform on with it — a grab shows scale/rotate handles and selects
-    /// the layer. The options toggle (and `⌘T`) turns it back off, leaving Move as a plain drag;
-    /// picking the tool again while it is already selected does not switch it back on.
+    /// Move just selects Move: a grab drags the layer and nothing else. Transform is the options
+    /// toggle (and `⌘T`), which adds the scale/rotate handles on top — a mode you ask for, not
+    /// one that arrives with the tool.
     private var moveButton: some View {
         let selected = app.tool == .move
         let transforming = selected && app.engine.state.transformActive

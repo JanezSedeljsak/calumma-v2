@@ -62,7 +62,7 @@ pub use limits::{
     LOSSY_EXPORT_QUALITY, MAX_ZOOM_HARD, MIN_VISIBLE_DOC_SIDE, MIN_ZOOM_FILL,
 };
 pub use names::{LAYER_ONE, PAPER, UNTITLED};
-pub use palette::{project_color, random_project_color, BoardColors, PROJECT_COLORS};
+pub use palette::{project_color, random_project_color, BoardColors, DeskMetrics, PROJECT_COLORS};
 pub use ruler::{ruler_ticks, RulerTick};
 pub use selection::{Selection, SelectionShape};
 pub use selection_mask::{OutlineEdge, SelectionMask};

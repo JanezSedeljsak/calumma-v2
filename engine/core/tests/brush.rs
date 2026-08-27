@@ -1,4 +1,5 @@
 use calumma_core::document::*;
+use calumma_core::paste::PasteOutcome;
 use calumma_core::*;
 
 fn board() -> Document {
@@ -364,4 +365,81 @@ fn eraser_hardness_clamps() {
     assert_eq!(doc.eraser_hardness, 0.0);
     doc.set_eraser_hardness(9.0);
     assert_eq!(doc.eraser_hardness, 1.0);
+}
+
+/// A layer that has been moved holds its pixels in its **own** grid, and the renderer maps that
+/// grid into the document through the transform. So a stroke aimed at a document coordinate has
+/// to be mapped the other way before it is stamped, or it lands in the grid at the document
+/// position and the transform then carries it somewhere else — which is exactly what a pasted
+/// image looked like: the stroke followed the pointer until pointer-up, then jumped.
+#[test]
+fn a_stroke_on_a_moved_layer_lands_where_it_was_drawn() {
+    let mut doc = board();
+    doc.add_layer("Pasted");
+    let index = doc.active_layer;
+
+    // Content first: the transform pivots on the layer's own painted bounds.
+    if let Some(tiles) = doc.layers[index].tiles_mut() {
+        for y in 10..30 {
+            for x in 10..30 {
+                tiles.set_pixel(x, y, [255, 255, 255, 255]);
+            }
+        }
+    }
+    doc.layers[index].transform = Some(LayerTransform {
+        offset_x: 40.0,
+        offset_y: 0.0,
+        ..LayerTransform::default()
+    });
+
+    // The grid point (20, 20) is drawn at document (60, 20) once the offset is applied, so a
+    // dot placed there has to come back out of the grid at (20, 20).
+    doc.set_tool(Tool::Pen);
+    doc.brush_size = 8.0;
+    doc.color = [255, 0, 0, 255];
+    doc.pointer_down(60.0, 20.0);
+    doc.pointer_up(60.0, 20.0);
+
+    assert_eq!(
+        pixel(&doc, 20, 20),
+        [255, 0, 0, 255],
+        "stroke is in grid space"
+    );
+    assert_ne!(
+        pixel(&doc, 60, 20),
+        [255, 0, 0, 255],
+        "and not at the document coordinate it was aimed at"
+    );
+}
+
+/// A pasted image bigger than the paper opens the layer's extent past the document, and the part
+/// hanging off is still part of the layer. The coverage used to be clipped to the *paper*, so a
+/// stroke out there was rasterised into nothing and silently did not happen.
+#[test]
+fn a_stroke_lands_on_the_part_of_a_pasted_layer_that_hangs_off_the_paper() {
+    let mut doc = Document::new("p".into(), "t", 64, 64);
+    doc.resize_viewport(64.0, 64.0, 1.0);
+    doc.fit_to_view();
+
+    let side = 200usize;
+    let image = vec![255u8; side * side * 4];
+    assert_eq!(
+        doc.paste_image_as_layer("Pasted", &image, side as u32, side as u32),
+        PasteOutcome::Overflowing
+    );
+
+    // Centred, so the layer reaches from -68 to 131 on both axes. This point is well past the
+    // paper's 64px edge and well inside the layer.
+    let off_paper = (110.0f32, 32.0f32);
+    doc.set_tool(Tool::Pen);
+    doc.brush_size = 8.0;
+    doc.color = [255, 0, 0, 255];
+    doc.pointer_down(off_paper.0, off_paper.1);
+    doc.pointer_up(off_paper.0, off_paper.1);
+
+    assert_eq!(
+        pixel(&doc, off_paper.0 as i32, off_paper.1 as i32),
+        [255, 0, 0, 255],
+        "the stroke has to reach the overflow"
+    );
 }

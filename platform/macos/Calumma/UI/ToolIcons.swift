@@ -1,50 +1,68 @@
 import SwiftUI
 
-/// Which glyph stands for a tool or a brush. Shared because the tool grid and the tool options
-/// below it draw the same families from opposite ends: the grid shows whichever shape or
-/// marquee was used last, the options show all of them.
-enum ToolIcon {
-    @ViewBuilder
-    static func tool(_ tool: CalmTool, color: Color) -> some View {
-        switch tool {
-        case .line: AppIcon.line(color: color)
-        case .rect: AppIcon.shape(color: color)
-        case .ellipse: AppIcon.ellipse(color: color)
-        case .arrow: AppIcon.arrow(color: color)
-        case .triangle: AppIcon.triangle(color: color)
-        case .pentagon: AppIcon.pentagon(color: color)
-        case .pen: AppIcon.pen(color: color)
-        case .eraser: AppIcon.eraser(color: color)
-        case .bucket: AppIcon.bucket(color: color)
-        case .blur: AppIcon.blur(color: color)
-        case .eyedropper: AppIcon.eyedropper(color: color)
-        case .text: AppIcon.text(color: color)
-        case .move: AppIcon.moveIcon(color: color)
-        case .transform: AppIcon.transform(color: color)
-        case .selectRect, .selectEllipse, .selectLasso: AppIcon.selectRect(color: color)
-        case .magicWand: AppIcon.magicWand(color: color)
+/// Which glyph stands for a tool or a brush. Shared because the tool grid, the tool options
+/// below it and the **board cursor** all draw the same families: the grid shows whichever shape
+/// or marquee was used last, the options show all of them, and the cursor shows whichever is in
+/// hand. One table of names, so a tool cannot be one picture in the panel and another under the
+/// pointer.
+extension CalmTool {
+    /// The icon in `design/icons` that stands for this tool. The marquee tools share one glyph
+    /// here — the grid shows the family — and are told apart by `ToolIcon.selection`.
+    var iconName: String {
+        switch self {
+        case .pen: return "pen"
+        case .eraser: return "eraser"
+        case .blur: return "blur"
+        case .bucket: return "bucket"
+        case .eyedropper: return "eyedropper"
+        case .text: return "text"
+        case .move: return "move"
+        case .transform: return "transform"
+        case .line: return "line"
+        case .rect: return "shape"
+        case .ellipse: return "ellipse"
+        case .arrow: return "arrow"
+        case .triangle: return "triangle"
+        case .pentagon: return "pentagon"
+        case .selectRect, .selectEllipse, .selectLasso: return "select-rect"
+        case .magicWand: return "magic-wand"
         }
+    }
+
+    /// The glyph for one *member* of the marquee family, where `iconName` gives the family's.
+    var selectionIconName: String {
+        switch self {
+        case .selectEllipse: return "select-ellipse"
+        case .selectLasso: return "select-lasso"
+        case .magicWand: return "magic-wand"
+        default: return "select-rect"
+        }
+    }
+}
+
+enum ToolIcon {
+    static func tool(_ tool: CalmTool, color: Color) -> some View {
+        SvgIcon(name: tool.iconName, color: color)
     }
 
     /// The marquee tools are the one family whose members do not each have a glyph of their
     /// own in `tool` — a rect, an ellipse and a lasso all select, so they are told apart here.
-    @ViewBuilder
     static func selection(_ tool: CalmTool, color: Color) -> some View {
-        switch tool {
-        case .selectEllipse: AppIcon.selectEllipse(color: color)
-        case .selectLasso: AppIcon.selectLasso(color: color)
-        case .magicWand: AppIcon.magicWand(color: color)
-        default: AppIcon.selectRect(color: color)
-        }
+        SvgIcon(name: tool.selectionIconName, color: color)
     }
 
-    @ViewBuilder
     static func brush(_ brush: CalmBrush, color: Color) -> some View {
-        switch brush {
-        case .pen: AppIcon.pen(color: color)
-        case .marker: AppIcon.marker(color: color)
-        case .crayon: AppIcon.crayon(color: color)
-        case .airbrush: AppIcon.airbrush(color: color)
+        SvgIcon(name: brush.iconName, color: color)
+    }
+}
+
+extension CalmBrush {
+    var iconName: String {
+        switch self {
+        case .pen: return "pen"
+        case .marker: return "marker"
+        case .crayon: return "crayon"
+        case .airbrush: return "airbrush"
         }
     }
 }

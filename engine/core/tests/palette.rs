@@ -29,3 +29,16 @@ fn fallback_board_is_darker_on_dark_theme() {
     assert_eq!(dark.paper_border[0], 255);
     assert_eq!(light.paper_border[0], 0);
 }
+
+/// The shader reads these out of `PaperUniforms` and `CanvasSkeleton` reads them over
+/// `calm_desk_metrics`, so the loading placeholder lands on the same lattice as the real desk.
+/// A cell smaller than its own rule, or a cross wider than a cell, would draw a solid field
+/// rather than squared paper.
+#[test]
+fn desk_metrics_describe_a_grid_that_reads_as_squared_paper() {
+    let desk = DeskMetrics::DEFAULT;
+    assert!(desk.cell > desk.line_width * 2.0);
+    assert!(desk.cross_arm * 2.0 < desk.cell);
+    assert!(desk.cross_line_width > 0.0);
+    assert!((0.0..1.0).contains(&DeskMetrics::LINE_ALPHA));
+}

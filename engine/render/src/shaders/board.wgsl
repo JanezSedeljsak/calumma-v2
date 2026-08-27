@@ -8,6 +8,9 @@ struct Uniforms {
     _pad0: f32,
     _pad1: f32,
     _pad2: f32,
+    // (cell, line width, cross arm, cross line width) — `calumma_core::DeskMetrics`, so the
+    // squared paper the shell's loading placeholder draws lands on the same lattice.
+    desk_metrics: vec4<f32>,
     desk: vec4<f32>,
     grid: vec4<f32>,
     paper_border: vec4<f32>,
@@ -31,26 +34,27 @@ fn vs_main(@builtin(vertex_index) idx: u32) -> VsOut {
     return out;
 }
 
-const DESK_CELL: f32 = 26.0;
-const DESK_LINE_W: f32 = 1.0;
-const DESK_CROSS_ARM: f32 = 3.5;
-const DESK_CROSS_LINE_W: f32 = 1.1;
 const PAPER_BORDER_W: f32 = 2.0;
+const DESK_LINE_ALPHA: f32 = 0.4;
 
 fn desk_pattern(screen: vec2<f32>) -> vec3<f32> {
     var rgb = u.desk.rgb;
+    let cell = max(u.desk_metrics.x, 1.0);
+    let line_w = u.desk_metrics.y;
+    let cross_arm = u.desk_metrics.z;
+    let cross_line_w = u.desk_metrics.w;
 
-    let cell_id = floor(screen / DESK_CELL);
-    let line_local = screen - cell_id * DESK_CELL;
-    let on_line = line_local.x < DESK_LINE_W || line_local.y < DESK_LINE_W;
+    let cell_id = floor(screen / cell);
+    let line_local = screen - cell_id * cell;
+    let on_line = line_local.x < line_w || line_local.y < line_w;
     if on_line {
-        rgb = mix(rgb, u.grid.rgb, u.grid.a * 0.4);
+        rgb = mix(rgb, u.grid.rgb, u.grid.a * DESK_LINE_ALPHA);
     }
 
-    let nearest = round(screen / DESK_CELL) * DESK_CELL;
+    let nearest = round(screen / cell) * cell;
     let cross_local = screen - nearest;
-    let on_cross = (abs(cross_local.x) < DESK_CROSS_LINE_W * 0.5 && abs(cross_local.y) < DESK_CROSS_ARM)
-        || (abs(cross_local.y) < DESK_CROSS_LINE_W * 0.5 && abs(cross_local.x) < DESK_CROSS_ARM);
+    let on_cross = (abs(cross_local.x) < cross_line_w * 0.5 && abs(cross_local.y) < cross_arm)
+        || (abs(cross_local.y) < cross_line_w * 0.5 && abs(cross_local.x) < cross_arm);
     if on_cross {
         rgb = mix(rgb, u.grid.rgb, u.grid.a);
     }
