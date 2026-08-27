@@ -83,6 +83,16 @@ impl Camera {
         )
     }
 
+    /// The whole viewport in document units, corners included — unlike
+    /// [`Camera::visible_doc_rect`], which clips to the board because it is answering "which
+    /// tiles do I upload". Chrome that has to reach the edge of the view rather than the edge
+    /// of the paper (a guide) measures itself with this.
+    pub fn viewport_doc_bounds(&self) -> (f32, f32, f32, f32) {
+        let (min_x, min_y) = self.to_doc(0.0, 0.0);
+        let (max_x, max_y) = self.to_doc(self.viewport_width, self.viewport_height);
+        (min_x, min_y, max_x, max_y)
+    }
+
     pub fn to_screen(&self, doc_x: f32, doc_y: f32) -> (f32, f32) {
         (
             doc_x * self.zoom + self.pan_x,
@@ -251,4 +261,39 @@ impl Camera {
     pub fn ruler_ticks_y(&self) -> Vec<crate::ruler::RulerTick> {
         crate::ruler::ruler_ticks(self.zoom, self.pan_y, self.viewport_height)
     }
+}
+
+/// How large a document of this size lands on screen once fitted, in viewport points — the
+/// same [`Camera::fit`] geometry, answered without a camera or an open document. The shell
+/// draws the canvas placeholder from it while a project is still loading, so the placeholder
+/// and the paper that replaces it occupy the same rectangle.
+pub fn fit_size(
+    viewport_width: f32,
+    viewport_height: f32,
+    doc_width: f32,
+    doc_height: f32,
+) -> (f32, f32) {
+    let (zoom, _, _) = fit_camera(viewport_width, viewport_height, doc_width, doc_height);
+    (doc_width * zoom, doc_height * zoom)
+}
+
+/// The camera a [`Camera::fit`] would leave behind, answered without a document or an open
+/// engine. The shell asks it while a project is still loading so rulers can print the
+/// incoming project's ticks before the board catches up.
+pub fn fit_camera(
+    viewport_width: f32,
+    viewport_height: f32,
+    doc_width: f32,
+    doc_height: f32,
+) -> (f32, f32, f32) {
+    if viewport_width <= 0.0 || viewport_height <= 0.0 || doc_width <= 0.0 || doc_height <= 0.0 {
+        return (0.0, 0.0, 0.0);
+    }
+    let mut camera = Camera {
+        viewport_width,
+        viewport_height,
+        ..Camera::default()
+    };
+    camera.fit(doc_width, doc_height);
+    (camera.zoom, camera.pan_x, camera.pan_y)
 }

@@ -22,6 +22,7 @@ struct RulerView: View {
     let zoom: Float
     let pan: Float
     let engine: Engine
+    var guidesEnabled = true
     @State private var draggingGuide = false
 
     static let thickness: CGFloat = 20
@@ -40,8 +41,9 @@ struct RulerView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(colors.surface)
         .contentShape(Rectangle())
-        .gesture(guideDrag)
+        .gesture(guidesEnabled ? guideDrag : nil)
         .onHover { inside in
+            guard guidesEnabled else { return }
             if inside, !draggingGuide {
                 guideCursor.set()
             } else if !inside, !draggingGuide {

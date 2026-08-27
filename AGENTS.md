@@ -1,8 +1,8 @@
 # AGENTS.md
 
 Calumma is a personal whiteboard: bounded project canvases you draw on with a pen or
-shapes. Projects are grouped into **workspaces**; titlebar tabs switch workspaces, and each
-switch clean-loads the workspace’s active project from SQLite.
+shapes. Titlebar tabs are the open **projects** — one tab is one project, with no grouping
+above it — and switching tabs clean-loads that project from SQLite.
 
 **Ambition:** product depth and scale in the neighbourhood of GIMP, Photoshop, Krita, and
 Figma — multi-layer documents, large canvases, dense interaction. Performance and
@@ -23,8 +23,8 @@ systems.
 Shell knobs only: active tool, active brush, color, brush size, ink opacity, flood tolerance,
 blur strength, eyedropper sample size, shape fill, shape stroke and its color, panel visibility,
 open tab ids, theme, **language**. Last-used shape and selection tools, tool taxonomy (`is_shape`,
-brush-size, vector-mode visibility), hex RGB, copy/cut bytes, and workspace switch live in
-the engine. Coordinate math, clamping, pixels, camera, history, ops dispatch,
+brush-size, vector-mode visibility), hex RGB, copy/cut bytes, and opening/closing a project
+live in the engine. Coordinate math, clamping, pixels, camera, history, ops dispatch,
 and board visuals live in Rust/WGSL.
 
 If you are about to do pan/zoom arithmetic, tile math, or layer-stack mutation in Swift —
@@ -172,13 +172,21 @@ have to be read together.
   than the canvas for why each one would otherwise lose the overflow.
 - Every project carries an **accent color** (`Document.accent`, `projects.accent` in SQLite).
   Core picks one from `palette::PROJECT_COLORS` at create time; the shell shows it on
-  landing recents and project thumbs. Workspaces also carry an accent for their titlebar
-  chip. Rename / recolor projects via `calm_project_rename` / `calm_project_set_accent`;
-  workspaces via `calm_workspace_rename` / `calm_workspace_set_accent`. The palette itself
+  landing recents, project thumbs, and the dot on that project's titlebar tab. Rename /
+  recolor via `calm_project_rename` / `calm_project_set_accent`. The palette itself
   is document data served from core (`calm_palette_color`), not a theme token.
-- Editor: **titlebar workspace tabs** (right of traffic lights). Switch = save/close current
-  → open the workspace’s active project (full reload). `+` adds a project to the active
-  workspace; **extend** opens the workspace/project overlay with cached thumbnails.
+- Editor: **titlebar project tabs** (right of traffic lights). Switch = save/close current →
+  open that project (full reload), which the shell defers by a runloop turn behind a canvas
+  skeleton so the click never blocks (`AppModel.beginLoading`, `docs/FLOW.md` → Editor
+  layout). `+` opens the New Project modal. `×` closes a tab and leaves the project in
+  SQLite; deleting one is the recents row's trash button, and it is permanent.
+- **Workspaces are gone**, code, schema and all. Projects used to be grouped into them, with
+  the titlebar tabs switching *workspaces* and an extend overlay to manage them; the feature
+  was cut back to one tab per project and the `calm_workspace_*` FFI, its `Engine` wrappers,
+  `WorkspaceInfo`, and every `ProjectStore` workspace method went with it. The three SQLite
+  tables go too, on the next open: `migrate_open_project_tabs` carries `DROP TABLE IF EXISTS`
+  for them so an older database is cleaned rather than left holding orphan tables. Nothing
+  about the feature survives — do not reintroduce it.
 - One board per project; bounded paper (not infinite canvas). The two ends of the zoom range
   are set independently and share no constant: the floor fills ~20% of the viewport
   (`MIN_ZOOM_FILL`), and the ceiling is whatever puts `MIN_VISIBLE_DOC_SIDE` (16) doc pixels
@@ -513,8 +521,8 @@ not a place to pile micro-opts that muddy the code for single-digit percent gain
 ### Residency: what is allowed to be in memory
 
 **One document is resident at a time — the one you are working on.** Everything else lives
-in SQLite. There is no document cache, no per-workspace pool, and nothing to evict on a
-timer; switching workspaces or projects goes through `Inner::close_document`, which saves
+in SQLite. There is no document cache, no per-tab pool, and nothing to evict on a
+timer; switching projects goes through `Inner::close_document`, which saves
 the old document, drops it, and calls `Renderer::release_document` so the GPU textures and
 the atlas slots keyed by its layer ids go with it. Add a new way to leave a
 document and it must route through that same function — otherwise its tiles stay in VRAM,
@@ -694,7 +702,8 @@ both already Pan), text *selection*
 only as considered features, not by restoring old app code.
 
 **Shipped from this list:** Select All / Invert Selection (`⌘A` / `⌘⇧I`), shape fill *and*
-stroke together, workspaces (titlebar tabs + extend overlay), Eyedropper
+stroke together, titlebar tabs (shipped first as *workspaces*, then cut back to one tab per
+project — see Projects and navigation; do not restore the grouping), Eyedropper
 (`I` / tools island; samples the composited pixel under the cursor into the active ink
 swatch), vector layers (`V` / tool options; one item per layer, moved and scaled with
 `⌘T` and the Move tool), text layers (`T` / tools island),

@@ -137,9 +137,17 @@ struct NewProjectView: View {
         }
     }
 
+    /// A project that already has a tab is not something you can open — it is open. Listing it
+    /// here would offer a second, slower way to select the tab you are already looking at, so
+    /// Recents is what is *not* on screen yet.
+    private var recents: [ProjectInfo] {
+        let open = Set(app.openProjects.map(\.id))
+        return app.engine.recents.filter { !open.contains($0.id) }
+    }
+
     private var recentsColumn: some View {
         CalmSection(title: l10n.recents, accent: colors.accentOrange, contentSpacing: Tokens.Space.sm) {
-            if !app.engine.recents.isEmpty {
+            if !recents.isEmpty {
                 Button(l10n.clearAllRecents) {
                     pendingClearAll = true
                 }
@@ -149,13 +157,13 @@ struct NewProjectView: View {
                 .calmPointer()
             }
         } content: {
-            if app.engine.recents.isEmpty {
+            if recents.isEmpty {
                 CalmText.muted(l10n.noRecents)
                     .padding(Tokens.Space.sm)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .calmSurface(bordered: true)
             } else {
-                ForEach(app.engine.recents.prefix(5)) { project in
+                ForEach(recents.prefix(5)) { project in
                     let hovered = hoveredRecent == project.id
                     HStack(spacing: Tokens.Space.sm) {
                         Button {

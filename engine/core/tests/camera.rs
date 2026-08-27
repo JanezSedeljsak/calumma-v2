@@ -340,3 +340,35 @@ fn a_pan_off_centre_stops_reading_as_fitted_even_at_the_fit_zoom() {
     assert!((c.zoom - c.fit_zoom(1920.0, 1080.0)).abs() < 1e-5);
     assert!(!c.is_fit(1920.0, 1080.0));
 }
+
+#[test]
+fn fit_size_matches_the_paper_a_real_fit_puts_on_screen() {
+    let mut c = cam(800.0, 600.0);
+    c.fit(1920.0, 1080.0);
+    let (w, h) = fit_size(800.0, 600.0, 1920.0, 1080.0);
+    assert!((w - 1920.0 * c.zoom).abs() < 1e-3);
+    assert!((h - 1080.0 * c.zoom).abs() < 1e-3);
+    assert!(w <= 800.0 && h <= 600.0);
+}
+
+#[test]
+fn fit_size_keeps_the_document_aspect_ratio() {
+    let (w, h) = fit_size(800.0, 600.0, 1000.0, 4000.0);
+    assert!((w / h - 0.25).abs() < 1e-4);
+}
+
+#[test]
+fn fit_size_is_empty_when_either_rectangle_is() {
+    assert_eq!(fit_size(0.0, 600.0, 1920.0, 1080.0), (0.0, 0.0));
+    assert_eq!(fit_size(800.0, 600.0, 1920.0, 0.0), (0.0, 0.0));
+}
+
+#[test]
+fn fit_camera_matches_a_real_fit() {
+    let mut c = cam(800.0, 600.0);
+    c.fit(1920.0, 1080.0);
+    let (zoom, pan_x, pan_y) = fit_camera(800.0, 600.0, 1920.0, 1080.0);
+    assert!((zoom - c.zoom).abs() < 1e-5);
+    assert!((pan_x - c.pan_x).abs() < 1e-3);
+    assert!((pan_y - c.pan_y).abs() < 1e-3);
+}

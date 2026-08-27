@@ -9,12 +9,10 @@ mod svg;
 mod text_blob;
 mod transform_blob;
 mod vector_blob;
-mod workspace;
 
 pub use png::{decode_png_rgba, encode_png_rgba};
 pub use store::{ProjectListItem, ProjectStore, StoreError};
 pub use svg::encode_svg;
-pub use workspace::WorkspaceListItem;
 
 pub use pdf::{page_size as pdf_page_size, PDF_DEFAULT_DPI};
 

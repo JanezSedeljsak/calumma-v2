@@ -155,6 +155,17 @@ fn a_null_engine_or_a_closed_project_reports_no_ticks() {
     unsafe { calm_engine_free(open) };
 }
 
+#[test]
+fn static_ruler_ticks_answer_without_an_engine() {
+    let mut buf = vec![CalmRulerTick { doc: 0.0, major: 0 }; 64];
+    let n = unsafe { calm_ruler_ticks_x(1.0, 0.0, 800.0, buf.as_mut_ptr(), buf.len()) };
+    assert!(n > 0);
+    assert_eq!(
+        unsafe { calm_ruler_ticks_x(1.0, 0.0, 800.0, ptr::null_mut(), 64) },
+        0
+    );
+}
+
 /// Ticks are document positions held to a *screen* spacing floor, so the step has to grow in
 /// document units as the camera pulls back — driven here across the whole zoom range the
 /// board allows rather than an arbitrary factor the camera would clamp.

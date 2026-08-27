@@ -1213,3 +1213,45 @@ fn an_empty_layer_cannot_enter_transform() {
     );
     assert_eq!(engine.state().transform_active, 0);
 }
+
+#[test]
+fn fit_size_answers_without_an_engine_and_refuses_null_outputs() {
+    let mut w = 0.0f32;
+    let mut h = 0.0f32;
+    let status = unsafe { calm_fit_size(800.0, 600.0, 1000.0, 1000.0, &mut w, &mut h) };
+    assert_eq!(status, CalmStatus::Ok);
+    assert!((w - h).abs() < 1e-4);
+    assert!(w > 0.0 && w <= 600.0);
+
+    let null = unsafe { calm_fit_size(800.0, 600.0, 1000.0, 1000.0, ptr::null_mut(), &mut h) };
+    assert_eq!(null, CalmStatus::Null);
+}
+
+#[test]
+fn fit_camera_answers_without_an_engine_and_refuses_null_outputs() {
+    let mut zoom = 0.0f32;
+    let mut pan_x = 0.0f32;
+    let mut pan_y = 0.0f32;
+    let status = unsafe {
+        calm_fit_camera(
+            800.0, 600.0, 1000.0, 500.0, &mut zoom, &mut pan_x, &mut pan_y,
+        )
+    };
+    assert_eq!(status, CalmStatus::Ok);
+    assert!(zoom > 0.0);
+    assert!(pan_x > 0.0);
+    assert!(pan_y > 0.0);
+
+    let null = unsafe {
+        calm_fit_camera(
+            800.0,
+            600.0,
+            1000.0,
+            500.0,
+            ptr::null_mut(),
+            &mut pan_x,
+            &mut pan_y,
+        )
+    };
+    assert_eq!(null, CalmStatus::Null);
+}

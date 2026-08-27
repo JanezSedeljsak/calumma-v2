@@ -57,7 +57,7 @@ fn closing_a_project_leaves_nothing_of_it_behind() {
     unsafe { calm_engine_free(ptr) };
 }
 
-/// Switching between projects — which is what switching workspaces does — must not
+/// Switching between projects — what clicking another titlebar tab does — must not
 /// accumulate: the second project's report is the whole engine's memory, not a sum.
 #[test]
 fn opening_another_project_replaces_the_first_rather_than_adding_to_it() {

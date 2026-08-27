@@ -149,12 +149,6 @@ fn every_status_entry_point_rejects_a_null_engine() {
             calm_project_thumbnail(e, text.as_ptr(), &mut buf, &mut len),
             CalmStatus::Null
         );
-        assert_eq!(
-            calm_workspace_rename(e, text.as_ptr(), text.as_ptr()),
-            CalmStatus::Null
-        );
-        assert_eq!(calm_workspace_delete(e, text.as_ptr()), CalmStatus::Null);
-        assert_eq!(calm_workspace_touch(e, text.as_ptr()), CalmStatus::Null);
         let mut kind = 0u32;
         assert_eq!(
             calm_engine_copy(e, &mut buf, &mut len, &mut kind),
@@ -166,10 +160,6 @@ fn every_status_entry_point_rejects_a_null_engine() {
         );
         assert_eq!(
             calm_engine_copy_layer(e, 0, &mut buf, &mut len, &mut kind),
-            CalmStatus::Null
-        );
-        assert_eq!(
-            calm_workspace_switch(e, text.as_ptr(), text.as_ptr()),
             CalmStatus::Null
         );
     }
@@ -512,21 +502,9 @@ fn a_thumbnail_is_bounded_by_its_requested_max_side() {
 }
 
 #[test]
-fn workspace_list_and_project_thumbnail_round_trip() {
-    let (_dir, e) = engine_with_project("Ws", 48, 32);
-    let name = CString::new("Desk").unwrap();
-    let mut ws_buf: Vec<CalmWorkspaceInfo> = (0..8)
-        .map(|_| CalmWorkspaceInfo {
-            id: ptr::null_mut(),
-            name: ptr::null_mut(),
-            accent: 0,
-            active_project_id: ptr::null_mut(),
-            opened_at: 0,
-        })
-        .collect();
+fn a_saved_project_hands_back_its_thumbnail_as_png() {
+    let (_dir, e) = engine_with_project("Thumb", 48, 32);
     unsafe {
-        let ws_id = calm_workspace_create(e, name.as_ptr());
-        assert!(!ws_id.is_null());
         let project_id = {
             let mut projects: Vec<CalmProjectInfo> = (0..1)
                 .map(|_| CalmProjectInfo {
@@ -546,10 +524,6 @@ fn workspace_list_and_project_thumbnail_round_trip() {
             calm_string_free(projects[0].name);
             id
         };
-        assert_eq!(
-            calm_workspace_add_project(e, ws_id, project_id.as_ptr()),
-            CalmStatus::Ok
-        );
         assert_eq!(calm_project_save(e), CalmStatus::Ok);
         let mut png: *mut u8 = ptr::null_mut();
         let mut len = 0usize;
@@ -563,16 +537,6 @@ fn workspace_list_and_project_thumbnail_round_trip() {
             &[0x89, b'P', b'N', b'G']
         );
         calm_buffer_free(png, len);
-        let n = calm_workspace_list(e, ws_buf.as_mut_ptr(), 8);
-        assert!(n >= 1);
-        for item in ws_buf.iter().take(n) {
-            calm_string_free(item.id);
-            calm_string_free(item.name);
-            if !item.active_project_id.is_null() {
-                calm_string_free(item.active_project_id);
-            }
-        }
-        calm_string_free(ws_id);
         calm_engine_free(e);
     }
 }

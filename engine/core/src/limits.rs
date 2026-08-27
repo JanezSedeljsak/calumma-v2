@@ -122,7 +122,6 @@ pub const AUTOSAVE_INTERVAL_MS: u64 = 800;
 /// mid-gesture — off the frame.
 pub const AUTOSAVE_MAX_SKIPPED_TICKS: u32 = 4;
 pub const RECENT_PROJECTS_LIMIT: usize = 32;
-pub const WORKSPACES_LIMIT: usize = 64;
 pub const PROJECT_THUMB_MAX_SIDE: u32 = 1024;
 
 pub const IMPORT_MAX_SIDE: u32 = 4096;

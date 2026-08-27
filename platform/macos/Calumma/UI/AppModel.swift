@@ -11,6 +11,10 @@ final class AppModel: ObservableObject {
     @Published private(set) var l10n: L10nCatalog = .load(.en)
     @Published var openProjects: [ProjectInfo] = []
     @Published var activeProjectId: String?
+    /// The project the canvas is waiting on, and the only reason the board shows a skeleton.
+    /// Carries the whole `ProjectInfo` rather than an id because the skeleton is drawn at that
+    /// project's own size — see `CanvasSkeleton`.
+    @Published private(set) var loadingProject: ProjectInfo?
     @Published var showLanding = true
     @Published var newProjectOpen = false
     @Published var settingsOpen = false
@@ -175,17 +179,16 @@ final class AppModel: ObservableObject {
         }
     }
 
-    /// Paste and drop still want the new layer grabbed with handles live. Picking Move on the
-    /// tools island does not enter transform — that is the options toggle / `⌘T`.
+    /// Idempotent, unlike picking Move: paste and drop want the new layer grabbed with handles
+    /// live whether or not Move was already the tool.
     func enterMoveTransform() {
         selectTool(.move)
         engine.enterTransform()
     }
 
     func toggleMoveTransform() {
-        if tool != .move {
-            selectTool(.move)
-            engine.enterTransform()
+        guard tool == .move else {
+            enterMoveTransform()
             return
         }
         engine.toggleTransform()
@@ -393,10 +396,38 @@ final class AppModel: ObservableObject {
             return
         }
         openProjectTab(project)
-        engine.openProject(id: id)
         activeProjectId = id
         showLanding = false
         newProjectOpen = false
+        beginLoading(project)
+    }
+
+    /// How long the canvas holds its skeleton at minimum. A project reads back out of SQLite
+    /// faster than that on anything small, and a placeholder that appears and vanishes inside
+    /// one frame reads as a flicker rather than as a load — so the skeleton is given long
+    /// enough to be seen, and the board underneath it is already finished by then.
+    private static let skeletonMinSeconds = 0.2
+
+    /// The tab lights up now; the board catches up a moment later. Opening a project reads its
+    /// layers back out of SQLite, and doing that inline is what made clicking a tab freeze the
+    /// window mid-click. The load is handed to the next runloop turn so the skeleton gets
+    /// painted first, and the skeleton is drawn at the incoming project's aspect ratio — so the
+    /// switch lands on a board the right shape instead of on the previous project's picture.
+    private func beginLoading(_ project: ProjectInfo) {
+        loadingProject = project
+        let ready = DispatchTime.now() + Self.skeletonMinSeconds
+        DispatchQueue.main.async { [weak self] in
+            guard let self, loadingProject?.id == project.id else { return }
+            loadProject(id: project.id)
+            DispatchQueue.main.asyncAfter(deadline: ready) { [weak self] in
+                guard let self, loadingProject?.id == project.id else { return }
+                withAnimation(.easeOut(duration: 0.18)) { self.loadingProject = nil }
+            }
+        }
+    }
+
+    private func loadProject(id: String) {
+        engine.openProject(id: id)
         refreshOpenProject(id)
         applyKnobs()
         engine.fitToScreen()
@@ -415,7 +446,7 @@ final class AppModel: ObservableObject {
                 switchToProject(id: next.id)
             } else {
                 activeProjectId = nil
-                showLanding = true
+                showLandingScreen()
             }
         }
     }
@@ -427,7 +458,7 @@ final class AppModel: ObservableObject {
             engine.save()
             engine.closeProject()
             activeProjectId = nil
-            showLanding = true
+            showLandingScreen()
         }
         engine.deleteProject(id: id)
     }
@@ -437,8 +468,16 @@ final class AppModel: ObservableObject {
         openProjects = []
         activeProjectId = nil
         persistTabs()
-        showLanding = true
+        showLandingScreen()
         newProjectOpen = false
+    }
+
+    /// Back to Landing, and the one place a pending load is abandoned: whatever the canvas was
+    /// waiting on, it is not going to be shown now, and leaving `loadingProject` set would let
+    /// the deferred open reinstate a project that was just closed or deleted.
+    private func showLandingScreen() {
+        loadingProject = nil
+        showLanding = true
     }
 
     func toggleFullScreen() {
@@ -531,11 +570,19 @@ final class AppModel: ObservableObject {
         // Leaving the text tool ends the session engine-side, which can drop an empty text
         // layer — the panel has to hear about that.
         let wasTyping = engine.textEditing
+        // Reaching for Move almost always means scale or rotate as well, so transform comes on
+        // with it. Only on the way *in*: picking Move while it is already selected leaves the
+        // mode alone, which is what keeps the options toggle (and `⌘T`) able to turn it off
+        // without the next click on the tool switching it straight back on.
+        let grabsHandles = next == .move && tool != .move
         tool = next
         if next != .eyedropper {
             clearEyedropperLoupe()
         }
         applyKnobs()
+        if grabsHandles {
+            engine.enterTransform()
+        }
         if wasTyping, next != .text {
             engine.syncState()
             engine.refreshLayers()

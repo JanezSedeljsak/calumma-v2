@@ -129,13 +129,42 @@ struct EditorView: View {
                 verticalRuler
                     .frame(width: RulerView.thickness)
                 BoardCanvas()
+                    .opacity(loading ? 0 : 1)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .overlay(alignment: .topLeading) {
                         eyedropperLoupeOverlay
                     }
+                    .overlay(alignment: .topLeading) {
+                        GuideReadoutOverlay(store: app.engine.guideReadout)
+                    }
+                    .overlay { loadingSkeleton }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+    }
+
+    /// While a project loads the board is still showing the last one, so the skeleton covers
+    /// only the canvas — rulers and the desk behind them stay up, with ticks for the project
+    /// that is arriving rather than the one being left.
+    @ViewBuilder
+    private var loadingSkeleton: some View {
+        if let project = app.loadingProject {
+            CanvasSkeleton(
+                document: CGSize(width: project.width, height: project.height)
+            )
+            .transition(.opacity)
+        }
+    }
+
+    private var loading: Bool { app.loadingProject != nil }
+
+    private var loadingRulerCamera: Engine.FitCamera? {
+        guard let project = app.loadingProject,
+              let viewport = app.engine.boardViewport else { return nil }
+        return Engine.fitCamera(
+            viewport: viewport,
+            document: CGSize(width: CGFloat(project.width), height: CGFloat(project.height))
+        )
     }
 
     private var rulerCorner: some View {
@@ -147,10 +176,11 @@ struct EditorView: View {
     private var horizontalRuler: some View {
         RulerView(
             axis: .horizontal,
-            ticks: app.engine.rulerTicksX(),
-            zoom: app.engine.state.zoom,
-            pan: app.engine.state.panX,
-            engine: app.engine
+            ticks: loadingRulerTicksX(),
+            zoom: loadingRulerCamera?.zoom ?? app.engine.state.zoom,
+            pan: loadingRulerCamera?.panX ?? app.engine.state.panX,
+            engine: app.engine,
+            guidesEnabled: !loading
         )
         .overlay(alignment: .bottom) {
             Rectangle().fill(colors.islandBorder).frame(height: 1)
@@ -160,14 +190,39 @@ struct EditorView: View {
     private var verticalRuler: some View {
         RulerView(
             axis: .vertical,
-            ticks: app.engine.rulerTicksY(),
-            zoom: app.engine.state.zoom,
-            pan: app.engine.state.panY,
-            engine: app.engine
+            ticks: loadingRulerTicksY(),
+            zoom: loadingRulerCamera?.zoom ?? app.engine.state.zoom,
+            pan: loadingRulerCamera?.panY ?? app.engine.state.panY,
+            engine: app.engine,
+            guidesEnabled: !loading
         )
         .overlay(alignment: .trailing) {
             Rectangle().fill(colors.islandBorder).frame(width: 1)
         }
+    }
+
+    private func loadingRulerTicksX() -> [RulerTick] {
+        guard let camera = loadingRulerCamera,
+              let viewport = app.engine.boardViewport else {
+            return app.engine.rulerTicksX()
+        }
+        return Engine.rulerTicksX(
+            zoom: camera.zoom,
+            pan: camera.panX,
+            viewportExtent: Float(viewport.width)
+        )
+    }
+
+    private func loadingRulerTicksY() -> [RulerTick] {
+        guard let camera = loadingRulerCamera,
+              let viewport = app.engine.boardViewport else {
+            return app.engine.rulerTicksY()
+        }
+        return Engine.rulerTicksY(
+            zoom: camera.zoom,
+            pan: camera.panY,
+            viewportExtent: Float(viewport.height)
+        )
     }
 
     @ViewBuilder
@@ -663,6 +718,36 @@ struct EditorView: View {
 
     private func iconColor(_ tool: CalmTool) -> Color {
         app.tool == tool ? colors.accentTeal : colors.textMuted
+    }
+}
+
+/// The document position of the guide being dragged, pinned to the guide itself and riding the
+/// edge it was pulled from — a horizontal rule reads down the left, a vertical one along the
+/// top, each beside its own ruler. Both numbers come from the engine
+/// (`Document::dragged_guide_readout`); nothing here converts anything.
+///
+/// Its own view, observing its own store, because it is the one piece of chrome that updates on
+/// every pointer move — see `GuideReadoutStore`.
+private struct GuideReadoutOverlay: View {
+    @Environment(\.themeColors) private var colors
+    @ObservedObject var store: GuideReadoutStore
+
+    var body: some View {
+        if let readout = store.readout {
+            CalmText.muted(readout.label, mono: true)
+                .padding(.horizontal, Tokens.Space.xs)
+                .padding(.vertical, 1)
+                .background(
+                    colors.surfaceHover,
+                    in: RoundedRectangle(cornerRadius: Tokens.Radius.sm, style: .continuous)
+                )
+                .fixedSize()
+                .offset(
+                    x: readout.axis == .vertical ? readout.screen + Tokens.Space.xs : Tokens.Space.xs,
+                    y: readout.axis == .horizontal ? readout.screen + Tokens.Space.xs : Tokens.Space.xs
+                )
+                .allowsHitTesting(false)
+        }
     }
 }
 

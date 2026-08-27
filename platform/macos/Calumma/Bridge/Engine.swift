@@ -83,16 +83,6 @@ struct ProjectInfo: Identifiable, Hashable {
     var accentColor: Color { Color(rgb: accent) }
 }
 
-struct WorkspaceInfo: Identifiable, Hashable {
-    let id: String
-    var name: String
-    var accent: UInt32
-    var activeProjectId: String?
-    let openedAt: Int64
-
-    var accentColor: Color { Color(rgb: accent) }
-}
-
 extension Color {
     init(rgb: UInt32) {
         self.init(
@@ -164,7 +154,11 @@ final class Engine: ObservableObject, @unchecked Sendable {
     private(set) var ptr: OpaquePointer?
     @Published var state = EngineState()
     @Published var recents: [ProjectInfo] = []
-    @Published var workspaces: [WorkspaceInfo] = []
+    /// Where a guide being dragged currently sits. Deliberately *not* `@Published` on the
+    /// engine: it changes on every pointer move of the drag, and an engine publish re-renders
+    /// every view observing `AppModel` — the whole editor, tools and layers included. It gets
+    /// its own small observable so the readout label is the only thing that redraws.
+    let guideReadout = GuideReadoutStore()
     @Published var layerNames: [String] = []
     @Published var layerVisibles: [Bool] = []
     @Published var layerOpacities: [Float] = []
@@ -295,11 +289,19 @@ final class Engine: ObservableObject, @unchecked Sendable {
         guard let ptr else { return }
         _ = calm_engine_pointer_down(ptr, x, y)
         syncState()
+        // A press on the board can grab a guide as well as pull one off a ruler, so the readout
+        // has to start here too.
+        refreshGuideReadout()
     }
 
     func pointerMove(x: Float, y: Float) {
         guard let ptr else { return }
         _ = calm_engine_pointer_move(ptr, x, y)
+        // The one thing a move publishes. Gated on a drag already being in flight so an ordinary
+        // stroke — where this is the hot path — pays nothing for it.
+        if guideReadout.readout != nil {
+            refreshGuideReadout()
+        }
     }
 
     func pointerUp(x: Float, y: Float) {
@@ -307,6 +309,7 @@ final class Engine: ObservableObject, @unchecked Sendable {
         _ = calm_engine_pointer_up(ptr, x, y)
         syncState()
         refreshLayers()
+        refreshGuideReadout()
     }
 
     func pan(dx: Float, dy: Float) {
@@ -347,6 +350,62 @@ final class Engine: ObservableObject, @unchecked Sendable {
         fitDeadline = 0
         _ = calm_engine_fit(ptr)
         syncState()
+    }
+
+    /// Where a document of that size lands once fitted, in viewport points — the engine's own
+    /// fit geometry, asked without an open project. The canvas placeholder shown while a
+    /// project loads is drawn on it, so it sits exactly where the paper is about to.
+    static func fitSize(viewport: CGSize, document: CGSize) -> CGSize {
+        var width: Float = 0
+        var height: Float = 0
+        guard calm_fit_size(
+            Float(viewport.width),
+            Float(viewport.height),
+            Float(document.width),
+            Float(document.height),
+            &width,
+            &height
+        ) == CalmStatusOk else {
+            return .zero
+        }
+        return CGSize(width: CGFloat(width), height: CGFloat(height))
+    }
+
+    struct FitCamera {
+        var zoom: Float
+        var panX: Float
+        var panY: Float
+    }
+
+    /// The camera a fit would leave behind, asked without an open project. Rulers use it
+    /// while a project is still loading so their ticks match the board that is about to land.
+    static func fitCamera(viewport: CGSize, document: CGSize) -> FitCamera? {
+        var zoom: Float = 0
+        var panX: Float = 0
+        var panY: Float = 0
+        guard calm_fit_camera(
+            Float(viewport.width),
+            Float(viewport.height),
+            Float(document.width),
+            Float(document.height),
+            &zoom,
+            &panX,
+            &panY
+        ) == CalmStatusOk, zoom > 0 else {
+            return nil
+        }
+        return FitCamera(zoom: zoom, panX: panX, panY: panY)
+    }
+
+    /// The board viewport the engine last resized to — still valid while a project loads.
+    var boardViewport: CGSize? {
+        guard let ptr else { return nil }
+        var width: Float = 0
+        var height: Float = 0
+        guard calm_engine_viewport(ptr, &width, &height) == CalmStatusOk, width > 0, height > 0 else {
+            return nil
+        }
+        return CGSize(width: CGFloat(width), height: CGFloat(height))
     }
 
     /// Fit now *and* on every resize for the next moment — see `fitGraceSeconds`. Use this
@@ -391,6 +450,18 @@ final class Engine: ObservableObject, @unchecked Sendable {
         rulerTicks { calm_engine_ruler_ticks_y($0, $1, $2) }
     }
 
+    static func rulerTicksX(zoom: Float, pan: Float, viewportExtent: Float) -> [RulerTick] {
+        rulerTicks(zoom: zoom, pan: pan, viewportExtent: viewportExtent) {
+            calm_ruler_ticks_x(zoom, pan, viewportExtent, $0, $1)
+        }
+    }
+
+    static func rulerTicksY(zoom: Float, pan: Float, viewportExtent: Float) -> [RulerTick] {
+        rulerTicks(zoom: zoom, pan: pan, viewportExtent: viewportExtent) {
+            calm_ruler_ticks_y(zoom, pan, viewportExtent, $0, $1)
+        }
+    }
+
     private func rulerTicks(
         _ call: (OpaquePointer, UnsafeMutablePointer<CalmRulerTick>?, Int) -> Int
     ) -> [RulerTick] {
@@ -400,6 +471,22 @@ final class Engine: ObservableObject, @unchecked Sendable {
             count: Self.rulerTickCapacity
         )
         let count = buffer.withUnsafeMutableBufferPointer { call(ptr, $0.baseAddress, Self.rulerTickCapacity) }
+        return (0..<count).map { RulerTick(doc: buffer[$0].doc, major: buffer[$0].major != 0) }
+    }
+
+    private static func rulerTicks(
+        zoom: Float,
+        pan: Float,
+        viewportExtent: Float,
+        _ call: (UnsafeMutablePointer<CalmRulerTick>?, Int) -> Int
+    ) -> [RulerTick] {
+        var buffer = Array(
+            repeating: CalmRulerTick(doc: 0, major: 0),
+            count: rulerTickCapacity
+        )
+        let count = buffer.withUnsafeMutableBufferPointer {
+            call($0.baseAddress, rulerTickCapacity)
+        }
         return (0..<count).map { RulerTick(doc: buffer[$0].doc, major: buffer[$0].major != 0) }
     }
 
@@ -447,7 +534,6 @@ final class Engine: ObservableObject, @unchecked Sendable {
         _ = calm_project_delete_all(ptr)
         syncState()
         refreshRecents()
-        refreshWorkspaces()
     }
 
     func setTool(_ tool: CalmTool) {
@@ -942,243 +1028,6 @@ final class Engine: ObservableObject, @unchecked Sendable {
         let data = Data(bytes: out, count: len)
         calm_buffer_free(out, len)
         return data
-    }
-
-    func refreshWorkspaces() {
-        guard let ptr else { return }
-        var buffer = Array(
-            repeating: CalmWorkspaceInfo(
-                id: nil,
-                name: nil,
-                accent: 0,
-                active_project_id: nil,
-                opened_at: 0
-            ),
-            count: 64
-        )
-        let count = buffer.withUnsafeMutableBufferPointer {
-            calm_workspace_list(ptr, $0.baseAddress, 64)
-        }
-        var items: [WorkspaceInfo] = []
-        for i in 0..<count {
-            let info = buffer[i]
-            guard let idPtr = info.id, let namePtr = info.name else { continue }
-            let active = info.active_project_id.map { String(cString: $0) }
-            items.append(
-                WorkspaceInfo(
-                    id: String(cString: idPtr),
-                    name: String(cString: namePtr),
-                    accent: info.accent,
-                    activeProjectId: active,
-                    openedAt: info.opened_at
-                )
-            )
-            calm_string_free(idPtr)
-            calm_string_free(namePtr)
-            if let activePtr = info.active_project_id {
-                calm_string_free(activePtr)
-            }
-        }
-        workspaces = items
-    }
-
-    @discardableResult
-    func createWorkspace(name: String) -> String? {
-        guard let ptr else { return nil }
-        let idPtr = name.withCString { calm_workspace_create(ptr, $0) }
-        guard let idPtr else { return nil }
-        let id = String(cString: idPtr)
-        calm_string_free(idPtr)
-        refreshWorkspaces()
-        return id
-    }
-
-    @discardableResult
-    func createWorkspaceForProject(projectId: String, name: String) -> String? {
-        guard let ptr else { return nil }
-        let idPtr = projectId.withCString { projectPtr in
-            name.withCString { namePtr in
-                calm_workspace_create_for_project(ptr, projectPtr, namePtr)
-            }
-        }
-        guard let idPtr else { return nil }
-        let id = String(cString: idPtr)
-        calm_string_free(idPtr)
-        refreshWorkspaces()
-        return id
-    }
-
-    func workspaceForProject(projectId: String) -> String? {
-        guard let ptr else { return nil }
-        let idPtr = projectId.withCString { calm_workspace_for_project(ptr, $0) }
-        guard let idPtr else { return nil }
-        let id = String(cString: idPtr)
-        calm_string_free(idPtr)
-        return id
-    }
-
-    func renameWorkspace(id: String, to name: String) {
-        guard let ptr else { return }
-        _ = id.withCString { idPtr in
-            name.withCString { namePtr in
-                calm_workspace_rename(ptr, idPtr, namePtr)
-            }
-        }
-        refreshWorkspaces()
-    }
-
-    func setWorkspaceAccent(id: String, color: Color) {
-        guard let ptr else { return }
-        _ = id.withCString { calm_workspace_set_accent(ptr, $0, color.packedRGB) }
-        refreshWorkspaces()
-    }
-
-    func deleteWorkspace(id: String) {
-        guard let ptr else { return }
-        _ = id.withCString { calm_workspace_delete(ptr, $0) }
-        refreshWorkspaces()
-    }
-
-    func addProjectToWorkspace(workspaceId: String, projectId: String) {
-        guard let ptr else { return }
-        _ = workspaceId.withCString { wsPtr in
-            projectId.withCString { projectPtr in
-                calm_workspace_add_project(ptr, wsPtr, projectPtr)
-            }
-        }
-        refreshWorkspaces()
-    }
-
-    func removeProjectFromWorkspace(workspaceId: String, projectId: String) {
-        guard let ptr else { return }
-        _ = workspaceId.withCString { wsPtr in
-            projectId.withCString { projectPtr in
-                calm_workspace_remove_project(ptr, wsPtr, projectPtr)
-            }
-        }
-        refreshWorkspaces()
-    }
-
-    func workspaceProjects(workspaceId: String) -> [ProjectInfo] {
-        guard let ptr else { return [] }
-        var buffer = Array(
-            repeating: CalmProjectInfo(
-                id: nil,
-                name: nil,
-                width: 0,
-                height: 0,
-                opened_at: 0,
-                accent: 0
-            ),
-            count: 32
-        )
-        let count = workspaceId.withCString { wsPtr in
-            buffer.withUnsafeMutableBufferPointer {
-                calm_workspace_projects(ptr, wsPtr, $0.baseAddress, 32)
-            }
-        }
-        var items: [ProjectInfo] = []
-        for i in 0..<count {
-            let info = buffer[i]
-            guard let idPtr = info.id, let namePtr = info.name else { continue }
-            items.append(
-                ProjectInfo(
-                    id: String(cString: idPtr),
-                    name: String(cString: namePtr),
-                    width: Int(info.width),
-                    height: Int(info.height),
-                    openedAt: info.opened_at,
-                    accent: info.accent
-                )
-            )
-            calm_string_free(idPtr)
-            calm_string_free(namePtr)
-        }
-        return items
-    }
-
-    func setWorkspaceActiveProject(workspaceId: String, projectId: String?) {
-        guard let ptr else { return }
-        _ = workspaceId.withCString { wsPtr in
-            if let projectId {
-                projectId.withCString { calm_workspace_set_active_project(ptr, wsPtr, $0) }
-            } else {
-                calm_workspace_set_active_project(ptr, wsPtr, nil)
-            }
-        }
-        refreshWorkspaces()
-    }
-
-    func touchWorkspace(id: String) {
-        guard let ptr else { return }
-        _ = id.withCString { calm_workspace_touch(ptr, $0) }
-        refreshWorkspaces()
-    }
-
-    func workspace(id: String) -> WorkspaceInfo? {
-        guard let ptr else { return nil }
-        var info = CalmWorkspaceInfo(
-            id: nil,
-            name: nil,
-            accent: 0,
-            active_project_id: nil,
-            opened_at: 0
-        )
-        let status = id.withCString { calm_workspace_get(ptr, $0, &info) }
-        guard status == CalmStatusOk, let idPtr = info.id, let namePtr = info.name else {
-            return nil
-        }
-        let active = info.active_project_id.map { String(cString: $0) }
-        let item = WorkspaceInfo(
-            id: String(cString: idPtr),
-            name: String(cString: namePtr),
-            accent: info.accent,
-            activeProjectId: active,
-            openedAt: info.opened_at
-        )
-        calm_string_free(idPtr)
-        calm_string_free(namePtr)
-        if let activePtr = info.active_project_id {
-            calm_string_free(activePtr)
-        }
-        return item
-    }
-
-    func loadOpenWorkspaceTabs() -> [String] {
-        guard let ptr else { return [] }
-        var buffer = Array(repeating: Optional<UnsafeMutablePointer<CChar>>.none, count: 64)
-        let count = buffer.withUnsafeMutableBufferPointer {
-            calm_open_workspace_tabs(ptr, $0.baseAddress, 64)
-        }
-        var ids: [String] = []
-        for i in 0..<count {
-            guard let idPtr = buffer[i] else { continue }
-            ids.append(String(cString: idPtr))
-            calm_string_free(idPtr)
-        }
-        return ids
-    }
-
-    func persistOpenWorkspaceTabs(_ ids: [String]) {
-        guard let ptr else { return }
-        if ids.isEmpty {
-            _ = calm_set_open_workspace_tabs(ptr, nil, 0)
-            return
-        }
-        var owned = ids.map { strdup($0) }
-        defer {
-            for item in owned {
-                if let item { free(item) }
-            }
-        }
-        owned.withUnsafeMutableBufferPointer { buffer in
-            buffer.baseAddress?.withMemoryRebound(
-                to: UnsafePointer<CChar>?.self,
-                capacity: ids.count
-            ) { rebound in
-                _ = calm_set_open_workspace_tabs(ptr, rebound, ids.count)
-            }
-        }
     }
 
     func refreshRecents() {

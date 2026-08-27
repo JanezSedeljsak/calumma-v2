@@ -10,8 +10,11 @@
 		003758EFE9AFCEC31EBE0916 /* QuickColorPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 325DCF49B2075A1668143925 /* QuickColorPicker.swift */; };
 		044AC973DA0486186FD98643 /* EngineClipboard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88CB056FB322D551B39916BA /* EngineClipboard.swift */; };
 		172AB3B35B9A43CC638AEF65 /* RulerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 841BE8081B1CD6392825EAFD /* RulerView.swift */; };
+		1BBDBC4AEF2C16EEA5D7FE45 /* CanvasSkeleton.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9A62EF316A849548EE11BCE /* CanvasSkeleton.swift */; };
 		22FD5D2BC31EF4DCDBDE5C44 /* PasteArtworkIsland.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A68AB27B47F3D877681F5A5 /* PasteArtworkIsland.swift */; };
 		271D05E9C3C1712DD26F4358 /* MenuBarChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D3C37748893CB5EC5112010 /* MenuBarChrome.swift */; };
+		29FCD5C88006FCDD79AD4DBC /* ToolIcons.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2BDE2EE51E29498DC7457D83 /* ToolIcons.swift */; };
+		312094FCF007DFADADA8F65C /* ToolOptions.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC8A2CCF316C7C880346572D /* ToolOptions.swift */; };
 		3330E3B90133B093966EDE0D /* CalmDeferredSlider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06C04ABB73D8A39B73D40DF2 /* CalmDeferredSlider.swift */; };
 		439C1853EC6CE0C2FA36F8CE /* ToolsPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A14A1D292C2FDA030B798F55 /* ToolsPanel.swift */; };
 		457103E8669325D73966619A /* ProjectSettingsCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8785BD6BC0D2FF8DDBFB7CD2 /* ProjectSettingsCard.swift */; };
@@ -26,6 +29,7 @@
 		73A5E53754D26728ADB855A6 /* VisionPlatformOps.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEC7EF79AFCFCA58FBB65691 /* VisionPlatformOps.swift */; };
 		7746F3F65DB4F153EA3B8EAB /* CalmTooltip.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB8067B80D342F0E64ADE69F /* CalmTooltip.swift */; };
 		7805565381ACFCB4E8BF5FAD /* EngineGuides.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CEBBDC14295A09843C610B5 /* EngineGuides.swift */; };
+		790B96369D2E397D7EEC3B1D /* ToolLabels.swift in Sources */ = {isa = PBXBuildFile; fileRef = B82B42B29EDC9298F686D578 /* ToolLabels.swift */; };
 		7A7467919BDC8A4BEF1466AC /* WindowChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21E774F5B09444C6679E12D2 /* WindowChrome.swift */; };
 		7AE274FD18EAA2171ABD2734 /* Icons.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5373C498C69FB0F7E4616689 /* Icons.swift */; };
 		87755761F779CE9B1C56775F /* EditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5253321F872EAF646F41752 /* EditorView.swift */; };
@@ -66,6 +70,7 @@
 		1D3C37748893CB5EC5112010 /* MenuBarChrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarChrome.swift; sourceTree = "<group>"; };
 		1D71706379045E8B7E735105 /* icons */ = {isa = PBXFileReference; lastKnownFileType = folder; name = icons; path = ../../design/icons; sourceTree = SOURCE_ROOT; };
 		21E774F5B09444C6679E12D2 /* WindowChrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowChrome.swift; sourceTree = "<group>"; };
+		2BDE2EE51E29498DC7457D83 /* ToolIcons.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolIcons.swift; sourceTree = "<group>"; };
 		2D335745961202E495414F3E /* TextOptions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextOptions.swift; sourceTree = "<group>"; };
 		325DCF49B2075A1668143925 /* QuickColorPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickColorPicker.swift; sourceTree = "<group>"; };
 		34AA2EDC7B1CF298E5BA7DA8 /* Calumma.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Calumma.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -94,8 +99,10 @@
 		A259FF110DE306B5F4001C98 /* Engine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Engine.swift; sourceTree = "<group>"; };
 		A9B60794A98312CE885682C7 /* EngineText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EngineText.swift; sourceTree = "<group>"; };
 		AAC1FBC27CAF75677BD5FA2A /* CalummaTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CalummaTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		AC8A2CCF316C7C880346572D /* ToolOptions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolOptions.swift; sourceTree = "<group>"; };
 		ACA3D649974787064B7F4E57 /* Tokens.generated.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tokens.generated.swift; sourceTree = "<group>"; };
 		B5253321F872EAF646F41752 /* EditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorView.swift; sourceTree = "<group>"; };
+		B82B42B29EDC9298F686D578 /* ToolLabels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolLabels.swift; sourceTree = "<group>"; };
 		C8C335FD29B637F4717C54D3 /* CalmToast.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalmToast.swift; sourceTree = "<group>"; };
 		CB8067B80D342F0E64ADE69F /* CalmTooltip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalmTooltip.swift; sourceTree = "<group>"; };
 		CE709E2E9424992120C350AD /* NewProjectView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewProjectView.swift; sourceTree = "<group>"; };
@@ -103,6 +110,7 @@
 		D488F0962728FB92355DF3E4 /* L10nEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = L10nEnvironment.swift; sourceTree = "<group>"; };
 		D7059AFA6095E58E7AB86069 /* EngineSmokeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EngineSmokeTests.swift; sourceTree = "<group>"; };
 		D8DDDEE92F4617DBE2926291 /* ProjectTitlebarTabs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectTitlebarTabs.swift; sourceTree = "<group>"; };
+		D9A62EF316A849548EE11BCE /* CanvasSkeleton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanvasSkeleton.swift; sourceTree = "<group>"; };
 		DFCCF8AEDB1712EE79B5A875 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -136,6 +144,7 @@
 			children = (
 				39E6D658C6F44E0516A14BB4 /* BoardCanvas.swift */,
 				527C9A6D14B45E509DBE1D28 /* BoardTextInput.swift */,
+				D9A62EF316A849548EE11BCE /* CanvasSkeleton.swift */,
 				841BE8081B1CD6392825EAFD /* RulerView.swift */,
 			);
 			path = Canvas;
@@ -209,6 +218,9 @@
 				6B5E7EEC191F5C7229542B29 /* SettingsView.swift */,
 				19DFAFAA7AD5666942643F1A /* SvgIcon.swift */,
 				2D335745961202E495414F3E /* TextOptions.swift */,
+				2BDE2EE51E29498DC7457D83 /* ToolIcons.swift */,
+				B82B42B29EDC9298F686D578 /* ToolLabels.swift */,
+				AC8A2CCF316C7C880346572D /* ToolOptions.swift */,
 				A14A1D292C2FDA030B798F55 /* ToolsPanel.swift */,
 				21E774F5B09444C6679E12D2 /* WindowChrome.swift */,
 				8285B9E7F19A010757F350E0 /* L10n */,
@@ -379,6 +391,7 @@
 				52B6693AA18F7FAEEABDAFFC /* CalmToast.swift in Sources */,
 				7746F3F65DB4F153EA3B8EAB /* CalmTooltip.swift in Sources */,
 				DDC892B0235664E0FC2816FC /* CalummaApp.swift in Sources */,
+				1BBDBC4AEF2C16EEA5D7FE45 /* CanvasSkeleton.swift in Sources */,
 				9B5C47125EA5CBBD6F34AD08 /* Components.swift in Sources */,
 				EBF6F8C722173971A6B44925 /* EditorShortcuts.swift in Sources */,
 				87755761F779CE9B1C56775F /* EditorView.swift in Sources */,
@@ -405,6 +418,9 @@
 				886AAE0E29829132AD1302AD /* TextOptions.swift in Sources */,
 				5A7B3293EAC1F7F674A6A491 /* Theme.swift in Sources */,
 				8EFC1F5633FB04D55BA323AB /* Tokens.generated.swift in Sources */,
+				29FCD5C88006FCDD79AD4DBC /* ToolIcons.swift in Sources */,
+				790B96369D2E397D7EEC3B1D /* ToolLabels.swift in Sources */,
+				312094FCF007DFADADA8F65C /* ToolOptions.swift in Sources */,
 				439C1853EC6CE0C2FA36F8CE /* ToolsPanel.swift in Sources */,
 				73A5E53754D26728ADB855A6 /* VisionPlatformOps.swift in Sources */,
 				7A7467919BDC8A4BEF1466AC /* WindowChrome.swift in Sources */,
@@ -436,7 +452,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 0.7.1;
+				CURRENT_PROJECT_VERSION = 0.7.3;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				HEADER_SEARCH_PATHS = (
@@ -453,7 +469,7 @@
 				LIBRARY_SEARCH_PATHS = (
 					"$(SRCROOT)/../../engine/target/release",
 				);
-				MARKETING_VERSION = 0.7.1;
+				MARKETING_VERSION = 0.7.3;
 				OTHER_LDFLAGS = (
 					"-lcalumma_ffi",
 					"-lc++",
@@ -567,7 +583,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 0.7.1;
+				CURRENT_PROJECT_VERSION = 0.7.3;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				HEADER_SEARCH_PATHS = (
@@ -584,7 +600,7 @@
 				LIBRARY_SEARCH_PATHS = (
 					"$(SRCROOT)/../../engine/target/release",
 				);
-				MARKETING_VERSION = 0.7.1;
+				MARKETING_VERSION = 0.7.3;
 				OTHER_LDFLAGS = (
 					"-lcalumma_ffi",
 					"-lc++",

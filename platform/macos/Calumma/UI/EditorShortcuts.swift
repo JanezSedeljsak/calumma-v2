@@ -2,6 +2,8 @@ import AppKit
 import SwiftUI
 
 private let spaceKeyCode: UInt16 = 49
+/// Return and the keypad's Enter — the same key as far as anything here is concerned.
+private let returnKeyCodes: Set<UInt16> = [36, 76]
 
 extension AppModel {
     /// Editor shortcuts, shared by every view that can end up first responder inside the
@@ -68,6 +70,14 @@ extension AppModel {
             pasteFromClipboard()
             return true
         }
+        // Return leaves transform and touches nothing else — same layer, same selection, same
+        // tool, and the transform itself stays on the layer (it is a `LayerTransform`, so there
+        // is no commit/cancel split to make). `Esc` below is the wider exit: `Document::deselect`
+        // drops the selection with it. Photoshop's polarity, and why both are worth having.
+        if returnKeyCodes.contains(event.keyCode), engine.state.transformActive {
+            engine.exitTransform()
+            return true
+        }
         if event.keyCode == 53 {
             engine.deselect()
             return true
@@ -104,21 +114,17 @@ extension AppModel {
             clipActiveLayerDown()
             return true
         }
-        switch chars.lowercased() {
-        case "p": pickTool(.pen)
-        case "l": pickTool(.line)
-        case "r": pickTool(.rect)
-        case "o": pickTool(.ellipse)
-        case "a": pickTool(.arrow)
-        case "t": pickTool(.text)
-        case "3": pickTool(.triangle)
-        case "5": pickTool(.pentagon)
-        case "e": pickTool(.eraser)
-        case "u": pickTool(.blur)
-        case "m": pickTool(lastSelectTool)
-        case "w": pickTool(.magicWand)
-        case "g": pickTool(.bucket)
-        case "i": pickTool(.eyedropper)
+        let key = chars.lowercased()
+        // Tool keys come from `CalmTool.byKey` rather than a switch of their own, so the key
+        // that switches a tool is the same one its tooltip prints. What is left below is the
+        // keys that are not tools.
+        if let picked = CalmTool.forShortcut(key) {
+            // The marquee key names a family; which of the three it lands on is the last one
+            // used. Every other key names exactly one tool.
+            pickTool(picked == .selectRect ? lastSelectTool : picked)
+            return true
+        }
+        switch key {
         case "f": fill.toggle()
         case "s": stroke.toggle()
         case "v": vectorMode.toggle()

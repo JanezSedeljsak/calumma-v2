@@ -440,63 +440,6 @@ fn save_writes_project_thumbnail_png() {
 }
 
 #[test]
-fn workspace_crud_membership_and_open_tabs() {
-    let (_dir, store) = store();
-    let doc_a = store.create("A", 32, 32).unwrap();
-    let doc_b = store.create("B", 32, 32).unwrap();
-    let ws = store.create_workspace("Desk", None).unwrap();
-    store.add_project_to_workspace(&ws.id, &doc_a.id).unwrap();
-    store.add_project_to_workspace(&ws.id, &doc_b.id).unwrap();
-    let projects = store.workspace_projects(&ws.id).unwrap();
-    assert_eq!(projects.len(), 2);
-    assert_eq!(
-        store
-            .workspace_containing_project(&doc_a.id)
-            .unwrap()
-            .unwrap()
-            .id,
-        ws.id
-    );
-
-    store
-        .set_workspace_active_project(&ws.id, Some(&doc_b.id))
-        .unwrap();
-    assert_eq!(
-        store
-            .workspace(&ws.id)
-            .unwrap()
-            .active_project_id
-            .as_deref(),
-        Some(doc_b.id.as_str())
-    );
-
-    store
-        .set_open_workspace_tabs(std::slice::from_ref(&ws.id))
-        .unwrap();
-    assert_eq!(store.open_workspace_tabs().unwrap(), vec![ws.id.clone()]);
-
-    store
-        .remove_project_from_workspace(&ws.id, &doc_b.id)
-        .unwrap();
-    assert_eq!(store.workspace_projects(&ws.id).unwrap().len(), 1);
-    assert_eq!(
-        store
-            .workspace(&ws.id)
-            .unwrap()
-            .active_project_id
-            .as_deref(),
-        Some(doc_a.id.as_str())
-    );
-
-    store.delete(&doc_a.id).unwrap();
-    assert!(store.workspace_projects(&ws.id).unwrap().is_empty());
-
-    store.delete_workspace(&ws.id).unwrap();
-    assert!(store.list_workspaces(8).unwrap().is_empty());
-    assert!(store.open_workspace_tabs().unwrap().is_empty());
-}
-
-#[test]
 fn open_project_tabs_persist_and_cascade_on_delete() {
     let (_dir, store) = store();
     let doc_a = store.create("A", 32, 32).unwrap();
@@ -518,19 +461,14 @@ fn delete_all_projects_clears_store() {
     let store = ProjectStore::open(dir.path().join("t.sqlite")).unwrap();
     let doc_a = store.create("A", 32, 32).unwrap();
     let doc_b = store.create("B", 64, 64).unwrap();
-    let ws = store
-        .create_workspace_for_project(&doc_a.id, "Desk", [1, 2, 3])
-        .unwrap();
     store
-        .set_open_workspace_tabs(std::slice::from_ref(&ws.id))
+        .set_open_project_tabs(std::slice::from_ref(&doc_a.id))
         .unwrap();
     assert_eq!(store.list_recent(8).unwrap().len(), 2);
 
     store.delete_all_projects().unwrap();
 
     assert!(store.list_recent(8).unwrap().is_empty());
-    assert!(store.list_workspaces(8).unwrap().is_empty());
-    assert!(store.open_workspace_tabs().unwrap().is_empty());
     assert!(store.open_project_tabs().unwrap().is_empty());
     assert!(store.open_project(&doc_b.id).is_err());
 }
@@ -639,4 +577,39 @@ fn adds_guides_column_to_a_database_saved_before_guides_existed() {
     doc.add_guide(GuideAxis::Vertical, 7.0);
     store.save(&mut doc).unwrap();
     assert_eq!(store.open_project(&doc.id).unwrap().guides().len(), 1);
+}
+
+/// Opening an install from before workspaces were removed clears the three tables they left
+/// behind, so no database keeps orphan tables nothing in the codebase explains.
+#[test]
+fn opening_an_old_install_drops_the_workspace_tables() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("t.sqlite");
+    ProjectStore::open(&path).unwrap();
+
+    // The shape an older build left behind.
+    {
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE workspaces (id TEXT PRIMARY KEY, name TEXT NOT NULL);
+             CREATE TABLE workspace_projects (workspace_id TEXT, project_id TEXT);
+             CREATE TABLE open_workspace_tabs (position INTEGER PRIMARY KEY, workspace_id TEXT);
+             INSERT INTO workspaces (id, name) VALUES ('w1', 'Desk');
+             INSERT INTO open_workspace_tabs (position, workspace_id) VALUES (0, 'w1');",
+        )
+        .unwrap();
+    }
+
+    let store = ProjectStore::open(&path).unwrap();
+    let conn = Connection::open(store.path()).unwrap();
+    for table in ["workspaces", "workspace_projects", "open_workspace_tabs"] {
+        let found: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?1",
+                params![table],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(found, 0, "{table} should have been dropped");
+    }
 }

@@ -1,7 +1,7 @@
 # Calumma v2
 
 **Your personal whiteboard** — bounded canvases you draw on with a pen, shapes, and text.
-Layers, masks, and workspaces keep projects organized; everything persists locally.
+Layers, masks, and titlebar project tabs keep work organized; everything persists locally.
 
 Native macOS app: SwiftUI shell, Rust/wgpu engine, SQLite storage.
 

@@ -1950,15 +1950,24 @@ impl Renderer {
                     pass.set_bind_group(0, self.pan_cache.bind_group(), &[]);
                     pass.draw(0..3, 0..1);
                 }
+            }
 
-                // Under the transform box and the marching ants, over the artwork: a guide is
-                // something the picture is aligned against, not something drawn on it.
-                if guide_count > 0 {
-                    pass.set_pipeline(&self.guide_pipeline);
-                    pass.set_bind_group(0, &self.preview_bg, &[]);
-                    pass.set_vertex_buffer(0, self.guide_buf.slice(..));
-                    pass.draw(0..6, 0..guide_count);
-                }
+            // Over the artwork, under the transform box and the marching ants: a guide is
+            // something the picture is aligned against, not something drawn on it. It is the one
+            // pass *outside* the paper scissor, because a guide is measured against the view —
+            // it runs edge to edge, meeting the ruler it was pulled from, rather than stopping
+            // where the paper does (`guide_instances`). Drawn even with the paper fully off
+            // screen, which is why it does not sit inside the `if let` either.
+            if guide_count > 0 {
+                pass.set_scissor_rect(0, 0, self.config.width, self.config.height);
+                pass.set_pipeline(&self.guide_pipeline);
+                pass.set_bind_group(0, &self.preview_bg, &[]);
+                pass.set_vertex_buffer(0, self.guide_buf.slice(..));
+                pass.draw(0..6, 0..guide_count);
+            }
+
+            if let Some((x, y, w, h)) = scissor {
+                pass.set_scissor_rect(x, y, w, h);
 
                 if !overlay_range.is_empty() {
                     pass.set_pipeline(&self.stroke_pipeline);

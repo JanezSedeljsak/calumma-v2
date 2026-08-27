@@ -82,9 +82,6 @@ struct L10nCatalog: Equatable {
     var create: String { self["create"] }
     var newProject: String { self["newProject"] }
     var addLayer: String { self["addLayer"] }
-    var showWorkspaces: String { self["showWorkspaces"] }
-    var addWorkspace: String { self["addWorkspace"] }
-    var deleteWorkspace: String { self["deleteWorkspace"] }
     var deleteProject: String { self["deleteProject"] }
     var layerVisibility: String { self["layerVisibility"] }
     var layerSettings: String { self["layerSettings"] }
@@ -92,13 +89,6 @@ struct L10nCatalog: Equatable {
     var zoomIn: String { self["zoomIn"] }
     var zoomOut: String { self["zoomOut"] }
     var untitled: String { self["untitled"] }
-    var untitledWorkspace: String { self["untitledWorkspace"] }
-    var workspaces: String { self["workspaces"] }
-    var workspaceName: String { self["workspaceName"] }
-    var workspaceColor: String { self["workspaceColor"] }
-    var newWorkspace: String { self["newWorkspace"] }
-    var noWorkspaces: String { self["noWorkspaces"] }
-    var deleteWorkspaceTitle: String { self["deleteWorkspaceTitle"] }
     var presets: String { self["presets"] }
     var recents: String { self["recents"] }
     var noRecents: String { self["noRecents"] }

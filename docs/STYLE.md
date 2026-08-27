@@ -63,7 +63,10 @@ bits use `{0}`, `{1}`, … filled by `l10n.formatKey(...)`. Visual tokens stay i
    deriving loses the hue as soon as saturation or brightness hits zero, which makes a
    gradient field jump under the cursor.
 7. **Canvas stays Rust.** Anything *drawn on the board* (paper, strokes, shapes, desk grid,
-   layer hover outline) is WGSL — the shell never paints board content. Board colors are
+   layer hover outline) is WGSL — the shell never paints board content. The one thing the
+   shell may draw over the board is a **placeholder for a board with nothing to show yet**:
+   `CanvasSkeleton` covers the Metal view while a project loads, on the rectangle
+   `calm_fit_size` says the paper will occupy. Standing in for the canvas, not styling it. Board colors are
    pushed from tokens into the engine, never hardcoded in the shader. Small chrome controls
    may float over the canvas island (zoom pill, bottom-trailing); panels do not.
 
@@ -81,6 +84,7 @@ bits use `{0}`, `{1}`, … filled by `l10n.formatKey(...)`. Visual tokens stay i
 | Danger | `color.danger` | Destructive actions |
 | Desk | `color.desk` | Board background behind the paper. Light: matches island `surface`. Dark: a step darker than window `bg` so the board field reads recessed against raised islands. |
 | Desk grid | `color.deskGrid` | Board grid lines — must stay legible in light mode; stay quiet in dark mode so the desk reads with the chrome |
+| Paper | `color.paper` | The board's paper. The engine paints the real thing; the shell reads it only to stand in for it, in `CanvasSkeleton` while a project loads |
 | Paper border | `color.paperBorder` | Ring hugging the paper: dark on light, light on dark |
 | Island border | `color.islandBorder` | `CalmIsland` edge, `CalmDivider` section rules |
 | Control border | `color.controlBorder` | Resting edge on text/number inputs and list rows — stronger than `islandBorder`, which is tuned for a large island edge |
@@ -115,10 +119,15 @@ the gradient brightens, no outline.
 ## Editor
 
 Project tabs sit in a **compact window titlebar** (right of the traffic lights) inside one
-shared capsule with the `+` / extend controls. Selected tab is a soft highlight clipped to
-that capsule — not a second nested pill. Each tab carries its workspace accent dot;
-clicking the dot opens the rename / recolor card. Top padding is tight (`space.xs`) so the
-board starts close under the titlebar.
+shared capsule with the `+` control. Selected tab is a soft highlight clipped to
+that capsule — not a second nested pill. Each tab carries its own project's accent dot,
+then the name, then `×`; clicking the dot opens the rename / recolor card. Top padding is
+tight (`space.xs`) so the board starts close under the titlebar.
+
+While a project loads, the canvas island holds a **skeleton** rather than the outgoing
+board: the desk, and one sweeping band across the rectangle the paper is about to fill
+(`CanvasSkeleton`, rule 7). Rulers stay up with ticks for the incoming project; only the
+canvas content is covered. Luminance only — no spinner, no label.
 
 Tools, canvas, and layers are three **rounded, bordered islands**, full-height, separated
 by a minimal gap (`space.sm`) with a matching margin from the window edge (half that under
@@ -140,5 +149,6 @@ margin around the screen.
 - Add hairline borders “for clarity” to chips, swatches, the tool grid, or sliders — the
   `controlBorder` carve-out in rule 1 is inputs, buttons, and list rows only
 - Import Lucide / Heroicons / Font Awesome / similar
-- Style the canvas with SwiftUI shapes on top of the Metal view
+- Style the canvas with SwiftUI shapes on top of the Metal view (a load-time placeholder for
+  a board that has nothing on it yet is the one exception — rule 7)
 - Duplicate token values in Swift or Rust source

@@ -280,3 +280,42 @@ fn removing_a_guide_drops_a_drag_that_was_holding_it() {
     assert!(!doc.is_dragging_guide());
     assert!(!doc.remove_guide(0));
 }
+
+#[test]
+fn a_guide_spans_the_view_rather_than_the_paper() {
+    let mut doc = Document::new("t".into(), "T", 100, 100);
+    doc.camera.viewport_width = 800.0;
+    doc.camera.viewport_height = 600.0;
+    doc.camera.zoom = 1.0;
+    doc.camera.pan_x = 350.0;
+    doc.camera.pan_y = 250.0;
+
+    let (min_x, min_y, max_x, max_y) = doc.camera.viewport_doc_bounds();
+    // The paper is 0..100, the view reaches well past it on both sides.
+    assert!(min_x < 0.0 && max_x > 100.0);
+    assert!(min_y < 0.0 && max_y > 100.0);
+}
+
+#[test]
+fn the_dragged_guide_reports_where_it_is() {
+    let mut doc = Document::new("t".into(), "T", 100, 100);
+    doc.camera.viewport_width = 800.0;
+    doc.camera.viewport_height = 600.0;
+    doc.camera.zoom = 2.0;
+    doc.camera.pan_x = 10.0;
+    doc.camera.pan_y = 20.0;
+    assert!(doc.dragged_guide_readout().is_none());
+
+    doc.begin_guide_drag_from_ruler(GuideAxis::Vertical, 90.0, 40.0);
+    let (axis, position, screen) = doc.dragged_guide_readout().unwrap();
+    assert_eq!(axis, GuideAxis::Vertical);
+    // A vertical guide reports document x, and the screen x that x projects to.
+    assert!((position - 40.0).abs() < 1e-3, "position was {position}");
+    assert!(
+        (screen - (40.0 * 2.0 + 10.0)).abs() < 1e-3,
+        "screen was {screen}"
+    );
+
+    doc.end_guide_drag();
+    assert!(doc.dragged_guide_readout().is_none());
+}

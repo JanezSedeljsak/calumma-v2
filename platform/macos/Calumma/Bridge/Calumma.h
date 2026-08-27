@@ -117,14 +117,6 @@ typedef struct CalmProjectInfo {
     uint32_t accent;
 } CalmProjectInfo;
 
-typedef struct CalmWorkspaceInfo {
-    char *id;
-    char *name;
-    uint32_t accent;
-    char *active_project_id;
-    int64_t opened_at;
-} CalmWorkspaceInfo;
-
 void calm_string_free(char *s);
 void calm_buffer_free(uint8_t *ptr, size_t len);
 
@@ -146,6 +138,11 @@ CalmStatus calm_engine_zoom(CalmEngine *engine, float x, float y, float factor);
 CalmStatus calm_engine_zoom_scroll(CalmEngine *engine, float x, float y, float delta,
                                    uint8_t precise);
 CalmStatus calm_engine_fit(CalmEngine *engine);
+CalmStatus calm_fit_size(float viewport_width, float viewport_height, float doc_width,
+                         float doc_height, float *out_width, float *out_height);
+CalmStatus calm_fit_camera(float viewport_width, float viewport_height, float doc_width,
+                           float doc_height, float *out_zoom, float *out_pan_x, float *out_pan_y);
+CalmStatus calm_engine_viewport(CalmEngine *engine, float *out_width, float *out_height);
 CalmStatus calm_engine_end_camera_motion(CalmEngine *engine);
 CalmStatus calm_engine_set_zoom(CalmEngine *engine, float zoom);
 CalmStatus calm_engine_step_zoom(CalmEngine *engine, uint8_t zoom_in);
@@ -256,6 +253,10 @@ CalmStatus calm_engine_layer_adjustments(CalmEngine *engine, uint32_t index, Cal
 CalmStatus calm_engine_set_hover_layer(CalmEngine *engine, int32_t index);
 CalmStatus calm_engine_clear_layer(CalmEngine *engine);
 CalmStatus calm_engine_state(CalmEngine *engine, CalmState *out);
+size_t calm_ruler_ticks_x(float zoom, float pan, float viewport_extent, CalmRulerTick *out,
+                          size_t cap);
+size_t calm_ruler_ticks_y(float zoom, float pan, float viewport_extent, CalmRulerTick *out,
+                          size_t cap);
 size_t calm_engine_ruler_ticks_x(CalmEngine *engine, CalmRulerTick *out, size_t cap);
 size_t calm_engine_ruler_ticks_y(CalmEngine *engine, CalmRulerTick *out, size_t cap);
 CalmStatus calm_engine_guide_drag_from_ruler(CalmEngine *engine, uint8_t axis, float x, float y);
@@ -264,6 +265,8 @@ CalmStatus calm_engine_guide_drag_end(CalmEngine *engine, float x, float y);
 CalmStatus calm_engine_clear_guides(CalmEngine *engine);
 size_t calm_engine_guide_count(CalmEngine *engine);
 int calm_engine_guide_axis_at(CalmEngine *engine, float x, float y);
+int calm_engine_dragged_guide(CalmEngine *engine, uint8_t *out_axis, float *out_position,
+                              float *out_screen);
 CalmStatus calm_engine_memory(CalmEngine *engine, CalmMemory *out);
 char *calm_engine_layer_name(CalmEngine *engine, uint32_t index);
 CalmStatus calm_engine_layer_thumbnail(CalmEngine *engine, uint32_t layer_index, uint32_t max_side, uint8_t **out_rgba, uint32_t *out_w, uint32_t *out_h);
@@ -368,23 +371,6 @@ CalmStatus calm_project_delete(CalmEngine *engine, const char *id);
 CalmStatus calm_project_delete_all(CalmEngine *engine);
 CalmStatus calm_project_save(CalmEngine *engine);
 CalmStatus calm_project_thumbnail(CalmEngine *engine, const char *project_id, uint8_t **out_png, size_t *out_len);
-
-size_t calm_workspace_list(CalmEngine *engine, CalmWorkspaceInfo *out, size_t cap);
-char *calm_workspace_create(CalmEngine *engine, const char *name);
-CalmStatus calm_workspace_rename(CalmEngine *engine, const char *id, const char *name);
-CalmStatus calm_workspace_set_accent(CalmEngine *engine, const char *id, uint32_t accent);
-CalmStatus calm_workspace_delete(CalmEngine *engine, const char *id);
-CalmStatus calm_workspace_add_project(CalmEngine *engine, const char *workspace_id, const char *project_id);
-CalmStatus calm_workspace_remove_project(CalmEngine *engine, const char *workspace_id, const char *project_id);
-size_t calm_workspace_projects(CalmEngine *engine, const char *workspace_id, CalmProjectInfo *out, size_t cap);
-CalmStatus calm_workspace_set_active_project(CalmEngine *engine, const char *workspace_id, const char *project_id);
-CalmStatus calm_workspace_switch(CalmEngine *engine, const char *workspace_id, const char *project_id);
-CalmStatus calm_workspace_touch(CalmEngine *engine, const char *id);
-CalmStatus calm_workspace_get(CalmEngine *engine, const char *id, CalmWorkspaceInfo *out);
-char *calm_workspace_create_for_project(CalmEngine *engine, const char *project_id, const char *name);
-char *calm_workspace_for_project(CalmEngine *engine, const char *project_id);
-size_t calm_open_workspace_tabs(CalmEngine *engine, char **out, size_t cap);
-CalmStatus calm_set_open_workspace_tabs(CalmEngine *engine, const char *const *ids, size_t count);
 
 CalmStatus calm_engine_install_platform_ops(CalmEngine *engine, const CalmPlatformOps *ops);
 bool calm_engine_op_available(CalmEngine *engine, uint32_t kind);

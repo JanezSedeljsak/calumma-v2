@@ -19,6 +19,9 @@ struct ThemeColors {
     let danger: Color
     let desk: Color
     let deskGrid: Color
+    /// The board's own paper color. The engine paints the real thing; the shell reads it only
+    /// to stand in for it — `CanvasSkeleton` while a project loads.
+    let paper: Color
     let paperBorder: Color
     let islandBorder: Color
     let controlBorder: Color
@@ -38,6 +41,7 @@ struct ThemeColors {
                 danger: Tokens.Light.danger,
                 desk: Tokens.Light.desk,
                 deskGrid: Tokens.Light.deskGrid,
+                paper: Tokens.Light.paper,
                 paperBorder: Tokens.Light.paperBorder,
                 islandBorder: Tokens.Light.islandBorder,
                 controlBorder: Tokens.Light.controlBorder,
@@ -55,6 +59,7 @@ struct ThemeColors {
                 danger: Tokens.Dark.danger,
                 desk: Tokens.Dark.desk,
                 deskGrid: Tokens.Dark.deskGrid,
+                paper: Tokens.Dark.paper,
                 paperBorder: Tokens.Dark.paperBorder,
                 islandBorder: Tokens.Dark.islandBorder,
                 controlBorder: Tokens.Dark.controlBorder,

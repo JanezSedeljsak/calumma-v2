@@ -292,6 +292,9 @@ struct CalmToolButton<Icon: View>: View {
     let selected: Bool
     let action: () -> Void
     var tooltip: String? = nil
+    /// The tool's key, printed beside its name in the tooltip. Left off where the tooltip is a
+    /// refusal rather than a name — see `CalmTooltipModifier.shortcut`.
+    var shortcut: String? = nil
     var tooltipEdge: CalmTooltipEdge = .trailing
     /// A tool the active layer cannot take is off, not hidden — the grid keeps its shape, and
     /// the tooltip carries the reason. A luminance drop, per `docs/STYLE.md`: no badge, no
@@ -303,6 +306,7 @@ struct CalmToolButton<Icon: View>: View {
         selected: Bool,
         action: @escaping () -> Void,
         tooltip: String? = nil,
+        shortcut: String? = nil,
         tooltipEdge: CalmTooltipEdge = .trailing,
         enabled: Bool = true,
         @ViewBuilder icon: () -> Icon
@@ -310,6 +314,7 @@ struct CalmToolButton<Icon: View>: View {
         self.selected = selected
         self.action = action
         self.tooltip = tooltip
+        self.shortcut = shortcut
         self.tooltipEdge = tooltipEdge
         self.enabled = enabled
         self.icon = icon()
@@ -326,17 +331,18 @@ struct CalmToolButton<Icon: View>: View {
         .buttonStyle(.plain)
         .disabled(!enabled)
         .calmPointer(enabled)
-        .modifier(OptionalCalmTooltip(text: tooltip, edge: tooltipEdge))
+        .modifier(OptionalCalmTooltip(text: tooltip, shortcut: shortcut, edge: tooltipEdge))
     }
 }
 
 private struct OptionalCalmTooltip: ViewModifier {
     let text: String?
+    var shortcut: String? = nil
     var edge: CalmTooltipEdge = .trailing
 
     func body(content: Content) -> some View {
         if let text {
-            content.calmTooltip(text, edge: edge)
+            content.calmTooltip(text, shortcut: shortcut, edge: edge)
         } else {
             content
         }

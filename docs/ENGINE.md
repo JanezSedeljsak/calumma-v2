@@ -546,10 +546,14 @@ projects(id, name, width, height, created_at, opened_at, thumb, accent, guides)
 layers(project_id, layer_id, name, visible, z_index, mask, content_kind,
        vector_data, opacity, blend_mode, adjustments, text_data, transform, locked)
 tiles(project_id, layer_id, tx, ty, pixels)
-workspaces(id, name, accent, active_project_id, opened_at)
-workspace_projects(workspace_id, project_id, position)
-open_workspace_tabs(position, workspace_id)
+open_project_tabs(position, project_id)
 ```
+
+**`open_project_tabs` is the tab bar**, one row per open project, `position` ordering them.
+It replaced three `workspace*` tables — projects used to be grouped into workspaces and the
+tabs switched *those* — and `migrate_open_project_tabs` now `DROP TABLE IF EXISTS`es all
+three, so a database from before the change is cleaned on its next open instead of keeping
+tables nothing in the codebase explains.
 
 **Tiles are rows, not a blob.** That is what makes a save incremental: only tiles whose
 `Store` dirty bit is set are written, so painting one corner of an 8K document writes a
@@ -658,7 +662,7 @@ The only crate Swift links, via `platform/macos/Calumma/Bridge/Calumma.h`.
 
 ### Leaving a document
 
-Every path out of an open document — closing, switching project, switching workspace — must
+Every path out of an open document — closing it, switching tabs, opening another — must
 route through `Inner::close_document`, which saves, drops the document, and calls
 `Renderer::release_document` so the GPU textures and the atlas slots keyed by its layer ids
 go with it. Add a new way to leave and forget this, and its tiles stay in VRAM where

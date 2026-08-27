@@ -175,6 +175,15 @@ impl Inner {
         }
     }
 
+    /// For chrome that moved and nothing else: redraw the overlays, keep every cache. Moving a
+    /// guide is the case this exists for — the tiles, the layer stack and the camera are all
+    /// exactly as they were, and `write_guides` rebuilds the guide buffer every frame anyway.
+    pub(crate) fn invalidate_overlay(&mut self) {
+        if let Some(r) = &mut self.renderer {
+            r.invalidate_overlay();
+        }
+    }
+
     pub(crate) fn invalidate_camera(&mut self) {
         if let Some(r) = &mut self.renderer {
             r.invalidate_camera();
@@ -250,28 +259,6 @@ impl Inner {
         if let Some(r) = &mut self.renderer {
             r.request_overview_prewarm();
         }
-    }
-
-    pub(crate) fn switch_workspace(
-        &mut self,
-        workspace_id: &str,
-        project_id: Option<&str>,
-    ) -> anyhow::Result<()> {
-        self.close_document();
-        if let Some(id) = project_id {
-            let doc = self
-                .store
-                .open_project(id)
-                .with_context(|| format!("opening project {id}"))?;
-            self.install_document(doc);
-        }
-        self.store
-            .set_workspace_active_project(workspace_id, project_id)
-            .context("setting active project")?;
-        self.store
-            .touch_workspace(workspace_id)
-            .context("touching workspace")?;
-        Ok(())
     }
 
     pub(crate) fn release_gpu_resources(&mut self) {
@@ -683,6 +670,71 @@ pub unsafe extern "C" fn calm_engine_fit(engine: *mut CalmEngine) -> CalmStatus 
         if let Some(doc) = &mut inner.doc {
             doc.fit_to_view();
             inner.invalidate_camera();
+        }
+        Ok(())
+    })
+}
+
+/// Where a document of this size lands once fitted, in viewport points. Takes no engine and
+/// no open project on purpose: the shell asks it while a project is still loading, to draw the
+/// canvas placeholder on exactly the rectangle the paper is about to occupy.
+#[no_mangle]
+pub unsafe extern "C" fn calm_fit_size(
+    viewport_width: f32,
+    viewport_height: f32,
+    doc_width: f32,
+    doc_height: f32,
+    out_width: *mut f32,
+    out_height: *mut f32,
+) -> CalmStatus {
+    if out_width.is_null() || out_height.is_null() {
+        return CalmStatus::Null;
+    }
+    let (width, height) =
+        calumma_core::camera::fit_size(viewport_width, viewport_height, doc_width, doc_height);
+    unsafe {
+        *out_width = width;
+        *out_height = height;
+    }
+    CalmStatus::Ok
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn calm_fit_camera(
+    viewport_width: f32,
+    viewport_height: f32,
+    doc_width: f32,
+    doc_height: f32,
+    out_zoom: *mut f32,
+    out_pan_x: *mut f32,
+    out_pan_y: *mut f32,
+) -> CalmStatus {
+    if out_zoom.is_null() || out_pan_x.is_null() || out_pan_y.is_null() {
+        return CalmStatus::Null;
+    }
+    let (zoom, pan_x, pan_y) =
+        calumma_core::camera::fit_camera(viewport_width, viewport_height, doc_width, doc_height);
+    unsafe {
+        *out_zoom = zoom;
+        *out_pan_x = pan_x;
+        *out_pan_y = pan_y;
+    }
+    CalmStatus::Ok
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn calm_engine_viewport(
+    engine: *mut CalmEngine,
+    out_width: *mut f32,
+    out_height: *mut f32,
+) -> CalmStatus {
+    if out_width.is_null() || out_height.is_null() {
+        return CalmStatus::Null;
+    }
+    with_inner(engine, |inner| {
+        unsafe {
+            *out_width = inner.viewport_width;
+            *out_height = inner.viewport_height;
         }
         Ok(())
     })
@@ -2448,6 +2500,36 @@ pub unsafe extern "C" fn calm_set_open_project_tabs(
             .store
             .set_open_project_tabs(&owned)
             .context("persisting open project tabs")?;
+        Ok(())
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn calm_project_thumbnail(
+    engine: *mut CalmEngine,
+    project_id: *const c_char,
+    out_png: *mut *mut u8,
+    out_len: *mut usize,
+) -> CalmStatus {
+    if project_id.is_null() || out_png.is_null() || out_len.is_null() {
+        return CalmStatus::Null;
+    }
+    with_inner(engine, |inner| {
+        let project_id = unsafe { CStr::from_ptr(project_id) }
+            .to_str()
+            .context("project id is not valid UTF-8")?;
+        let png = inner
+            .store
+            .project_thumbnail(project_id)
+            .context("reading project thumbnail")?;
+        let mut boxed = png.into_boxed_slice();
+        let len = boxed.len();
+        let ptr = boxed.as_mut_ptr();
+        std::mem::forget(boxed);
+        unsafe {
+            *out_png = ptr;
+            *out_len = len;
+        }
         Ok(())
     })
 }

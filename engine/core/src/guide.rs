@@ -200,6 +200,19 @@ impl Document {
         self.guide_drag.map(|d| d.index)
     }
 
+    /// The guide in flight, as the two numbers a readout needs: where it sits in document
+    /// pixels, and where that lands on screen along its own axis. Both come from here so the
+    /// shell prints and places the label without doing any camera arithmetic of its own.
+    pub fn dragged_guide_readout(&self) -> Option<(GuideAxis, f32, f32)> {
+        let guide = self.guides.get(self.dragged_guide()?)?;
+        let (screen_x, screen_y) = self.camera.to_screen(guide.position, guide.position);
+        let screen = match guide.axis {
+            GuideAxis::Horizontal => screen_y,
+            GuideAxis::Vertical => screen_x,
+        };
+        Some((guide.axis, guide.position, screen))
+    }
+
     /// Snaps a bare document point onto the guides near it — the pointer position a shape drag
     /// or a scale handle is about to be built from. Each axis is answered independently, so a
     /// corner can land on a horizontal and a vertical guide at once.

@@ -178,7 +178,6 @@ impl ProjectStore {
     fn migrate(&self) -> Result<(), StoreError> {
         self.migrate_projects()?;
         self.migrate_layers()?;
-        self.migrate_workspaces()?;
         self.migrate_open_project_tabs()
     }
 
@@ -353,6 +352,10 @@ impl ProjectStore {
         Ok(())
     }
 
+    /// The tab bar. The `DROP`s clear out the tables a removed feature left behind: projects
+    /// used to be grouped into workspaces and the titlebar tabs switched *those*, so an
+    /// install from before that change is still carrying three tables nothing reads. They go
+    /// on the next open rather than lingering as orphans nobody can explain.
     fn migrate_open_project_tabs(&self) -> Result<(), StoreError> {
         self.conn.execute_batch(
             "
@@ -361,32 +364,11 @@ impl ProjectStore {
                 project_id TEXT NOT NULL UNIQUE,
                 FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
             );
+            DROP TABLE IF EXISTS workspace_projects;
+            DROP TABLE IF EXISTS open_workspace_tabs;
+            DROP TABLE IF EXISTS workspaces;
             ",
         )?;
-        let count: i64 =
-            self.conn
-                .query_row("SELECT COUNT(*) FROM open_project_tabs", [], |r| r.get(0))?;
-        if count == 0 {
-            self.conn.execute(
-                "INSERT OR IGNORE INTO open_project_tabs (position, project_id)
-                 SELECT owt.position,
-                        COALESCE(
-                            w.active_project_id,
-                            (SELECT wp.project_id FROM workspace_projects wp
-                             WHERE wp.workspace_id = owt.workspace_id
-                             ORDER BY wp.position ASC LIMIT 1)
-                        )
-                 FROM open_workspace_tabs owt
-                 INNER JOIN workspaces w ON w.id = owt.workspace_id
-                 WHERE COALESCE(
-                     w.active_project_id,
-                     (SELECT wp.project_id FROM workspace_projects wp
-                      WHERE wp.workspace_id = owt.workspace_id
-                      ORDER BY wp.position ASC LIMIT 1)
-                 ) IS NOT NULL",
-                [],
-            )?;
-        }
         Ok(())
     }
 
@@ -766,8 +748,6 @@ impl ProjectStore {
     pub fn delete_all_projects(&self) -> Result<(), StoreError> {
         let tx = self.conn.unchecked_transaction()?;
         tx.execute("DELETE FROM open_project_tabs", [])?;
-        tx.execute("DELETE FROM open_workspace_tabs", [])?;
-        tx.execute("DELETE FROM workspaces", [])?;
         tx.execute("DELETE FROM projects", [])?;
         tx.commit()?;
         Ok(())

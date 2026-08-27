@@ -19,27 +19,33 @@ cleanly. Platform-specific chords live in the shell; document them here when add
 ```
 Landing ──create / open recent / drop artwork──► Editor
    ▲                                 │  ▲
-   └──── close last workspace tab ───┘  │
+   └───── close last project tab ────┘  │
                     │                   │
-                    │        New Project window (⌘N / titlebar +)
+                    │        New Project modal (⌘N / titlebar +)
                     │
-                    └── Settings (sheet)
+                    └── Settings modal (⌘,)
 ```
 
 | Screen | Purpose |
 | --- | --- |
 | **Landing** | Create a project (name + resolution / presets), open a recent, or import artwork |
-| **Editor** | Draw on one board; titlebar **workspace** tabs; floating tool + layers islands |
-| **New Project** | Separate small window with the same create form; opens over the Editor |
-| **Settings** | Theme + language (shell knobs only) |
+| **Editor** | Draw on one board; titlebar **project** tabs; floating tool + layers islands |
+| **New Project** | The same create form, as a modal over the Editor |
+| **Settings** | Theme + language (shell knobs only), as a modal; `⌘,` from the app menu |
 
-Landing create/open wraps the project in a **workspace** (or reopens the workspace that
-already contains it). Closing the last workspace tab returns to Landing.
+Creating or opening a project gives it a **titlebar tab**, or selects the tab it already
+has. Closing the last tab returns to Landing.
+
+**There are no workspaces.** Projects were once grouped into them, with titlebar tabs
+switching *workspaces* and an extend overlay to manage them; that whole layer is gone — the
+UI, the `calm_workspace_*` FFI, the store methods behind it, and the three SQLite tables they
+used, which an older database drops on its next open. A tab is one project, directly. Do not
+restore the grouping — see `AGENTS.md`.
 
 **Landing and New Project are one view** (`NewProjectView`) in one landscape layout — you
-get the same screen whether no project is open yet (Landing, in the main window) or one
-already is (New Project, in its own smaller window). The Paste Artwork island scales with
-the window rather than sitting at a fixed size. Window sizes come from
+get the same screen whether no project is open yet (Landing, filling the main window) or one
+already is (New Project, as a modal card over the board). The Paste Artwork island scales
+with the layout rather than sitting at a fixed size. Sizes come from
 `design/tokens.json` → `Tokens.Window`.
 
 ---
@@ -51,9 +57,13 @@ the window rather than sitting at a fixed size. Window sizes come from
    keyboard finishes it; an empty name still resolves to Untitled.
 2. Set width × height, or pick a **preset** from tokens (product data, not i18n).
 3. **Create** → engine creates SQLite project, opens it, fits camera, shows Editor.
-4. **Recents** → open existing project (full load).
+4. **Recents** → open existing project (full load). A project that already has a tab is
+   **not listed** — it is open, and offering it here would only be a slower way to select
+   the tab you are looking at.
 5. **Paste Artwork** island → import an image as a new project (below).
-6. Settings gear → theme / language sheet.
+
+Settings (theme / language) is a modal, reached from the app menu with `⌘,` — Landing has
+no gear of its own.
 
 ### Paste Artwork
 
@@ -75,39 +85,57 @@ pasteboard in. Decoding is ImageIO in the shell; anything larger than `IMPORT_MA
 (engine constant, 4096 px) is downscaled at decode time so a huge photo cannot blow up the
 tile grid.
 
-### New Project window
+### New Project modal
 
-With a board already open, the titlebar **+** (or `⌘N`) opens a separate, smaller window
-carrying the same landscape screen — form, presets, recents, Paste Artwork island. Creating
-from it adds the project to the **active workspace** and closes the window. `⌘N` is disabled
-while Landing is showing — that screen already *is* the create form.
+With a board already open, the titlebar **+** (or `⌘N`) brings the same landscape screen up
+as a modal over the Editor — form, presets, recents, Paste Artwork island — dimming the board
+behind it, dismissed by `Esc` or a click outside (`calmModal`). Creating from it opens the new
+project in a new tab and closes the modal. `⌘N` is disabled while Landing is showing — that
+screen already *is* the create form.
+
+Its Recents list leaves out every project that already has a tab, for the reason above: those
+are not openable, they are open.
 
 ---
 
 ## Editor layout
 
 ```
-┌─ ● ● ●  ●[workspace] ●[workspace] [+] [extend] ─── ⚙ ───┐
+┌─ ● ● ●  ●[project ×] ●[project ×] [+] ──────────────────┐
 ├────┬────────────────────────────────────────┬────────────┤
 │ 🛠 │          canvas island (Metal)          │   layers   │
 │ AI │                       [− ▭ + 100% Fit] │            │
 └────┴────────────────────────────────────────┴────────────┘
 ```
 
-- **Workspace tabs:** one shared titlebar capsule (tabs + `+` + extend); switch = save →
-  open that workspace’s active project. Accent dot opens rename / recolor for the
-  **workspace**. Open tab order is persisted across launches.
-- **+:** new project into the active workspace.
-- **Extend:** scrollable overlay of **open** workspace tabs with cached project thumbnails
-  (cropped to painted pixel bounds); click a project to open it inside that workspace.
-  Create / delete workspaces live here.
+- **Project tabs:** one shared titlebar capsule (tabs + `+`). A tab is one project — there is
+  no grouping above it. Clicking the name switches to it (save → open, a full reload); the
+  **accent dot** opens rename / recolor for that project; the **×** closes the tab. Open tab
+  order is persisted across launches, in `open_project_tabs`.
+- **Switching is instant; the board catches up.** The tab lights up on the click, and the
+  canvas holds a **skeleton** — the desk plus one sweeping rectangle — while the project is
+  read back out of SQLite (opening it inline is what used to freeze the window mid-click).
+  The rectangle is the *incoming* project fitted by `calm_fit_size`, the engine's own fit
+  geometry, so the placeholder sits exactly where the paper lands and the switch has nothing
+  to jump. The rulers print the incoming project's ticks on that same fit camera; only the
+  canvas content is covered. `AppModel.skeletonMinSeconds` is the floor on how long it shows, so
+  a fast load reads as a load rather than as a flicker.
+- **Closing a tab is not deleting a project.** `×` takes the project off the tab bar and
+  leaves it in SQLite, where Recents offers it again — the soft one. Deleting is the Landing
+  / New Project recents row's trash button, it is confirmed, and it is permanent.
+- **+:** the New Project modal; whatever it creates opens in a new tab.
 - **Tools / layers / canvas:** three rounded, bordered islands, full-height, separated by a
   minimal gap and window margin (`space.sm`) — each has its own `islandBorder` stroke.
 - **Tools island** (top to bottom): a 2-column tool grid (Move, Select, Pen, Eraser, Blur,
-  Shape, Fill, Eyedropper, Text). When **Move** is selected the options panel carries a
-  **Transform** toggle — `⌘T` on the active layer, a *mode* not a tool, lit from engine
-  state (`CalmState.transform_active`). Off, Move only drags a layer around; on, the same
-  grab shows scale/rotate handles and clicking a layer's pixels selects it. Then a
+  Shape, Fill, Eyedropper, Text). Every button's tooltip carries the tool's **name and its
+  key**, muted mono beside the name — except where the active layer refuses the tool, where
+  the tooltip is the refusal and carries no key. When **Move** is selected the options panel
+  carries a **Transform** toggle — `⌘T` on the active layer, a *mode* not a tool, lit from
+  engine state (`CalmState.transform_active`). Picking Move **turns it on**: reaching for Move
+  almost always means scale or rotate as well, so a grab shows scale/rotate handles and
+  clicking a layer's pixels selects it. The toggle (or `⌘T`) turns it back off, leaving Move
+  as a plain drag — and picking Move again while it is *already* the tool leaves the mode
+  alone, so switching it off sticks. Then a
   contextual options section below the grid that changes with the selected tool
   (shape/selection sub-picker + independent **Fill** and **Stroke** toggles for
   the shape tools that enclose an area — Rect, Ellipse, Triangle, Pentagon; Line and Arrow are
@@ -150,13 +178,13 @@ while Landing is showing — that screen already *is* the create form.
 - **Fit** fills the canvas island rather than leaving a wide margin — opening a project or
   pressing `0` puts the paper edge-to-edge in the viewport.
 
-### Projects and workspaces: color and name
+### Projects: color and name
 
 New projects get a random color from the core palette (`palette::PROJECT_COLORS`), stored
 on the project row. It appears as the recents thumbnail tint (and as the artwork preview when
-a cached thumb exists). Workspaces carry their own accent on the titlebar chip; the chip’s
-dot opens a card with the workspace name and palette. Open workspace tabs persist across
-launches.
+a cached thumb exists), and as the dot on the project's titlebar tab; clicking that dot opens
+a card with the project's name and the palette (`ProjectSettingsCard`). Open project tabs
+persist across launches.
 
 ---
 
@@ -166,15 +194,46 @@ launches.
 | --- | --- |
 | Paint / place shape | Click-drag on the board (pointer down → move → up). Engine converts **screen** coords. |
 | See the brush | Pen, Eraser and Blur draw a **ring at the pointer, the size of the brush** — document geometry, so it scales with the zoom exactly as the stamp does, with the line held at one screen pixel by `vs_overlay`. Two rings a pixel apart, light inside dark, because one colour cannot stay legible over both white paper and black ink. Under ~3px across it collapses to a dot. It is withheld exactly where a stroke would be refused — a text, vector or locked layer, or inside `⌘T` — so no ring means no stroke. `Document::brush_ring` owns every one of those rules; the shell only forwards the pointer (`calm_engine_set_pointer_hover`) and takes it away while panning or zoom-chording. |
-| Move a layer or vector item | Select **Move** on the tools island, then drag painted pixels or a vector item. Arrow keys nudge the same target. Turn **Transform** on (options toggle or `⌘T`) for scale/rotate of that layer; the same press selects it. |
+| Move a layer or vector item | Select **Move** on the tools island, then drag painted pixels or a vector item. Arrow keys nudge the same target. **Transform** comes on with Move, so scale/rotate handles are live and the press selects the layer; turn it off (options toggle or `⌘T`) for a plain drag. |
 | Resize a vector item | Select it (Move or `⌘T`), then drag a corner of its box. Proportional by default, **Shift** frees the two axes — the same polarity as a `⌘T` corner. |
 | Constrain a shape | Hold **Shift** while dragging **Rect** or **Ellipse** (and their marquee twins) for a square or circle. Corner-anchored, and the *longer* side wins, so the shape fills the drag. Press or release Shift mid-drag and the board snaps immediately — the clamp is derived from the raw drag on every frame, not baked in on the last mouse-move. Line, Arrow, Triangle and Pentagon are unconstrained (angle snap and regular-polygon lock are different clamps, not built). |
+| Pull a guide | Drag off the top ruler for a horizontal rule, off the left ruler for a vertical one; drag one with **Move** to reposition it, and release it back over a ruler to discard it. Layers, shapes and scale handles snap to guides within `GUIDE_SNAP_PX`. |
 | Live preview | GPU stroke/shape while dragging; CPU commit into sparse tiles on pointer-up. A shape previews its fill *and* its border in their own colors, because `board.wgsl`'s `shape_ink` composites the same two parts, in the same order, that the commit does. |
 | Pan | Scroll wheel / trackpad scroll; **middle-button drag**; Space-drag; or Option/⌘-drag |
 | Zoom | Pinch; ⌘ + scroll; Option + scroll; or ⌘`=` / ⌘`-` |
 | Fit to view | `0`, the zoom pill, or Board menu — fills the canvas island. The pill's Fit button reads as *on* (accent) while the board is already fitted and *off* (muted) once you pan or zoom away, the same way a selected tool reads. |
 | Space-pan | Hold Space for temporary hand tool (Photoshop-style) |
 | Maximise window | Double-click the titlebar (standard macOS zoom) |
+
+### Guides
+
+Orange hairlines pulled off the rulers, one screen pixel wide at any zoom, that layers and
+handles snap to. Two things about how they are drawn:
+
+- **They span the view, not the paper.** A guide runs edge to edge of the board viewport,
+  right up to the ruler it came from, rather than stopping where the paper stops. A rule you
+  could only see over paper cannot be lined up against a layer hanging off it — and one that
+  stopped short never met the ruler, which is where the eye goes to read its position. It is
+  the only pass the renderer lifts the paper scissor around (`Renderer::render`); everything
+  else the board draws is clipped to the paper. Extent comes from
+  `Camera::viewport_doc_bounds`, the unclamped twin of `visible_doc_rect`.
+- **A guide being dragged prints its position.** A small muted readout in document pixels
+  rides the guide, on the edge it was pulled from — a horizontal rule reads down the left, a
+  vertical one along the top. Both the number and where it sits on screen come from
+  `Document::dragged_guide_readout` over `calm_engine_dragged_guide`, so the shell formats and
+  places but never converts.
+- **Moving one is an overlay frame, never a content frame.** A guide that moved has changed no
+  tile, no layer and no camera, and `write_guides` rebuilds the guide buffer every frame
+  regardless — so both drag paths invalidate at the overlay level only. `Document::pointer_move`
+  has always returned `false` for a guide drag for this reason; `calm_engine_guide_drag_update`,
+  the ruler's path, used to call the full `Renderer::invalidate` instead and rebuilt the entire
+  board on every pointer move, which is what made a guide pulled off a ruler lag the cursor.
+  Anything else that moves board chrome belongs on the same side of that line.
+- **The readout is the one thing a drag publishes, and it publishes narrowly.** It lives on its
+  own `GuideReadoutStore` rather than on `Engine`, because an engine publish re-renders every
+  view watching `AppModel` — the whole editor — and this updates on every pointer move. Only
+  the readout label observes the store, so only the label redraws. `Engine.pointerMove` avoids
+  the same cost during a stroke by syncing nothing at all; this is that rule, kept.
 
 Camera clamping, zoom floor, and dirty-flag render live in Rust — never reimplemented in
 Swift. Pan is clamped with slack rather than pinned: the paper can be dragged around at any
@@ -419,8 +478,9 @@ live in `engine/core`; the actual PNG/JPEG/WebP/AVIF **encode** happens in the s
   scale or rotation moves but does not crop. The fields always mirror what the engine took,
   not what was typed. Values follow selection at pointer-up granularity, not live through a
   transform drag.
-- **Transform (`⌘T`):** a transient *mode* on the active layer, reached from Move's options
-  toggle or `⌘T` (which selects Move so the toggle is visible). Not a tools-island button
+- **Transform (`⌘T`):** a transient *mode* on the active layer. Picking **Move** enters it,
+  and Move's options toggle or `⌘T` (which selects Move so the toggle is visible) turns it
+  off and on again from there. Not a tools-island button
   of its own (Select tools stay for region marquee/lasso; transforming a selection region
   is separate). Shows scale/rotate handles around the *active* layer. Drag a corner to
   scale — proportional by default, hold **Shift** for free (non-uniform) scale, the same
@@ -429,7 +489,11 @@ live in `engine/core`; the actual PNG/JPEG/WebP/AVIF **encode** happens in the s
   grip standing off the top edge to rotate — it is always square to that edge and a fixed
   screen distance clear of it, at any rotation, scale or flip, and the turn is taken about
   the centre of the box as drawn; drag inside the box to move. Click outside the
-  handles, press `Esc`, or pick another tool to exit the mode. Fully live and
+  handles, press `Return`, press `Esc`, or pick another tool to exit the mode — `Return`
+  leaves everything else as it is, `Esc` drops the selection with it (`Document::deselect`),
+  which is Photoshop's split between committing and cancelling a Free Transform. There is
+  nothing to *cancel* here, though: the transform is a live `LayerTransform` either way, and
+  undo is what takes it back. Fully live and
   non-destructive on the canvas; a "Reset Transform" action in the layer's `…` popover
   clears it back to identity.
 - **Click-to-pick a layer**, inside transform mode: clicking a layer's *painted pixels*
@@ -678,8 +742,8 @@ panel toggles are shell knobs.
 
 | Shortcut | Action | Photoshop-ish? |
 | --- | --- | --- |
-| `⌘N` | New Project window (disabled on Landing) | New document |
-| `⌘V` | Paste clipboard artwork as a new project (Landing / New Project window) | Ps pastes into the document; we create one |
+| `⌘N` | New Project modal (disabled on Landing) | New document |
+| `⌘V` | Paste clipboard artwork as a new project (Landing / New Project modal) | Ps pastes into the document; we create one |
 | `⌘S` | Save | Yes |
 | `⌘Z` | Undo (Edit menu) | Yes |
 | `⌘⇧Z` | Redo (Edit menu) | Yes (Ps redo varies by platform; we use ⌘⇧Z) |
@@ -707,8 +771,9 @@ panel toggles are shell knobs.
 | `M` | Selection (rect / ellipse / lasso — last one used) | Yes (Ps Marquee) |
 | `G` | Fill (bucket) | Yes (Ps Paint Bucket, shared with Gradient) |
 | `I` | Eyedropper (live sample under the cursor into the active primary/secondary swatch; loupe shows color + hex; a circle shows the sample area) | Yes |
-| Move tool | Tools island — click a layer's pixels or a vector item to drag it; Transform off, that is all it does. Transform on (options toggle or `⌘T`) adds scale/rotate handles and selecting a layer's pixels makes it active. Empty space is a no-op. `V` stays vector mode. | Ps `V` is Move; that key is already vector mode here |
-| `⌘T` | Select Move and toggle transform mode on the active layer (scale/rotate/move); click another layer's pixels to retarget, click empty space or `Esc` to exit | Yes (Ps Free Transform) |
+| Move tool | Tools island — click a layer's pixels or a vector item to drag it. Transform comes on with the tool, so scale/rotate handles are live and selecting a layer's pixels makes it active; switch Transform off (options toggle or `⌘T`) and a grab is a plain drag. Empty space is a no-op. No bare key of its own — `V` stays vector mode, so `⌘T` is the chord its tooltip prints. | Ps `V` is Move; that key is already vector mode here |
+| `⌘T` | Select Move and toggle transform mode on the active layer (scale/rotate/move); click another layer's pixels to retarget, click empty space, `Return` or `Esc` to exit | Yes (Ps Free Transform) |
+| `Return` | Exit transform mode, leaving the selection and the layer's transform alone. Does nothing outside transform, and types a newline while a text layer is open | Yes (Ps commits Free Transform on Return) |
 | `⌥⌘G` | Clip to Below on the active layer — see Layers | Yes (Ps Create Clipping Mask, though ours merges rather than clipping live) |
 | `⌃⌘F` | Enter / exit full screen (re-homed from the removed View menu) | macOS standard |
 | `F` | Toggle shape fill | — |
@@ -726,7 +791,8 @@ panel toggles are shell knobs.
 | `⌘⇧N` | Add layer |
 | `⌘⌫` | Clear the selection's pixels, or the whole active layer if no selection |
 | `⌘C` / `⌘X` / `⌘V` | Copy / cut / paste — see Selection in the section above |
-| `Esc` | Deselect |
+| `Return` | Exit transform mode (only while it is on) — see Tools above |
+| `Esc` | Deselect — which also exits transform |
 | `⌘=` / `⌘+` | Zoom in one core step (`limits::ZOOM_STEP`) |
 | `⌘-` | Zoom out one core step |
 | `⌘A` / `⌘⇧I` | Select All / Invert Selection — see Selection above |
@@ -754,7 +820,10 @@ or the middle button is armed, **closed hand** while actually panning, zoom-in w
 1. Prefer Photoshop / industry defaults when adding shortcuts (`B` brush, `E` eraser,
    `V` move, `Space` temporary pan, `⌘0` fit, `⌘1` 100%, etc.).
 2. Keep bindings in the **platform** shell (`CalummaApp` commands + editor key catcher).
-   Document every user-facing chord in this file in the same change.
+   Bare tool keys live in exactly one table, `CalmTool.byKey` in `UI/ToolLabels.swift` —
+   the key catcher picks tools through it and the tools panel prints them in tooltips, so a
+   key and the key a tooltip promises cannot drift apart. Add a tool key there, not in a
+   `switch`. Document every user-facing chord in this file in the same change.
 3. Do not invent conflicting chords for engine vs chrome; one map, one place to look.
 4. Windows / future shells: same *actions*, OS-native modifiers (`Ctrl` vs `⌘`).
 

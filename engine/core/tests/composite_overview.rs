@@ -1,5 +1,5 @@
 //! `Document::composite_overview` — the whole-document thumbnail behind recents, project
-//! thumbs and the workspace extend overlay.
+//! thumbs.
 //!
 //! It samples the stack per pixel rather than compositing the full document and shrinking it,
 //! so the things worth pinning are the sampling grid (aspect, the cap, the degenerate one-
