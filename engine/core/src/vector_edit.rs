@@ -20,10 +20,10 @@ pub struct VectorPick {
 /// asks whether *an item* is being dragged.
 #[derive(Clone, Debug)]
 pub struct VectorItemDrag {
-    pick: VectorPick,
+    pub(crate) pick: VectorPick,
     handle: TransformHandle,
     start_pointer: (f32, f32),
-    start_item: VectorItem,
+    pub(crate) start_item: VectorItem,
     /// The item's document-space box at pointer-down. Moving an item by a document delta moves
     /// this box by exactly the same delta — `move_item_by` un-rotates the delta only so the
     /// layer transform can put it back — so the box the guides snap against is this one shifted,
@@ -253,7 +253,9 @@ impl Document {
     }
 
     pub fn end_vector_item_drag(&mut self) -> bool {
-        self.vector_drag.take().is_some()
+        let had = self.vector_drag.is_some();
+        self.commit_vector_drag_history();
+        had
     }
 
     pub fn is_dragging_vector_item(&self) -> bool {
@@ -266,8 +268,20 @@ impl Document {
         let Some(pick) = self.selected_vector_item() else {
             return false;
         };
+        let Some(layer) = self.layers.get(pick.layer) else {
+            return false;
+        };
+        let layer_id = layer.id.clone();
+        let before = match layer.content.item() {
+            Some(item) => item.clone(),
+            None => return false,
+        };
         let doc_delta = (steps_x * VECTOR_NUDGE_STEP, steps_y * VECTOR_NUDGE_STEP);
-        self.move_item_by(pick, doc_delta, |slot, (dx, dy)| slot.translate(dx, dy))
+        if !self.move_item_by(pick, doc_delta, |slot, (dx, dy)| slot.translate(dx, dy)) {
+            return false;
+        }
+        self.record_vector_history(layer_id, Some(before));
+        true
     }
 
     pub fn delete_selected_vector_item(&mut self) -> bool {
@@ -275,7 +289,20 @@ impl Document {
             return false;
         };
         self.clear_vector_selection();
-        self.remove_layer(pick.layer)
+        self.record_stack_history();
+        self.layers.remove(pick.layer);
+        if self.active_layer >= self.layers.len() {
+            self.active_layer = self.layers.len().saturating_sub(1);
+        } else if self.active_layer > pick.layer {
+            self.active_layer -= 1;
+        }
+        self.layer_selection.retain(|&i| i != pick.layer);
+        for selected in &mut self.layer_selection {
+            if *selected > pick.layer {
+                *selected -= 1;
+            }
+        }
+        true
     }
 
     fn item_for_pick(&self, pick: VectorPick) -> Option<&VectorItem> {

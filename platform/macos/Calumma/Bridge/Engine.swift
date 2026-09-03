@@ -29,6 +29,11 @@ enum CalmAlignEdge: UInt32 {
     case bottom = 5
 }
 
+enum CalmDistributeAxis: UInt32 {
+    case horizontal = 0
+    case vertical = 1
+}
+
 struct LayerAdjustments: Equatable {
     var brightness: Float = 0
     var contrast: Float = 0
@@ -928,6 +933,19 @@ final class Engine: ObservableObject, @unchecked Sendable {
         let selection = indices.map(UInt32.init)
         let ok = selection.withUnsafeBufferPointer { buffer in
             calm_engine_align_layers(ptr, buffer.baseAddress, buffer.count, edge.rawValue) == CalmStatusOk
+        }
+        if ok {
+            render()
+        }
+        return ok
+    }
+
+    @discardableResult
+    func distributeLayers(_ indices: [Int], axis: CalmDistributeAxis) -> Bool {
+        guard let ptr else { return false }
+        let selection = indices.map(UInt32.init)
+        let ok = selection.withUnsafeBufferPointer { buffer in
+            calm_engine_distribute_layers(ptr, buffer.baseAddress, buffer.count, axis.rawValue) == CalmStatusOk
         }
         if ok {
             render()

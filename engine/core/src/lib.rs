@@ -10,6 +10,7 @@ pub mod fill;
 pub mod filters;
 pub mod guide;
 pub mod history;
+pub mod history_apply;
 pub mod history_tile;
 pub mod layer;
 pub mod layer_align;
@@ -62,7 +63,7 @@ pub use guide::{Guide, GuideAxis};
 pub use history::History;
 pub use history_tile::HistoryTile;
 pub use layer::{BlendMode, Layer, LayerContent};
-pub use layer_align::AlignEdge;
+pub use layer_align::{AlignEdge, DistributeAxis};
 pub use limits::{
     BRUSH_SIZE_DEFAULT, BRUSH_SIZE_MAX, BRUSH_SIZE_MIN, CRISP_PIXEL_ZOOM, IMPORT_MAX_SIDE,
     LOSSY_EXPORT_QUALITY, MAX_ZOOM_HARD, MIN_VISIBLE_DOC_SIDE, MIN_ZOOM_FILL,

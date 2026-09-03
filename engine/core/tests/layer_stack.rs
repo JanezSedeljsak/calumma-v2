@@ -1,4 +1,5 @@
 use calumma_core::document::*;
+use calumma_core::history::History;
 use calumma_core::*;
 
 /// Paper at 0, then three layers named so a reorder is readable in a failure message.
@@ -12,6 +13,7 @@ fn stacked() -> Document {
     for name in ["A", "B", "C"] {
         doc.add_layer(name);
     }
+    doc.history = History::default();
     doc
 }
 

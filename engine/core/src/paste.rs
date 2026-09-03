@@ -17,20 +17,17 @@
 //! overflowing layer draws exactly the part of itself that is on the paper.
 
 use crate::document::Document;
+use crate::history::stack_snapshot_bytes;
 use crate::tile::DocRect;
 
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 
-/// What a paste actually did, so the shell can say so rather than working it out by comparing
-/// sizes itself.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, IntoPrimitive, TryFromPrimitive)]
 #[repr(u32)]
 pub enum PasteOutcome {
     #[default]
     Failed = 0,
-    /// It fit on the paper.
     Native = 1,
-    /// It did not, so the layer holds more than the canvas shows.
     Overflowing = 2,
 }
 
@@ -53,8 +50,9 @@ impl Document {
             self.centred(width, height)
         };
 
-        self.add_layer(name);
-        let index = self.active_layer;
+        let before = self.snapshot_stack();
+        self.push_layer(name);
+        let _index = self.active_layer;
         let placed = DocRect::new(ox, oy, ox + width as i32 - 1, oy + height as i32 - 1);
         let touched = match self.active_mut().and_then(|l| l.tiles_mut()) {
             Some(tiles) => {
@@ -64,15 +62,16 @@ impl Document {
             None => 0,
         };
         if touched > 0 {
+            let bytes = stack_snapshot_bytes(&before);
+            self.history
+                .push_stack(before, Some(self.active_layer), bytes);
             return if fits {
                 PasteOutcome::Native
             } else {
                 PasteOutcome::Overflowing
             };
         }
-        // Nothing was written — an entirely transparent image. Take the layer back out rather
-        // than leaving an empty one behind to explain a paste about to report failure.
-        self.remove_layer(index);
+        self.restore_stack(before);
         PasteOutcome::Failed
     }
 
@@ -88,8 +87,6 @@ impl Document {
             .unwrap_or((0, 0))
     }
 
-    /// Centred on the canvas, which for an oversized image means a negative origin — the point
-    /// of centring being that the middle of the picture is the part you can see.
     fn centred(&self, width: u32, height: u32) -> (i32, i32) {
         (
             (self.width as i32 - width as i32) / 2,

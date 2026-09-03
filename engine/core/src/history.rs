@@ -1,10 +1,12 @@
+use crate::filters::Adjustments;
 use crate::history_tile::HistoryTile;
-use crate::layer::Layer;
+use crate::layer::{BlendMode, Layer};
 use crate::limits::{
     HISTORY_COMPACT_TILES_PER_SWEEP, HISTORY_HOT_COMMANDS, HISTORY_MEMORY_BUDGET_BYTES,
 };
 use crate::tile::{TileMap, TILE_BYTES};
 use crate::transform::LayerTransform;
+use crate::vector::VectorItem;
 use calumma_text::TextRun;
 use std::sync::Arc;
 
@@ -22,9 +24,6 @@ pub struct MaskDiff {
     pub mask: Option<Vec<u8>>,
 }
 
-/// The run a text layer had before a typing session. Its tiles are already covered by a
-/// `TileDiff`, but the run is what the project actually stores — without this, undoing a
-/// session would repaint the old glyphs and still save the new string.
 #[derive(Clone, Debug)]
 pub struct RunDiff {
     pub layer_id: String,
@@ -38,19 +37,44 @@ pub struct TransformDiff {
 }
 
 #[derive(Clone, Debug)]
+pub struct LayerPropDiff {
+    pub layer_id: String,
+    pub opacity: f32,
+    pub blend_mode: BlendMode,
+    pub adjustments: Option<Adjustments>,
+    pub transform: Option<LayerTransform>,
+}
+
+#[derive(Clone, Debug)]
+pub struct VectorDiff {
+    pub layer_id: String,
+    pub item: Option<VectorItem>,
+}
+
+#[derive(Clone, Debug)]
+pub struct StackSnapshot {
+    pub layers: Vec<Layer>,
+    pub width: u32,
+    pub height: u32,
+    pub active_layer_index: usize,
+    pub layer_selection: Vec<usize>,
+    pub selected_vector_layer: Option<usize>,
+}
+
+#[derive(Clone, Debug)]
 pub struct HistoryCommand {
     pub diffs: Vec<TileDiff>,
     pub masks: Vec<MaskDiff>,
     pub runs: Vec<RunDiff>,
     pub transforms: Vec<TransformDiff>,
+    pub props: Vec<LayerPropDiff>,
+    pub vectors: Vec<VectorDiff>,
+    pub stack: Option<StackSnapshot>,
     pub active_layer_index: Option<usize>,
     pub bytes: usize,
 }
 
 impl HistoryCommand {
-    /// Compact this command's tiles, spending at most `budget` of them, and fold the saving
-    /// back into `bytes` so the stack's own accounting stays true. Only tiles that still cost
-    /// a full tile are counted against the budget — already-compacted ones are free to skip.
     fn compact(&mut self, budget: &mut usize) -> usize {
         let mut freed = 0;
         for diff in &mut self.diffs {
@@ -70,16 +94,36 @@ impl HistoryCommand {
     }
 }
 
-/// What the budget charges a snapshot. Every tile pays what its current representation costs
-/// — a full tile while it is raw pixels, its frame length once compacted — so shrinking a
-/// cold command genuinely buys undo depth rather than only looking smaller in the memory
-/// panel. That is where this feature's value comes from: `evict()` reads this number.
 pub fn snapshot_bytes(tiles: &TileSnapshot) -> usize {
     tiles
         .values()
         .flatten()
         .map(HistoryTile::budget_bytes)
         .sum()
+}
+
+pub fn stack_snapshot_bytes(stack: &StackSnapshot) -> usize {
+    stack.layers.iter().map(layer_charge_bytes).sum()
+}
+
+fn layer_charge_bytes(layer: &Layer) -> usize {
+    let mut bytes = 0usize;
+    if let Some(tiles) = layer.tiles() {
+        bytes += tiles.len() * TILE_BYTES;
+    }
+    if let Some(mask) = layer.mask() {
+        bytes += mask.len();
+    }
+    if let Some(run) = layer.run() {
+        bytes += run.text.len();
+    }
+    bytes + 64
+}
+
+pub trait HistoryMutator {
+    fn apply_command(&mut self, command: &HistoryCommand);
+    fn invert_command(&mut self, command: &HistoryCommand) -> HistoryCommand;
+    fn set_active_layer_index(&mut self, index: usize);
 }
 
 #[derive(Clone, Debug)]
@@ -122,10 +166,6 @@ impl History {
         self.undo.len()
     }
 
-    /// What the undo/redo stacks are really holding. `memory_used` is the *budget* estimate —
-    /// it charges a full tile for every snapshot entry, including the ones still shared with
-    /// the live document — so accounting asks here instead and passes a counter that has
-    /// already seen the layers' tiles.
     pub fn held_bytes(&self, mut tile_bytes: impl FnMut(&Arc<Vec<u8>>) -> usize) -> usize {
         let mut total = 0;
         for command in self.undo.iter().chain(&self.redo) {
@@ -141,6 +181,9 @@ impl History {
                 .map(Vec::len)
                 .sum::<usize>();
             total += command.runs.iter().map(|r| r.run.text.len()).sum::<usize>();
+            if let Some(stack) = &command.stack {
+                total += stack_snapshot_bytes(stack);
+            }
         }
         total
     }
@@ -150,6 +193,9 @@ impl History {
             && command.masks.is_empty()
             && command.runs.is_empty()
             && command.transforms.is_empty()
+            && command.props.is_empty()
+            && command.vectors.is_empty()
+            && command.stack.is_none()
         {
             return;
         }
@@ -177,6 +223,9 @@ impl History {
             masks: Vec::new(),
             runs: Vec::new(),
             transforms: Vec::new(),
+            props: Vec::new(),
+            vectors: Vec::new(),
+            stack: None,
             active_layer_index,
             bytes,
         });
@@ -201,13 +250,14 @@ impl History {
                 layer_id,
                 transform,
             }],
+            props: Vec::new(),
+            vectors: Vec::new(),
+            stack: None,
             active_layer_index,
             bytes,
         });
     }
 
-    /// One typing session: the tiles it repainted and the run it started from, restored
-    /// together so undo takes back what was typed and not only what was drawn.
     pub fn push_layer_text(
         &mut self,
         layer_id: String,
@@ -224,6 +274,9 @@ impl History {
             masks: Vec::new(),
             runs: vec![RunDiff { layer_id, run }],
             transforms: Vec::new(),
+            props: Vec::new(),
+            vectors: Vec::new(),
+            stack: None,
             active_layer_index,
             bytes,
         });
@@ -244,56 +297,110 @@ impl History {
             }],
             runs: Vec::new(),
             transforms: Vec::new(),
+            props: Vec::new(),
+            vectors: Vec::new(),
+            stack: None,
             active_layer_index,
             bytes,
         });
     }
 
-    pub fn undo(&mut self, layers: &mut [Layer], active_layer: &mut usize) -> bool {
-        let Some(command) = self.undo.pop() else {
-            return false;
-        };
-        let inverse = self.step(&command, layers, active_layer);
-        self.redo.push(inverse);
-        true
-    }
-
-    pub fn redo(&mut self, layers: &mut [Layer], active_layer: &mut usize) -> bool {
-        let Some(command) = self.redo.pop() else {
-            return false;
-        };
-        let inverse = self.step(&command, layers, active_layer);
-        self.undo.push(inverse);
-        true
-    }
-
-    fn step(
+    pub fn push_stack(
         &mut self,
-        command: &HistoryCommand,
-        layers: &mut [Layer],
-        active_layer: &mut usize,
-    ) -> HistoryCommand {
-        let inverse = invert_command(command, layers, Some(*active_layer));
-        apply_command(command, layers);
-        if let Some(index) = command.active_layer_index {
-            if index < layers.len() {
-                *active_layer = index;
-            }
-        }
+        stack: StackSnapshot,
+        active_layer_index: Option<usize>,
+        bytes: usize,
+    ) {
+        self.push(HistoryCommand {
+            diffs: Vec::new(),
+            masks: Vec::new(),
+            runs: Vec::new(),
+            transforms: Vec::new(),
+            props: Vec::new(),
+            vectors: Vec::new(),
+            stack: Some(stack),
+            active_layer_index,
+            bytes,
+        });
+    }
+
+    pub fn push_props(
+        &mut self,
+        props: Vec<LayerPropDiff>,
+        active_layer_index: Option<usize>,
+        bytes: usize,
+    ) {
+        self.push(HistoryCommand {
+            diffs: Vec::new(),
+            masks: Vec::new(),
+            runs: Vec::new(),
+            transforms: Vec::new(),
+            props,
+            vectors: Vec::new(),
+            stack: None,
+            active_layer_index,
+            bytes,
+        });
+    }
+
+    pub fn push_transforms(
+        &mut self,
+        transforms: Vec<TransformDiff>,
+        active_layer_index: Option<usize>,
+        bytes: usize,
+    ) {
+        self.push(HistoryCommand {
+            diffs: Vec::new(),
+            masks: Vec::new(),
+            runs: Vec::new(),
+            transforms,
+            props: Vec::new(),
+            vectors: Vec::new(),
+            stack: None,
+            active_layer_index,
+            bytes,
+        });
+    }
+
+    pub fn push_vector(
+        &mut self,
+        vector: VectorDiff,
+        active_layer_index: Option<usize>,
+        bytes: usize,
+    ) {
+        self.push(HistoryCommand {
+            diffs: Vec::new(),
+            masks: Vec::new(),
+            runs: Vec::new(),
+            transforms: Vec::new(),
+            props: Vec::new(),
+            vectors: vec![vector],
+            stack: None,
+            active_layer_index,
+            bytes,
+        });
+    }
+
+    pub fn take_undo(&mut self) -> Option<HistoryCommand> {
+        self.undo.pop()
+    }
+
+    pub fn take_redo(&mut self) -> Option<HistoryCommand> {
+        self.redo.pop()
+    }
+
+    pub fn finish_undo(&mut self, command: HistoryCommand, inverse: HistoryCommand) {
         self.memory_used = self.memory_used.saturating_sub(command.bytes);
         self.memory_used += inverse.bytes;
-        inverse
+        self.redo.push(inverse);
     }
 
-    /// Shrink cold tiles until the per-sweep budget runs out, returning the bytes reclaimed.
-    ///
-    /// Age picks the *candidates* and unique ownership decides which of them are actually
-    /// worth touching (`HistoryTile::compact`). The commands either side of the history
-    /// cursor — the last `HISTORY_HOT_COMMANDS` of each stack — are left alone so an
-    /// immediate undo/redo never pays decompression.
-    ///
-    /// Bounded per call because it runs under the engine lock: whatever is left stays cold
-    /// and is picked up on the next tick. A stack with nothing cold queues no work at all.
+    pub fn finish_redo(&mut self, command: HistoryCommand, inverse: HistoryCommand) {
+        self.memory_used = self.memory_used.saturating_sub(command.bytes);
+        self.memory_used += inverse.bytes;
+        self.undo.push(inverse);
+    }
+
     pub fn compact_cold(&mut self) -> usize {
         let mut budget = HISTORY_COMPACT_TILES_PER_SWEEP;
         let mut freed = 0;
@@ -317,95 +424,5 @@ impl History {
             let dropped = self.undo.remove(0);
             self.memory_used = self.memory_used.saturating_sub(dropped.bytes);
         }
-    }
-}
-
-fn apply_command(command: &HistoryCommand, layers: &mut [Layer]) {
-    for diff in &command.runs {
-        if let Some(layer) = layers.iter_mut().find(|l| l.id == diff.layer_id) {
-            layer.set_run(*diff.run.clone());
-        }
-    }
-    for diff in &command.diffs {
-        if let Some(layer) = layers.iter_mut().find(|l| l.id == diff.layer_id) {
-            if let Some(tiles) = layer.tiles_mut() {
-                tiles.restore_tiles(&diff.tiles);
-            }
-        }
-    }
-    for diff in &command.masks {
-        if let Some(layer) = layers.iter_mut().find(|l| l.id == diff.layer_id) {
-            layer.set_mask(diff.mask.clone());
-        }
-    }
-    for diff in &command.transforms {
-        if let Some(layer) = layers.iter_mut().find(|l| l.id == diff.layer_id) {
-            layer.transform = diff.transform;
-        }
-    }
-}
-
-fn invert_command(
-    command: &HistoryCommand,
-    layers: &[Layer],
-    active_layer_index: Option<usize>,
-) -> HistoryCommand {
-    let mut diffs = Vec::new();
-    let mut masks = Vec::new();
-    let mut runs = Vec::new();
-    let mut transforms = Vec::new();
-    let mut bytes = 0;
-    for diff in &command.diffs {
-        if let Some(layer) = layers.iter().find(|l| l.id == diff.layer_id) {
-            let Some(grid) = layer.tiles() else {
-                continue;
-            };
-            let coords: Vec<_> = diff.tiles.keys().copied().collect();
-            let tiles = grid.snapshot_tiles(&coords);
-            bytes += snapshot_bytes(&tiles);
-            diffs.push(TileDiff {
-                layer_id: diff.layer_id.clone(),
-                tiles,
-            });
-        }
-    }
-    for diff in &command.runs {
-        if let Some(run) = layers
-            .iter()
-            .find(|l| l.id == diff.layer_id)
-            .and_then(Layer::run)
-        {
-            bytes += run.text.len();
-            runs.push(RunDiff {
-                layer_id: diff.layer_id.clone(),
-                run: Box::new(run.clone()),
-            });
-        }
-    }
-    for diff in &command.masks {
-        if let Some(layer) = layers.iter().find(|l| l.id == diff.layer_id) {
-            let mask = layer.mask_owned();
-            bytes += mask.as_ref().map(|m| m.len()).unwrap_or(0);
-            masks.push(MaskDiff {
-                layer_id: diff.layer_id.clone(),
-                mask,
-            });
-        }
-    }
-    for diff in &command.transforms {
-        if let Some(layer) = layers.iter().find(|l| l.id == diff.layer_id) {
-            transforms.push(TransformDiff {
-                layer_id: diff.layer_id.clone(),
-                transform: layer.transform,
-            });
-        }
-    }
-    HistoryCommand {
-        diffs,
-        masks,
-        runs,
-        transforms,
-        active_layer_index,
-        bytes,
     }
 }

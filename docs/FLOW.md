@@ -452,6 +452,21 @@ live in `engine/core`; the actual PNG/JPEG/WebP/AVIF **encode** happens in the s
   Clicking off the item drops the selection and hands the frame back to the layer.
 - Add layer: `⌘⇧N` (shell).
 - Clear active layer: `⌘⌫` — clears just the active **selection** instead if one exists.
+- **Selecting several rows is a bulk action, not a group.** `⇧`-click a layer row for a range,
+  `⌘`-click to toggle one, plain click for one as before; Paper is never a member. N selected
+  layers means one gesture applied N times — nothing is grouped, nothing is parented, and no
+  layer's rendering learns about another (the same rule Clip to Below keeps by merging on
+  apply). The last row clicked is always the **active** layer, so the paint target never goes
+  ambiguous. With 2+ rows selected the panel grows an **Align** row (left / center-h / right /
+  top / center-v / bottom, against the union of the selected layers' boxes); with 3+ it grows a
+  **Distribute** row (horizontal / vertical), which equalizes the gaps between boxes and leaves
+  the two extremes where they are — so distributing twice is a no-op. Both work on each layer's
+  *content* box, not the canvas-sized layer, and both write `offset_x`/`offset_y` on the layer's
+  own transform, which is all a bulk move ever is. Dragging any selected layer with the Move
+  tool, or nudging with the arrow keys, applies **one** delta to all of them, snapped as the
+  union box rather than per layer — snapping each layer separately would slide them relative to
+  each other, which is the bug this feature exists to avoid. A locked or empty layer is skipped,
+  not moved to 0,0. `⌘T` still belongs to a single layer; there is no multi-layer frame.
 - **A row is a thumbnail, a name, and one `…` button** (`AppIcon.more`) — nothing else. Every
   layer action lives in the popover it opens (`LayerSettingsCard.swift`), including the three
   that used to sit in the row: **Visibility** and **Lock** (toggles at the top of the card, so

@@ -393,6 +393,11 @@ struct EditorView: View {
                 if selectedLayers.count >= 2 {
                     layerAlignRow
                 }
+                // Distribute needs a middle box to spread, so it appears one row later than
+                // align rather than sitting there greyed out.
+                if selectedLayers.count >= 3 {
+                    layerDistributeRow
+                }
                 // The stack takes every point the header and the bounds fields below it do
                 // not, and scrolls once it runs out — rather than stopping at a fixed share of
                 // the island with dead space underneath it.
@@ -570,6 +575,34 @@ struct EditorView: View {
             tooltipEdge: .leading
         ) {
             SvgIcon(name: icon, color: colors.textMuted)
+        }
+    }
+
+    private var layerDistributeRow: some View {
+        VStack(alignment: .leading, spacing: Tokens.Space.xs) {
+            CalmText.label(l10n.layerDistribute)
+            ToolsPanel.iconGrid {
+                layerDistributeButton(.horizontal, icon: "object-distribute-h", help: l10n.layerDistributeH)
+                layerDistributeButton(.vertical, icon: "object-distribute-v", help: l10n.layerDistributeV)
+            }
+        }
+    }
+
+    private func layerDistributeButton(_ axis: CalmDistributeAxis, icon: String, help: String) -> some View {
+        CalmToolButton(
+            selected: false,
+            action: { distributeSelectedLayers(axis) },
+            tooltip: help,
+            tooltipEdge: .leading
+        ) {
+            SvgIcon(name: icon, color: colors.textMuted)
+        }
+    }
+
+    private func distributeSelectedLayers(_ axis: CalmDistributeAxis) {
+        let indices = Array(selectedLayers).sorted()
+        if app.engine.distributeLayers(indices, axis: axis) {
+            syncLayerBounds()
         }
     }
 

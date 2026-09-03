@@ -50,7 +50,8 @@ impl Document {
 
     pub fn end_move_drag(&mut self) -> bool {
         let vector = self.end_vector_item_drag();
-        let layer = self.transform_drag.take().is_some();
+        let layer = self.transform_drag.is_some();
+        self.commit_transform_drag_history();
         vector || layer
     }
 
@@ -98,6 +99,7 @@ impl Document {
         if indices.is_empty() {
             return false;
         }
+        self.record_transforms_for_indices(&indices);
         self.offset_layers(
             &indices,
             steps_x * LAYER_NUDGE_STEP,

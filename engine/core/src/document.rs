@@ -561,12 +561,13 @@ fn glazed(color: [u8; 4], opacity: f32) -> [u8; 4] {
     rgba
 }
 
-fn union_aabb_after_delta(
-    targets: &[TransformTarget],
-    dx: f32,
-    dy: f32,
-) -> (f32, f32, f32, f32) {
-    let mut union = (f32::INFINITY, f32::INFINITY, f32::NEG_INFINITY, f32::NEG_INFINITY);
+fn union_aabb_after_delta(targets: &[TransformTarget], dx: f32, dy: f32) -> (f32, f32, f32, f32) {
+    let mut union = (
+        f32::INFINITY,
+        f32::INFINITY,
+        f32::NEG_INFINITY,
+        f32::NEG_INFINITY,
+    );
     for target in targets {
         let mut next = target.start_transform;
         next.offset_x += dx;
@@ -667,6 +668,12 @@ impl Document {
     }
 
     pub fn add_layer(&mut self, name: impl Into<String>) {
+        self.record_stack_history();
+        self.layers.push(Layer::new(name, self.width, self.height));
+        self.active_layer = self.layers.len() - 1;
+    }
+
+    pub(crate) fn push_layer(&mut self, name: impl Into<String>) {
         self.layers.push(Layer::new(name, self.width, self.height));
         self.active_layer = self.layers.len() - 1;
     }
@@ -695,11 +702,18 @@ impl Document {
     }
 
     pub fn remove_layer(&mut self, index: usize) -> bool {
+        self.remove_layer_inner(index, true)
+    }
+
+    pub(crate) fn remove_layer_inner(&mut self, index: usize, record: bool) -> bool {
         if index >= self.layers.len() {
             return false;
         }
         self.commit_text();
         self.clear_vector_selection();
+        if record {
+            self.record_stack_history();
+        }
         self.layers.remove(index);
         if self.layers.is_empty() {
             self.active_layer = 0;
@@ -748,12 +762,27 @@ impl Document {
     /// themselves went stale. The caller still owes the renderer an `invalidate()` — same as a
     /// `⌘T` drag, which rewrites the same row for the same reason.
     pub fn set_layer_opacity(&mut self, index: usize, opacity: f32) {
+        let new_opacity = opacity.clamp(0.0, 1.0);
+        let Some(layer) = self.layers.get(index) else {
+            return;
+        };
+        if (layer.opacity - new_opacity).abs() < 1e-6 {
+            return;
+        }
+        self.record_layer_props_history(index);
         if let Some(layer) = self.layers.get_mut(index) {
-            layer.opacity = opacity.clamp(0.0, 1.0);
+            layer.opacity = new_opacity;
         }
     }
 
     pub fn set_layer_blend_mode(&mut self, index: usize, mode: crate::layer::BlendMode) {
+        let Some(layer) = self.layers.get(index) else {
+            return;
+        };
+        if layer.blend_mode == mode {
+            return;
+        }
+        self.record_layer_props_history(index);
         if let Some(layer) = self.layers.get_mut(index) {
             layer.blend_mode = mode;
         }
@@ -768,13 +797,21 @@ impl Document {
         index: usize,
         adjustments: crate::filters::Adjustments,
     ) {
+        let Some(layer) = self.layers.get(index) else {
+            return;
+        };
+        let adjustments = adjustments.clamped();
+        let next = if adjustments.is_neutral() {
+            None
+        } else {
+            Some(adjustments)
+        };
+        if layer.adjustments == next {
+            return;
+        }
+        self.record_layer_props_history(index);
         if let Some(layer) = self.layers.get_mut(index) {
-            let adjustments = adjustments.clamped();
-            layer.adjustments = if adjustments.is_neutral() {
-                None
-            } else {
-                Some(adjustments)
-            };
+            layer.adjustments = next;
         }
     }
 
@@ -804,6 +841,7 @@ impl Document {
     }
 
     fn push_vector_item(&mut self, item: vector::VectorItem) {
+        self.record_stack_history();
         let n = self.layers.iter().filter(|l| l.content.is_vector()).count() + 1;
         self.add_vector_layer(crate::names::numbered_vector_layer(n), item);
     }
@@ -842,10 +880,14 @@ impl Document {
     }
 
     pub fn reset_layer_transform(&mut self, index: usize) {
+        let Some(layer) = self.layers.get(index) else {
+            return;
+        };
+        if layer.locked || layer.transform.is_none() {
+            return;
+        }
+        self.record_layer_props_history(index);
         if let Some(layer) = self.layers.get_mut(index) {
-            if layer.locked {
-                return;
-            }
             layer.transform = None;
         }
     }
@@ -949,12 +991,7 @@ impl Document {
             for (corner, handle) in corners.iter().zip(TransformHandle::CORNERS) {
                 if point_dist(*corner, point) <= hit_r {
                     return Some(TransformDrag::single(
-                        index,
-                        handle,
-                        pivot,
-                        raw_bounds,
-                        t,
-                        point,
+                        index, handle, pivot, raw_bounds, t, point,
                     ));
                 }
             }
@@ -1104,11 +1141,12 @@ impl Document {
             return false;
         }
         self.commit_text();
-        let Some(source) = self.layers.get(index) else {
+        self.record_stack_history();
+        let Some(source) = self.layers.get(index).cloned() else {
             return false;
         };
         let base_name = source.name.clone();
-        let mut copy = source.clone();
+        let mut copy = source;
         copy.id = uuid::Uuid::new_v4().to_string();
         copy.name = crate::names::duplicate_layer_name(&base_name);
         self.layers.insert(index + 1, copy);
@@ -1142,6 +1180,7 @@ impl Document {
             }
         }
         self.commit_text();
+        self.record_stack_history();
         let layer = self.layers.remove(from);
         self.layers.insert(to, layer);
         let remap = |i: usize| {
@@ -1250,6 +1289,7 @@ impl Document {
             return false;
         }
         self.commit_text();
+        self.record_stack_history();
         self.layers.swap(index, other);
         self.remap_layer_indices(|i| {
             if i == index {
@@ -1271,6 +1311,7 @@ impl Document {
             return;
         }
         self.commit_text();
+        self.record_stack_history();
         for layer in &mut self.layers {
             layer.resize_mask(old_width, old_height, new_width, new_height);
             let is_paper = layer.is_paper();
@@ -1433,8 +1474,8 @@ impl Document {
     pub fn pointer_up(&mut self, screen_x: f32, screen_y: f32) {
         let (dx, dy) = self.camera.to_doc(screen_x, screen_y);
         if self.transform_active {
-            self.end_vector_item_drag();
-            self.transform_drag = None;
+            self.commit_vector_drag_history();
+            self.commit_transform_drag_history();
             return;
         }
         if self.tool == Tool::Move {
@@ -2367,18 +2408,32 @@ impl Document {
 
     pub fn undo(&mut self) -> bool {
         self.commit_text();
-        let mut active = self.active_layer;
-        let changed = self.history.undo(&mut self.layers, &mut active);
-        self.active_layer = active.min(self.layers.len().saturating_sub(1));
-        changed
+        let Some(command) = self.history.take_undo() else {
+            return false;
+        };
+        let inverse = self.invert_history_command(&command);
+        self.apply_history_command(&command);
+        if let Some(index) = command.active_layer_index {
+            self.set_active_layer_index(index);
+        }
+        self.history.finish_undo(command, inverse);
+        self.active_layer = self.active_layer.min(self.layers.len().saturating_sub(1));
+        true
     }
 
     pub fn redo(&mut self) -> bool {
         self.commit_text();
-        let mut active = self.active_layer;
-        let changed = self.history.redo(&mut self.layers, &mut active);
-        self.active_layer = active.min(self.layers.len().saturating_sub(1));
-        changed
+        let Some(command) = self.history.take_redo() else {
+            return false;
+        };
+        let inverse = self.invert_history_command(&command);
+        self.apply_history_command(&command);
+        if let Some(index) = command.active_layer_index {
+            self.set_active_layer_index(index);
+        }
+        self.history.finish_redo(command, inverse);
+        self.active_layer = self.active_layer.min(self.layers.len().saturating_sub(1));
+        true
     }
 
     pub fn clear_active_layer(&mut self) {
@@ -2504,9 +2559,7 @@ impl Document {
             }
             return Vec::new();
         }
-        self.layer_highlight()
-            .into_iter()
-            .collect()
+        self.layer_highlight().into_iter().collect()
     }
 
     fn layer_outline_corners(&self, index: usize) -> Option<[(f32, f32); 4]> {

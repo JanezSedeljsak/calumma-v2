@@ -79,6 +79,7 @@ impl Document {
             return false;
         }
         self.clear_vector_selection();
+        self.record_stack_history();
         let mode = self.layers[index].blend_mode;
         let w = self.width.max(1);
         let h = self.height.max(1);

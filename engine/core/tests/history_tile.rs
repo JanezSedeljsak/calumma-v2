@@ -7,9 +7,79 @@ use std::sync::Arc;
 
 const COORD: TileCoord = TileCoord { x: 0, y: 0 };
 
+struct TileHost<'a> {
+    layer: &'a mut Layer,
+}
+
+impl HistoryMutator for TileHost<'_> {
+    fn apply_command(&mut self, command: &HistoryCommand) {
+        for diff in &command.diffs {
+            if diff.layer_id == self.layer.id {
+                if let Some(tiles) = self.layer.tiles_mut() {
+                    tiles.restore_tiles(&diff.tiles);
+                }
+            }
+        }
+        for diff in &command.transforms {
+            if diff.layer_id == self.layer.id {
+                self.layer.transform = diff.transform;
+            }
+        }
+    }
+
+    fn invert_command(&mut self, command: &HistoryCommand) -> HistoryCommand {
+        let mut diffs = Vec::new();
+        let mut transforms = Vec::new();
+        let mut bytes = 0usize;
+        for diff in &command.diffs {
+            if diff.layer_id != self.layer.id {
+                continue;
+            }
+            let Some(grid) = self.layer.tiles() else {
+                continue;
+            };
+            let coords: Vec<_> = diff.tiles.keys().copied().collect();
+            let tiles = grid.snapshot_tiles(&coords);
+            bytes += snapshot_bytes(&tiles);
+            diffs.push(TileDiff {
+                layer_id: diff.layer_id.clone(),
+                tiles,
+            });
+        }
+        for diff in &command.transforms {
+            if diff.layer_id == self.layer.id {
+                transforms.push(TransformDiff {
+                    layer_id: diff.layer_id.clone(),
+                    transform: self.layer.transform,
+                });
+                bytes += 32;
+            }
+        }
+        HistoryCommand {
+            diffs,
+            masks: Vec::new(),
+            runs: Vec::new(),
+            transforms,
+            props: Vec::new(),
+            vectors: Vec::new(),
+            stack: None,
+            active_layer_index: Some(0),
+            bytes,
+        }
+    }
+
+    fn set_active_layer_index(&mut self, _index: usize) {}
+}
+
 fn undo(history: &mut History, layer: &mut Layer) -> bool {
-    let mut active = 0;
-    history.undo(std::slice::from_mut(layer), &mut active)
+    let Some(command) = history.take_undo() else {
+        return false;
+    };
+    let mut host = TileHost { layer };
+    let inverse = host.invert_command(&command);
+    host.apply_command(&command);
+    history.finish_undo(command, inverse);
+    true
 }
 
 fn noisy_tile() -> Arc<Vec<u8>> {

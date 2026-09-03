@@ -172,7 +172,7 @@ impl Document {
             .and_then(Layer::run)
             .is_some_and(TextRun::is_empty);
         if empty && edit.created {
-            self.remove_layer(index);
+            self.remove_layer_inner(index, false);
             return;
         }
         let mut before = edit.before;

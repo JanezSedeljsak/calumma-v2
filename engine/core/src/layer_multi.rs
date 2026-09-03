@@ -38,12 +38,12 @@ impl Document {
     }
 
     pub(crate) fn movable_selection_for_click(&self, clicked: usize) -> Vec<usize> {
-        let candidates = if self.layer_selection.len() > 1 && self.layer_selection.contains(&clicked)
-        {
-            self.layer_selection.clone()
-        } else {
-            vec![clicked]
-        };
+        let candidates =
+            if self.layer_selection.len() > 1 && self.layer_selection.contains(&clicked) {
+                self.layer_selection.clone()
+            } else {
+                vec![clicked]
+            };
         candidates
             .into_iter()
             .filter(|&index| self.layer_movable(index))

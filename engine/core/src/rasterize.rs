@@ -16,15 +16,19 @@ impl Document {
     /// a headline, since a text layer's tiles are a cache that the next keystroke overwrites.
     pub fn rasterize_text_layer(&mut self, index: usize) -> bool {
         if self.text_edit_layer() == Some(index) {
-            self.commit_text();
+            self.text_edit.take();
         }
         let (width, height) = (self.width, self.height);
-        let Some(layer) = self.layers.get_mut(index) else {
+        let Some(layer) = self.layers.get(index) else {
             return false;
         };
         if !layer.is_text() {
             return false;
         }
+        self.record_stack_history();
+        let Some(layer) = self.layers.get_mut(index) else {
+            return false;
+        };
         let content = std::mem::replace(&mut layer.content, LayerContent::raster(width, height));
         if let LayerContent::Text { tiles, .. } = content {
             layer.content = LayerContent::Raster(tiles);
@@ -50,11 +54,13 @@ impl Document {
         let Some(layer) = self.layers.get(index) else {
             return false;
         };
-        let Some(item) = layer.content.item() else {
+        let Some(item) = layer.content.item().cloned() else {
             return false;
         };
+        let transform = layer.transform;
+        self.record_stack_history();
         let mut buf = vec![0u8; (width as usize) * (height as usize) * 4];
-        vector::rasterize_into_rgba(item, layer.transform, &mut buf, width, height);
+        vector::rasterize_into_rgba(&item, transform, &mut buf, width, height);
 
         let mut tiles = TileGrid::new(width, height);
         tiles.blit_rgba(&buf, width, height);

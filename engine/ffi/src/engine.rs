@@ -1501,6 +1501,41 @@ pub unsafe extern "C" fn calm_engine_align_layers(
 }
 
 #[no_mangle]
+pub unsafe extern "C" fn calm_engine_distribute_layers(
+    engine: *mut CalmEngine,
+    indices: *const u32,
+    len: usize,
+    axis: u32,
+) -> CalmStatus {
+    if engine.is_null() {
+        return CalmStatus::Null;
+    }
+    let axis = match axis {
+        0 => calumma_core::DistributeAxis::Horizontal,
+        1 => calumma_core::DistributeAxis::Vertical,
+        _ => return CalmStatus::Error,
+    };
+    with_inner(engine, |inner| {
+        let doc = inner.doc.as_mut().context("no project is open")?;
+        let selection = if indices.is_null() || len == 0 {
+            Vec::new()
+        } else {
+            std::slice::from_raw_parts(indices, len)
+                .iter()
+                .map(|&index| index as usize)
+                .collect::<Vec<_>>()
+        };
+        if !doc.distribute_layers(&selection, axis) {
+            bail!("layers could not be distributed");
+        }
+        if let Some(r) = &mut inner.renderer {
+            r.invalidate();
+        }
+        Ok(())
+    })
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn calm_engine_duplicate_layer(
     engine: *mut CalmEngine,
     index: u32,

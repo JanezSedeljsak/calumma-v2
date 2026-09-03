@@ -481,7 +481,5 @@ fn layer_selection_skips_paper() {
     doc.set_tool(Tool::Move);
     assert!(doc.nudge_move_target(1.0, 0.0));
     assert!(doc.layers[1].transform.is_some());
-    assert!(
-        doc.layers[0].transform.is_none() || doc.layers[0].transform.unwrap().is_identity()
-    );
+    assert!(doc.layers[0].transform.is_none() || doc.layers[0].transform.unwrap().is_identity());
 }

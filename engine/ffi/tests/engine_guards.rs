@@ -94,8 +94,18 @@ fn every_status_entry_point_rejects_a_null_engine() {
         assert_eq!(calm_engine_remove_layer(e, 0), CalmStatus::Null);
         assert_eq!(calm_engine_set_layer_visible(e, 0, 1), CalmStatus::Null);
         assert_eq!(calm_engine_set_active_layer(e, 0), CalmStatus::Null);
-        assert_eq!(calm_engine_set_layer_selection(e, ptr::null(), 0), CalmStatus::Null);
-        assert_eq!(calm_engine_align_layers(e, ptr::null(), 0, 0), CalmStatus::Null);
+        assert_eq!(
+            calm_engine_set_layer_selection(e, ptr::null(), 0),
+            CalmStatus::Null
+        );
+        assert_eq!(
+            calm_engine_align_layers(e, ptr::null(), 0, 0),
+            CalmStatus::Null
+        );
+        assert_eq!(
+            calm_engine_distribute_layers(e, ptr::null(), 0, 0),
+            CalmStatus::Null
+        );
         assert_eq!(calm_engine_duplicate_layer(e, 0), CalmStatus::Null);
         assert_eq!(calm_engine_merge_layer_down(e, 0), CalmStatus::Null);
         assert_eq!(calm_engine_clip_layer_down(e, 0), CalmStatus::Null);
@@ -350,6 +360,46 @@ fn setters_reject_unknown_enum_discriminants() {
         );
         assert_ne!(
             calm_engine_nudge_layer_adjustment(e, active, 9999, 1.0),
+            CalmStatus::Ok
+        );
+        calm_engine_free(e);
+    }
+}
+
+/// The align/distribute pair is the only ABI that takes an index *array*, so the pointer,
+/// the length and the discriminant each get their own guard.
+#[test]
+fn layer_index_arrays_reject_empty_and_out_of_range_selections() {
+    let (_dir, e) = engine_with_project("Indices", 32, 32);
+    let out_of_range = [99u32, 100, 101];
+    unsafe {
+        assert_ne!(
+            calm_engine_align_layers(e, ptr::null(), 0, 0),
+            CalmStatus::Ok
+        );
+        assert_ne!(
+            calm_engine_align_layers(e, out_of_range.as_ptr(), out_of_range.len(), 0),
+            CalmStatus::Ok
+        );
+        assert_ne!(
+            calm_engine_align_layers(e, out_of_range.as_ptr(), out_of_range.len(), 9999),
+            CalmStatus::Ok
+        );
+        assert_ne!(
+            calm_engine_distribute_layers(e, ptr::null(), 0, 0),
+            CalmStatus::Ok
+        );
+        assert_ne!(
+            calm_engine_distribute_layers(e, out_of_range.as_ptr(), out_of_range.len(), 1),
+            CalmStatus::Ok
+        );
+        assert_ne!(
+            calm_engine_distribute_layers(e, out_of_range.as_ptr(), out_of_range.len(), 9999),
+            CalmStatus::Ok
+        );
+        // The selection itself is a knob, not a command: junk indices are dropped, not an error.
+        assert_eq!(
+            calm_engine_set_layer_selection(e, out_of_range.as_ptr(), out_of_range.len()),
             CalmStatus::Ok
         );
         calm_engine_free(e);

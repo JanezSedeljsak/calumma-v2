@@ -107,6 +107,9 @@ struct L10nCatalog: Equatable {
     var layerAlignTop: String { self["layerAlignTop"] }
     var layerAlignCenterV: String { self["layerAlignCenterV"] }
     var layerAlignBottom: String { self["layerAlignBottom"] }
+    var layerDistribute: String { self["layerDistribute"] }
+    var layerDistributeH: String { self["layerDistributeH"] }
+    var layerDistributeV: String { self["layerDistributeV"] }
     var fill: String { self["fill"] }
     var stroke: String { self["stroke"] }
     var memoryUsed: String { self["memoryUsed"] }

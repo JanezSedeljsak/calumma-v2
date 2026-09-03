@@ -86,11 +86,11 @@ struct LayerSettingsCard: View {
                     Spacer()
                     CalmText.muted("\(Int(opacity * 100))%", mono: true)
                 }
-                Slider(value: Binding(
-                    get: { Double(opacity) },
-                    set: { app.engine.setLayerOpacity(index, Float($0)) }
-                ), in: 0...1)
-                .controlSize(.mini)
+                CalmDeferredSlider(
+                    value: opacity,
+                    range: 0...1,
+                    onSettled: { app.engine.setLayerOpacity(index, $0) }
+                )
             }
 
             VStack(alignment: .leading, spacing: Tokens.Space.xs) {
