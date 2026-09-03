@@ -23,6 +23,7 @@
 		52B6693AA18F7FAEEABDAFFC /* CalmToast.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8C335FD29B637F4717C54D3 /* CalmToast.swift */; };
 		5532C71BBF3A5EED57200013 /* BoardCanvas.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39E6D658C6F44E0516A14BB4 /* BoardCanvas.swift */; };
 		5A7B3293EAC1F7F674A6A491 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85740C4E5198AEEB3EA2C0CC /* Theme.swift */; };
+		6528E5ED7C1417FEC100EEBC /* EngineMemoryPressure.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98A7236C3C85DC82039D4E36 /* EngineMemoryPressure.swift */; };
 		6759E0A42C331AAF425F51ED /* L10nStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49ADDD086F4F4484B4F9E882 /* L10nStore.swift */; };
 		69E2FE9AE763FCDBACE3EE9C /* SvgIcon.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19DFAFAA7AD5666942643F1A /* SvgIcon.swift */; };
 		6ADA5AEBA5C0A054FDE4BC52 /* BoardTextInput.swift in Sources */ = {isa = PBXBuildFile; fileRef = 527C9A6D14B45E509DBE1D28 /* BoardTextInput.swift */; };
@@ -97,6 +98,7 @@
 		88CB056FB322D551B39916BA /* EngineClipboard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EngineClipboard.swift; sourceTree = "<group>"; };
 		8A68AB27B47F3D877681F5A5 /* PasteArtworkIsland.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PasteArtworkIsland.swift; sourceTree = "<group>"; };
 		922F3BA26E2EF9E7A344668F /* ArtworkImport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtworkImport.swift; sourceTree = "<group>"; };
+		98A7236C3C85DC82039D4E36 /* EngineMemoryPressure.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EngineMemoryPressure.swift; sourceTree = "<group>"; };
 		A11A55B25235660DB4260588 /* EngineToolGate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EngineToolGate.swift; sourceTree = "<group>"; };
 		A14A1D292C2FDA030B798F55 /* ToolsPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolsPanel.swift; sourceTree = "<group>"; };
 		A259FF110DE306B5F4001C98 /* Engine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Engine.swift; sourceTree = "<group>"; };
@@ -126,6 +128,7 @@
 				A259FF110DE306B5F4001C98 /* Engine.swift */,
 				88CB056FB322D551B39916BA /* EngineClipboard.swift */,
 				4CEBBDC14295A09843C610B5 /* EngineGuides.swift */,
+				98A7236C3C85DC82039D4E36 /* EngineMemoryPressure.swift */,
 				A9B60794A98312CE885682C7 /* EngineText.swift */,
 				A11A55B25235660DB4260588 /* EngineToolGate.swift */,
 				73B27E8AC4A6063E13D35EE5 /* ImageEncode.swift */,
@@ -404,6 +407,7 @@
 				6FBFB2280DF99421D6C40CA1 /* Engine.swift in Sources */,
 				044AC973DA0486186FD98643 /* EngineClipboard.swift in Sources */,
 				7805565381ACFCB4E8BF5FAD /* EngineGuides.swift in Sources */,
+				6528E5ED7C1417FEC100EEBC /* EngineMemoryPressure.swift in Sources */,
 				BD131AAE0516C961970E766F /* EngineText.swift in Sources */,
 				C5CDA6E0CB05ED41325CF2F5 /* EngineToolGate.swift in Sources */,
 				99D5DE15E5D431A198E828BB /* GuidesCard.swift in Sources */,

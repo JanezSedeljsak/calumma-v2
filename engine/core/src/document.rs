@@ -684,10 +684,13 @@ impl Document {
         }
     }
 
+    /// No `mark_channel_dirty(Render)`: opacity is read by `fs_tile` off the `LayerData` row
+    /// (`Renderer::write_layer_data`), not baked into tile bytes, so nothing about the tiles
+    /// themselves went stale. The caller still owes the renderer an `invalidate()` — same as a
+    /// `⌘T` drag, which rewrites the same row for the same reason.
     pub fn set_layer_opacity(&mut self, index: usize, opacity: f32) {
         if let Some(layer) = self.layers.get_mut(index) {
             layer.opacity = opacity.clamp(0.0, 1.0);
-            layer.mark_channel_dirty(DirtyChannel::Render);
         }
     }
 
@@ -697,6 +700,10 @@ impl Document {
         }
     }
 
+    /// No `mark_channel_dirty(Render)`, for the same reason `set_layer_opacity` above dropped
+    /// it: the adjustment LUT is evaluated per pixel in `fs_tile` off the `LayerData` row, so a
+    /// slider drag never re-walks a single tile. Masked tiles still bake on the CPU, but that is
+    /// `composited_tile_payload` reacting to the mask, not to this.
     pub fn set_layer_adjustments(
         &mut self,
         index: usize,
@@ -709,7 +716,6 @@ impl Document {
             } else {
                 Some(adjustments)
             };
-            layer.mark_channel_dirty(DirtyChannel::Render);
         }
     }
 

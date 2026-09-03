@@ -372,12 +372,16 @@ Bindings are arranged by *how often they change*:
   `TileCamera::crisp`, a flag the engine sets from `limits::CRISP_PIXEL_ZOOM` so the renderer
   never re-invents the threshold.
 - **There is no group 1 for tiles.** Everything that varies per *document layer* — pivot,
-  offset, scale, rotation, and solid Paper's atlas slot — lives in one read-only storage
-  buffer of `LayerData` rows at `@group(0) @binding(4)`, written once per content rebuild by
+  offset, scale, rotation, solid Paper's atlas slot, opacity and the adjustment LUT (`tone`,
+  `saturation`, `vibrance`, `lut_mode`; plan 23) — lives in one read-only storage buffer of
+  `LayerData` rows at `@group(0) @binding(4)`, written once per content rebuild by
   `write_layer_data`. **Row *i* is `doc.layers[i]`**: a row index is a stack position, so a
   tile instance addresses its layer directly and no side table resolves it. Vector layers and
   hidden ones own a row nobody reads, which is cheaper than an index that means something
-  different in each frame.
+  different in each frame. The binding is `VERTEX_FRAGMENT`, not vertex-only: `vs_tile`/
+  `vs_doc_quad` still read the transform, and `fs_tile`/`fs_solid_tile` now read opacity and
+  the LUT to evaluate `apply_adjustments` per pixel instead of the CPU baking it into tile
+  bytes before upload — one row, 1072 bytes, growing from the original 32.
 - **`preview_bg`** is group 0 for everything overlay-shaped: strokes, guides, the shape
   preview, and vector shapes. One uniform block (`PreviewUniforms`) carries the camera plus
   the current tool/color/geometry, so an overlay pipeline needs no per-draw state at all.

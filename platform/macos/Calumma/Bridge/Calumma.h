@@ -291,6 +291,8 @@ CalmStatus calm_engine_set_guide_axis(CalmEngine *engine, size_t index, uint8_t 
 CalmStatus calm_engine_remove_guide(CalmEngine *engine, size_t index);
 size_t calm_guides_limit(void);
 CalmStatus calm_engine_memory(CalmEngine *engine, CalmMemory *out);
+// level: 0 = normal, 1 = warn, 2 = critical — mirrors DISPATCH_SOURCE_TYPE_MEMORYPRESSURE.
+CalmStatus calm_engine_set_memory_pressure(CalmEngine *engine, uint32_t level);
 char *calm_engine_layer_name(CalmEngine *engine, uint32_t index);
 CalmStatus calm_engine_layer_thumbnail(CalmEngine *engine, uint32_t layer_index, uint32_t max_side, uint8_t **out_rgba, uint32_t *out_w, uint32_t *out_h);
 char *calm_engine_layer_id(CalmEngine *engine, uint32_t index);

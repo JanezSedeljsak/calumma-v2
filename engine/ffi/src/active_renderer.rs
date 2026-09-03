@@ -1,4 +1,4 @@
-use calumma_core::Document;
+use calumma_core::{Document, MemoryPressureLevel};
 use calumma_render::Renderer;
 
 #[allow(clippy::large_enum_variant)]
@@ -73,6 +73,14 @@ impl ActiveRenderer {
             Self::Gpu(renderer) => renderer.gpu_tile_bytes(),
             #[cfg(test)]
             Self::Stub => 0,
+        }
+    }
+
+    pub(crate) fn set_memory_pressure(&mut self, level: MemoryPressureLevel) {
+        match self {
+            Self::Gpu(renderer) => renderer.set_memory_pressure(level),
+            #[cfg(test)]
+            Self::Stub => {}
         }
     }
 

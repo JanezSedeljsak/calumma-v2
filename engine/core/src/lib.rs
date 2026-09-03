@@ -14,6 +14,7 @@ pub mod layer;
 pub mod limits;
 pub mod mask_bake;
 pub mod memory;
+pub mod memory_pressure;
 pub mod merge;
 pub mod move_edit;
 pub mod names;
@@ -61,6 +62,7 @@ pub use limits::{
     BRUSH_SIZE_DEFAULT, BRUSH_SIZE_MAX, BRUSH_SIZE_MIN, CRISP_PIXEL_ZOOM, IMPORT_MAX_SIDE,
     LOSSY_EXPORT_QUALITY, MAX_ZOOM_HARD, MIN_VISIBLE_DOC_SIDE, MIN_ZOOM_FILL,
 };
+pub use memory_pressure::{MemoryPressureLevel, PressureState, PressureTransition};
 pub use names::{LAYER_ONE, PAPER, UNTITLED};
 pub use palette::{project_color, random_project_color, BoardColors, DeskMetrics, PROJECT_COLORS};
 pub use ruler::{ruler_ticks, RulerTick};

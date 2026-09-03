@@ -1,6 +1,5 @@
 use crate::tile_atlas::tile_mip_levels;
 use bytemuck::{Pod, Zeroable};
-use calumma_core::filters::AdjustmentLut;
 use calumma_core::tile::{TileCoord, TILE_BYTES, TILE_SIZE};
 use calumma_core::{
     BrushProfile, Document, GuideAxis, Layer, Selection, SelectionShape, StrokePoint, Tool,
@@ -420,22 +419,20 @@ pub fn stroke_instances_from(
         .collect()
 }
 
-/// Mask / adjustments / opacity baked into a tile before upload. Returns `None` when the
-/// layer needs none of that and the tile's own bytes can go to the GPU untouched — the
-/// common case, and the reason this allocates only for layers that are actually filtered.
+/// Mask baked into a tile before upload — the one remaining CPU fold. Adjustments and opacity
+/// moved to the GPU (`LayerData.tone`/`opacity` in `board.wgsl`'s `fs_tile`, written by
+/// `Renderer::write_layer_data`); a mask stays here because it is a dense per-document buffer,
+/// not a per-layer row, and nothing in plan 23 reshapes that storage (`docs/plans/23-gpu-
+/// adjustment-evaluation.md` — masks are out of scope). Returns `None` when the layer has no
+/// mask and the tile's own bytes can go to the GPU untouched — the common case, and the reason
+/// this allocates only for layers that actually carry one.
 pub fn composited_tile_payload(
     pixels: &[u8],
     coord: TileCoord,
     layer: &Layer,
-    lut: Option<&AdjustmentLut>,
     doc_width: u32,
 ) -> Option<Vec<u8>> {
-    let mask = layer.mask();
-    let lut = lut.filter(|l| !l.is_neutral());
-    let opacity = layer.opacity;
-    if mask.is_none() && lut.is_none() && opacity >= 1.0 {
-        return None;
-    }
+    let mask = layer.mask()?;
     let mut out = Vec::with_capacity(TILE_BYTES);
     out.extend_from_slice(pixels);
     out.resize(TILE_BYTES, 0);
@@ -444,26 +441,16 @@ pub fn composited_tile_payload(
         for tx in 0..TILE_SIZE {
             let x = ox + tx as i32;
             let y = oy + ty as i32;
-            let i = ((ty * TILE_SIZE + tx) * 4) as usize;
-            if let Some(lut) = lut {
-                let rgb = lut.apply([out[i], out[i + 1], out[i + 2]]);
-                out[i..i + 3].copy_from_slice(&rgb);
-            }
             if x < 0 || y < 0 {
                 continue;
             }
-            if let Some(mask) = mask {
-                let mi = (y as u32)
-                    .saturating_mul(doc_width)
-                    .saturating_add(x as u32) as usize;
-                if let Some(&m) = mask.get(mi) {
-                    let a = out[i + 3] as u16 * m as u16 / 255;
-                    out[i + 3] = a as u8;
-                }
-            }
-            if opacity < 1.0 {
-                let a = (out[i + 3] as f32) * opacity;
-                out[i + 3] = a.round().clamp(0.0, 255.0) as u8;
+            let i = ((ty * TILE_SIZE + tx) * 4) as usize;
+            let mi = (y as u32)
+                .saturating_mul(doc_width)
+                .saturating_add(x as u32) as usize;
+            if let Some(&m) = mask.get(mi) {
+                let a = out[i + 3] as u16 * m as u16 / 255;
+                out[i + 3] = a as u8;
             }
         }
     }

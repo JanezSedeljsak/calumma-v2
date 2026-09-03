@@ -1,5 +1,6 @@
 use calumma_core::limits::TILE_ATLAS_INITIAL_CAPACITY;
 use calumma_core::tile::{TILE_BYTES, TILE_SIZE};
+use std::collections::{HashMap, HashSet};
 
 /// Full mip chain depth for a square, power-of-two tile: 256 → 128 → … → 1. Shared with
 /// `compose::tile_mip_chain`, which is what actually builds the per-level pixel data — this
@@ -121,6 +122,88 @@ impl TileAtlas {
     /// its base `TILE_BYTES` plus the smaller levels underneath it, not just the base level.
     pub fn capacity_bytes(&self) -> usize {
         self.capacity as usize * bytes_per_slot()
+    }
+
+    /// Sets the ceiling `allocate` grows towards. Lowering it only stops *future* growth — a
+    /// texture already bigger than the new ceiling keeps its current capacity until
+    /// [`Self::shrink_to`] actually recreates it smaller.
+    pub fn set_max_capacity(&mut self, max_capacity: u32) {
+        self.max_capacity = max_capacity.max(1);
+    }
+
+    /// Recreates the texture at `target_capacity` — clamped up to however many slots are
+    /// actually occupied, so a live tile is never dropped by this alone — compacting every
+    /// occupied slot into the low indices of the new array in ascending order. Returns the
+    /// remap from old array-layer index to new for every slot that moved, so the caller can
+    /// update whatever it keys by array layer; a no-op (already at or under target) returns an
+    /// empty map and touches nothing.
+    ///
+    /// This is a full recreate-and-blit, the same cost as [`Self::grow`] — call it only once
+    /// pressure has actually persisted (`calumma_core::PressureState`), never on a single
+    /// transient signal.
+    pub fn shrink_to(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        shared: &SharedBindings,
+        target_capacity: u32,
+    ) -> HashMap<u32, u32> {
+        let free: HashSet<u32> = self.free.iter().copied().collect();
+        let occupied: Vec<u32> = (0..self.capacity).filter(|s| !free.contains(s)).collect();
+        let target_capacity = target_capacity.max(occupied.len() as u32).max(1);
+        if target_capacity >= self.capacity {
+            return HashMap::new();
+        }
+
+        let texture = create_array_texture(device, target_capacity);
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("tile-atlas-shrink"),
+        });
+        let mut remap = HashMap::with_capacity(occupied.len());
+        for (new_index, &old_index) in occupied.iter().enumerate() {
+            let new_index = new_index as u32;
+            if new_index != old_index {
+                remap.insert(old_index, new_index);
+            }
+            let mut side = TILE_SIZE;
+            for level in 0..tile_mip_levels() {
+                encoder.copy_texture_to_texture(
+                    wgpu::TexelCopyTextureInfo {
+                        texture: &self.texture,
+                        mip_level: level,
+                        origin: wgpu::Origin3d {
+                            x: 0,
+                            y: 0,
+                            z: old_index,
+                        },
+                        aspect: wgpu::TextureAspect::All,
+                    },
+                    wgpu::TexelCopyTextureInfo {
+                        texture: &texture,
+                        mip_level: level,
+                        origin: wgpu::Origin3d {
+                            x: 0,
+                            y: 0,
+                            z: new_index,
+                        },
+                        aspect: wgpu::TextureAspect::All,
+                    },
+                    wgpu::Extent3d {
+                        width: side,
+                        height: side,
+                        depth_or_array_layers: 1,
+                    },
+                );
+                side = (side / 2).max(1);
+            }
+        }
+        queue.submit(Some(encoder.finish()));
+
+        self.bind_group = build_bind_group(device, shared, &texture);
+        self.texture = texture;
+        self.free = (occupied.len() as u32..target_capacity).rev().collect();
+        self.capacity = target_capacity;
+        remap
     }
 
     /// A free array-layer index, growing the atlas first if every slot is taken and there is
@@ -375,7 +458,7 @@ mod tests {
                     },
                     wgpu::BindGroupLayoutEntry {
                         binding: 4,
-                        visibility: wgpu::ShaderStages::VERTEX,
+                        visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
                         ty: wgpu::BindingType::Buffer {
                             ty: wgpu::BufferBindingType::Storage { read_only: true },
                             has_dynamic_offset: false,
@@ -527,5 +610,117 @@ mod tests {
         let read = read_texture_layer(&gpu.device, &gpu.queue, &atlas.texture, slot, TILE_SIZE);
         assert_eq!(&read[0..4], &[10, 20, 30, 255]);
         assert_eq!(&read[last..], &[40, 50, 60, 255]);
+    }
+
+    #[test]
+    fn lowering_max_capacity_stops_growth_without_touching_current_capacity() {
+        let Some(gpu) = gpu() else { return };
+        let f = fixture(gpu);
+        let mut atlas = atlas(gpu, &f, TILE_ATLAS_INITIAL_CAPACITY * 2);
+        let before = atlas.capacity_bytes();
+
+        for _ in 0..TILE_ATLAS_INITIAL_CAPACITY {
+            allocate(gpu, &f, &mut atlas).expect("one of the initial slots");
+        }
+        assert_eq!(atlas.capacity_bytes(), before, "no growth needed yet");
+
+        // Lower the ceiling to exactly the capacity already granted: nothing to reclaim (that
+        // is `shrink_to`'s job), but no further growth either.
+        atlas.set_max_capacity(TILE_ATLAS_INITIAL_CAPACITY);
+        assert_eq!(
+            atlas.capacity_bytes(),
+            before,
+            "existing texture is untouched"
+        );
+        assert_eq!(
+            allocate(gpu, &f, &mut atlas),
+            None,
+            "the lowered ceiling refuses growth even though doubling would otherwise succeed"
+        );
+    }
+
+    #[test]
+    fn shrink_to_a_capacity_still_above_target_is_a_no_op() {
+        let Some(gpu) = gpu() else { return };
+        let f = fixture(gpu);
+        let mut atlas = atlas(gpu, &f, 4);
+        let before = atlas.capacity_bytes();
+
+        let remap = atlas.shrink_to(&gpu.device, &gpu.queue, &f.shared(), 8);
+
+        assert!(remap.is_empty());
+        assert_eq!(atlas.capacity_bytes(), before);
+    }
+
+    #[test]
+    fn shrink_to_never_drops_below_what_is_actually_occupied() {
+        let Some(gpu) = gpu() else { return };
+        let f = fixture(gpu);
+        let mut atlas = atlas(gpu, &f, 8);
+        for _ in 0..6 {
+            allocate(gpu, &f, &mut atlas).expect("slot");
+        }
+
+        atlas.shrink_to(&gpu.device, &gpu.queue, &f.shared(), 2);
+
+        assert_eq!(
+            atlas.capacity_bytes(),
+            6 * bytes_per_slot(),
+            "clamped up to the 6 slots still in use"
+        );
+        // `shrink_to` alone doesn't lower the ceiling — pair it with `set_max_capacity` the way
+        // the renderer does, or the next `allocate` just grows back into the room under it.
+        atlas.set_max_capacity(2);
+        assert_eq!(
+            allocate(gpu, &f, &mut atlas),
+            None,
+            "every slot is occupied"
+        );
+    }
+
+    /// Shrinking compacts occupied slots into the low indices of the new, smaller texture and
+    /// carries their pixels across — the whole point is reclaiming VRAM without losing what is
+    /// still on screen.
+    #[test]
+    fn shrink_to_compacts_occupied_slots_and_carries_pixels() {
+        let Some(gpu) = gpu() else { return };
+        let f = fixture(gpu);
+        let mut atlas = atlas(gpu, &f, 8);
+        let slots: Vec<u32> = (0..4)
+            .map(|_| allocate(gpu, &f, &mut atlas).expect("slot"))
+            .collect();
+        assert_eq!(slots, vec![0, 1, 2, 3]);
+
+        // Free the middle two, leaving a fragmented occupied set: {0, 3}.
+        atlas.free(1);
+        atlas.free(2);
+
+        let mut base0 = vec![0u8; TILE_BYTES];
+        base0[0..4].copy_from_slice(&[1, 2, 3, 255]);
+        atlas.write(&gpu.queue, 0, &base0, &[]);
+        let mut base3 = vec![0u8; TILE_BYTES];
+        base3[0..4].copy_from_slice(&[9, 8, 7, 255]);
+        atlas.write(&gpu.queue, 3, &base3, &[]);
+
+        let remap = atlas.shrink_to(&gpu.device, &gpu.queue, &f.shared(), 2);
+
+        assert_eq!(atlas.capacity_bytes(), 2 * bytes_per_slot());
+        assert_eq!(remap.get(&3), Some(&1), "slot 3 compacts down to index 1");
+        assert!(
+            !remap.contains_key(&0),
+            "slot 0 already sat at its target index"
+        );
+
+        let read0 = read_texture_layer(&gpu.device, &gpu.queue, &atlas.texture, 0, TILE_SIZE);
+        assert_eq!(&read0[0..4], &[1, 2, 3, 255]);
+        let read1 = read_texture_layer(&gpu.device, &gpu.queue, &atlas.texture, 1, TILE_SIZE);
+        assert_eq!(&read1[0..4], &[9, 8, 7, 255]);
+
+        atlas.set_max_capacity(2);
+        assert_eq!(
+            allocate(gpu, &f, &mut atlas),
+            None,
+            "both compacted slots are occupied"
+        );
     }
 }

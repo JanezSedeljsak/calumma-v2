@@ -13,14 +13,15 @@ use crate::vector_draw::{
     vector_selection_instances, VectorShapeInstance,
 };
 use bytemuck::{Pod, Zeroable};
-use calumma_core::filters::AdjustmentLut;
 use calumma_core::limits::{
-    CAMERA_MOTION_IDLE_FRAMES, CRISP_PIXEL_ZOOM, GPU_TILE_RETENTION_MARGIN_TILES, GUIDES_LIMIT,
-    LAYER_DATA_CAPACITY, STROKE_INSTANCE_CAPACITY, SURFACE_FRAME_LATENCY, TILE_ATLAS_MAX_CAPACITY,
+    CAMERA_MOTION_IDLE_FRAMES, CRISP_PIXEL_ZOOM, GUIDES_LIMIT, LAYER_DATA_CAPACITY,
+    STROKE_INSTANCE_CAPACITY, SURFACE_FRAME_LATENCY, TILE_ATLAS_MAX_CAPACITY,
     TILE_INSTANCE_CAPACITY, VECTOR_SHAPE_INSTANCE_CAPACITY,
 };
 use calumma_core::tile::{DirtyChannel, TileCoord, TileGrid};
-use calumma_core::{BlendMode, BrushProfile, Document, Tool, VectorItem};
+use calumma_core::{
+    BlendMode, BrushProfile, Document, MemoryPressureLevel, PressureState, Tool, VectorItem,
+};
 use rayon::prelude::*;
 use rustc_hash::FxHashSet;
 use std::collections::HashMap;
@@ -83,6 +84,11 @@ struct TileInstance {
     layer_index: u32,
 }
 
+/// `LayerData.lut_mode` values — mirrored exactly in `apply_adjustments` (`board.wgsl`).
+const LUT_MODE_IDENTITY: u32 = 0;
+const LUT_MODE_TONE: u32 = 1;
+const LUT_MODE_TONE_HSL: u32 = 2;
+
 /// One row of the layer table the tile shader indexes — `LayerData` in `board.wgsl`, and the
 /// two must agree byte for byte. Row *i* is `doc.layers[i]`, so a tile instance addresses its
 /// layer by stack position and no side table is needed to resolve it.
@@ -91,8 +97,14 @@ struct TileInstance {
 /// bytes — it is that a stack of Normal layers now draws with one `set_bind_group` for the
 /// whole board instead of a rebind between every layer's instanced draw.
 ///
-/// 32 bytes, `vec2<f32>`-aligned, so the WGSL array stride is 32 with no tail padding. Plan 23
-/// grows it with opacity and the adjustment LUT; keep both sides in step when it does.
+/// 1072 bytes: the original 32-byte transform block plus opacity, `atlas_slot`, `lut_mode` and
+/// the adjustment LUT (`tone` — the 256-entry per-channel table `AdjustmentLut` already builds
+/// on the CPU — plus `sat`/`vib`, since saturation and vibrance couple all three channels through
+/// HSL and cannot ride a table). No tail padding: every field after the three `vec2<f32>`s is
+/// 4-byte aligned in both Rust and WGSL, and 1072 is already a multiple of 8, the struct's own
+/// alignment (from `pivot`/`offset`/`scale`). See `layer_table_tests::a_table_row_is_the_size_
+/// the_shader_strides_by` — the one thing enforcing that this and `LayerData` in `board.wgsl`
+/// agree byte for byte.
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
 struct LayerData {
@@ -100,9 +112,21 @@ struct LayerData {
     offset: [f32; 2],
     scale: [f32; 2],
     rotation: f32,
+    opacity: f32,
     /// Read only by the solid-Paper quad, which has no instance buffer to carry it. `0` for
     /// every other layer, and unread there.
     atlas_slot: u32,
+    /// `LUT_MODE_IDENTITY` / `LUT_MODE_TONE` / `LUT_MODE_TONE_HSL` — which of `tone`/`sat`/`vib`
+    /// `fs_tile`'s `apply_adjustments` needs to read, so a neutral or tone-only layer skips the
+    /// HSL round trip entirely.
+    lut_mode: u32,
+    /// `AdjustmentLut`'s own `tone` table, byte-indexed and channel-agnostic (gamma → contrast →
+    /// brightness depends only on the input byte, not which channel it came from) — the exact
+    /// values the CPU path already computes, just read by the shader instead of applied to
+    /// tile bytes before upload.
+    tone: [f32; 256],
+    saturation: f32,
+    vibrance: f32,
 }
 
 impl Default for LayerData {
@@ -112,7 +136,13 @@ impl Default for LayerData {
             offset: [0.0, 0.0],
             scale: [1.0, 1.0],
             rotation: 0.0,
+            opacity: 1.0,
             atlas_slot: 0,
+            lut_mode: LUT_MODE_IDENTITY,
+            // Unread while `lut_mode` is identity — see `apply_adjustments` in board.wgsl.
+            tone: [0.0; 256],
+            saturation: 0.0,
+            vibrance: 0.0,
         }
     }
 }
@@ -215,6 +245,7 @@ pub struct Renderer {
     tile_instance_capacity: usize,
     samplers: TileSamplers,
     atlas: TileAtlas,
+    memory_pressure: PressureState,
     tiles: HashMap<TileKey, GpuTile>,
     layer_slots: HashMap<String, u32>,
     next_layer_slot: u32,
@@ -686,6 +717,7 @@ impl Renderer {
             layer_data_scratch: Vec::new(),
             samplers,
             atlas,
+            memory_pressure: PressureState::default(),
             tiles: HashMap::new(),
             layer_slots: HashMap::new(),
             next_layer_slot: 0,
@@ -761,12 +793,12 @@ impl Renderer {
         self.overview.request_prewarm();
     }
 
-    fn retained_span(doc: &Document) -> Option<(i32, i32, i32, i32)> {
-        doc.visible_rect().map(|visible| {
-            visible
-                .expanded_by_tiles(GPU_TILE_RETENTION_MARGIN_TILES)
-                .tile_span()
-        })
+    /// Takes the margin as a parameter, rather than reading `self.memory_pressure` directly, so
+    /// it stays a pure function of `(doc, margin)` — callers thread the effective level's margin
+    /// through, and tests can exercise it without a real `wgpu::Surface`-backed `Renderer`.
+    fn retained_span(doc: &Document, margin: i32) -> Option<(i32, i32, i32, i32)> {
+        doc.visible_rect()
+            .map(|visible| visible.expanded_by_tiles(margin).tile_span())
     }
 
     fn clear_layer_cache(&mut self) {
@@ -787,7 +819,10 @@ impl Renderer {
         self.cached_strokes = strokes;
         self.cached_shapes = shapes;
         self.cached_draws = draws;
-        self.cached_retained_span = Self::retained_span(doc);
+        self.cached_retained_span = Self::retained_span(
+            doc,
+            self.memory_pressure.effective().retention_margin_tiles(),
+        );
         self.cached_visible_span = Self::visible_span(doc);
     }
 
@@ -891,12 +926,13 @@ impl Renderer {
     ///
     /// Every layer gets a row — vector layers and hidden ones included — so that a row index is
     /// simply a stack position and never has to be mapped through a side table. An unread row
-    /// costs 32 bytes; an index that means different things in different frames costs
+    /// costs 1072 bytes; an index that means different things in different frames costs
     /// correctness, which is what the old per-layer-id lookup was quietly risking.
     ///
     /// Must run after `sync_tiles`: solid Paper's `atlas_slot` is only known once its tile has
     /// an atlas slot. Runs whenever the draw list is rebuilt, which is exactly when a transform,
-    /// the stack, or the visible span can have changed.
+    /// the stack, the visible span, opacity or an adjustment can have changed — a slider drag
+    /// reaches this the same way a `⌘T` drag already does, by calling `Renderer::invalidate`.
     fn write_layer_data(&mut self, doc: &Document) {
         self.ensure_layer_data_capacity(doc.layers.len().max(1));
         let mut rows = std::mem::take(&mut self.layer_data_scratch);
@@ -909,10 +945,27 @@ impl Renderer {
                     offset: [t.offset_x, t.offset_y],
                     scale: [t.scale_x, t.scale_y],
                     rotation: t.rotation,
-                    atlas_slot: 0,
+                    ..LayerData::default()
                 },
                 _ => LayerData::default(),
             };
+            row.opacity = layer.opacity;
+            if let Some(adjustments) = layer.adjustments {
+                // `Document::set_layer_adjustments` already clears this to `None` for a neutral
+                // result, but a fresh `AdjustmentLut` re-checks: cheaper than trusting a state
+                // no type here enforces, and `is_neutral` is one struct-field compare.
+                let lut = adjustments.lut();
+                if !lut.is_neutral() {
+                    row.tone = *lut.tone_table();
+                    if lut.is_tone_only() {
+                        row.lut_mode = LUT_MODE_TONE;
+                    } else {
+                        row.lut_mode = LUT_MODE_TONE_HSL;
+                        row.saturation = adjustments.saturation;
+                        row.vibrance = adjustments.vibrance;
+                    }
+                }
+            }
             if let Some(slot) = self.solid_atlas_slot(layer) {
                 row.atlas_slot = slot;
             }
@@ -949,6 +1002,49 @@ impl Renderer {
     /// capacity is the number that actually reflects VRAM pressure.
     pub fn gpu_tile_bytes(&self) -> usize {
         self.atlas.capacity_bytes()
+    }
+
+    /// Forwards one OS memory-pressure report — the shell's only inbound knob for GPU
+    /// residency, mirroring `DISPATCH_SOURCE_TYPE_MEMORYPRESSURE` on macOS (`Normal` / `Warn` /
+    /// `Critical`). `PressureState` owns the hysteresis: escalating always applies on the very
+    /// next report, while relaxing needs several consecutive reports at the lower level first,
+    /// so a signal that oscillates doesn't thrash the retention margin every frame.
+    ///
+    /// Any effective-level change lowers the atlas's growth ceiling (or raises it back) and
+    /// invalidates every cache keyed on the retention margin, which is what turns a narrower
+    /// margin into eviction on the very next `sync_tiles` rather than only once the atlas
+    /// happens to run out of room. Sustained `Critical` additionally recreates the atlas texture
+    /// smaller — the one response expensive enough to reserve for pressure that has actually
+    /// persisted rather than spiked once (`PressureState`'s shrink streak).
+    pub fn set_memory_pressure(&mut self, level: MemoryPressureLevel) {
+        let transition = self.memory_pressure.report(level);
+        if !transition.effective_changed && !transition.shrink {
+            return;
+        }
+        let effective = self.memory_pressure.effective();
+        self.atlas.set_max_capacity(effective.atlas_max_capacity());
+
+        if transition.shrink {
+            let shared = SharedBindings {
+                layout: &self.tile_shared_bgl,
+                camera: &self.tile_camera_buf,
+                layers: &self.layer_data_buf,
+                samplers: &self.samplers,
+            };
+            let remap = self.atlas.shrink_to(
+                &self.device,
+                &self.queue,
+                &shared,
+                effective.atlas_max_capacity(),
+            );
+            for tile in self.tiles.values_mut() {
+                if let Some(&new_layer) = remap.get(&tile.array_layer) {
+                    tile.array_layer = new_layer;
+                }
+            }
+        }
+
+        self.invalidate();
     }
 
     /// Hand back everything that belonged to the document being closed — the atlas's slots and
@@ -1096,7 +1192,8 @@ impl Renderer {
         let Some(visible) = doc.visible_rect() else {
             return;
         };
-        let retained = visible.expanded_by_tiles(GPU_TILE_RETENTION_MARGIN_TILES);
+        let retained =
+            visible.expanded_by_tiles(self.memory_pressure.effective().retention_margin_tiles());
         let doc_width = doc.width;
 
         let mut live: FxHashSet<TileKey> = FxHashSet::default();
@@ -1158,24 +1255,13 @@ impl Renderer {
             }
         }
 
-        // Bake mask/adjustments/opacity for every dirty tile up front and in parallel —
-        // dragging a filter slider re-composites the whole visible tile set each frame,
-        // which is the one CPU cost that scales with viewport size at 60fps. The wgpu
-        // calls below stay sequential; only the pixel math goes wide.
-        //
-        // Building an `AdjustmentLut` walks 256 tone entries per layer, so it's scoped to
-        // just the layers that actually have tiles in `uploads` this frame — panning or
-        // zooming re-enters `render()` every frame via `dirty` without marking any tile
-        // dirty, and rebuilding every adjusted layer's LUT on each of those frames for no
-        // reason was pure waste.
-        let needed_layers: FxHashSet<usize> = uploads.iter().map(|(li, _, _, _)| *li).collect();
-        let luts: HashMap<usize, Option<AdjustmentLut>> = needed_layers
-            .into_iter()
-            .map(|li| (li, doc.layers[li].adjustments.map(|a| a.lut())))
-            .collect();
-        // The mip chain is built here too, alongside the mask/adjustment bake — both are pure
-        // pixel math that scales with tile count, so both go through rayon rather than running
-        // sequentially on the frame thread once the wgpu upload loop below gets to them.
+        // Bake the mask for every dirty tile up front and in parallel, alongside the mip chain
+        // every upload needs regardless — both are pure pixel math that scales with tile count,
+        // so both go through rayon rather than running sequentially on the frame thread once the
+        // wgpu upload loop below gets to them. Adjustments and opacity no longer bake here at
+        // all: `write_layer_data` puts them in the `LayerData` row and `fs_tile` evaluates them
+        // per pixel at draw time, so a filter slider drag reaches this loop only if it also
+        // painted — the LUT itself never re-walks a tile.
         //
         // Whether the tile had to be baked travels back with its levels. The upload loop needs
         // that answer to decide if the tile may share an atlas slot with its siblings, and
@@ -1190,8 +1276,7 @@ impl Renderer {
             .map(|(layer_index, coord, _, skip_mips)| {
                 let layer = doc.layers.get(*layer_index)?;
                 let pixels = layer.tiles()?.get(*coord)?;
-                let lut = luts.get(layer_index).and_then(|l| l.as_ref());
-                let composited = composited_tile_payload(pixels, *coord, layer, lut, doc_width);
+                let composited = composited_tile_payload(pixels, *coord, layer, doc_width);
                 let base: &[u8] = composited.as_deref().unwrap_or(pixels.as_slice());
                 let mips = tile_upload_mips(base, *skip_mips);
                 Some((composited, mips))
@@ -1580,7 +1665,10 @@ impl Renderer {
 
         let need_tile_sync = !use_overview
             && (self.frame_dirty == FrameDirty::Content
-                || Self::retained_span(doc) != self.cached_retained_span
+                || Self::retained_span(
+                    doc,
+                    self.memory_pressure.effective().retention_margin_tiles(),
+                ) != self.cached_retained_span
                 || self.visible_needs_gpu_upload(doc));
         let need_draw_rebuild = !use_overview
             && (need_tile_sync || Self::visible_span(doc) != self.cached_visible_span);
@@ -2065,16 +2153,17 @@ fn tile_shared_bgl(device: &wgpu::Device) -> wgpu::BindGroupLayout {
                 ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                 count: None,
             },
-            // The layer table. Vertex-only: every field it currently holds places geometry,
-            // and the fragment stage reads pixels the CPU already baked. Plan 23 moves that
-            // bake onto this row and will need `VERTEX_FRAGMENT` here.
+            // The layer table. `VERTEX_FRAGMENT` since plan 23: `fs_tile`/`fs_solid_tile` now
+            // read `opacity`/`lut_mode`/`tone`/`saturation`/`vibrance` off the same row
+            // `vs_tile`/`vs_doc_quad` already read for the transform, evaluating the adjustment
+            // LUT per pixel instead of the CPU baking it into tile bytes before upload.
             //
             // `Limits::default()` guarantees 8 storage buffers per stage, and Metal offers
             // far more; the binding is not near any adapter limit. What is finite is the
             // *row count*, and that is a plain buffer size the renderer grows.
             wgpu::BindGroupLayoutEntry {
                 binding: 4,
-                visibility: wgpu::ShaderStages::VERTEX,
+                visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
                 ty: wgpu::BindingType::Buffer {
                     ty: wgpu::BufferBindingType::Storage { read_only: true },
                     has_dynamic_offset: false,
@@ -2416,7 +2505,10 @@ mod tests {
         let doc = Document::new("p".into(), "t", 512, 512);
 
         assert_eq!(Renderer::visible_span(&doc), None);
-        assert_eq!(Renderer::retained_span(&doc), None);
+        assert_eq!(
+            Renderer::retained_span(&doc, MemoryPressureLevel::Normal.retention_margin_tiles()),
+            None
+        );
     }
 
     /// The retained span is the visible one plus a margin, and that margin is the whole
@@ -2426,10 +2518,10 @@ mod tests {
     fn the_retained_span_is_the_visible_span_grown_by_exactly_the_margin() {
         let doc = doc_with_viewport();
 
+        let margin = MemoryPressureLevel::Normal.retention_margin_tiles();
         let (vx0, vy0, vx1, vy1) = Renderer::visible_span(&doc).expect("visible");
-        let (rx0, ry0, rx1, ry1) = Renderer::retained_span(&doc).expect("retained");
+        let (rx0, ry0, rx1, ry1) = Renderer::retained_span(&doc, margin).expect("retained");
 
-        let margin = GPU_TILE_RETENTION_MARGIN_TILES;
         assert_eq!((rx0, ry0), (vx0 - margin, vy0 - margin));
         assert_eq!((rx1, ry1), (vx1 + margin, vy1 + margin));
     }
@@ -2472,6 +2564,7 @@ mod tests {
 mod layer_table_tests {
     use super::*;
     use crate::test_gpu::{gpu, read_texture_layer, Gpu};
+    use calumma_core::filters::{AdjustmentLut, Adjustments};
     use calumma_core::tile::{TILE_BYTES, TILE_SIZE};
 
     const TARGET_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
@@ -2872,16 +2965,221 @@ mod layer_table_tests {
     }
 
     /// The Rust row and the WGSL row have to agree byte for byte, and nothing in the type system
-    /// enforces it. 32 bytes with `vec2<f32>` alignment is also what makes the WGSL array stride
-    /// 32 with no tail padding — a mismatch here misaddresses every row past the first.
+    /// enforces it. 1072 bytes is also what makes the WGSL array stride 1072 with no tail
+    /// padding (the struct's own alignment is 8, from the three `vec2<f32>` fields, and 1072 is
+    /// already a multiple of 8) — a mismatch here misaddresses every row past the first. Plan 23
+    /// grew this from 32 to 1072 deliberately; see `LayerData`'s own doc comment for the layout.
     #[test]
     fn a_table_row_is_the_size_the_shader_strides_by() {
-        assert_eq!(std::mem::size_of::<LayerData>(), 32);
+        assert_eq!(std::mem::size_of::<LayerData>(), 1072);
         assert_eq!(std::mem::align_of::<LayerData>(), 4);
         assert_eq!(
             std::mem::size_of::<TileInstance>(),
             16,
             "layer_index took the place of padding, so instances did not grow"
         );
+    }
+
+    /// Renders one tile of `combos.len()` distinct texels (row-major, one combo per texel)
+    /// through `fs_tile` with `row` as its only `LayerData` entry, and hands back the target's
+    /// pixels. The target is a *separate* sRGB texture, not `Fixture::TARGET_FORMAT`: `fs_tile`
+    /// hands back linear light for correct blending (see the comment above `linear_to_srgb` in
+    /// board.wgsl), and only an sRGB target's automatic re-encode on write turns that back into
+    /// the same sRGB-encoded byte `AdjustmentLut::apply` computes on the CPU.
+    fn render_byte_cube(gpu: &Gpu, f: &Fixture, slot: u32, row: LayerData) -> Vec<u8> {
+        f.write_rows(gpu, &[row]);
+
+        let srgb_format = wgpu::TextureFormat::Rgba8UnormSrgb;
+        let target = gpu.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("byte-cube-target"),
+            size: wgpu::Extent3d {
+                width: TILE_SIZE,
+                height: TILE_SIZE,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: srgb_format,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
+        let layout = gpu
+            .device
+            .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("byte-cube-pl"),
+                bind_group_layouts: &[Some(&f.bgl)],
+                ..Default::default()
+            });
+        let pipe = gpu
+            .device
+            .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("byte-cube-test"),
+                layout: Some(&layout),
+                vertex: wgpu::VertexState {
+                    module: &gpu.shader,
+                    entry_point: Some("vs_tile"),
+                    compilation_options: Default::default(),
+                    buffers: &[Some(wgpu::VertexBufferLayout {
+                        array_stride: std::mem::size_of::<TileInstance>() as u64,
+                        step_mode: wgpu::VertexStepMode::Instance,
+                        attributes: TILE_INSTANCE_ATTRS,
+                    })],
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &gpu.shader,
+                    entry_point: Some("fs_tile"),
+                    compilation_options: Default::default(),
+                    targets: &[Some(premultiplied_target(srgb_format))],
+                }),
+                primitive: wgpu::PrimitiveState::default(),
+                depth_stencil: None,
+                multisample: wgpu::MultisampleState::default(),
+                multiview_mask: None,
+                cache: None,
+            });
+
+        let instance = TileInstance {
+            origin: [0.0, 0.0],
+            slot,
+            layer_index: 0,
+        };
+        let buf = gpu.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("byte-cube-instance"),
+            size: std::mem::size_of::<TileInstance>() as u64,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        gpu.queue
+            .write_buffer(&buf, 0, bytemuck::bytes_of(&instance));
+
+        let view = target.create_view(&wgpu::TextureViewDescriptor::default());
+        let mut encoder = gpu
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+        {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("byte-cube-pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            pass.set_pipeline(&pipe);
+            pass.set_bind_group(0, f.atlas.bind_group(), &[]);
+            pass.set_vertex_buffer(0, buf.slice(..));
+            pass.draw(0..6, 0..1);
+        }
+        gpu.queue.submit(Some(encoder.finish()));
+        read_texture_layer(&gpu.device, &gpu.queue, &target, 0, TILE_SIZE)
+    }
+
+    /// `fs_tile`'s `apply_adjustments` and `core::filters::AdjustmentLut::apply` are two
+    /// independent implementations of the same math — one WGSL, one Rust — kept in step by
+    /// hand. This is the test that actually enforces it, over a stratified sample of the byte
+    /// cube covering both `LUT_MODE_TONE` (tone only) and `LUT_MODE_TONE_HSL` (tone + hue/sat).
+    /// A 1-of-255 tolerance absorbs the sRGB round trip: `apply_adjustments` undoes the atlas
+    /// texture's automatic sRGB decode in software (`linear_to_srgb`/`srgb_to_linear`) so the
+    /// lookup lands on the same byte the CPU path would use, and redoes it in software before
+    /// the GPU's own hardware re-encodes on write to the sRGB target — two curves computed two
+    /// different ways, not required to be bit-identical.
+    #[test]
+    fn fs_tile_adjustments_agree_with_the_cpu_lut_over_a_byte_cube() {
+        let Some(gpu) = gpu() else { return };
+        let mut f = fixture(gpu);
+
+        const STEPS: [u8; 9] = [0, 32, 64, 96, 128, 160, 192, 224, 255];
+        let mut combos: Vec<[u8; 3]> = Vec::new();
+        for &r in &STEPS {
+            for &g in &STEPS {
+                for &b in &STEPS {
+                    combos.push([r, g, b]);
+                }
+            }
+        }
+        assert!(combos.len() <= (TILE_SIZE * TILE_SIZE) as usize);
+
+        let mut base = vec![0u8; TILE_BYTES];
+        for (i, rgb) in combos.iter().enumerate() {
+            let px = i * 4;
+            base[px] = rgb[0];
+            base[px + 1] = rgb[1];
+            base[px + 2] = rgb[2];
+            base[px + 3] = 255;
+        }
+        let shared = SharedBindings {
+            layout: &f.bgl,
+            camera: &f.camera,
+            layers: &f.layers,
+            samplers: &f.samplers,
+        };
+        let slot = f
+            .atlas
+            .allocate(&gpu.device, &gpu.queue, &shared)
+            .expect("slot");
+        f.atlas.write(&gpu.queue, slot, &base, &[]);
+
+        for adjustments in [
+            // Tone only: saturation and vibrance neutral, so `write_layer_data` would pick
+            // `LUT_MODE_TONE` and the shader never enters `hsl_stage`.
+            Adjustments {
+                brightness: 0.15,
+                contrast: 0.2,
+                vibrance: 0.0,
+                saturation: 0.0,
+                levels_gamma: 1.4,
+            },
+            // Tone + HSL: exercises `rgb_to_hsl` / `hue_to_rgb` / `hsl_to_rgb` too.
+            Adjustments {
+                brightness: 0.15,
+                contrast: 0.2,
+                vibrance: 0.3,
+                saturation: -0.25,
+                levels_gamma: 1.4,
+            },
+        ] {
+            let lut = AdjustmentLut::new(&adjustments);
+            let row = if lut.is_tone_only() {
+                LayerData {
+                    tone: *lut.tone_table(),
+                    lut_mode: LUT_MODE_TONE,
+                    ..LayerData::default()
+                }
+            } else {
+                LayerData {
+                    tone: *lut.tone_table(),
+                    lut_mode: LUT_MODE_TONE_HSL,
+                    saturation: adjustments.saturation,
+                    vibrance: adjustments.vibrance,
+                    ..LayerData::default()
+                }
+            };
+
+            let image = render_byte_cube(gpu, &f, slot, row);
+
+            let mut max_diff = 0i32;
+            for (i, rgb) in combos.iter().enumerate() {
+                let expected = lut.apply(*rgb);
+                let got = pixel(&image, (i as u32) % TILE_SIZE, (i as u32) / TILE_SIZE);
+                assert_eq!(got[3], 255, "alpha is untouched by adjustments");
+                for c in 0..3 {
+                    max_diff = max_diff.max((got[c] as i32 - expected[c] as i32).abs());
+                }
+            }
+            assert!(
+                max_diff <= 1,
+                "GPU and CPU adjustments disagree by more than 1 of 255 somewhere (max {max_diff}, lut_mode {})",
+                row.lut_mode
+            );
+        }
     }
 }

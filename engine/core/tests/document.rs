@@ -652,8 +652,12 @@ fn set_layer_opacity_fades_composite() {
     assert!(rgba[1] > 50 && rgba[1] < 220);
 }
 
+/// Opacity and adjustments are read by `fs_tile` off the `LayerData` row (plan 23), not baked
+/// into tile bytes, so setting either dirties neither `Render` nor `Store` — a slider drag never
+/// re-walks a tile. `Renderer::write_layer_data` is what actually carries the new values to the
+/// GPU, on whatever `invalidate()` the FFI setter already calls.
 #[test]
-fn opacity_and_adjustments_dirty_render_not_store() {
+fn opacity_and_adjustments_dirty_neither_render_nor_store() {
     let mut doc = Document::new("p".into(), "t", 1024, 1024);
     let idx = doc.active_layer;
     doc.layers[idx]
@@ -667,17 +671,14 @@ fn opacity_and_adjustments_dirty_render_not_store() {
     doc.layers[idx].clear_dirty(DirtyChannel::Render);
     doc.layers[idx].clear_dirty(DirtyChannel::Store);
     doc.set_layer_opacity(idx, 0.5);
-    let render = doc.layers[idx]
+    assert!(doc.layers[idx]
         .dirty_tiles(DirtyChannel::Render)
         .unwrap()
-        .len();
-    let store = doc.layers[idx]
+        .is_empty());
+    assert!(doc.layers[idx]
         .dirty_tiles(DirtyChannel::Store)
         .unwrap()
-        .len();
-    assert_eq!(render, 2);
-    assert_eq!(store, 0);
-    doc.layers[idx].clear_dirty(DirtyChannel::Render);
+        .is_empty());
     doc.set_layer_adjustments(
         idx,
         Adjustments {
@@ -685,13 +686,10 @@ fn opacity_and_adjustments_dirty_render_not_store() {
             ..Default::default()
         },
     );
-    assert_eq!(
-        doc.layers[idx]
-            .dirty_tiles(DirtyChannel::Render)
-            .unwrap()
-            .len(),
-        2
-    );
+    assert!(doc.layers[idx]
+        .dirty_tiles(DirtyChannel::Render)
+        .unwrap()
+        .is_empty());
     assert!(doc.layers[idx]
         .dirty_tiles(DirtyChannel::Store)
         .unwrap()

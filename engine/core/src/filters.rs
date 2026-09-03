@@ -247,6 +247,23 @@ impl AdjustmentLut {
         self.neutral
     }
 
+    /// True when saturation and vibrance are both neutral, so the whole filter is three
+    /// independent per-channel lookups with no HSL round trip — `Self::direct`'s condition,
+    /// exposed for the GPU path (`LayerData.lut_mode` in `render/src/renderer.rs`) to pick the
+    /// cheaper of `fs_tile`'s two branches without re-deriving it from `Adjustments` itself.
+    pub fn is_tone_only(&self) -> bool {
+        self.direct.is_some()
+    }
+
+    /// The per-byte tone table alone — gamma → contrast → brightness, channel-agnostic — for a
+    /// caller that applies the HSL stage itself. `fs_tile` reads this as `LayerData.tone` and
+    /// mirrors `hsl_stage` in WGSL by hand: there is no code generation between the two, so a
+    /// change here has to be carried into `board.wgsl`'s copy by whoever makes it — the render
+    /// crate's `layer_table_tests` byte-cube tests are what catch a drift.
+    pub fn tone_table(&self) -> &[f32; 256] {
+        &self.tone
+    }
+
     #[inline]
     pub fn apply(&self, rgb: [u8; 3]) -> [u8; 3] {
         if self.neutral {

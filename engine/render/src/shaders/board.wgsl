@@ -100,15 +100,30 @@ struct TileCamera {
 // struct; an explicit field costs 4 bytes a layer and stops two draw paths disagreeing about
 // what the bytes mean.
 //
-// Plan 23 grows this row with opacity and the adjustment LUT. Nothing here is per *tile*: the
-// whole point is that the table is written once per content rebuild, not once per draw.
+// `opacity`, `lut_mode`, `tone`, `saturation` and `vibrance` are plan 23's addition: a layer's
+// non-destructive adjustments, evaluated by `apply_adjustments` in `fs_tile` instead of baked
+// into tile bytes by the CPU (`compose::composited_tile_payload`, mask only now). Nothing here
+// is per *tile*: the whole point is that the table is written once per content rebuild — or
+// once per slider sample, which no longer touches a tile at all — not once per draw.
 struct LayerData {
     pivot: vec2<f32>,
     offset: vec2<f32>,
     scale: vec2<f32>,
     rotation: f32,
+    opacity: f32,
     atlas_slot: u32,
+    // LUT_MODE_IDENTITY / LUT_MODE_TONE / LUT_MODE_TONE_HSL below.
+    lut_mode: u32,
+    // `AdjustmentLut::tone` (Rust) mirrored byte for byte: gamma -> contrast -> brightness,
+    // indexed by the input channel's own byte value, the same table for every channel.
+    tone: array<f32, 256>,
+    saturation: f32,
+    vibrance: f32,
 }
+
+const LUT_MODE_IDENTITY: u32 = 0u;
+const LUT_MODE_TONE: u32 = 1u;
+const LUT_MODE_TONE_HSL: u32 = 2u;
 
 // Every tile GPU-resident across the whole document lives in one shared array texture,
 // addressed per-instance by array-layer index — see `TileAtlas` in `render/src/tile_atlas.rs`.
@@ -120,6 +135,8 @@ struct LayerData {
 @group(0) @binding(1) var tile_tex: texture_2d_array<f32>;
 @group(0) @binding(2) var tile_sampler: sampler;
 @group(0) @binding(3) var tile_sampler_crisp: sampler;
+// Fragment-visible as of plan 23: `fs_tile` reads `tone`/`saturation`/`vibrance` here, not just
+// `vs_tile` reading the transform. See `tile_shared_bgl` in `renderer.rs` for the binding.
 @group(0) @binding(4) var<storage, read> layer_data: array<LayerData>;
 
 // Must match `calumma_core::tile::TILE_SIZE` — tiles are square and fixed-size at runtime, so
@@ -136,6 +153,9 @@ struct TileVsOut {
     @builtin(position) position: vec4<f32>,
     @location(0) uv: vec2<f32>,
     @location(1) @interpolate(flat) slot: u32,
+    // Carried through so `fs_tile` can read this instance's own `LayerData` row for opacity and
+    // the adjustment LUT — `vs_tile` already reads it for the transform, but never passed it on.
+    @location(2) @interpolate(flat) layer_index: u32,
 }
 
 @vertex
@@ -173,7 +193,146 @@ fn vs_tile(input: TileInstanceIn, @builtin(vertex_index) idx: u32) -> TileVsOut 
     out.position = vec4<f32>(ndc, 0.0, 1.0);
     out.uv = uv;
     out.slot = input.slot;
+    out.layer_index = input.layer_index;
     return out;
+}
+
+// The tile atlas is `Rgba8UnormSrgb` (`TileAtlas::create_array_texture`) and the swapchain
+// prefers an sRGB format too (`Renderer::from_surface`), so `textureSample` below has already
+// decoded the stored byte to linear light, and blending against an sRGB target happens in that
+// same linear space — correct for compositing, but not the space `AdjustmentLut` (`core/src/
+// filters.rs`) was built in: it runs directly on the stored byte, with no gamma curve at all.
+// `apply_adjustments` re-encodes to that byte space before the lookup and decodes the result
+// back, so a slider reads the same numbers flatten/export do. The two curves are software here
+// and hardware on write, so they need not be bit-identical — `layer_table_tests` allows a
+// one-code tolerance for exactly that reason.
+fn linear_to_srgb(c: f32) -> f32 {
+    if c <= 0.0031308 {
+        return c * 12.92;
+    }
+    return 1.055 * pow(c, 1.0 / 2.4) - 0.055;
+}
+
+fn srgb_to_linear(c: f32) -> f32 {
+    if c <= 0.04045 {
+        return c / 12.92;
+    }
+    return pow((c + 0.055) / 1.055, 2.4);
+}
+
+// Mirrors `hsl_stage` in `core/src/filters.rs` byte for byte in spirit, not literally — Rust
+// works in `[f32; 3]`, this in `vec3<f32>` — but every arithmetic step is the same. See that
+// function's own comment for why saturation and vibrance share one HSL round trip.
+fn hsl_stage(v: vec3<f32>, saturation: f32, vibrance: f32) -> vec3<f32> {
+    if saturation == 0.0 && vibrance == 0.0 {
+        return v;
+    }
+    var hsl = rgb_to_hsl(v);
+    if saturation != 0.0 {
+        hsl.y = clamp(hsl.y * (1.0 + saturation), 0.0, 1.0);
+    }
+    if vibrance != 0.0 {
+        hsl.y = clamp(hsl.y + vibrance * (1.0 - hsl.y), 0.0, 1.0);
+    }
+    return hsl_to_rgb(hsl);
+}
+
+fn rgb_to_hsl(rgb: vec3<f32>) -> vec3<f32> {
+    let mx = max(rgb.r, max(rgb.g, rgb.b));
+    let mn = min(rgb.r, min(rgb.g, rgb.b));
+    let l = (mx + mn) * 0.5;
+    if abs(mx - mn) < 1e-6 {
+        return vec3<f32>(0.0, 0.0, l);
+    }
+    let d = mx - mn;
+    var s: f32;
+    if l > 0.5 {
+        s = d / (2.0 - mx - mn);
+    } else {
+        s = d / (mx + mn);
+    }
+    var h: f32;
+    if mx == rgb.r {
+        h = (rgb.g - rgb.b) / d % 6.0;
+    } else if mx == rgb.g {
+        h = (rgb.b - rgb.r) / d + 2.0;
+    } else {
+        h = (rgb.r - rgb.g) / d + 4.0;
+    }
+    // `fract` is exactly Rust's `.rem_euclid(1.0)` for a divide-by-one wrap: both are the
+    // floor-based remainder that stays in `[0, 1)` regardless of `h`'s sign.
+    return vec3<f32>(fract(h / 6.0), s, l);
+}
+
+fn hue_to_rgb(p: f32, q: f32, t_in: f32) -> f32 {
+    var t = t_in;
+    if t < 0.0 {
+        t += 1.0;
+    }
+    if t > 1.0 {
+        t -= 1.0;
+    }
+    if t < 1.0 / 6.0 {
+        return p + (q - p) * 6.0 * t;
+    }
+    if t < 0.5 {
+        return q;
+    }
+    if t < 2.0 / 3.0 {
+        return p + (q - p) * (2.0 / 3.0 - t) * 6.0;
+    }
+    return p;
+}
+
+fn hsl_to_rgb(hsl: vec3<f32>) -> vec3<f32> {
+    let h = hsl.x;
+    let s = hsl.y;
+    let l = hsl.z;
+    if s <= 1e-6 {
+        return vec3<f32>(l, l, l);
+    }
+    var q: f32;
+    if l < 0.5 {
+        q = l * (1.0 + s);
+    } else {
+        q = l + s - l * s;
+    }
+    let p = 2.0 * l - q;
+    return vec3<f32>(
+        hue_to_rgb(p, q, h + 1.0 / 3.0),
+        hue_to_rgb(p, q, h),
+        hue_to_rgb(p, q, h - 1.0 / 3.0),
+    );
+}
+
+// Mirrors `AdjustmentLut::apply` (`core/src/filters.rs`): the same byte-indexed tone table, the
+// same HSL stage, applied to `c` between the sRGB decode `textureSample` already did and the
+// premultiply `fs_tile` is about to do. Indexed by `layer_index` rather than a `LayerData`
+// value: a row is 1072 bytes, almost all of it the `tone` table, and the overwhelmingly common
+// case is `LUT_MODE_IDENTITY` — reading only `layer_data[layer_index].lut_mode` up front (4
+// bytes) instead of the whole row means that case never touches `tone` at all. `tone` is
+// indexed by the *encoded* byte value — see the comment above `linear_to_srgb` for why this is
+// not simply `c.rgb`.
+fn apply_adjustments(c: vec4<f32>, layer_index: u32) -> vec4<f32> {
+    let lut_mode = layer_data[layer_index].lut_mode;
+    if lut_mode == LUT_MODE_IDENTITY {
+        return c;
+    }
+    let encoded = vec3<f32>(
+        linear_to_srgb(c.r),
+        linear_to_srgb(c.g),
+        linear_to_srgb(c.b),
+    );
+    let byte = vec3<u32>(clamp(round(encoded * 255.0), vec3<f32>(0.0), vec3<f32>(255.0)));
+    var v = vec3<f32>(
+        layer_data[layer_index].tone[byte.r],
+        layer_data[layer_index].tone[byte.g],
+        layer_data[layer_index].tone[byte.b],
+    );
+    if lut_mode == LUT_MODE_TONE_HSL {
+        v = hsl_stage(v, layer_data[layer_index].saturation, layer_data[layer_index].vibrance);
+    }
+    return vec4<f32>(srgb_to_linear(v.r), srgb_to_linear(v.g), srgb_to_linear(v.b), c.a);
 }
 
 @fragment
@@ -193,12 +352,15 @@ fn fs_tile(input: TileVsOut) -> @location(0) vec4<f32> {
     } else {
         c = textureSample(tile_tex, tile_sampler, input.uv, i32(input.slot));
     }
+    c = apply_adjustments(c, input.layer_index);
+    c.a *= layer_data[input.layer_index].opacity;
     return vec4<f32>(c.rgb * c.a, c.a);
 }
 
 struct SolidVsOut {
     @builtin(position) position: vec4<f32>,
     @location(0) @interpolate(flat) slot: u32,
+    @location(1) @interpolate(flat) layer_index: u32,
 }
 
 // Paper collapses to one full-document quad when its tiles all share one `Arc`, so there is no
@@ -225,12 +387,15 @@ fn vs_doc_quad(@builtin(vertex_index) idx: u32, @builtin(instance_index) layer_i
     var out: SolidVsOut;
     out.position = vec4<f32>(ndc, 0.0, 1.0);
     out.slot = layer_data[layer_index].atlas_slot;
+    out.layer_index = layer_index;
     return out;
 }
 
 @fragment
 fn fs_solid_tile(input: SolidVsOut) -> @location(0) vec4<f32> {
-    let c = textureSample(tile_tex, tile_sampler, vec2<f32>(0.5, 0.5), i32(input.slot));
+    var c = textureSample(tile_tex, tile_sampler, vec2<f32>(0.5, 0.5), i32(input.slot));
+    c = apply_adjustments(c, input.layer_index);
+    c.a *= layer_data[input.layer_index].opacity;
     return vec4<f32>(c.rgb * c.a, c.a);
 }
 

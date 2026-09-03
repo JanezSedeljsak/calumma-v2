@@ -284,25 +284,28 @@ pub enum LayerContent {
   mutate tile bytes; the renderer multiplies alpha when uploading GPU tiles. **Remove
   Background is the only writer** and authoring one is deferred (see below), so the dense
   buffer stays dense — do not rebuild it on `TileGrid` speculatively.
-- `layer.opacity: f32` (0–1, default 1) and `layer.blend_mode: BlendMode`
-  (Normal/Multiply/Screen) — same non-destructive contract as masks: never
-  baked into tile bytes, applied at GPU-upload time (opacity, via the same
-  CPU step masks use) or via per-layer GPU pipeline selection (blend mode,
-  since it needs the destination framebuffer — see `board.wgsl`'s `fs_tile`
-  premultiply + the three `tile_pipeline_*` blend states in `renderer.rs`).
-- `layer.adjustments: Option<Adjustments>` (`engine/core/src/filters.rs`) —
-  brightness/contrast/vibrance/saturation/levels, `None` = neutral. Also
-  applied at CPU upload time, no shader involvement (unlike blend mode,
-  adjustments only ever read the source layer's own pixels). One entry point:
-  the sliders in `LayerSettingsCard` (`calm_engine_set_layer_adjustments`).
-  They ride `CalmDeferredSlider`, which keeps the knob local and hands the
-  engine only the value still standing after 100ms of quiet — a rebake per
-  emitted value is what a CPU-baked adjustment costs, and a drag emits a lot
-  of them. The engine-side `nudge_layer_adjustment`
-  (`limits::ADJUSTMENT_NUDGE_STEP` / `GAMMA_NUDGE_STEP`,
-  `calm_engine_nudge_layer_adjustment`) is still there and still tested, but
-  the menu-bar Filters menu that was its only caller is **gone** — a menu of
-  Increase/Decrease pairs next to a panel of sliders was clutter, and the
+- `layer.opacity: f32` (0–1, default 1), `layer.adjustments: Option<Adjustments>`
+  (`engine/core/src/filters.rs` — brightness/contrast/vibrance/saturation/levels, `None` =
+  neutral) and `layer.blend_mode: BlendMode` (Normal/Multiply/Screen) are all non-destructive
+  and never baked into tile bytes. Opacity and adjustments join blend mode as **GPU-at-draw**:
+  every document layer gets a row in the `LayerData` table (`board.wgsl`), and `fs_tile`/
+  `fs_solid_tile` read opacity and evaluate the adjustment LUT per pixel off that row
+  (`apply_adjustments`, mirroring `AdjustmentLut::apply` in Rust), the same way `vs_tile` already
+  read the row's transform. Blend mode alone stays a *pipeline* choice rather than a row field —
+  it needs the destination framebuffer, which per-pixel LUT work never does — see `board.wgsl`'s
+  `fs_tile` premultiply + the three `tile_pipeline_*` blend states in `renderer.rs`. A mask is
+  the one survivor of the old CPU bake: it is a dense per-document buffer, not a per-layer row,
+  so it still multiplies alpha at upload time (`compose::composited_tile_payload`) on whatever
+  tiles actually painted. Flatten, export and picking keep the **CPU-at-flatten** path
+  (`filters::apply` / `AdjustmentLut` / `Document::copy_layer_into_rgba`) — two evaluators, one
+  result, same contract blend mode already had. One entry point for adjustments: the sliders in
+  `LayerSettingsCard` (`calm_engine_set_layer_adjustments`). They ride `CalmDeferredSlider`,
+  which keeps the knob local and hands the engine only the value still standing after 100ms of
+  quiet — now a convenience against redundant `LayerData` rewrites during a drag, not a defence
+  against a CPU rebake the GPU path no longer pays for. The engine-side `nudge_layer_adjustment`
+  (`limits::ADJUSTMENT_NUDGE_STEP` / `GAMMA_NUDGE_STEP`, `calm_engine_nudge_layer_adjustment`) is
+  still there and still tested, but the menu-bar Filters menu that was its only caller is
+  **gone** — a menu of Increase/Decrease pairs next to a panel of sliders was clutter, and the
   chrome stays minimal.
 - **Picking a layer is a region test, not a pixel test** (`engine/core/src/pick.rs`).
   `Document::layer_at` probes a neighbourhood sized by `limits::LAYER_PICK_SLACK_PX` in
@@ -709,7 +712,10 @@ swatch), vector layers (`V` / tool options; one item per layer, moved and scaled
 `⌘T` and the Move tool), text layers (`T` / tools island),
 Move tool (tools island; pick-and-drag, Transform toggle / `⌘T` for scale/rotate). See `docs/FLOW.md`.
 
-**Now carrying plans** in `docs/todo.md`: undo for the rest of the document (`01`),
-GPU adjustment evaluation (`23`, which grows the shipped `LayerData`
-table with the LUT and opacity). Vector multi-select (`10`) is closed by the 1:1 rule — do
-not build it.
+**Now carrying plans** in `docs/todo.md`: undo for the rest of the document (`01`).
+Vector multi-select (`10`) is closed by the 1:1 rule — do not build it.
+
+**Shipped from this list (cont.):** GPU adjustment evaluation (plan 23 — the `LayerData` table
+grew the LUT and opacity; see the opacity/adjustments bullet above) and adaptive GPU residency
+under memory pressure (plan 22 — `calm_engine_set_memory_pressure`, `calumma_core::
+MemoryPressureLevel`/`PressureState`).

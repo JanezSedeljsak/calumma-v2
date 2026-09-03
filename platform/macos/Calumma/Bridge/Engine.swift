@@ -216,6 +216,10 @@ final class Engine: ObservableObject, @unchecked Sendable {
     private static let fitGraceSeconds: CFTimeInterval = 0.8
     private var fitDeadline: CFTimeInterval = 0
     private var stateDirty = false
+    /// Owns the OS memory-pressure subscription — see `EngineMemoryPressure.swift`. Kept here
+    /// only because the source has to outlive the closure that reads it; every other detail of
+    /// what it does lives in that file, the way `guideReadout` and `EngineGuides.swift` split.
+    var memoryPressureSource: DispatchSourceMemoryPressure?
 
     static var brushSizeMin: Float { calm_brush_size_min() }
     static var brushSizeMax: Float { calm_brush_size_max() }
@@ -250,9 +254,11 @@ final class Engine: ObservableObject, @unchecked Sendable {
             VisionPlatformOps.install(into: ptr)
         }
         refreshRecents()
+        startObservingMemoryPressure()
     }
 
     deinit {
+        memoryPressureSource?.cancel()
         if let ptr {
             calm_engine_free(ptr)
         }

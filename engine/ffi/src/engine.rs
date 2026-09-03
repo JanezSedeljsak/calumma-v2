@@ -4,7 +4,7 @@ use anyhow::{anyhow, bail, Context};
 use calumma_core::limits::{AUTOSAVE_INTERVAL_MS, BRUSH_SIZE_MAX, BRUSH_SIZE_MIN, IMPORT_MAX_SIDE};
 use calumma_core::{
     pack_rgba, project_color, unpack_rgba, unpremultiply_rgba, AdjustmentKind, Adjustments,
-    BlendMode, BoardColors, Brush, Document, Tool, PROJECT_COLORS,
+    BlendMode, BoardColors, Brush, Document, MemoryPressureLevel, Tool, PROJECT_COLORS,
 };
 use calumma_io::{encode_pdf, encode_psd, encode_svg, ProjectListItem, ProjectStore};
 use calumma_ops::{
@@ -374,6 +374,22 @@ pub(crate) fn renderer_gpu_bytes(engine: *mut CalmEngine) -> usize {
     .ok()
     .flatten()
     .unwrap_or(0)
+}
+
+/// Forwards one OS memory-pressure report to the renderer, under the same lock as everything
+/// else. A no-op before a surface is attached — there is no GPU residency to react to yet, and
+/// the shell's next report after attaching picks up from wherever `PressureState` already was.
+pub(crate) fn renderer_set_memory_pressure(engine: *mut CalmEngine, level: MemoryPressureLevel) {
+    if engine.is_null() {
+        return;
+    }
+    let _ = catch_unwind(AssertUnwindSafe(|| {
+        let mutex = unsafe { &*(engine as *const Mutex<Inner>) };
+        let mut inner = mutex.lock();
+        if let Some(r) = &mut inner.renderer {
+            r.set_memory_pressure(level);
+        }
+    }));
 }
 
 pub(crate) fn cstring(s: &str) -> *mut c_char {

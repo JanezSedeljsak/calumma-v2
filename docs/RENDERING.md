@@ -134,8 +134,9 @@ disk. A skipped tick costs 800 ms of staleness; a blocked frame is visible.
 ### Tile path (default)
 
 1. **`sync_tiles`** — for each visible layer, upload dirty tiles into a shared
-   `texture_2d_array` atlas (one array layer per tile). CPU work: mask/adjustment bake +
-   mip chain (skipped in motion mode).
+   `texture_2d_array` atlas (one array layer per tile). CPU work: mask bake + mip chain
+   (skipped in motion mode). Adjustments and opacity no longer bake here — see C2 below;
+   `fs_tile`/`fs_solid_tile` evaluate them per pixel off the `LayerData` row instead.
 2. **`build_layer_draws`** — walk the layer stack; emit `LayerDraw` entries (tiles, solid
    paper quad, vector runs).
 3. **Content pass** — `draw_cached_content` replays those `LayerDraw` entries into the
@@ -360,7 +361,7 @@ fidelity problem before it is a performance one.
 | # | Change | Effect | Throw away? |
 | --- | --- | --- | --- |
 | C1 | **Separate tile path entirely during motion** — never rebuild draw list; only uniforms | Already partial; finish by skipping `visible_needs_gpu_upload` on camera-only. That walk is one hash lookup per candidate tile per layer — measured 3 µs at 1 layer, 34 µs at 10, per frame on an 8K fit-to-view — so it is worth removing but is not what makes a big document slow | No |
-| C2 | **GPU compositing for adjustments** instead of CPU bake per dirty tile — `docs/plans/23-gpu-adjustment-evaluation.md` (LUT + opacity on the shipped `LayerData` table — see `docs/ENGINE.md` § Bind groups) | Slider drag on large docs | CPU path for export stays |
+| C2 | ~~**GPU compositing for adjustments** instead of CPU bake per dirty tile~~ — **shipped 2026-09-02**, `docs/plans/23-gpu-adjustment-evaluation.md`. LUT + opacity moved onto the `LayerData` table (see `docs/ENGINE.md` § Bind groups); `fs_tile`/`fs_solid_tile` evaluate them per pixel via `apply_adjustments` | Slider drag on large docs | CPU path for export/flatten/pick stays (`AdjustmentLut`) |
 | C3 | **Layer flatten cache** — one GPU texture per layer at rest, patch on edit | Fewer instances when many layers. Note the instance count is already bounded at 48 by the overview threshold, so this is only worth it *inside* a pyramid rebuild, not for the live tile path | Memory ↑ |
 | C4 | **Display link driven render** — `isPaused = true`, draw only when dirty | No idle 120 Hz wakeups | Requires explicit `setNeedsDisplay` wiring |
 | C5 | **Read zoom pill from atomics** — `flushPendingState` only when chrome visible | Less Swift publish per frame | No |
@@ -409,7 +410,7 @@ pyramid in place of the single 2048px overview flatten (see Overview path).
 | `engine/render/src/overview.rs` | Overview texture LOD |
 | `engine/render/src/tile_atlas.rs` | Shared GPU tile array |
 | `engine/render/src/shaders/board.wgsl` | Desk, tiles, overview, solid quad, vectors, `PanCache` blit/clear |
-| `engine/render/src/compose.rs` | CPU tile bake, mips, overlay instances |
+| `engine/render/src/compose.rs` | CPU tile bake (mask only, since C2), mips, overlay instances |
 | `engine/ffi/src/engine.rs` | Pan coalescing, `calm_engine_render` |
 | `engine/ffi/src/autosave.rs` | Background autosave thread |
 | `platform/macos/.../BoardCanvas.swift` | `MTKView` delegate, input |
