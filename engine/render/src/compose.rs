@@ -137,10 +137,11 @@ pub struct GuideInstance {
     pub color: [f32; 4],
 }
 
-/// Orange rather than the teal every selection and transform overlay uses, so a rule the board
-/// snaps to never reads as something that is selected.
-const GUIDE_COLOR: [f32; 4] = [0.94, 0.58, 0.29, 0.85];
-const GUIDE_DRAGGED_COLOR: [f32; 4] = [0.94, 0.58, 0.29, 1.0];
+/// How solid a guide is drawn. The *color* is the guide's own (`Guide::color`, picked in the
+/// guides card and defaulting to `calumma_core::default_guide_color`); alpha stays here because
+/// it is not a choice — it is how the board says which rule is the one under the pointer.
+const GUIDE_ALPHA: f32 = 0.85;
+const GUIDE_DRAGGED_ALPHA: f32 = 1.0;
 
 /// Guides span the *view*, not the paper — a rule you can only see where there is paper cannot
 /// be lined up against a layer hanging off it, and never meets the ruler it was pulled from.
@@ -161,13 +162,25 @@ pub fn guide_instances(doc: &Document) -> Vec<GuideInstance> {
                 GuideAxis::Horizontal => [min_x, guide.position, max_x, guide.position],
                 GuideAxis::Vertical => [guide.position, min_y, guide.position, max_y],
             },
-            color: if dragged == Some(index) {
-                GUIDE_DRAGGED_COLOR
-            } else {
-                GUIDE_COLOR
-            },
+            color: guide_color(
+                guide.color,
+                if dragged == Some(index) {
+                    GUIDE_DRAGGED_ALPHA
+                } else {
+                    GUIDE_ALPHA
+                },
+            ),
         })
         .collect()
+}
+
+fn guide_color(rgb: [u8; 3], alpha: f32) -> [f32; 4] {
+    [
+        rgb[0] as f32 / 255.0,
+        rgb[1] as f32 / 255.0,
+        rgb[2] as f32 / 255.0,
+        alpha,
+    ]
 }
 
 /// Two rings a screen pixel apart, light inside dark. One colour cannot be legible over both

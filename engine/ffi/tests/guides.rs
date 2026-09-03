@@ -138,7 +138,49 @@ fn guide_buffer<const N: usize>() -> [CalmGuide; N] {
     std::array::from_fn(|_| CalmGuide {
         axis: 0,
         position: 0.0,
+        color: 0,
     })
+}
+
+/// A guide arrives in the default color and keeps whichever one it is given — the card reads
+/// this back to fill its swatch, so a list that reported the wrong color would show the wrong
+/// one on every row.
+#[test]
+fn a_guide_is_listed_in_the_color_it_is_drawn_in() {
+    let e = GuideEngine::new();
+    unsafe {
+        assert_eq!(calm_engine_add_guide(e.ptr, 0, 40.0), CalmStatus::Ok);
+        let mut buffer = guide_buffer::<4>();
+        calm_engine_guide_list(e.ptr, buffer.as_mut_ptr(), buffer.len());
+        assert_eq!(
+            buffer[0].color,
+            calm_default_guide_color(),
+            "a new guide starts in the default color the card offers first"
+        );
+
+        assert_eq!(
+            calm_engine_set_guide_color(e.ptr, 0, 0x0C_C8_5A),
+            CalmStatus::Ok
+        );
+        calm_engine_guide_list(e.ptr, buffer.as_mut_ptr(), buffer.len());
+        assert_eq!(buffer[0].color, 0x0C_C8_5A);
+        assert_eq!(
+            buffer[0].position, 40.0,
+            "recoloring a guide leaves it where it was"
+        );
+    }
+}
+
+/// Every setter here is index-addressed and the indices shift as guides come and go, so an out
+/// of range one has to be refused rather than land on whatever is there now.
+#[test]
+fn recoloring_a_guide_that_is_not_there_changes_nothing() {
+    let e = GuideEngine::new();
+    assert_eq!(
+        calm_engine_set_guide_color(e.ptr, 7, 0x0C_C8_5A),
+        CalmStatus::Ok
+    );
+    assert_eq!(calm_engine_guide_count(e.ptr), 0);
 }
 
 #[test]

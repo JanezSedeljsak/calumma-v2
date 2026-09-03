@@ -65,13 +65,21 @@ extension Engine {
     /// seconds someone is editing guides.
     func guideList() -> [GuideEntry] {
         guard let ptr else { return [] }
-        var buffer = [CalmGuide](repeating: CalmGuide(axis: 0, position: 0), count: Self.guidesCap)
+        var buffer = [CalmGuide](
+            repeating: CalmGuide(axis: 0, position: 0, color: 0),
+            count: Self.guidesCap
+        )
         let count = buffer.withUnsafeMutableBufferPointer {
             calm_engine_guide_list(ptr, $0.baseAddress, Self.guidesCap)
         }
         return buffer.prefix(count).enumerated().compactMap { index, raw in
             guard let axis = CalmGuideAxis(rawValue: raw.axis) else { return nil }
-            return GuideEntry(index: index, axis: axis, position: raw.position)
+            return GuideEntry(
+                index: index,
+                axis: axis,
+                position: raw.position,
+                color: Color(rgb: raw.color)
+            )
         }
     }
 
@@ -96,6 +104,16 @@ extension Engine {
         _ = calm_engine_set_guide_axis(ptr, index, axis.rawValue)
         syncGuides()
     }
+
+    func setGuideColor(index: Int, color: Color) {
+        guard let ptr else { return }
+        _ = calm_engine_set_guide_color(ptr, index, color.packedRGB)
+        syncGuides()
+    }
+
+    /// The color a new guide takes, which is what makes the card's first swatch a working way
+    /// back to it. Asked rather than written down here, like every other product constant.
+    static let defaultGuideColor = Color(rgb: calm_default_guide_color())
 
     func removeGuide(index: Int) {
         guard let ptr else { return }
@@ -157,6 +175,9 @@ struct GuideEntry: Identifiable, Equatable {
     let index: Int
     var axis: CalmGuideAxis
     var position: Float
+    /// What the board draws this rule in. RGB only — a guide's alpha says whether it is the one
+    /// being dragged, so it is the renderer's and not something the card offers.
+    var color: Color
 
     var id: Int { index }
 }

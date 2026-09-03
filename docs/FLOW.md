@@ -210,8 +210,10 @@ persist across launches.
 
 ### Guides
 
-Orange hairlines pulled off the rulers, one screen pixel wide at any zoom, that layers and
-handles snap to. Two things about how they are drawn:
+Hairlines pulled off the rulers, one screen pixel wide at any zoom, that layers and handles
+snap to. Orange to start — that is `default_guide_color`, chosen so a rule the board snaps to
+never reads as the teal every selection and transform overlay uses — and recolorable per guide
+from the card. Three things about how they are drawn:
 
 - **They span the view, not the paper.** A guide runs edge to edge of the board viewport,
   right up to the ruler it came from, rather than stopping where the paper stops. A rule you
@@ -220,6 +222,12 @@ handles snap to. Two things about how they are drawn:
   the only pass the renderer lifts the paper scissor around (`Renderer::render`); everything
   else the board draws is clipped to the paper. Extent comes from
   `Camera::viewport_doc_bounds`, the unclamped twin of `visible_doc_rect`.
+- **The color is the guide's; the alpha is the board's.** `Guide::color` is RGB only, because
+  how *solid* a rule is drawn is not a choice — it is how the board says which one is under the
+  pointer (`GUIDE_ALPHA` 0.85, `GUIDE_DRAGGED_ALPHA` 1.0 in `compose.rs`). Colors are the
+  **project palette** (`PROJECT_COLORS`), not a list of their own: ten colors already picked to
+  read against both the desk and white paper is the same problem a guide has, and a second list
+  would only be the first one drifting.
 - **A guide being dragged prints its position.** A small muted readout in document pixels
   rides the guide, on the edge it was pulled from — a horizontal rule reads down the left, a
   vertical one along the top. Both the number and where it sits on screen come from
@@ -246,6 +254,11 @@ handles snap to. Two things about how they are drawn:
   other edge keeping its number, clamped if the document is not square enough to hold it, and
   refused outright if the other edge already has a guide there — the same no-duplicates rule
   `add_guide` enforces, so it shows as the toggle simply not moving.
+- Beside the offset sits the guide's **color swatch**, which opens the project palette. The
+  default color is the palette's own second entry, so picking it is how a rule goes back to the
+  default — there is no separate state to return to. The Add row carries the same swatch as a
+  plain dot rather than a picker: a new guide always starts in the default, and recoloring is
+  something you do to a rule you can already see.
 - Adding takes that same toggle and an offset, so a guide can be put at exactly 240 instead of
   dragged near it. The trash icon on a row removes that guide. **Ten guides per board**
   (`GUIDES_LIMIT`) — a board wanting more rules than that wants a grid — and Add greys out at the

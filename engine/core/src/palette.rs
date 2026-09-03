@@ -17,6 +17,21 @@ pub fn project_color(index: usize) -> [u8; 3] {
     PROJECT_COLORS[index % PROJECT_COLORS.len()]
 }
 
+/// Which of [`PROJECT_COLORS`] a new guide takes. Orange rather than the teal every selection
+/// and transform overlay uses, so a rule the board snaps to never reads as something that is
+/// selected — the reason the guide color was picked in the first place, back when it was a
+/// literal in the render crate.
+///
+/// Guides share the project palette rather than owning one. Ten colors chosen to be legible
+/// against both the desk and white paper is the same problem twice, and a second list would
+/// only be the first one drifting.
+pub const DEFAULT_GUIDE_COLOR_INDEX: usize = 1;
+
+/// The color a guide is created with, and the one the guides card's palette offers first.
+pub fn default_guide_color() -> [u8; 3] {
+    project_color(DEFAULT_GUIDE_COLOR_INDEX)
+}
+
 pub fn random_project_color() -> [u8; 3] {
     let byte = Uuid::new_v4().as_bytes()[0] as usize;
     project_color(byte)

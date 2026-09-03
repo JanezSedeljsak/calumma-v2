@@ -1,6 +1,6 @@
 use crate::engine::{read_doc, with_inner, CalmEngine, CalmStatus};
 use anyhow::Context;
-use calumma_core::GuideAxis;
+use calumma_core::{pack_rgb, unpack_rgb, GuideAxis};
 use std::os::raw::c_int;
 
 /// Guides pulled off the board itself go through `calm_engine_pointer_*` like every other Move
@@ -120,11 +120,14 @@ pub unsafe extern "C" fn calm_engine_dragged_guide(
 }
 
 /// One guide as the guides card lists it. Position is document pixels along the axis the rule
-/// crosses — `y` for a horizontal one, `x` for a vertical one.
+/// crosses — `y` for a horizontal one, `x` for a vertical one. `color` is packed `0xRRGGBB`,
+/// the same shape `calm_palette_color` hands back, so the card can compare a guide against a
+/// palette swatch without unpacking either.
 #[repr(C)]
 pub struct CalmGuide {
     pub axis: u8,
     pub position: f32,
+    pub color: u32,
 }
 
 /// Reads the whole list into `out`, returning how many were written. The card is the only
@@ -146,6 +149,7 @@ pub unsafe extern "C" fn calm_engine_guide_list(
                 *out.add(i) = CalmGuide {
                     axis: u8::from(guide.axis),
                     position: guide.position,
+                    color: pack_rgb(guide.color),
                 };
             }
         }
@@ -204,6 +208,32 @@ pub extern "C" fn calm_engine_set_guide_axis(
         }
         Ok(())
     })
+}
+
+/// Recolors one guide. `rgb` is packed `0xRRGGBB` — a guide has no alpha to set, because how
+/// solid a rule is drawn is what says whether it is the one being dragged
+/// (`compose::GUIDE_ALPHA`), not a choice.
+#[no_mangle]
+pub extern "C" fn calm_engine_set_guide_color(
+    engine: *mut CalmEngine,
+    index: usize,
+    rgb: u32,
+) -> CalmStatus {
+    with_inner(engine, |inner| {
+        if let Some(doc) = &mut inner.doc {
+            if doc.set_guide_color(index, unpack_rgb(rgb)) {
+                inner.edited();
+            }
+        }
+        Ok(())
+    })
+}
+
+/// The color a guide is created with, so the card can offer it as the first swatch — asked
+/// rather than written down in Swift, like every other product constant here.
+#[no_mangle]
+pub extern "C" fn calm_default_guide_color() -> u32 {
+    pack_rgb(calumma_core::default_guide_color())
 }
 
 #[no_mangle]

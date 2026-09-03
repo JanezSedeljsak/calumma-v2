@@ -64,10 +64,7 @@ fn clear_guides_reports_whether_it_had_anything_to_clear() {
 fn set_guides_truncates_to_the_ceiling() {
     let mut doc = doc_at_unit_zoom();
     let many: Vec<Guide> = (0..GUIDES_LIMIT + 20)
-        .map(|i| Guide {
-            axis: GuideAxis::Vertical,
-            position: i as f32,
-        })
+        .map(|i| Guide::new(GuideAxis::Vertical, i as f32))
         .collect();
     doc.set_guides(many);
     assert_eq!(doc.guides().len(), GUIDES_LIMIT);
@@ -420,4 +417,32 @@ fn flipping_onto_an_existing_guide_is_refused() {
 
     assert!(!doc.set_guide_axis(moving, GuideAxis::Horizontal));
     assert_eq!(doc.guides()[moving].axis, GuideAxis::Vertical);
+}
+
+/// A guide starts in the default color and keeps it through the edits that rebuild the guide —
+/// flipping the axis constructs a new `Guide`, which is exactly where a color would get lost.
+#[test]
+fn a_guide_keeps_its_color_across_the_edits_that_rebuild_it() {
+    let mut doc = doc_at_unit_zoom();
+    doc.add_guide(GuideAxis::Horizontal, 40.0);
+    assert_eq!(doc.guides()[0].color, default_guide_color());
+
+    assert!(doc.set_guide_color(0, [12, 200, 90]));
+    assert!(doc.set_guide_axis(0, GuideAxis::Vertical));
+    assert!(doc.set_guide_position(0, 90.0));
+
+    assert_eq!(doc.guides()[0].color, [12, 200, 90]);
+    assert_eq!(doc.guides()[0].axis, GuideAxis::Vertical);
+}
+
+/// Recoloring reports whether anything moved, which is what keeps picking the color a guide
+/// already has from marking the project dirty and queueing a save.
+#[test]
+fn recoloring_reports_only_a_real_change() {
+    let mut doc = doc_at_unit_zoom();
+    doc.add_guide(GuideAxis::Horizontal, 40.0);
+
+    assert!(doc.set_guide_color(0, [12, 200, 90]));
+    assert!(!doc.set_guide_color(0, [12, 200, 90]));
+    assert!(!doc.set_guide_color(9, [12, 200, 90]), "no such guide");
 }

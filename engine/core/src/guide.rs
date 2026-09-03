@@ -2,6 +2,7 @@ use crate::document::Document;
 use crate::limits::{
     GUIDES_LIMIT, GUIDE_MIN_SEPARATION, GUIDE_PICK_SLACK_PX, GUIDE_SHIFT_STEP, GUIDE_SNAP_PX,
 };
+use crate::palette::default_guide_color;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 
 /// Which way a guide runs. A `Horizontal` guide is a horizontal rule at document *y*, the one
@@ -26,6 +27,25 @@ pub struct Guide {
     /// Document pixels along the axis the guide crosses — `y` for a horizontal rule, `x` for a
     /// vertical one.
     pub position: f32,
+    /// What this rule is drawn in. RGB only: how *solid* a guide is says whether it is the one
+    /// being dragged, so alpha belongs to the renderer and is not something to pick.
+    ///
+    /// Concrete rather than an `Option` defaulting on read, because that is what makes the
+    /// palette's first swatch a working "back to the default" — there is no separate state to
+    /// return to, only a color to pick again.
+    pub color: [u8; 3],
+}
+
+impl Guide {
+    /// A guide in the default color, which is how every one of them starts — dragged off a
+    /// ruler or typed into the card alike.
+    pub fn new(axis: GuideAxis, position: f32) -> Self {
+        Self {
+            axis,
+            position,
+            color: default_guide_color(),
+        }
+    }
 }
 
 /// A guide being dragged, by index into `Document.guides`. Nothing else may add or remove a
@@ -77,7 +97,7 @@ impl Document {
         if self.guides.len() >= GUIDES_LIMIT {
             return None;
         }
-        self.guides.push(Guide { axis, position });
+        self.guides.push(Guide::new(axis, position));
         Some(self.guides.len() - 1)
     }
 
@@ -221,7 +241,24 @@ impl Document {
         {
             return false;
         }
-        self.guides[index] = Guide { axis, position };
+        self.guides[index] = Guide {
+            axis,
+            position,
+            color: guide.color,
+        };
+        true
+    }
+
+    /// Recolors one guide. RGB only — see [`Guide::color`]. Returns whether anything changed, so
+    /// picking the color a guide already has does not mark the project dirty.
+    pub fn set_guide_color(&mut self, index: usize, color: [u8; 3]) -> bool {
+        let Some(guide) = self.guides.get_mut(index) else {
+            return false;
+        };
+        if guide.color == color {
+            return false;
+        }
+        guide.color = color;
         true
     }
 

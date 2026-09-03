@@ -138,6 +138,7 @@ struct L10nCatalog: Equatable {
     var guideTop: String { self["guideTop"] }
     var guideLeft: String { self["guideLeft"] }
     var guideOffset: String { self["guideOffset"] }
+    var guideColor: String { self["guideColor"] }
     var deleteGuide: String { self["deleteGuide"] }
     var clearGuides: String { self["clearGuides"] }
     var toggleTheme: String { self["toggleTheme"] }

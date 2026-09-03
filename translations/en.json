@@ -73,6 +73,7 @@
   "guideTop": "Top",
   "guideLeft": "Left",
   "guideOffset": "Offset",
+  "guideColor": "Guide color",
   "deleteGuide": "Delete guide",
   "clearGuides": "Clear Guides",
   "toggleTheme": "Toggle Theme",

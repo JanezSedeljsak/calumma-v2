@@ -282,12 +282,18 @@ int calm_engine_dragged_guide(CalmEngine *engine, uint8_t *out_axis, float *out_
 typedef struct CalmGuide {
     uint8_t axis;
     float position;
+    // Packed 0xRRGGBB, the same shape calm_palette_color hands back.
+    uint32_t color;
 } CalmGuide;
 
 size_t calm_engine_guide_list(CalmEngine *engine, CalmGuide *out, size_t cap);
 CalmStatus calm_engine_add_guide(CalmEngine *engine, uint8_t axis, float position);
 CalmStatus calm_engine_set_guide_position(CalmEngine *engine, size_t index, float position);
 CalmStatus calm_engine_set_guide_axis(CalmEngine *engine, size_t index, uint8_t axis);
+// rgb is packed 0xRRGGBB. A guide has no alpha to set — how solid a rule is drawn is what says
+// whether it is the one being dragged.
+CalmStatus calm_engine_set_guide_color(CalmEngine *engine, size_t index, uint32_t rgb);
+uint32_t calm_default_guide_color(void);
 CalmStatus calm_engine_remove_guide(CalmEngine *engine, size_t index);
 size_t calm_guides_limit(void);
 // Frames per second the engine wants from here, or 0 for "as fast as the display allows".

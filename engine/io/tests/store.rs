@@ -529,16 +529,25 @@ fn guides_round_trip() {
     assert_eq!(
         loaded.guides(),
         [
-            Guide {
-                axis: GuideAxis::Horizontal,
-                position: 12.5
-            },
-            Guide {
-                axis: GuideAxis::Vertical,
-                position: -3.25
-            },
+            Guide::new(GuideAxis::Horizontal, 12.5),
+            Guide::new(GuideAxis::Vertical, -3.25),
         ]
     );
+}
+
+/// A recolored guide is still a guide the store has to hand back the way it was left — the
+/// color rides the same blob as the position.
+#[test]
+fn a_guides_color_round_trips() {
+    let (_dir, store) = store();
+    let mut doc = store.create("Guided", 64, 64).unwrap();
+    doc.add_guide(GuideAxis::Vertical, 24.0);
+    assert!(doc.set_guide_color(0, [12, 200, 90]));
+    store.save(&mut doc).unwrap();
+
+    let loaded = store.open_project(&doc.id).unwrap();
+
+    assert_eq!(loaded.guides()[0].color, [12, 200, 90]);
 }
 
 #[test]

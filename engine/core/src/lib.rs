@@ -66,7 +66,10 @@ pub use limits::{
 };
 pub use memory_pressure::{MemoryPressureLevel, PressureState, PressureTransition};
 pub use names::{LAYER_ONE, PAPER, UNTITLED};
-pub use palette::{project_color, random_project_color, BoardColors, DeskMetrics, PROJECT_COLORS};
+pub use palette::{
+    default_guide_color, project_color, random_project_color, BoardColors, DeskMetrics,
+    PROJECT_COLORS,
+};
 pub use ruler::{ruler_ticks, RulerTick};
 pub use selection::{Selection, SelectionShape};
 pub use selection_mask::{OutlineEdge, SelectionMask};

@@ -16,6 +16,9 @@ struct GuidesCard: View {
     @State private var entries: [GuideEntry] = []
     @State private var draftAxis: CalmGuideAxis = .horizontal
     @State private var draftOffset = 0
+    /// Which row's swatch has its palette open, by guide index. One at a time, and by index
+    /// rather than a flag per row, because the rows are rebuilt from the engine after every edit.
+    @State private var colorPickerRow: Int?
 
     /// How large the guides modal is presented at, given the window it opens over. Wants to be
     /// tall — the list is the point of the panel — and stops short of the window's own edges.
@@ -99,6 +102,7 @@ struct GuidesCard: View {
                 ),
                 width: 64
             )
+            colorWell(entry)
             Spacer()
             Button {
                 app.engine.removeGuide(index: entry.index)
@@ -108,6 +112,37 @@ struct GuidesCard: View {
             .buttonStyle(.plain)
             .help(l10n.deleteGuide)
             .calmPointer()
+        }
+    }
+
+    /// The rule's own color, beside the number that places it. The board palette rather than a
+    /// free picker: ten colors already chosen to read against both the desk and white paper is
+    /// the same problem a guide has, and the first of them is the color guides start in — so
+    /// picking that one is how you put a rule back to the default.
+    ///
+    /// A popover rather than the palette inline, because a row of ten dots is most of the card's
+    /// width and this row already carries three controls.
+    private func colorWell(_ entry: GuideEntry) -> some View {
+        Button {
+            colorPickerRow = entry.index
+        } label: {
+            CalmDot(color: entry.color, size: 14)
+        }
+        .buttonStyle(.plain)
+        .help(l10n.guideColor)
+        .calmPointer()
+        .popover(
+            isPresented: Binding(
+                get: { colorPickerRow == entry.index },
+                set: { if !$0 { colorPickerRow = nil } }
+            ),
+            arrowEdge: .bottom
+        ) {
+            CalmPaletteRow(colors: Engine.palette, selected: entry.color) { color in
+                app.engine.setGuideColor(index: entry.index, color: color)
+                colorPickerRow = nil
+            }
+            .padding(Tokens.Space.sm)
         }
     }
 
@@ -125,6 +160,11 @@ struct GuidesCard: View {
                 axisToggle(selected: draftAxis) { draftAxis = $0 }
                 CalmNumberField(value: $draftOffset, width: 64)
                     .onSubmit(add)
+                // Not a picker: a new guide always starts in the default color, and this is the
+                // swatch that says which one that is. Recoloring is a thing you do to a rule you
+                // can already see, on its own row.
+                CalmDot(color: Engine.defaultGuideColor, size: 14)
+                    .help(l10n.guideColor)
                 Spacer()
                 // Greyed at the ceiling rather than left to do nothing: `add_guide` refuses a
                 // full list silently, and a button that answers a click with nothing is worse
