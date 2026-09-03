@@ -1,5 +1,14 @@
 name: main
 
+# Four stages, in order: lint, then security, then per-OS tests, then the macOS installable.
+# Each gate is cheap and runs on the cheapest machine that can answer it, so a formatting slip
+# or a vulnerable dependency is reported in a couple of minutes and never spends a macOS runner.
+#
+#   lint (ubuntu)  ->  security (ubuntu)  ->  test-linux / test-windows / test-macos  ->  dmg
+#
+# `pre-commit-autofix` deliberately sits outside that chain: it is the *fixer*, and gating it
+# behind `lint` would deadlock — lint fails, the autofix that would have healed it never runs.
+
 on:
   push:
     paths-ignore:
@@ -60,8 +69,114 @@ jobs:
         with:
           commit_message: "style: pre-commit auto-fixes"
 
-  core-linux:
-    name: core (ubuntu-latest)
+  # Stage 1. Everything that can be decided without running the product, on the cheapest runner
+  # there is. Nothing downstream starts until this passes.
+  lint:
+    name: lint (ubuntu-latest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+          cache: pip
+      - run: python -m pip install -r requirements.txt
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      # Formatting reads source and compiles nothing, so this covers the whole workspace —
+      # `calumma-ffi` included, even though clippy below cannot reach it here.
+      - name: fmt
+        run: cargo fmt --manifest-path engine/Cargo.toml --all -- --check
+      - name: ruff
+        run: |
+          python -m ruff format --check manage.py cli
+          python -m ruff check manage.py cli
+      # Every crate except `calumma-ffi`, which is macOS-only *at compile time* and not merely
+      # by convention: it builds a surface from `wgpu::SurfaceTargetUnsafe::CoreAnimationLayer`
+      # (`engine/ffi/src/engine.rs`), and that enum variant is `#[cfg(metal)]` — on Linux it
+      # does not exist. `test-macos` lints it instead, which is the only place that can.
+      #
+      # `calumma-render` *is* portable: it holds a `wgpu::Surface` the shell handed it and
+      # touches no Apple-gated API, so it lints here along with the rest.
+      - name: clippy
+        run: |
+          cargo clippy --manifest-path engine/Cargo.toml --all-targets \
+            -p calumma-core -p calumma-text -p calumma-io -p calumma-ops -p calumma-render \
+            -- -D warnings
+      - name: core purity
+        run: ./manage.py purity
+
+  # Stage 2. Three scanners, layered on purpose rather than by accident — see the Trivy step
+  # for what each one covers that the others do not.
+  security:
+    name: security (ubuntu-latest)
+    needs: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+          cache: pip
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+      # Audits the committed lockfile rather than a freshly resolved tree, so what is checked is
+      # what actually ships. Fails on a vulnerability; unmaintained and yanked crates are
+      # reported as warnings and do not block — add `--deny warnings` to make them block too.
+      # A single advisory with no upgrade path is silenced with `--ignore RUSTSEC-0000-0000`.
+      - name: cargo audit
+        run: cargo audit --file engine/Cargo.lock
+      - run: python -m pip install pip-audit
+      # `--requirement`, not an audit of the installed environment. Auditing the environment
+      # sounds stricter and is worse: it reports advisories against the runner's own `pip` and
+      # `setuptools`, which are the tools running the audit rather than anything Calumma
+      # depends on — so the gate would fail on day one, and then flake with whatever pip the
+      # runner image happens to ship. `--requirement` still resolves transitively (12 packages
+      # from the three pinned lines), so nothing real is skipped.
+      - name: pip-audit
+        run: python -m pip_audit --requirement requirements.txt
+      # Trivy is not a third opinion on the same two lockfiles — it reaches things the other two
+      # cannot:
+      #
+      #   * `portal/bun.lock`. The portal is a Vite/TypeScript site and its npm tree was
+      #     unaudited by anything until now; `cargo audit` and `pip-audit` do not see it, and
+      #     `portal.yml` has no security step of its own. Trivy parses the lockfile natively.
+      #   * **Secrets.** A committed token is the one finding neither advisory scanner looks for.
+      #   * A second vulnerability database. `cargo audit` reads RustSec and `pip-audit` reads
+      #     PyPI/OSV; Trivy reads the GitHub Advisory DB, so the overlap on `Cargo.lock` and
+      #     `requirements.txt` is cheap and occasionally catches what the other source has not
+      #     published yet.
+      #
+      # `exit-code: 1` is load-bearing and easy to leave off: Trivy's default is to *report*
+      # findings and exit 0, so without it this step is decorative — verified against a planted
+      # credential, which is reported as CRITICAL and still exits 0 unless this is set.
+      #
+      # `misconfig` is deliberately not among the scanners. It has nothing to read here — no
+      # Dockerfile, no Terraform, no Kubernetes — and Trivy does not lint GitHub Actions
+      # workflows, so it reports "0 config files" and buys a slower job. `zizmor` or
+      # `actionlint` is the tool for that, if it is ever wanted.
+      - name: trivy
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln,secret
+          # HIGH and CRITICAL only, so the gate stays something worth stopping a merge for.
+          # Trivy's secret rules land in these two anyway, so this is really a vulnerability
+          # threshold — drop it to catch MEDIUM once the noise is known to be manageable.
+          severity: HIGH,CRITICAL
+          exit-code: 1
+          # None of these exist on a fresh CI checkout; they are here so the same command is
+          # runnable locally, where a built `engine/target` alone is minutes of scanning.
+          skip-dirs: engine/target,.venv,portal/node_modules
+
+  # Stage 3, one job per operating system.
+  test-linux:
+    name: test (ubuntu-latest)
+    needs: security
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -75,13 +190,12 @@ jobs:
           components: llvm-tools-preview
       - name: test core
         run: cargo test --manifest-path engine/Cargo.toml -p calumma-core --all-targets
-      - name: clippy core
-        run: cargo clippy --manifest-path engine/Cargo.toml -p calumma-core --all-targets -- -D warnings
       - name: coverage core
         run: ./manage.py coverage --package calumma-core
 
-  core-windows:
-    name: core (windows-latest)
+  test-windows:
+    name: test (windows-latest)
+    needs: security
     if: github.event_name == 'workflow_dispatch'
     runs-on: windows-latest
     steps:
@@ -89,11 +203,10 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - name: test core
         run: cargo test --manifest-path engine/Cargo.toml -p calumma-core --all-targets
-      - name: clippy core
-        run: cargo clippy --manifest-path engine/Cargo.toml -p calumma-core --all-targets -- -D warnings
 
-  macos:
-    name: macos workspace
+  test-macos:
+    name: test (macos-26)
+    needs: security
     runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
@@ -104,25 +217,19 @@ jobs:
       - run: python -m pip install -r requirements.txt
       - uses: dtolnay/rust-toolchain@stable
         with:
-          components: clippy, rustfmt, llvm-tools-preview
+          components: clippy, llvm-tools-preview
       - name: install xcodegen
         run: command -v xcodegen || brew install xcodegen
-      - name: fmt
-        run: cargo fmt --manifest-path engine/Cargo.toml --all -- --check
-      - name: ruff
-        run: |
-          python -m ruff format --check manage.py cli
-          python -m ruff check manage.py cli
-      - name: clippy
-        run: cargo clippy --manifest-path engine/Cargo.toml --workspace --all-targets -- -D warnings
+      # The one lint that cannot live in the `lint` job: see the clippy step there for why
+      # `calumma-ffi` only compiles on an Apple target.
+      - name: clippy calumma-ffi
+        run: cargo clippy --manifest-path engine/Cargo.toml -p calumma-ffi --all-targets -- -D warnings
       - name: test
         run: ./manage.py test
       - name: coverage
         run: ./manage.py coverage
       - name: build ffi
         run: cargo build --manifest-path engine/Cargo.toml -p calumma-ffi
-      - name: core purity
-        run: ./manage.py purity
       - name: test swift
         run: ./manage.py test-swift
 
@@ -146,17 +253,18 @@ jobs:
         id: check
         run: ./manage.py version-check
 
+  # Stage 4. Only macOS produces an installable, and only once every OS agreed the engine works.
   macos-dmg:
     name: macos installable (.dmg)
-    needs: [version-check, core-linux, core-windows, macos]
+    needs: [version-check, test-linux, test-windows, test-macos]
     if: |
       always() &&
       (github.event_name == 'workflow_dispatch' ||
        github.ref_type == 'tag' ||
        needs.version-check.outputs.changed == 'true') &&
-      needs.core-linux.result == 'success' &&
-      needs.macos.result == 'success' &&
-      (needs.core-windows.result == 'success' || needs.core-windows.result == 'skipped')
+      needs.test-linux.result == 'success' &&
+      needs.test-macos.result == 'success' &&
+      (needs.test-windows.result == 'success' || needs.test-windows.result == 'skipped')
     runs-on: macos-26
     permissions:
       contents: write
