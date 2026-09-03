@@ -236,7 +236,11 @@ fn undoing_past_the_bottom_stops_rather_than_wrapping() {
 
     assert!(doc.undo());
     assert!(!doc.undo(), "nothing left to undo");
-    assert_eq!(pixel(&doc.layers[layer_index], 1, 1), [0, 0, 0, 0], "and nothing moved");
+    assert_eq!(
+        pixel(&doc.layers[layer_index], 1, 1),
+        [0, 0, 0, 0],
+        "and nothing moved"
+    );
 
     assert!(doc.redo());
     assert!(!doc.redo(), "nothing left to redo");

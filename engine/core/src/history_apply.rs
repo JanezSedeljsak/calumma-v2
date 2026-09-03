@@ -109,7 +109,9 @@ fn prop_diff_bytes(prop: &LayerPropDiff) -> usize {
     64 + prop.adjustments.map(|_| 64).unwrap_or(0)
 }
 
-fn normalized_transform(t: crate::transform::LayerTransform) -> Option<crate::transform::LayerTransform> {
+fn normalized_transform(
+    t: crate::transform::LayerTransform,
+) -> Option<crate::transform::LayerTransform> {
     if t.is_identity() {
         None
     } else {

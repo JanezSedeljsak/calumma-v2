@@ -23,10 +23,7 @@ fn clear_history(doc: &mut Document) {
 }
 
 fn paint(doc: &mut Document, index: usize, x: i32, y: i32, rgba: [u8; 4]) {
-    doc.layers[index]
-        .tiles_mut()
-        .unwrap()
-        .set_pixel(x, y, rgba);
+    doc.layers[index].tiles_mut().unwrap().set_pixel(x, y, rgba);
 }
 
 fn paint_rect(doc: &mut Document, index: usize, rect: DocRect, rgba: [u8; 4]) {
@@ -147,12 +144,18 @@ fn undo_move_layer_reorders_the_stack() {
     clear_history(&mut doc);
     assert!(doc.move_layer(top, top - 1));
     assert_ne!(
-        doc.layers.iter().map(|l| l.name.as_str()).collect::<Vec<_>>(),
+        doc.layers
+            .iter()
+            .map(|l| l.name.as_str())
+            .collect::<Vec<_>>(),
         names_before.iter().map(|s| s.as_str()).collect::<Vec<_>>()
     );
     assert!(doc.undo());
     assert_eq!(
-        doc.layers.iter().map(|l| l.name.clone()).collect::<Vec<_>>(),
+        doc.layers
+            .iter()
+            .map(|l| l.name.clone())
+            .collect::<Vec<_>>(),
         names_before
     );
 }
@@ -220,10 +223,7 @@ fn undo_reset_transform() {
     doc.reset_layer_transform(index);
     assert!(doc.layers[index].transform.is_none());
     assert!(doc.undo());
-    assert_eq!(
-        doc.layers[index].transform.unwrap().offset_x,
-        12.0
-    );
+    assert_eq!(doc.layers[index].transform.unwrap().offset_x, 12.0);
 }
 
 #[test]
@@ -243,12 +243,7 @@ fn undo_layer_transform_drag() {
 
 fn paint_transform_target(doc: &mut Document) {
     let layer = doc.active_layer;
-    paint_rect(
-        doc,
-        layer,
-        DocRect::new(50, 50, 99, 99),
-        [255, 0, 0, 255],
-    );
+    paint_rect(doc, layer, DocRect::new(50, 50, 99, 99), [255, 0, 0, 255]);
 }
 
 #[test]
@@ -268,9 +263,7 @@ fn undo_transform_mode_corner_drag() {
     let after = doc.layer_transform(doc.active_layer).scale_x;
     assert!((after - before).abs() > 0.01);
     assert!(doc.undo());
-    assert!(
-        (doc.layer_transform(doc.active_layer).scale_x - before).abs() < 0.01
-    );
+    assert!((doc.layer_transform(doc.active_layer).scale_x - before).abs() < 0.01);
 }
 
 #[test]
@@ -323,10 +316,10 @@ fn undo_clip_layer_down() {
         .fill_uniform(DocRect::new(8, 8, 23, 23), [0, 0, 255, 255]);
     doc.add_layer("Top");
     let top = doc.active_layer;
-    doc.layers[top].tiles_mut().unwrap().fill_uniform(
-        DocRect::new(0, 0, 31, 31),
-        [255, 0, 0, 255],
-    );
+    doc.layers[top]
+        .tiles_mut()
+        .unwrap()
+        .fill_uniform(DocRect::new(0, 0, 31, 31), [255, 0, 0, 255]);
     clear_history(&mut doc);
     let before = doc.layers.len();
     assert!(doc.clip_layer_down(top));
@@ -365,7 +358,12 @@ fn undo_distribute_layers() {
     paint_rect(&mut doc, 1, DocRect::new(10, 10, 30, 30), [255, 0, 0, 255]);
     paint_rect(&mut doc, 2, DocRect::new(35, 10, 45, 30), [0, 255, 0, 255]);
     paint_rect(&mut doc, 3, DocRect::new(55, 10, 75, 30), [0, 0, 255, 255]);
-    paint_rect(&mut doc, 4, DocRect::new(100, 10, 115, 30), [255, 255, 0, 255]);
+    paint_rect(
+        &mut doc,
+        4,
+        DocRect::new(100, 10, 115, 30),
+        [255, 255, 0, 255],
+    );
     clear_history(&mut doc);
     let before = layer_aabb(&doc, 2).0;
     assert!(doc.distribute_layers(&[1, 2, 3, 4], DistributeAxis::Horizontal));
@@ -558,12 +556,18 @@ fn undo_move_layer_up() {
     clear_history(&mut doc);
     assert!(doc.move_layer_up(a));
     assert_ne!(
-        doc.layers.iter().map(|l| l.name.as_str()).collect::<Vec<_>>(),
+        doc.layers
+            .iter()
+            .map(|l| l.name.as_str())
+            .collect::<Vec<_>>(),
         names_before.iter().map(|s| s.as_str()).collect::<Vec<_>>()
     );
     assert!(doc.undo());
     assert_eq!(
-        doc.layers.iter().map(|l| l.name.clone()).collect::<Vec<_>>(),
+        doc.layers
+            .iter()
+            .map(|l| l.name.clone())
+            .collect::<Vec<_>>(),
         names_before
     );
     assert_eq!(doc.layers[b].name, "B");
@@ -630,10 +634,10 @@ fn undo_clip_restores_source_pixels_outside_the_base() {
         .fill_uniform(DocRect::new(8, 8, 23, 23), [0, 0, 255, 255]);
     doc.add_layer("Top");
     let top = doc.active_layer;
-    doc.layers[top].tiles_mut().unwrap().fill_uniform(
-        DocRect::new(0, 0, 31, 31),
-        [255, 0, 0, 255],
-    );
+    doc.layers[top]
+        .tiles_mut()
+        .unwrap()
+        .fill_uniform(DocRect::new(0, 0, 31, 31), [255, 0, 0, 255]);
     let outside = pixel(&doc, top, 4, 4);
     clear_history(&mut doc);
     let before = doc.layers.len();
@@ -669,7 +673,12 @@ fn redo_distribute_layers() {
     paint_rect(&mut doc, 1, DocRect::new(10, 10, 30, 30), [255, 0, 0, 255]);
     paint_rect(&mut doc, 2, DocRect::new(35, 10, 45, 30), [0, 255, 0, 255]);
     paint_rect(&mut doc, 3, DocRect::new(55, 10, 75, 30), [0, 0, 255, 255]);
-    paint_rect(&mut doc, 4, DocRect::new(100, 10, 115, 30), [255, 255, 0, 255]);
+    paint_rect(
+        &mut doc,
+        4,
+        DocRect::new(100, 10, 115, 30),
+        [255, 255, 0, 255],
+    );
     clear_history(&mut doc);
     let before = layer_aabb(&doc, 2).0;
     assert!(doc.distribute_layers(&[1, 2, 3, 4], DistributeAxis::Horizontal));
