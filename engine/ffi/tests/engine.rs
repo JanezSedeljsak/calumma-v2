@@ -441,6 +441,73 @@ fn layer_crud_opacity_blend_and_adjustments() {
     );
 }
 
+/// The thumbnail is non-destructive — the layer's own tiles never see the adjustment — but the
+/// preview it hands the shell has to show it, or a filtered layer looks unfiltered in the panel
+/// until the user opens it. `layer.adjustments` never touches alpha, so that channel is the
+/// control: identical before and after proves the darkened RGB isn't some unrelated fetch bug.
+#[test]
+fn layer_thumbnail_reflects_non_destructive_adjustments() {
+    let engine = TestEngine::new();
+    engine.create_project("Filters", 32, 32);
+    let active = engine.state().active_layer;
+
+    unsafe {
+        assert_eq!(
+            calm_engine_set_tool(engine.ptr, Tool::Rect as u32),
+            CalmStatus::Ok
+        );
+        assert_eq!(calm_engine_set_fill(engine.ptr, 1), CalmStatus::Ok);
+        assert_eq!(
+            calm_engine_set_color(engine.ptr, 128, 128, 128, 255),
+            CalmStatus::Ok
+        );
+        calm_engine_pointer_down(engine.ptr, 2.0, 2.0);
+        calm_engine_pointer_move(engine.ptr, 30.0, 30.0);
+        calm_engine_pointer_up(engine.ptr, 30.0, 30.0);
+    }
+
+    let mut w = 0u32;
+    let mut h = 0u32;
+    let mut before_ptr: *mut u8 = ptr::null_mut();
+    assert_eq!(
+        unsafe {
+            calm_engine_layer_thumbnail(engine.ptr, active, 32, &mut before_ptr, &mut w, &mut h)
+        },
+        CalmStatus::Ok
+    );
+    let before = take_buffer(before_ptr, (w * h * 4) as usize);
+    let idx = before
+        .chunks_exact(4)
+        .position(|px| px[3] == 255)
+        .expect("the painted rect left at least one opaque thumbnail pixel");
+
+    assert_eq!(
+        unsafe { calm_engine_set_layer_adjustments(engine.ptr, active, -1.0, 0.0, 0.0, 0.0, 1.0) },
+        CalmStatus::Ok
+    );
+
+    let mut after_ptr: *mut u8 = ptr::null_mut();
+    assert_eq!(
+        unsafe {
+            calm_engine_layer_thumbnail(engine.ptr, active, 32, &mut after_ptr, &mut w, &mut h)
+        },
+        CalmStatus::Ok
+    );
+    let after = take_buffer(after_ptr, (w * h * 4) as usize);
+
+    assert!(
+        after[idx * 4] < before[idx * 4],
+        "brightness -1.0 should darken the thumbnail's own gray pixel: before {} after {}",
+        before[idx * 4],
+        after[idx * 4]
+    );
+    assert_eq!(
+        before[idx * 4 + 3],
+        after[idx * 4 + 3],
+        "adjustments never touch alpha"
+    );
+}
+
 #[test]
 fn selection_copy_cut_paste() {
     let engine = TestEngine::new();

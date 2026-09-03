@@ -2006,7 +2006,7 @@ pub unsafe extern "C" fn calm_engine_layer_thumbnail(
         // size costs a resample of at most `LAYER_PREVIEW_MAX_SIDE` rather than another scan of
         // the whole layer. The cache rebuilds itself the first time it is asked for after an
         // edit; nothing here has to know when that was.
-        let (w, h, rgba) = if let Some(tiles) = layer.tiles_mut() {
+        let (w, h, mut rgba) = if let Some(tiles) = layer.tiles_mut() {
             tiles.preview().scaled(max_side.max(1))
         } else if let Some(item) = layer.content.item() {
             let side = max_side.clamp(1, 64);
@@ -2019,6 +2019,15 @@ pub unsafe extern "C" fn calm_engine_layer_thumbnail(
         } else {
             bail!("no project is open and no accent color to fall back on");
         };
+        // Non-destructive, so the layer's own tiles never see this — same contract as the
+        // GPU's `fs_tile` reading it off the `LayerData` row instead of a baked byte. Vector
+        // layers fall back to a flat swatch above and skip this: their content doesn't reach
+        // `fs_tile` either, so a filtered swatch would show an effect the canvas does not.
+        if layer.tiles().is_some() {
+            if let Some(adjustments) = layer.adjustments.as_ref() {
+                adjustments.lut().apply_rgba(&mut rgba);
+            }
+        }
         let mut boxed = rgba.into_boxed_slice();
         let ptr = boxed.as_mut_ptr();
         std::mem::forget(boxed);

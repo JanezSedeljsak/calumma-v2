@@ -140,6 +140,11 @@ struct EngineState {
 /// 1/2/5×10ⁿ spacing, so the shell only draws what it's given.
 struct LayerThumbnailEntry {
     var revision: UInt64
+    /// Adjustments baked into `row`/`card` at render time (engine-side, non-destructively —
+    /// the layer's own pixels never see them). Not covered by `revision`, which tracks only
+    /// pixel edits, so a hit also has to match this or a filter change would show a stale,
+    /// unfiltered thumbnail until the layer was next painted on.
+    var adjustments: LayerAdjustments
     var row: NSImage?
     var card: NSImage?
 }
@@ -193,10 +198,12 @@ final class Engine: ObservableObject, @unchecked Sendable {
     /// eye take seconds on a deep stack: six `@Published` writes per refresh, each re-running
     /// every row, each row rasterising a layer.
     @Published private(set) var layerThumbnails: [NSImage?] = []
-    /// Memo behind `layerThumbnails`, keyed by layer id and that layer's content revision. A
-    /// preview is a function of its own layer's pixels and nothing else, so anything that does
-    /// not touch pixels — visibility, opacity, blend mode, reordering, edits to *other* layers
-    /// — finds the same entry and reuses the exact same image.
+    /// Memo behind `layerThumbnails`, keyed by layer id, that layer's content revision, and its
+    /// current adjustments. A preview is a function of its own layer's pixels plus its own
+    /// filters — `calm_engine_layer_thumbnail` bakes the adjustment LUT into the returned pixels
+    /// non-destructively, the same way `fs_tile` does on the board — so anything that touches
+    /// neither pixels nor filters (visibility, opacity, blend mode, reordering, edits to *other*
+    /// layers) finds the same entry and reuses the exact same image.
     private var layerThumbnailMemo: [String: LayerThumbnailEntry] = [:]
     /// Full-size previews, for the hover card. Only one is ever on screen, so these are never
     /// the per-row cost that `layerThumbnails` is.
@@ -1204,7 +1211,7 @@ final class Engine: ObservableObject, @unchecked Sendable {
         layerAdjustments = adjustments
         layerIsText = isText
         layerLocked = locked
-        rebuildLayerThumbnails(ids: ids, revisions: revisions)
+        rebuildLayerThumbnails(ids: ids, revisions: revisions, adjustments: adjustments)
         syncTextState()
     }
 
@@ -1235,11 +1242,16 @@ final class Engine: ObservableObject, @unchecked Sendable {
         layerPreviewCards.indices.contains(index) ? layerPreviewCards[index] : nil
     }
 
-    /// Rebuilds the parallel thumbnail array, reusing every image whose layer has not been
-    /// painted on since it was made. `ids` and `revisions` come from the same pass that reads
-    /// the rest of the layer state, so this costs one dictionary probe per layer in the common
-    /// case and touches the engine only for layers that actually changed.
-    private func rebuildLayerThumbnails(ids: [String], revisions: [UInt64]) {
+    /// Rebuilds the parallel thumbnail array, reusing every image whose layer has neither been
+    /// painted on nor had its filters changed since it was made. `ids`, `revisions` and
+    /// `adjustments` come from the same pass that reads the rest of the layer state, so this
+    /// costs one dictionary probe per layer in the common case and touches the engine only for
+    /// layers that actually changed.
+    private func rebuildLayerThumbnails(
+        ids: [String],
+        revisions: [UInt64],
+        adjustments: [LayerAdjustments]
+    ) {
         var rows: [NSImage?] = []
         var cards: [NSImage?] = []
         var memo: [String: LayerThumbnailEntry] = [:]
@@ -1247,14 +1259,20 @@ final class Engine: ObservableObject, @unchecked Sendable {
         cards.reserveCapacity(ids.count)
         for (index, id) in ids.enumerated() {
             let revision = revisions[index]
-            if let hit = layerThumbnailMemo[id], hit.revision == revision {
+            let filters = adjustments[index]
+            if let hit = layerThumbnailMemo[id], hit.revision == revision, hit.adjustments == filters {
                 memo[id] = hit
                 rows.append(hit.row)
                 cards.append(hit.card)
                 continue
             }
             let card = renderLayerThumbnail(index: index, maxSide: Engine.layerPreviewSide)
-            let entry = LayerThumbnailEntry(revision: revision, row: rowThumbnail(from: card), card: card)
+            let entry = LayerThumbnailEntry(
+                revision: revision,
+                adjustments: filters,
+                row: rowThumbnail(from: card),
+                card: card
+            )
             memo[id] = entry
             rows.append(entry.row)
             cards.append(entry.card)
