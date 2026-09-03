@@ -438,8 +438,8 @@ live in `engine/core`; the actual PNG/JPEG/WebP/AVIF **encode** happens in the s
   (`vector_blob` v3; v1 and v2 blobs still load).
 - **Moving a vector:** with the Move tool or inside `⌘T`, click a vector to select its layer
   and drag it; the arrow keys nudge it and `⌫` deletes the layer. A click on an outlined shape
-  counts anywhere inside it, not only on the outline. Item edits are not undo-tracked,
-  matching the rest of the vector path (adding a vector layer isn't either).
+  counts anywhere inside it, not only on the outline. Item edits undo with the rest of document
+  history (`VectorDiff` for nudge/drag, `StackSnapshot` for add/delete).
 - **Resizing a vector:** selecting it puts a box with four corner handles around it, and
   dragging one resizes *that item* — the layer's one shape. Proportional by
   default, **Shift** frees the two axes. It edits the shape's parameters, so nothing is
@@ -483,9 +483,9 @@ live in `engine/core`; the actual PNG/JPEG/WebP/AVIF **encode** happens in the s
   why only these three), and five **Filter** sliders (brightness, contrast, vibrance,
   saturation, gamma — levels black/white points were removed as redundant with
   brightness/contrast) with a reset button. All of it is live on the canvas
-  and non-destructive — nothing here is undo-tracked (matches add/remove layer), and there is
-  no explicit "bake into pixels" action; `merge_layer_down`, `clip_layer_down` and PSD export
-  are the only places any of it gets baked into concrete bytes today.
+  and non-destructive — `⌘Z` restores opacity, blend mode, adjustments, and
+  transform; `merge_layer_down`, `clip_layer_down` and PSD export are still the
+  only places any of it gets baked into concrete bytes.
 - **The filter sliders are deferred, the opacity slider is not.** An adjustment is baked on
   the CPU at upload time, so every value a drag emits costs a full-layer rebake;
   `CalmDeferredSlider` keeps the knob local and tells the engine only the value still
@@ -502,8 +502,8 @@ live in `engine/core`; the actual PNG/JPEG/WebP/AVIF **encode** happens in the s
   the base's **raw** tile alpha rather than its composited alpha. Offered only where it can be
   honest: greyed out with no layer below, with Paper below, with a vector layer below, or with
   a base carrying a transform — the source bakes into document space while the base's tiles
-  sit in its own, so the alpha would be off by exactly that transform. Not undo-tracked, same
-  as Merge Down.
+  sit in its own, so the alpha would be off by exactly that transform. Undo restores the
+  pre-clip stack, same as Merge Down.
 - **The list uses the height it has:** the stack takes every point the header above it and the
   Layer bounds fields below it do not, and scrolls once it runs out, rather than stopping at a
   fixed share of the island with dead space underneath. A floor keeps it from collapsing

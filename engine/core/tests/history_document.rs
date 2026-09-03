@@ -455,7 +455,7 @@ fn undo_rasterize_vector_layer() {
     let layer = doc.add_vector_layer("V", rect_item((10.0, 10.0), (50.0, 50.0)));
     clear_history(&mut doc);
     assert!(doc.rasterize_vector_layer(layer));
-    assert!(doc.layers[layer].content.is_vector() == false);
+    assert!(!doc.layers[layer].content.is_vector());
     assert!(doc.undo());
     assert!(doc.layers[layer].content.item().is_some());
 }

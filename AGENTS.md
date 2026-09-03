@@ -339,9 +339,9 @@ pub enum LayerContent {
   the source bakes into document space while the base's tiles sit in its own,
   so the alpha would be misaligned by exactly that transform.
 - `Document::duplicate_layer`/`merge_layer_down`/`clip_layer_down`/`resize`
-  are **not** undo-tracked, matching the existing precedent that `add_layer`/
-  `remove_layer` aren't either — structural layer-list/document edits sit
-  outside the tile-diff history model on purpose, not as an oversight.
+  record a `StackSnapshot` before they run, so `⌘Z` can put the stack back.
+  Paint, fill, clear, text sessions, and Remove Background still use tile/mask/run
+  diffs; everything lands on the same `History` budget.
 - **Vector layers** (`core/src/vector.rs`, `core/src/vector_edit.rs`,
   `core/src/vector_svg.rs`, `render/src/vector_draw.rs`) hold **exactly one**
   `VectorItem` — a parametric `Shape` or a freehand `VectorPath`. A second
@@ -366,8 +366,8 @@ pub enum LayerContent {
   - Known gaps: a *rotated* vector layer draws its parametric shape
     unrotated live (the shader's SDFs are axis-aligned) while flatten/export
     stay correct; a filled closed freehand path has no GPU path at all and
-    appears only once flattened; and item edits are not undo-tracked, the
-    same as adding a layer or any other structural edit.
+    appears only once flattened; vector item edits undo via `VectorDiff` or a
+    stack snapshot when the whole layer is added or removed.
 - `Document.selection: Option<Selection>` (`engine/core/src/selection.rs`) is a **document**-
   level concept, not a layer or a mask — a rect/ellipse/lasso shape (parameters only, not a
   persisted `width×height` buffer) that scopes copy/cut/clear to a region instead of a whole
@@ -690,7 +690,7 @@ Pin versions in `[workspace.dependencies]`. Never `*` or bare `^`.
 
 ## Deliberately deferred
 
-Vector *rotation* on the GPU (see Layers; per-item undo is planned with document
+Vector *rotation* on the GPU (see Layers; per-item undo rides document
 history, `docs/plans/01-document-undo.md`), BiRefNet / `ort`,
 GenerateTexture model manager, SuggestShape,
 Vectorize (`vtracer`), font embedding in PDF export (the exporter is shipped and layered, but
@@ -710,9 +710,11 @@ project — see Projects and navigation; do not restore the grouping), Eyedroppe
 (`I` / tools island; samples the composited pixel under the cursor into the active ink
 swatch), vector layers (`V` / tool options; one item per layer, moved and scaled with
 `⌘T` and the Move tool), text layers (`T` / tools island),
-Move tool (tools island; pick-and-drag, Transform toggle / `⌘T` for scale/rotate). See `docs/FLOW.md`.
+Move tool (tools island; pick-and-drag, Transform toggle / `⌘T` for scale/rotate),
+document undo for layer stack, props, and vectors (`docs/plans/01-document-undo.md`).
+See `docs/FLOW.md`.
 
-**Now carrying plans** in `docs/todo.md`: undo for the rest of the document (`01`).
+**Now carrying plans** in `docs/todo.md`: full text support (`17`).
 Vector multi-select (`10`) is closed by the 1:1 rule — do not build it.
 
 **Shipped from this list (cont.):** GPU adjustment evaluation (plan 23 — the `LayerData` table

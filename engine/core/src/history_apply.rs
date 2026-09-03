@@ -7,6 +7,7 @@ use crate::history::{
 use crate::layer::Layer;
 use crate::vector::VectorItem;
 use crate::vector_edit::VectorPick;
+use std::collections::HashMap;
 
 impl Document {
     pub(crate) fn apply_history_command(&mut self, command: &HistoryCommand) {
@@ -119,150 +120,170 @@ fn normalized_transform(
     }
 }
 
+fn layer_indices_by_id(layers: &[Layer]) -> HashMap<String, usize> {
+    layers
+        .iter()
+        .enumerate()
+        .map(|(index, layer)| (layer.id.clone(), index))
+        .collect()
+}
+
 impl HistoryMutator for Document {
     fn apply_command(&mut self, command: &HistoryCommand) {
         if let Some(stack) = &command.stack {
             self.restore_stack(stack.clone());
         }
+        let layer_at = layer_indices_by_id(&self.layers);
         for diff in &command.runs {
-            if let Some(layer) = self.layers.iter_mut().find(|l| l.id == diff.layer_id) {
-                layer.set_run(*diff.run.clone());
-            }
+            let Some(&index) = layer_at.get(&diff.layer_id) else {
+                continue;
+            };
+            self.layers[index].set_run(*diff.run.clone());
         }
         for diff in &command.diffs {
-            if let Some(layer) = self.layers.iter_mut().find(|l| l.id == diff.layer_id) {
-                if let Some(tiles) = layer.tiles_mut() {
-                    tiles.restore_tiles(&diff.tiles);
-                }
+            let Some(&index) = layer_at.get(&diff.layer_id) else {
+                continue;
+            };
+            if let Some(tiles) = self.layers[index].tiles_mut() {
+                tiles.restore_tiles(&diff.tiles);
             }
         }
         for diff in &command.masks {
-            if let Some(layer) = self.layers.iter_mut().find(|l| l.id == diff.layer_id) {
-                layer.set_mask(diff.mask.clone());
-            }
+            let Some(&index) = layer_at.get(&diff.layer_id) else {
+                continue;
+            };
+            self.layers[index].set_mask(diff.mask.clone());
         }
         for diff in &command.props {
-            if let Some(layer) = self.layers.iter_mut().find(|l| l.id == diff.layer_id) {
-                layer.opacity = diff.opacity;
-                layer.blend_mode = diff.blend_mode;
-                layer.adjustments = diff.adjustments;
-                layer.transform = diff.transform;
-            }
+            let Some(&index) = layer_at.get(&diff.layer_id) else {
+                continue;
+            };
+            let layer = &mut self.layers[index];
+            layer.opacity = diff.opacity;
+            layer.blend_mode = diff.blend_mode;
+            layer.adjustments = diff.adjustments;
+            layer.transform = diff.transform;
         }
         for diff in &command.vectors {
-            if let Some(layer) = self.layers.iter_mut().find(|l| l.id == diff.layer_id) {
-                match &diff.item {
-                    Some(item) => {
-                        if let Some(slot) = layer.content.item_mut() {
-                            *slot = item.clone();
-                        }
-                    }
-                    None => {}
+            let Some(&index) = layer_at.get(&diff.layer_id) else {
+                continue;
+            };
+            if let Some(item) = &diff.item {
+                if let Some(slot) = self.layers[index].content.item_mut() {
+                    *slot = item.clone();
                 }
             }
         }
         for diff in &command.transforms {
-            if let Some(layer) = self.layers.iter_mut().find(|l| l.id == diff.layer_id) {
-                layer.transform = diff.transform;
-            }
+            let Some(&index) = layer_at.get(&diff.layer_id) else {
+                continue;
+            };
+            self.layers[index].transform = diff.transform;
         }
         self.bump_vector_revision();
     }
 
     fn invert_command(&mut self, command: &HistoryCommand) -> HistoryCommand {
-        let mut diffs = Vec::new();
-        let mut masks = Vec::new();
-        let mut runs = Vec::new();
-        let mut transforms = Vec::new();
-        let mut props = Vec::new();
-        let mut vectors = Vec::new();
-        let mut bytes = 0usize;
-
         if command.stack.is_some() {
             let stack = self.snapshot_stack();
-            bytes += stack_snapshot_bytes(&stack);
+            let bytes = stack_snapshot_bytes(&stack);
             return HistoryCommand {
-                diffs,
-                masks,
-                runs,
-                transforms,
-                props,
-                vectors,
+                diffs: Vec::new(),
+                masks: Vec::new(),
+                runs: Vec::new(),
+                transforms: Vec::new(),
+                props: Vec::new(),
+                vectors: Vec::new(),
                 stack: Some(stack),
                 active_layer_index: Some(self.active_layer),
                 bytes,
             };
         }
 
+        let layer_at = layer_indices_by_id(&self.layers);
+        let mut diffs = Vec::with_capacity(command.diffs.len());
+        let mut masks = Vec::with_capacity(command.masks.len());
+        let mut runs = Vec::with_capacity(command.runs.len());
+        let mut transforms = Vec::with_capacity(command.transforms.len());
+        let mut props = Vec::with_capacity(command.props.len());
+        let mut vectors = Vec::with_capacity(command.vectors.len());
+        let mut bytes = 0usize;
+
         for diff in &command.diffs {
-            if let Some(layer) = self.layers.iter().find(|l| l.id == diff.layer_id) {
-                let Some(grid) = layer.tiles() else {
-                    continue;
-                };
-                let coords: Vec<_> = diff.tiles.keys().copied().collect();
-                let tiles = grid.snapshot_tiles(&coords);
-                bytes += snapshot_bytes(&tiles);
-                diffs.push(TileDiff {
-                    layer_id: diff.layer_id.clone(),
-                    tiles,
-                });
-            }
+            let Some(&index) = layer_at.get(&diff.layer_id) else {
+                continue;
+            };
+            let layer = &self.layers[index];
+            let Some(grid) = layer.tiles() else {
+                continue;
+            };
+            let coords: Vec<_> = diff.tiles.keys().copied().collect();
+            let tiles = grid.snapshot_tiles(&coords);
+            bytes += snapshot_bytes(&tiles);
+            diffs.push(TileDiff {
+                layer_id: diff.layer_id.clone(),
+                tiles,
+            });
         }
         for diff in &command.runs {
-            if let Some(run) = self
-                .layers
-                .iter()
-                .find(|l| l.id == diff.layer_id)
-                .and_then(Layer::run)
-            {
-                bytes += run.text.len();
-                runs.push(crate::history::RunDiff {
-                    layer_id: diff.layer_id.clone(),
-                    run: Box::new(run.clone()),
-                });
-            }
+            let Some(&index) = layer_at.get(&diff.layer_id) else {
+                continue;
+            };
+            let Some(run) = self.layers[index].run() else {
+                continue;
+            };
+            bytes += run.text.len();
+            runs.push(crate::history::RunDiff {
+                layer_id: diff.layer_id.clone(),
+                run: Box::new(run.clone()),
+            });
         }
         for diff in &command.masks {
-            if let Some(layer) = self.layers.iter().find(|l| l.id == diff.layer_id) {
-                let mask = layer.mask_owned();
-                bytes += mask.as_ref().map(|m| m.len()).unwrap_or(0);
-                masks.push(crate::history::MaskDiff {
-                    layer_id: diff.layer_id.clone(),
-                    mask,
-                });
-            }
+            let Some(&index) = layer_at.get(&diff.layer_id) else {
+                continue;
+            };
+            let mask = self.layers[index].mask_owned();
+            bytes += mask.as_ref().map(|m| m.len()).unwrap_or(0);
+            masks.push(crate::history::MaskDiff {
+                layer_id: diff.layer_id.clone(),
+                mask,
+            });
         }
         for diff in &command.props {
-            if let Some(layer) = self.layers.iter().find(|l| l.id == diff.layer_id) {
-                let prop = LayerPropDiff {
-                    layer_id: diff.layer_id.clone(),
-                    opacity: layer.opacity,
-                    blend_mode: layer.blend_mode,
-                    adjustments: layer.adjustments,
-                    transform: layer.transform,
-                };
-                bytes += prop_diff_bytes(&prop);
-                props.push(prop);
-            }
+            let Some(&index) = layer_at.get(&diff.layer_id) else {
+                continue;
+            };
+            let layer = &self.layers[index];
+            let prop = LayerPropDiff {
+                layer_id: diff.layer_id.clone(),
+                opacity: layer.opacity,
+                blend_mode: layer.blend_mode,
+                adjustments: layer.adjustments,
+                transform: layer.transform,
+            };
+            bytes += prop_diff_bytes(&prop);
+            props.push(prop);
         }
         for diff in &command.vectors {
-            if let Some(layer) = self.layers.iter().find(|l| l.id == diff.layer_id) {
-                let item = layer.content.item().cloned();
-                bytes += 128;
-                vectors.push(VectorDiff {
-                    layer_id: diff.layer_id.clone(),
-                    item,
-                });
-            }
+            let Some(&index) = layer_at.get(&diff.layer_id) else {
+                continue;
+            };
+            let item = self.layers[index].content.item().cloned();
+            bytes += 128;
+            vectors.push(VectorDiff {
+                layer_id: diff.layer_id.clone(),
+                item,
+            });
         }
         for diff in &command.transforms {
-            if let Some(layer) = self.layers.iter().find(|l| l.id == diff.layer_id) {
-                transforms.push(TransformDiff {
-                    layer_id: diff.layer_id.clone(),
-                    transform: layer.transform,
-                });
-                bytes += 32;
-            }
+            let Some(&index) = layer_at.get(&diff.layer_id) else {
+                continue;
+            };
+            transforms.push(TransformDiff {
+                layer_id: diff.layer_id.clone(),
+                transform: self.layers[index].transform,
+            });
+            bytes += 32;
         }
         HistoryCommand {
             diffs,
@@ -289,7 +310,7 @@ impl Document {
         let Some(drag) = self.transform_drag.take() else {
             return;
         };
-        let mut transforms = Vec::new();
+        let mut transforms = Vec::with_capacity(drag.targets.len());
         for target in &drag.targets {
             let Some(layer) = self.layers.get(target.layer_index) else {
                 continue;
@@ -323,7 +344,7 @@ impl Document {
     }
 
     pub(crate) fn record_transforms_for_indices(&mut self, indices: &[usize]) {
-        let mut transforms = Vec::new();
+        let mut transforms = Vec::with_capacity(indices.len());
         for &index in indices {
             let Some(layer) = self.layers.get(index) else {
                 continue;
