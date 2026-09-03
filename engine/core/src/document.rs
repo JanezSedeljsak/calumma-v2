@@ -1928,34 +1928,40 @@ impl Document {
     /// Select by color: flood from the clicked pixel of the active layer and keep what the
     /// walk reached.
     ///
-    /// Scope is the active layer's painted bounds intersected with the document — the wand
-    /// *replaces* the selection, so letting the old one clip the new one would make a second
-    /// click inside a previous wand result unable to grow past it. That is the one place the
-    /// wand deliberately diverges from the bucket, which paints *into* the selection and so
-    /// has to respect it.
+    /// Scope is the **document**, not the layer's painted box. Alpha counts toward the
+    /// tolerance, so the empty space around a drawing is a colour like any other and has to be
+    /// floodable — clicking beside a sketch selects the space beside it, which is how you get
+    /// at a background to fill or delete it. Scoping the walk to the ink made that click a
+    /// silent no-op and cut every flood off at the edge of the artwork it started on. Colour
+    /// range is the one that stays scoped to the ink, because it walks every pixel rather than
+    /// following one blob.
+    ///
+    /// The old selection does not clip the new one either: the wand *replaces* the selection,
+    /// so letting the old one bound the walk would make a second click inside a previous wand
+    /// result unable to grow past it. That is the one place the wand deliberately diverges from
+    /// the bucket, which paints *into* the selection and so has to respect it.
     ///
     /// Reading the active layer (not the composite) is what makes the wand answer about the
     /// thing being edited: clicking a sketch's white background selects the background of that
-    /// layer, not of the Paper showing through it.
+    /// layer, not of the Paper showing through it — and outside that layer's ink the sample
+    /// answers transparent, which is exactly what is there.
     fn commit_magic_wand(&mut self, doc_x: f32, doc_y: f32) {
         if self.tool_blocked(Tool::MagicWand) {
             return;
         }
         let x = doc_x.floor() as i32;
         let y = doc_y.floor() as i32;
-        let doc_bounds = self.bounds();
-        let active = self.active_layer;
-        let Some(layer) = self.layers.get(active) else {
-            return;
-        };
-        let Some(sample) = crate::select_sample::LayerSelectSample::new(layer, doc_bounds) else {
-            return;
-        };
-        if !sample.scope.contains(x, y) {
+        let scope = self.bounds();
+        if !scope.contains(x, y) {
             return;
         }
+        let Some(layer) = self.layers.get(self.active_layer) else {
+            return;
+        };
+        let Some(sample) = crate::select_sample::LayerSelectSample::new(layer, scope) else {
+            return;
+        };
         let tolerance = self.tolerance;
-        let scope = sample.scope;
         self.selection =
             crate::fill::flood_region_pixels(scope, x, y, tolerance, |px, py| sample.pixel(px, py))
                 .map(|mask| Selection {

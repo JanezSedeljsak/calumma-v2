@@ -61,6 +61,39 @@ fn lasso(doc: &mut Document, points: &[(f32, f32)]) {
     doc.pointer_up(sx, sy);
 }
 
+/// A committed text layer, typed at a size that leaves a solid glyph to aim at.
+fn typed_layer(doc: &mut Document, text: &str) {
+    doc.tool = Tool::Text;
+    doc.text_style.size = 64.0;
+    let (sx, sy) = doc.camera.to_screen(20.0, 60.0);
+    doc.pointer_down(sx, sy);
+    doc.pointer_up(sx, sy);
+    doc.text_insert(text);
+    doc.commit_text();
+}
+
+/// The first fully opaque pixel of a layer, in document space.
+///
+/// Every test that clicks *at* artwork rather than near it goes through this. Glyph metrics
+/// are the system's, so the only coordinate that can be asserted about is one the layer was
+/// asked for — and a failure here names the real cause (nothing rasterized at all) instead of
+/// surfacing as an empty selection three lines later.
+#[track_caller]
+fn opaque_pixel(doc: &Document, layer: usize) -> (i32, i32) {
+    let bounds = doc.layers[layer]
+        .content_bounds()
+        .expect("the layer painted nothing — are there no system fonts?");
+    let grid = doc.layers[layer].tiles().expect("a tile cache");
+    for y in (bounds.1 as i32)..(bounds.3 as i32) {
+        for x in (bounds.0 as i32)..(bounds.2 as i32) {
+            if grid.get_pixel(x, y)[3] == 255 {
+                return (x, y);
+            }
+        }
+    }
+    panic!("no fully opaque pixel inside the layer's own painted bounds");
+}
+
 fn mask(doc: &Document) -> &SelectionMask {
     match &doc.selection.as_ref().expect("a selection").shape {
         SelectionShape::Mask(m) => m,
@@ -79,16 +112,30 @@ fn wand_on_vector_layer_selects_the_shape() {
     assert!(!sel.contains(10.5, 10.5));
 }
 
+/// The wand has to reach a text layer's tile cache — slice A's whole point.
+///
+/// The pixel it clicks is *found*, not guessed. A glyph's painted box depends on the family
+/// the system resolved and on that face's side bearings, so a hard-coded offset from the run
+/// origin sits a pixel or two from the edge of the ink on the machine it was written on and
+/// outside it on the next one.
 #[test]
 fn wand_on_text_layer_selects_painted_pixels() {
     let mut doc = board();
-    doc.tool = Tool::Text;
-    doc.pointer_down(40.0, 40.0);
-    doc.text_insert("Hi");
-    doc.commit_text();
+    typed_layer(&mut doc, "Hi");
+    let layer = doc.active_layer;
+    let (x, y) = opaque_pixel(&doc, layer);
+
     doc.tool = Tool::MagicWand;
-    click(&mut doc, 42.0, 42.0);
-    assert!(doc.selection.is_some());
+    click(&mut doc, x as f32 + 0.5, y as f32 + 0.5);
+    let sel = doc.selection.as_ref().expect("a selection");
+    assert!(
+        sel.contains(x as f32 + 0.5, y as f32 + 0.5),
+        "the wand selected something other than the glyph pixel it was given"
+    );
+    assert!(
+        doc.layers[layer].run().is_some(),
+        "and left the run editable"
+    );
 }
 
 #[test]
@@ -272,4 +319,54 @@ fn a_marquee_over_a_vector_layer_hugs_the_shape_without_baking_it() {
     assert!(sel.contains(80.5, 80.5), "inside the shape");
     assert!(!sel.contains(20.5, 20.5), "and not the empty corner");
     assert!(doc.layers[doc.active_layer].content.item().is_some());
+}
+
+/// Alpha counts toward the tolerance, so the empty space *around* a drawing is a colour like
+/// any other. Clicking beside a sketch is how you get at a background to fill or delete, and
+/// scoping the flood to the ink turned that into a silent no-op.
+#[test]
+fn the_wand_selects_the_empty_space_beside_a_drawing() {
+    let mut doc = board();
+    let layer = doc.active_layer;
+    paint_square(&mut doc, layer);
+    doc.tool = Tool::MagicWand;
+    click(&mut doc, 10.0, 10.0);
+    let sel = doc.selection.as_ref().expect("a selection");
+    assert!(sel.contains(10.5, 10.5), "the corner clicked");
+    assert!(sel.contains(5.5, 100.5), "and the rest of the empty ground");
+    assert!(!sel.contains(100.5, 100.5), "but not the painted square");
+}
+
+/// The other half of the same rule: a flood that starts *on* the ink stops at its edge rather
+/// than running out into the empty canvas.
+#[test]
+fn a_flood_started_on_the_ink_stops_at_its_edge() {
+    let mut doc = board();
+    let layer = doc.active_layer;
+    paint_square(&mut doc, layer);
+    doc.tool = Tool::MagicWand;
+    click(&mut doc, 100.0, 100.0);
+    let sel = doc.selection.as_ref().expect("a selection");
+    assert!(sel.contains(100.5, 100.5));
+    assert!(!sel.contains(10.5, 10.5));
+}
+
+/// Colour range is the one that stays scoped to the painted box: it walks every pixel instead
+/// of following a blob, so an unbounded walk would cost the canvas on every knob tick.
+#[test]
+fn colour_range_stays_scoped_to_the_ink_while_the_wand_does_not() {
+    let mut doc = board();
+    let layer = doc.active_layer;
+    paint_square(&mut doc, layer);
+    doc.tool = Tool::MagicWand;
+    click(&mut doc, 10.0, 10.0);
+    let wand = doc.selection.as_ref().unwrap().bounds();
+
+    doc.tool = Tool::SelectColor;
+    click(&mut doc, 100.0, 100.0);
+    let range = doc.selection.as_ref().unwrap().bounds();
+    assert!(
+        wand.min_x < range.min_x,
+        "the wand reached the canvas edge ({wand:?}) and the range did not ({range:?})"
+    );
 }

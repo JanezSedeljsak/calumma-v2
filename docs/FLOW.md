@@ -708,9 +708,16 @@ a locked layer refuses them.
   scoped to the tool actually being in hand: turning the same tolerance knob with the bucket
   or the wand out applies to their *next* click, which is the only thing a flood from a pixel
   you are no longer pointing at could mean.
-- The walk is scoped to the layer's **painted bounds**, not the canvas, so Paper white never
-  floods through the empty tiles of the layer above it — and a colour range over a small
-  sketch on a large board costs the sketch.
+- **The two walks are bounded differently, on purpose.** A colour range is scoped to the
+  layer's **painted bounds**, because it asks about every pixel in its scope and re-runs on
+  every knob tick — over a small sketch on a large board it costs the sketch. The wand is
+  scoped to the **document**: alpha counts toward the tolerance, so the empty space around a
+  drawing is a colour like any other, and clicking beside a sketch to select its background is
+  how you get at it to fill or delete. Bounding that flood by the ink would make the click a
+  silent no-op and cut every flood off at the edge of the artwork it started on. Neither reads
+  anything but the active layer, so Paper white never floods through the empty tiles of the
+  layer above it — outside that layer's ink the sample answers transparent, which is what is
+  there.
 - Every one of these lands as `SelectionShape::Mask`, one bit per pixel (8 MiB, not 64, for a
   full-canvas selection on an 8K document), cropped to what was actually reached. Because it
   lives inside `SelectionShape`, paint clipping, copy, cut and delete needed no changes at
