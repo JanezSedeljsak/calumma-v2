@@ -559,3 +559,32 @@ fn palette_accessor_is_bounded() {
     assert_eq!(wrapped, calm_palette_color(0));
     let _ = last;
 }
+
+/// The shell assigns this straight to `preferredFramesPerSecond`, so every answer has to be one
+/// a view can actually run at. Zero is the agreed "as fast as the display allows" — anything
+/// else returned for a null engine, or for one with no document yet, would be the shell pacing
+/// its own view down before the engine has anything to say.
+#[test]
+fn the_frame_hint_never_stalls_a_view_that_has_nothing_to_ask() {
+    assert_eq!(
+        unsafe { calm_engine_frame_hint(null_engine()) },
+        0,
+        "a null engine cannot pace anything"
+    );
+
+    let (_dir, ptr) = engine_without_project();
+    assert_eq!(
+        unsafe { calm_engine_frame_hint(ptr) },
+        0,
+        "nor can one with no document open"
+    );
+    unsafe { calm_engine_free(ptr) };
+
+    let (_dir, ptr) = engine_with_project("p", 64, 64);
+    assert_eq!(
+        unsafe { calm_engine_frame_hint(ptr) },
+        0,
+        "and with no surface attached there is no renderer to ask either"
+    );
+    unsafe { calm_engine_free(ptr) };
+}

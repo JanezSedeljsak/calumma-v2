@@ -285,6 +285,18 @@ pub fn box_overlay_instances(
     out
 }
 
+/// Which half of the blink the caret is in at `elapsed`.
+///
+/// Split out of `text_overlay_instances` because the renderer's frame loop reads it too: a caret
+/// is the only thing that asks for a frame with nothing about the document changing, and at
+/// display rate that used to be 120 full board passes a second to service a signal that changes
+/// state twice. `Renderer::render` skips the frames where this answer has not moved since the
+/// last one it drew, so the two have to be the *same* function — a gate that disagreed with the
+/// drawing would drop the frame that was supposed to show the flip.
+pub fn text_caret_visible(elapsed: f32) -> bool {
+    (elapsed / TEXT_CARET_BLINK_SECONDS).fract() < 0.5
+}
+
 /// The board furniture for a live text session: a hairline box around the run's layout and
 /// a caret that blinks. Both are stroke segments, the same primitive the transform overlay
 /// and the lasso already draw with — no new pipeline, and nothing drawn in Swift.
@@ -303,8 +315,7 @@ pub fn text_overlay_instances(doc: &Document, elapsed: f32) -> Vec<StrokeInstanc
             brush: brush_params(TEXT_BOX_WIDTH_PX, &BrushProfile::HARD),
         });
     }
-    let visible = (elapsed / TEXT_CARET_BLINK_SECONDS).fract() < 0.5;
-    if let (true, Some((a, b))) = (visible, doc.text_caret_segment()) {
+    if let (true, Some((a, b))) = (text_caret_visible(elapsed), doc.text_caret_segment()) {
         out.push(StrokeInstance {
             segment: [a.0, a.1, b.0, b.1],
             color: rgba_unit(doc.text_caret_color()),

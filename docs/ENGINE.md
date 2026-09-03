@@ -385,6 +385,16 @@ Bindings are arranged by *how often they change*:
 - **`preview_bg`** is group 0 for everything overlay-shaped: strokes, guides, the shape
   preview, and vector shapes. One uniform block (`PreviewUniforms`) carries the camera plus
   the current tool/color/geometry, so an overlay pipeline needs no per-draw state at all.
+- **`paper_bg`** is `PaperUniforms` plus one small texture: the baked desk lattice
+  (`render/src/desk.rs`). The desk is screen-locked and periodic, so one `cell × dpr` square of
+  two-channel coverage — red for the cell rules, green for the corner crosses — addressed by
+  device pixel modulo that period reproduces the whole viewport. `fs_paper` reads it with
+  `textureLoad` and an integer modulo rather than a sampler, so the texel a pixel lands on is
+  exact arithmetic at any viewport coordinate. `PaperUniforms::lattice_side` carries the period,
+  and **zero** puts the shader back on evaluating the pattern itself — the fallback for a
+  backing scale where `cell * dpr` is not a whole number of texels and the lattice would drift
+  out of phase. Rebuilt on a `dpr` change and never otherwise; the grid *colors* stay uniforms,
+  so a theme switch is still a buffer write.
 
 What the table bought is not bytes — it is that a stack of Normal layers draws with **one**
 `set_bind_group` for the whole board. Before, every layer's instanced draw was preceded by a
@@ -406,7 +416,7 @@ Pipelines (all from the single `board.wgsl` module):
 
 | Pipeline | Purpose |
 | --- | --- |
-| `paper` | Fullscreen desk: grid pattern + paper border, screen-space |
+| `paper` | Fullscreen desk: baked grid lattice + paper border, screen-space |
 | `tile_normal` / `tile_multiply` / `tile_screen` | Tile draws, one per blend mode |
 | `solid_normal` / `solid_multiply` / `solid_screen` | The unpainted-Paper quad, same three |
 | `stroke` | Stroke capsules in document units: live pen, lasso, marching ants |
@@ -497,6 +507,25 @@ not sum — and the board gets one composite of the finished shape, tinted by th
 `fs_stroke_composite`. Both halves accumulate the same maximum, which is why the stroke looks
 identical before and after pointer-up. The target is allocated the first time a brush stroke
 needs one, so a session that never paints never pays for it.
+
+**It accumulates across frames rather than being rebuilt each one.** `Max` is idempotent and
+order-independent, so unioning segment *N* onto the union of `0..N` equals unioning `0..N+1`
+from empty — which means a frame only has to draw the capsules the pointer actually travelled
+since the last one. `Renderer` keeps a `CoverageProgress` (stroke generation, point count,
+camera, brush params, ink) and hands `stroke_instances_from` the tail; `accumulate`'s `restart`
+flag then loads what is already there instead of clearing the viewport. Rebuilding the whole
+stroke every frame — which is what this used to do, full-viewport clear included — made a live
+stroke cost O(points) per frame and O(points²) over the gesture, so the brush got heavier the
+longer the line got.
+
+Restarting is the only way coverage comes *out* of the target, so anything that invalidates what
+is in it has to be caught: a new stroke, a camera that moved under pixels measured in device
+space, a changed brush width or ink, a resized target, and the one-point degenerate capsule that
+segment 0 replaces rather than follows. The subtle one is **`Document::stroke_generation`**,
+which bumps not only per `begin_stroke` but whenever `push_stroke_point` *rewinds* the list —
+a Shift-held straight segment truncates back to its anchor on every event, and `Max` cannot take
+the abandoned capsule back out. The contract that number carries is exactly: while it holds,
+`stroke_points` is an append-only extension of what it was.
 
 ### 3.9 Motion mode
 

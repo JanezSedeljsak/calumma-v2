@@ -161,6 +161,33 @@ pub const LAYER_DATA_CAPACITY: usize = 64;
 /// it did not cover that.
 pub const SURFACE_FRAME_LATENCY: u32 = 1;
 pub const CAMERA_MOTION_IDLE_FRAMES: u32 = 4;
+
+/// What the engine answers when it wants to be drawn as often as the display will allow: zero,
+/// meaning "your ceiling, not mine". The shell owns the ceiling — it is whichever screen the
+/// window is on — so the engine names the *floor* it can live with and never a number that would
+/// pin a 120Hz panel to 60.
+pub const FRAME_HINT_DISPLAY_MAX: u32 = 0;
+/// Frames per second for a board that is settled: nothing being dragged, no camera in motion, no
+/// caret, and a frame that would early-out anyway. The display link is what actually costs here —
+/// a wakeup, a lock and a return, a hundred and twenty times a second on a ProMotion panel, for
+/// a picture that is not moving.
+///
+/// Ten rather than something lower because it also bounds how late the first frame after a rest
+/// can be. The shell puts the rate straight back to its ceiling on the next input event, so this
+/// is the worst case only for an event that arrives with nothing else having woken the board.
+pub const FRAME_HINT_IDLE_FPS: u32 = 10;
+/// The fastest a [`crate::DeviceTier::Low`] machine is asked to draw while something is in
+/// flight. Sixty rather than the panel's own rate: a GPU that cannot hold 120 gains nothing from
+/// being asked to try — the frames arrive late and unevenly, and the work behind the ones that
+/// miss is spent either way. This is a *floor* the shell clamps to its own ceiling, so a 60Hz
+/// display is unaffected by it.
+pub const FRAME_HINT_LOW_TIER_FPS: u32 = 60;
+
+/// The `max_texture_array_layers` a WebGPU downlevel adapter is required to report, and the line
+/// [`crate::DeviceTier::classify`] draws: an integrated adapter offering no more than the
+/// baseline is one that has nothing spare, where the same adapter reporting thousands is a
+/// modern unified-memory part. Apple Silicon is the second kind.
+pub const DOWNLEVEL_TEXTURE_ARRAY_LAYERS: u32 = 256;
 pub const GPU_TILE_RETENTION_MARGIN_TILES: i32 = 3;
 
 /// Long-side cap on the cached per-layer preview the layers panel draws its thumbnails from.

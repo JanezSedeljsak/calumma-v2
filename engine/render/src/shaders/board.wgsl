@@ -5,7 +5,10 @@ struct Uniforms {
     doc_size: vec2<f32>,
     viewport: vec2<f32>,
     dark: f32,
-    _pad0: f32,
+    // Side of one period of the baked desk lattice, in device texels, or 0 where the backing
+    // scale does not tile one — see `render/src/desk.rs`. Zero puts `desk_pattern` back on the
+    // procedural path this replaced.
+    lattice_side: f32,
     _pad1: f32,
     _pad2: f32,
     // (cell, line width, cross arm, cross line width) — `calumma_core::DeskMetrics`, so the
@@ -17,6 +20,11 @@ struct Uniforms {
 }
 
 @group(0) @binding(0) var<uniform> u: Uniforms;
+// One period of the desk grid: red is "on a cell rule", green is "on a corner cross". Read with
+// `textureLoad` and an integer modulo rather than a sampler, so the texel a device pixel lands
+// on is exact arithmetic at any viewport coordinate instead of a UV that has to survive being
+// scaled up and wrapped back down.
+@group(0) @binding(1) var desk_lattice: texture_2d<f32>;
 
 struct VsOut {
     @builtin(position) position: vec4<f32>,
@@ -37,8 +45,18 @@ fn vs_main(@builtin(vertex_index) idx: u32) -> VsOut {
 const PAPER_BORDER_W: f32 = 2.0;
 const DESK_LINE_ALPHA: f32 = 0.4;
 
-fn desk_pattern(screen: vec2<f32>) -> vec3<f32> {
-    var rgb = u.desk.rgb;
+// The two halves of the pattern as coverage, in the order they blend: cell rules at
+// `DESK_LINE_ALPHA` of the grid color, corner crosses at full strength.
+fn desk_lattice_coverage(screen: vec2<f32>, device: vec2<f32>) -> vec2<f32> {
+    if u.lattice_side > 0.0 {
+        let side = i32(u.lattice_side);
+        let texel = vec2<i32>(device) % vec2<i32>(side, side);
+        return textureLoad(desk_lattice, texel, 0).rg;
+    }
+    return desk_pattern_coverage(screen);
+}
+
+fn desk_pattern_coverage(screen: vec2<f32>) -> vec2<f32> {
     let cell = max(u.desk_metrics.x, 1.0);
     let line_w = u.desk_metrics.y;
     let cross_arm = u.desk_metrics.z;
@@ -47,18 +65,20 @@ fn desk_pattern(screen: vec2<f32>) -> vec3<f32> {
     let cell_id = floor(screen / cell);
     let line_local = screen - cell_id * cell;
     let on_line = line_local.x < line_w || line_local.y < line_w;
-    if on_line {
-        rgb = mix(rgb, u.grid.rgb, u.grid.a * DESK_LINE_ALPHA);
-    }
 
     let nearest = round(screen / cell) * cell;
     let cross_local = screen - nearest;
     let on_cross = (abs(cross_local.x) < cross_line_w * 0.5 && abs(cross_local.y) < cross_arm)
         || (abs(cross_local.y) < cross_line_w * 0.5 && abs(cross_local.x) < cross_arm);
-    if on_cross {
-        rgb = mix(rgb, u.grid.rgb, u.grid.a);
-    }
 
+    return vec2<f32>(f32(on_line), f32(on_cross));
+}
+
+fn desk_pattern(screen: vec2<f32>, device: vec2<f32>) -> vec3<f32> {
+    let coverage = desk_lattice_coverage(screen, device);
+    var rgb = u.desk.rgb;
+    rgb = mix(rgb, u.grid.rgb, u.grid.a * DESK_LINE_ALPHA * coverage.x);
+    rgb = mix(rgb, u.grid.rgb, u.grid.a * coverage.y);
     return rgb;
 }
 
@@ -66,7 +86,7 @@ fn desk_pattern(screen: vec2<f32>) -> vec3<f32> {
 fn fs_paper(in: VsOut) -> @location(0) vec4<f32> {
     let screen = in.position.xy / max(u.dpr, 1.0);
     let xy = (screen - u.pan) / max(u.zoom, 1e-6);
-    var rgb = desk_pattern(screen);
+    var rgb = desk_pattern(screen, in.position.xy);
 
     let inside = xy.x >= 0.0 && xy.y >= 0.0 && xy.x < u.doc_size.x && xy.y < u.doc_size.y;
     let band = PAPER_BORDER_W / max(u.zoom, 1e-6);

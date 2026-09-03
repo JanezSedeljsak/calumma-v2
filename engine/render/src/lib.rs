@@ -1,4 +1,5 @@
 pub mod compose;
+mod desk;
 pub mod framebuffer;
 mod overview;
 mod renderer;

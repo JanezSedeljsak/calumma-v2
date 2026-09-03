@@ -1,7 +1,9 @@
 use crate::active_renderer::ActiveRenderer;
 use crate::platform::{parse_op_kind, CalmPlatformOps, PlatformOp};
 use anyhow::{anyhow, bail, Context};
-use calumma_core::limits::{AUTOSAVE_INTERVAL_MS, BRUSH_SIZE_MAX, BRUSH_SIZE_MIN, IMPORT_MAX_SIDE};
+use calumma_core::limits::{
+    AUTOSAVE_INTERVAL_MS, BRUSH_SIZE_MAX, BRUSH_SIZE_MIN, FRAME_HINT_DISPLAY_MAX, IMPORT_MAX_SIDE,
+};
 use calumma_core::{
     pack_rgba, project_color, unpack_rgba, unpremultiply_rgba, AdjustmentKind, Adjustments,
     BlendMode, BoardColors, Brush, Document, MemoryPressureLevel, Tool, PROJECT_COLORS,
@@ -547,6 +549,34 @@ pub unsafe extern "C" fn calm_engine_render(engine: *mut CalmEngine) -> CalmStat
         }
         Ok(())
     })
+}
+
+/// Frames per second the engine wants from here, or `0` for "as fast as the display allows".
+///
+/// The shell reads this once per frame and assigns it to the view's `preferredFramesPerSecond`,
+/// which is the whole of the shell's involvement: the ceiling is the screen's, and the engine
+/// names only the floor it can live with. A board with nothing in flight — no gesture, no camera
+/// settling, no text caret, no dirty frame — has nothing waiting on the display link, so on a
+/// ProMotion panel that is a hundred and twenty wakeups a second for a picture that is not
+/// moving.
+///
+/// Returns the display maximum for a null engine or one with no document, so a shell that calls
+/// this before attaching cannot accidentally stall its own view.
+#[no_mangle]
+pub unsafe extern "C" fn calm_engine_frame_hint(engine: *mut CalmEngine) -> u32 {
+    if engine.is_null() {
+        return FRAME_HINT_DISPLAY_MAX;
+    }
+    catch_unwind(AssertUnwindSafe(|| {
+        let mutex = unsafe { &*(engine as *const Mutex<Inner>) };
+        let inner = mutex.lock();
+        let renderer = inner.renderer.as_ref()?;
+        let doc = inner.doc.as_ref()?;
+        Some(renderer.frame_hint(doc))
+    }))
+    .ok()
+    .flatten()
+    .unwrap_or(FRAME_HINT_DISPLAY_MAX)
 }
 
 #[no_mangle]

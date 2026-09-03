@@ -339,14 +339,34 @@ mod tests {
     }
 
     fn render(h: &Harness, instances: &[StrokeInstance]) -> Vec<u8> {
+        render_in_batches(h, &[instances])
+    }
+
+    /// The same rasterize, split across as many `accumulate` calls as there are batches — one
+    /// per simulated frame, each in its own encoder and submission, with only the first
+    /// restarting. This is the shape the renderer drives the target in during a live stroke.
+    fn render_in_batches(h: &Harness, batches: &[&[StrokeInstance]]) -> Vec<u8> {
+        let instances: Vec<StrokeInstance> = batches.concat();
         let buf = h.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("instances"),
-            size: std::mem::size_of_val(instances) as u64,
+            size: std::mem::size_of_val(instances.as_slice()).max(1) as u64,
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
         h.queue
-            .write_buffer(&buf, 0, bytemuck::cast_slice(instances));
+            .write_buffer(&buf, 0, bytemuck::cast_slice(&instances));
+
+        let mut first = 0u32;
+        for (i, batch) in batches.iter().enumerate() {
+            let end = first + batch.len() as u32;
+            let mut encoder = h
+                .device
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+            h.coverage
+                .accumulate(&mut encoder, &h.preview_bg, &buf, first..end, None, i == 0);
+            h.queue.submit(Some(encoder.finish()));
+            first = end;
+        }
 
         let row = align_row(SIDE);
         let readback = h.device.create_buffer(&wgpu::BufferDescriptor {
@@ -358,14 +378,6 @@ mod tests {
         let mut encoder = h
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
-        h.coverage.accumulate(
-            &mut encoder,
-            &h.preview_bg,
-            &buf,
-            0..instances.len() as u32,
-            None,
-            true,
-        );
         let target = h.coverage.target.as_ref().expect("target");
         encoder.copy_texture_to_buffer(
             wgpu::TexelCopyTextureInfo {
@@ -536,6 +548,71 @@ mod tests {
         assert!(
             high - low > 20,
             "the crayon's tooth should show along the axis, got {low}..{high}"
+        );
+    }
+
+    /// The append contract this whole target rests on: unioning segment N onto the union of
+    /// 0..N has to land on exactly the same pixels as unioning 0..N+1 from an empty target.
+    /// `Max` is idempotent and order-independent, so this is not an approximation — a single
+    /// byte of drift here would mean a live stroke looked different depending on how fast the
+    /// pointer happened to move.
+    #[test]
+    fn appending_a_segment_at_a_time_matches_one_full_rasterize() {
+        let Some(h) = harness() else {
+            return;
+        };
+        let profile = Brush::Marker.profile();
+        let points = [
+            (18.0, 30.0),
+            (32.0, 46.0),
+            (48.0, 34.0),
+            (62.0, 52.0),
+            (78.0, 40.0),
+        ];
+        let capsules: Vec<StrokeInstance> = points
+            .windows(2)
+            .map(|p| segment(p[0], p[1], 9.0, &profile))
+            .collect();
+
+        let at_once = render(&h, &capsules);
+        let batches: Vec<&[StrokeInstance]> = capsules.chunks(1).collect();
+        let appended = render_in_batches(&h, &batches);
+
+        assert_eq!(
+            at_once, appended,
+            "a stroke accumulated one segment per frame must be byte-identical to the same           stroke rasterized in one pass"
+        );
+    }
+
+    /// Restarting is the *only* way coverage comes back out of the target — `Max` cannot
+    /// subtract — which is why `Document::stroke_generation` bumps when a Shift-held straight
+    /// segment rewinds the point list. This is the rewind the renderer has to notice: appending
+    /// over it leaves the abandoned capsule standing.
+    #[test]
+    fn a_rewound_tail_needs_a_restart_to_disappear() {
+        let Some(h) = harness() else {
+            return;
+        };
+        let profile = BrushProfile::HARD;
+        let anchor = (20.0, 48.0);
+        let abandoned = segment(anchor, (76.0, 20.0), 6.0, &profile);
+        let kept = segment(anchor, (76.0, 76.0), 6.0, &profile);
+
+        let appended = render_in_batches(&h, &[&[abandoned], &[kept]]);
+        let restarted = render(&h, &[kept]);
+
+        assert!(
+            at(&appended, 70, 24) > 0,
+            "appending leaves the abandoned segment in the target — the failure mode the             generation bump exists to prevent"
+        );
+        assert_eq!(
+            at(&restarted, 70, 24),
+            0,
+            "a restart wipes it, and the kept segment does not reach there"
+        );
+        assert!(
+            at(&restarted, 70, 72) > 0,
+            "the kept segment is still drawn"
         );
     }
 

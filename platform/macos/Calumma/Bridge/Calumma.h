@@ -290,6 +290,9 @@ CalmStatus calm_engine_set_guide_position(CalmEngine *engine, size_t index, floa
 CalmStatus calm_engine_set_guide_axis(CalmEngine *engine, size_t index, uint8_t axis);
 CalmStatus calm_engine_remove_guide(CalmEngine *engine, size_t index);
 size_t calm_guides_limit(void);
+// Frames per second the engine wants from here, or 0 for "as fast as the display allows".
+// The ceiling stays the shell's — this is only the floor the engine can live with.
+uint32_t calm_engine_frame_hint(CalmEngine *engine);
 CalmStatus calm_engine_memory(CalmEngine *engine, CalmMemory *out);
 // level: 0 = normal, 1 = warn, 2 = critical — mirrors DISPATCH_SOURCE_TYPE_MEMORYPRESSURE.
 CalmStatus calm_engine_set_memory_pressure(CalmEngine *engine, uint32_t level);

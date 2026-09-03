@@ -1,3 +1,5 @@
+#[cfg(test)]
+use calumma_core::limits::FRAME_HINT_DISPLAY_MAX;
 use calumma_core::{Document, MemoryPressureLevel};
 use calumma_render::Renderer;
 
@@ -81,6 +83,14 @@ impl ActiveRenderer {
             Self::Gpu(renderer) => renderer.set_memory_pressure(level),
             #[cfg(test)]
             Self::Stub => {}
+        }
+    }
+
+    pub(crate) fn frame_hint(&self, doc: &Document) -> u32 {
+        match self {
+            Self::Gpu(renderer) => renderer.frame_hint(doc),
+            #[cfg(test)]
+            Self::Stub => FRAME_HINT_DISPLAY_MAX,
         }
     }
 

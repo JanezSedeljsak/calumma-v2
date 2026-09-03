@@ -342,6 +342,13 @@ pub struct Document {
     /// it needs to know when the points it is appending to belong to a *different* stroke than
     /// the ones already in the coverage target. Point count alone cannot answer that: two
     /// strokes can pass through the same length between one frame and the next.
+    ///
+    /// Also bumped whenever `push_stroke_point` **rewinds** the list instead of extending it,
+    /// which is what a Shift-held straight segment does on every event. That is the whole
+    /// contract this number carries: while the generation holds, `stroke_points` is an
+    /// append-only extension of what it was, so coverage already unioned into the GPU target is
+    /// still a prefix of the answer. A `Max` blend cannot take a capsule back out, so a rewound
+    /// tail has to read as a different stroke.
     stroke_generation: u64,
     /// Index into `stroke_points` the current straight segment pivots on, set the moment
     /// Shift is first seen held during a Pen/Eraser stroke and cleared on release — so toggling
@@ -1405,6 +1412,9 @@ impl Document {
             let anchor = *self
                 .stroke_straight_anchor
                 .get_or_insert(self.stroke_points.len().saturating_sub(1));
+            if self.stroke_points.len() > anchor + 1 {
+                self.stroke_generation = self.stroke_generation.wrapping_add(1);
+            }
             self.stroke_points.truncate(anchor + 1);
             if let Some(anchor_pt) = self.stroke_points.get(anchor) {
                 let dx = x - anchor_pt.x;

@@ -718,4 +718,10 @@ Vector multi-select (`10`) is closed by the 1:1 rule — do not build it.
 **Shipped from this list (cont.):** GPU adjustment evaluation (plan 23 — the `LayerData` table
 grew the LUT and opacity; see the opacity/adjustments bullet above) and adaptive GPU residency
 under memory pressure (plan 22 — `calm_engine_set_memory_pressure`, `calumma_core::
-MemoryPressureLevel`/`PressureState`).
+MemoryPressureLevel`/`PressureState`). Plan 29 added the other axis on the same knobs:
+`calumma_core::DeviceTier`, classified once from the adapter, is a **floor** where pressure is a
+**ceiling**, and `GpuBudget` is the only thing that answers for either — it returns the stricter
+of the two, so neither can set the atlas ceiling or the retention margin behind the other's
+back. It also gave the shell one outbound pacing knob, `calm_engine_frame_hint`: the engine
+answers how often it wants to be drawn (0 = the display's own rate) and the shell assigns that
+to `preferredFramesPerSecond`. The ceiling stays the screen's; the engine names only the floor.

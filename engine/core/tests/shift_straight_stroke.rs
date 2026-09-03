@@ -134,3 +134,75 @@ fn shift_straightens_the_eraser_too() {
 
     assert_eq!(doc.stroke_points.len(), 2);
 }
+
+/// `stroke_generation` promises the renderer that, while it holds, `stroke_points` is an
+/// append-only extension of what it was — that is what lets a live brush stroke union only the
+/// new segments onto GPU coverage it already accumulated. A straight segment rewinds the tail
+/// on every event, and `Max` blending cannot take a capsule back out of the coverage target, so
+/// a rewind has to read as a different stroke.
+#[test]
+fn rewinding_a_straight_segment_bumps_the_stroke_generation() {
+    let mut doc = doc_with_tool(Tool::Pen);
+    doc.set_shift_held(true);
+    down_at(&mut doc, (20.0, 20.0));
+    let anchored = doc.stroke_generation();
+
+    move_to(&mut doc, (40.0, 60.0));
+    assert_eq!(
+        doc.stroke_generation(),
+        anchored,
+        "the first straight point only extends the list, so nothing was thrown away"
+    );
+
+    move_to(&mut doc, (60.0, 30.0));
+    let after = doc.stroke_generation();
+    assert_ne!(
+        after, anchored,
+        "swinging the tip drops the point it replaces"
+    );
+
+    move_to(&mut doc, (100.0, 100.0));
+    assert_ne!(
+        doc.stroke_generation(),
+        after,
+        "and again on the next swing"
+    );
+}
+
+/// The other half of the same contract: a freehand stroke only ever pushes, so its generation
+/// has to stay put for the whole gesture or the renderer would restart every frame and the
+/// append path would never run at all.
+#[test]
+fn a_freehand_stroke_keeps_one_generation_for_the_whole_gesture() {
+    let mut doc = doc_with_tool(Tool::Pen);
+    down_at(&mut doc, (20.0, 20.0));
+    let generation = doc.stroke_generation();
+
+    for step in 1..8 {
+        move_to(
+            &mut doc,
+            (20.0 + step as f32 * 12.0, 20.0 + step as f32 * 7.0),
+        );
+    }
+
+    assert_eq!(doc.stroke_points.len(), 8);
+    assert_eq!(doc.stroke_generation(), generation);
+}
+
+/// Releasing Shift mid-stroke hands the rest of the line back to freehand, which is append-only
+/// again — so the generation settles rather than bumping once per event forever.
+#[test]
+fn releasing_shift_returns_the_stroke_to_append_only() {
+    let mut doc = doc_with_tool(Tool::Pen);
+    doc.set_shift_held(true);
+    down_at(&mut doc, (20.0, 20.0));
+    move_to(&mut doc, (40.0, 60.0));
+    move_to(&mut doc, (60.0, 30.0));
+
+    doc.set_shift_held(false);
+    move_to(&mut doc, (80.0, 40.0));
+    let settled = doc.stroke_generation();
+    move_to(&mut doc, (100.0, 50.0));
+
+    assert_eq!(doc.stroke_generation(), settled);
+}

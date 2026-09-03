@@ -1,9 +1,11 @@
 use crate::compose::{
-    brush_ring_instances, composited_tile_payload, guide_instances, layer_highlight_instances,
-    rgba_unit, selection_lasso_points, selection_mask_edges, selection_rect_or_ellipse,
-    stroke_instances, text_overlay_instances, tile_upload_mips, transform_overlay_instances,
+    brush_params, brush_ring_instances, composited_tile_payload, guide_instances,
+    layer_highlight_instances, rgba_unit, selection_lasso_points, selection_mask_edges,
+    selection_rect_or_ellipse, stroke_instances, stroke_instances_from, stroke_segment_count,
+    text_caret_visible, text_overlay_instances, tile_upload_mips, transform_overlay_instances,
     GuideInstance, StrokeInstance,
 };
+use crate::desk::DeskLattice;
 use crate::framebuffer::{self, PanCache, PxRect};
 use crate::overview::OverviewPass;
 use crate::stroke_coverage::StrokeCoverage;
@@ -14,13 +16,14 @@ use crate::vector_draw::{
 };
 use bytemuck::{Pod, Zeroable};
 use calumma_core::limits::{
-    CAMERA_MOTION_IDLE_FRAMES, CRISP_PIXEL_ZOOM, GUIDES_LIMIT, LAYER_DATA_CAPACITY,
-    STROKE_INSTANCE_CAPACITY, SURFACE_FRAME_LATENCY, TILE_ATLAS_MAX_CAPACITY,
+    CAMERA_MOTION_IDLE_FRAMES, CRISP_PIXEL_ZOOM, FRAME_HINT_IDLE_FPS, GUIDES_LIMIT,
+    LAYER_DATA_CAPACITY, STROKE_INSTANCE_CAPACITY, SURFACE_FRAME_LATENCY, TILE_ATLAS_MAX_CAPACITY,
     TILE_INSTANCE_CAPACITY, VECTOR_SHAPE_INSTANCE_CAPACITY,
 };
 use calumma_core::tile::{DirtyChannel, TileCoord, TileGrid};
 use calumma_core::{
-    BlendMode, BrushProfile, Document, MemoryPressureLevel, PressureState, Tool, VectorItem,
+    BlendMode, BrushProfile, DeviceTier, Document, GpuBudget, GpuKind, MemoryPressureLevel, Tool,
+    VectorItem,
 };
 use rayon::prelude::*;
 use rustc_hash::FxHashSet;
@@ -39,22 +42,24 @@ type TilePayload = (Option<Vec<u8>>, Vec<Vec<u8>>);
 
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
-struct PaperUniforms {
-    pan: [f32; 2],
-    zoom: f32,
-    dpr: f32,
-    doc_size: [f32; 2],
-    viewport: [f32; 2],
-    dark: f32,
-    _pad0: f32,
-    _pad1: f32,
-    _pad2: f32,
+pub(crate) struct PaperUniforms {
+    pub(crate) pan: [f32; 2],
+    pub(crate) zoom: f32,
+    pub(crate) dpr: f32,
+    pub(crate) doc_size: [f32; 2],
+    pub(crate) viewport: [f32; 2],
+    pub(crate) dark: f32,
+    /// Side of one period of the baked desk lattice in device texels, or 0 to put `fs_paper`
+    /// back on evaluating the grid per pixel — see `crate::desk`.
+    pub(crate) lattice_side: f32,
+    pub(crate) _pad1: f32,
+    pub(crate) _pad2: f32,
     /// `DeskMetrics` as the shader wants it — see `calumma_core::DeskMetrics` for why the
     /// squared paper is measured in Rust rather than in `board.wgsl`.
-    desk_metrics: [f32; 4],
-    desk: [f32; 4],
-    grid: [f32; 4],
-    paper_border: [f32; 4],
+    pub(crate) desk_metrics: [f32; 4],
+    pub(crate) desk: [f32; 4],
+    pub(crate) grid: [f32; 4],
+    pub(crate) paper_border: [f32; 4],
 }
 
 #[repr(C)]
@@ -172,6 +177,45 @@ struct GpuTile {
     array_layer: u32,
 }
 
+/// What the live brush stroke's coverage target already holds, so the next frame can union the
+/// segments the pointer actually travelled onto it instead of rasterizing the whole stroke
+/// again (`StrokeCoverage::accumulate`'s append contract).
+///
+/// Every field beyond `segments` is part of the cache key rather than payload: the coverage
+/// pass rasterizes in *device* pixels off the preview uniform, so a camera that moved
+/// underneath the accumulated pixels invalidates them wholesale, and the brush params and color
+/// are baked into each capsule at the width it was drawn.
+#[derive(Clone, Copy, PartialEq)]
+struct CoverageProgress {
+    generation: u64,
+    points: usize,
+    pan: (f32, f32),
+    zoom: f32,
+    dpr: f32,
+    brush: [f32; 4],
+    color: [f32; 4],
+}
+
+impl CoverageProgress {
+    /// Whether `next` may be unioned onto what `self` left in the target.
+    ///
+    /// `points >= 2` is the one non-obvious condition: `stroke_segment_count` maps a lone point
+    /// to *one* segment — the degenerate capsule that makes a tap leave a dot — and segment 0
+    /// then **replaces** it when the second point arrives rather than following it. Appending
+    /// across that boundary would emit nothing and leave the dot standing in for the first
+    /// capsule, so a one-point stroke restarts.
+    fn appendable(&self, next: &Self) -> bool {
+        self.generation == next.generation
+            && self.points >= 2
+            && next.points >= self.points
+            && self.pan == next.pan
+            && self.zoom == next.zoom
+            && self.dpr == next.dpr
+            && self.brush == next.brush
+            && self.color == next.color
+    }
+}
+
 /// Which instance buffer a vector run draws from: parametric shapes evaluate an SDF per
 /// pixel, freehand paths are stroke segments.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -227,7 +271,9 @@ pub struct Renderer {
     shape_pipeline: wgpu::RenderPipeline,
     vector_shape_pipeline: wgpu::RenderPipeline,
     paper_buf: wgpu::Buffer,
+    paper_bgl: wgpu::BindGroupLayout,
     paper_bg: wgpu::BindGroup,
+    desk_lattice: DeskLattice,
     tile_shared_bgl: wgpu::BindGroupLayout,
     tile_camera_buf: wgpu::Buffer,
     layer_data_buf: wgpu::Buffer,
@@ -245,7 +291,13 @@ pub struct Renderer {
     tile_instance_capacity: usize,
     samplers: TileSamplers,
     atlas: TileAtlas,
-    memory_pressure: PressureState,
+    budget: GpuBudget,
+    /// Whether every visible tile is already in the atlas, from the last frame that asked. The
+    /// walk behind it is one hash lookup per candidate tile per layer — 3µs at one layer, 34µs
+    /// at ten on a fit-to-view 8K board — and it is only *reached* on a frame where nothing
+    /// dirtied content and the tile span did not move, which is exactly the frame where last
+    /// frame's answer is still the answer. `None` means "ask again".
+    visible_upload_needed: Option<bool>,
     tiles: HashMap<TileKey, GpuTile>,
     layer_slots: HashMap<String, u32>,
     next_layer_slot: u32,
@@ -269,6 +321,12 @@ pub struct Renderer {
     /// zooming out far enough samples a level nobody ever wrote and the layer fades out.
     base_only_tiles: FxHashSet<TileKey>,
     pan_cache: PanCache,
+    coverage_progress: Option<CoverageProgress>,
+    /// Which half of the blink the caret was in on the last frame actually drawn, or `None` when
+    /// there was no caret. A text session is the only thing that asks for a frame with nothing
+    /// about the document changing, and it asks twice a second — so the frame loop draws when
+    /// this answer moves rather than at display rate for as long as the session is open.
+    drawn_caret_phase: Option<bool>,
 }
 
 impl Renderer {
@@ -278,6 +336,12 @@ impl Renderer {
         width: u32,
         height: u32,
     ) -> Result<Self, String> {
+        // `HighPerformance` deliberately unchanged. On a dual-GPU Intel Mac it forces the
+        // discrete part for a workload whose hot path is CPU→GPU tile uploads — free on unified
+        // memory, a bus copy on a discrete one — so `LowPower` there is arguable. It is only
+        // arguable: the integrated part it would pick instead is genuinely weaker on fill rate,
+        // and this is not measurable on the machine the app is developed on. Deciding it by
+        // guess would make things worse on exactly the machines a low tier is meant to help.
         let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
             power_preference: wgpu::PowerPreference::HighPerformance,
             compatible_surface: Some(&surface),
@@ -289,10 +353,15 @@ impl Renderer {
         // The tile atlas wants as many array layers as the adapter will give it, up to our own
         // safety ceiling — a low-end/downlevel adapter reporting only the WebGPU baseline (256)
         // still works fine, it just evicts prefetch-margin tiles under pressure sooner.
-        let atlas_max_capacity = adapter
-            .limits()
-            .max_texture_array_layers
-            .min(TILE_ATLAS_MAX_CAPACITY);
+        let adapter_array_layers = adapter.limits().max_texture_array_layers;
+        let atlas_max_capacity = adapter_array_layers.min(TILE_ATLAS_MAX_CAPACITY);
+        // Classified here rather than anywhere later because it decides how the *device* is
+        // created, not just how the atlas is sized. The adapter is the only thing that ever
+        // answers this; a tier is fixed for the life of the surface.
+        let budget = GpuBudget::new(DeviceTier::classify(
+            gpu_kind(adapter.get_info().device_type),
+            adapter_array_layers,
+        ));
 
         let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
             label: Some("calumma-render"),
@@ -301,7 +370,11 @@ impl Renderer {
                 max_texture_array_layers: atlas_max_capacity,
                 ..wgpu::Limits::default()
             },
-            memory_hints: wgpu::MemoryHints::Performance,
+            memory_hints: if budget.tier().prefers_small_allocations() {
+                wgpu::MemoryHints::MemoryUsage
+            } else {
+                wgpu::MemoryHints::Performance
+            },
             trace: wgpu::Trace::Off,
             ..Default::default()
         }))
@@ -346,22 +419,28 @@ impl Renderer {
 
         let paper_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("paper-bgl"),
-            entries: &[uniform_entry(0, std::mem::size_of::<PaperUniforms>())],
+            entries: &[
+                uniform_entry(0, std::mem::size_of::<PaperUniforms>()),
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+            ],
         });
+        let desk_lattice = DeskLattice::new(&device, &queue, 1.0);
         let paper_buf = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("paper-uniform"),
             size: std::mem::size_of::<PaperUniforms>() as u64,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        let paper_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("paper-bg"),
-            layout: &paper_bgl,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: paper_buf.as_entire_binding(),
-            }],
-        });
+        let paper_bg = paper_bind_group(&device, &paper_bgl, &paper_buf, &desk_lattice);
         let paper_pl = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("paper-pl"),
             bind_group_layouts: &[Some(&paper_bgl)],
@@ -412,7 +491,7 @@ impl Renderer {
                 layers: &layer_data_buf,
                 samplers: &samplers,
             },
-            atlas_max_capacity,
+            atlas_max_capacity.min(budget.atlas_max_capacity()),
         );
         let tile_pl = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("tile-pl"),
@@ -699,7 +778,9 @@ impl Renderer {
             shape_pipeline,
             vector_shape_pipeline,
             paper_buf,
+            paper_bgl,
             paper_bg,
+            desk_lattice,
             tile_shared_bgl,
             tile_camera_buf,
             preview_buf,
@@ -717,7 +798,8 @@ impl Renderer {
             layer_data_scratch: Vec::new(),
             samplers,
             atlas,
-            memory_pressure: PressureState::default(),
+            budget,
+            visible_upload_needed: None,
             tiles: HashMap::new(),
             layer_slots: HashMap::new(),
             next_layer_slot: 0,
@@ -737,6 +819,8 @@ impl Renderer {
             cached_tile_draw_count: None,
             base_only_tiles: FxHashSet::default(),
             pan_cache,
+            coverage_progress: None,
+            drawn_caret_phase: None,
         })
     }
 
@@ -789,11 +873,30 @@ impl Renderer {
         doc.visible_rect().map(|visible| visible.tile_span())
     }
 
+    /// How often the board wants to be drawn from here, in frames per second, or
+    /// [`FRAME_HINT_DISPLAY_MAX`] for "as fast as the display allows".
+    ///
+    /// Read once per frame by the shell, which owns nothing but the ceiling. Everything that
+    /// makes this answer `DISPLAY_MAX` is a thing already in flight — a gesture, a camera still
+    /// settling, a text session, or a frame the renderer has already marked dirty for itself.
+    /// Anything else is a board sitting still, where the display link is the only cost left and
+    /// there is no picture waiting on it.
+    pub fn frame_hint(&self, doc: &Document) -> u32 {
+        if self.camera_motion
+            || self.frame_dirty != FrameDirty::Clean
+            || doc.has_live_preview()
+            || doc.has_animated_overlay()
+        {
+            return self.budget.frame_hint_ceiling();
+        }
+        FRAME_HINT_IDLE_FPS
+    }
+
     pub fn request_overview_prewarm(&mut self) {
         self.overview.request_prewarm();
     }
 
-    /// Takes the margin as a parameter, rather than reading `self.memory_pressure` directly, so
+    /// Takes the margin as a parameter, rather than reading `self.budget` directly, so
     /// it stays a pure function of `(doc, margin)` — callers thread the effective level's margin
     /// through, and tests can exercise it without a real `wgpu::Surface`-backed `Renderer`.
     fn retained_span(doc: &Document, margin: i32) -> Option<(i32, i32, i32, i32)> {
@@ -819,11 +922,20 @@ impl Renderer {
         self.cached_strokes = strokes;
         self.cached_shapes = shapes;
         self.cached_draws = draws;
-        self.cached_retained_span = Self::retained_span(
-            doc,
-            self.memory_pressure.effective().retention_margin_tiles(),
-        );
+        self.cached_retained_span = Self::retained_span(doc, self.budget.retention_margin_tiles());
         self.cached_visible_span = Self::visible_span(doc);
+    }
+
+    /// [`Self::visible_needs_gpu_upload`], answered from the previous frame where that answer
+    /// cannot have moved. Cleared by [`Self::invalidate`] and by `sync_tiles` — between them
+    /// those are the only ways a visible tile stops being resident.
+    fn visible_upload_needed(&mut self, doc: &Document) -> bool {
+        if let Some(cached) = self.visible_upload_needed {
+            return cached;
+        }
+        let needed = self.visible_needs_gpu_upload(doc);
+        self.visible_upload_needed = Some(needed);
+        needed
     }
 
     fn visible_needs_gpu_upload(&self, doc: &Document) -> bool {
@@ -1017,12 +1129,15 @@ impl Renderer {
     /// smaller — the one response expensive enough to reserve for pressure that has actually
     /// persisted rather than spiked once (`PressureState`'s shrink streak).
     pub fn set_memory_pressure(&mut self, level: MemoryPressureLevel) {
-        let transition = self.memory_pressure.report(level);
+        let transition = self.budget.report_pressure(level);
         if !transition.effective_changed && !transition.shrink {
             return;
         }
-        let effective = self.memory_pressure.effective();
-        self.atlas.set_max_capacity(effective.atlas_max_capacity());
+        // Through the budget, never off the level directly: the device tier sets a floor under
+        // the same two numbers, and a pressure report that recovered all the way to `Normal`
+        // must not hand a weak GPU back the ceiling it never had.
+        let capacity = self.budget.atlas_max_capacity();
+        self.atlas.set_max_capacity(capacity);
 
         if transition.shrink {
             let shared = SharedBindings {
@@ -1031,12 +1146,9 @@ impl Renderer {
                 layers: &self.layer_data_buf,
                 samplers: &self.samplers,
             };
-            let remap = self.atlas.shrink_to(
-                &self.device,
-                &self.queue,
-                &shared,
-                effective.atlas_max_capacity(),
-            );
+            let remap = self
+                .atlas
+                .shrink_to(&self.device, &self.queue, &shared, capacity);
             for tile in self.tiles.values_mut() {
                 if let Some(&new_layer) = remap.get(&tile.array_layer) {
                     tile.array_layer = new_layer;
@@ -1061,11 +1173,14 @@ impl Renderer {
         self.overview.clear();
         self.pan_cache.invalidate();
         self.stroke_coverage.release();
+        self.coverage_progress = None;
+        self.visible_upload_needed = None;
         self.frame_dirty = FrameDirty::Content;
     }
 
     pub fn invalidate(&mut self) {
         self.frame_dirty = FrameDirty::Content;
+        self.visible_upload_needed = None;
         self.cached_retained_span = None;
         self.cached_visible_span = None;
         self.cached_tile_draw_count = None;
@@ -1192,8 +1307,7 @@ impl Renderer {
         let Some(visible) = doc.visible_rect() else {
             return;
         };
-        let retained =
-            visible.expanded_by_tiles(self.memory_pressure.effective().retention_margin_tiles());
+        let retained = visible.expanded_by_tiles(self.budget.retention_margin_tiles());
         let doc_width = doc.width;
 
         let mut live: FxHashSet<TileKey> = FxHashSet::default();
@@ -1391,6 +1505,9 @@ impl Renderer {
                 grid.clear_dirty_tile(DirtyChannel::Render, coord);
             }
         }
+        // Eviction under capacity pressure happens above, so this is the other half of the
+        // memo's invalidation: residency changed, ask again next frame.
+        self.visible_upload_needed = None;
     }
 
     /// The whole layer stack as one ordered draw list, filling the instance buffers as it
@@ -1633,9 +1750,17 @@ impl Renderer {
     }
 
     pub fn render(&mut self, doc: &mut Document) {
+        // The caret is the whole of `has_animated_overlay`, and it is a square wave: parking the
+        // cursor in a text layer used to run the full board pass at display rate to service a
+        // signal that changes state twice a second. Comparing the phase against the frame that
+        // was actually drawn turns that into two frames a second — and the same comparison
+        // catches the caret going away, which needs one frame to erase it.
+        let caret_phase = doc
+            .has_animated_overlay()
+            .then(|| text_caret_visible(self.started.elapsed().as_secs_f32()));
         if self.frame_dirty == FrameDirty::Clean
             && !doc.has_live_preview()
-            && !doc.has_animated_overlay()
+            && caret_phase == self.drawn_caret_phase
         {
             return;
         }
@@ -1665,11 +1790,9 @@ impl Renderer {
 
         let need_tile_sync = !use_overview
             && (self.frame_dirty == FrameDirty::Content
-                || Self::retained_span(
-                    doc,
-                    self.memory_pressure.effective().retention_margin_tiles(),
-                ) != self.cached_retained_span
-                || self.visible_needs_gpu_upload(doc));
+                || Self::retained_span(doc, self.budget.retention_margin_tiles())
+                    != self.cached_retained_span
+                || self.visible_upload_needed(doc));
         let need_draw_rebuild = !use_overview
             && (need_tile_sync || Self::visible_span(doc) != self.cached_visible_span);
         let camera_only =
@@ -1696,6 +1819,17 @@ impl Renderer {
         }
 
         let desk = calumma_core::DeskMetrics::DEFAULT;
+        if self
+            .desk_lattice
+            .ensure(&self.device, &self.queue, doc.camera.dpr)
+        {
+            self.paper_bg = paper_bind_group(
+                &self.device,
+                &self.paper_bgl,
+                &self.paper_buf,
+                &self.desk_lattice,
+            );
+        }
         let paper = PaperUniforms {
             pan: [doc.camera.pan_x, doc.camera.pan_y],
             zoom: doc.camera.zoom,
@@ -1703,7 +1837,7 @@ impl Renderer {
             doc_size: [doc.width as f32, doc.height as f32],
             viewport,
             dark: if doc.dark_theme { 1.0 } else { 0.0 },
-            _pad0: 0.0,
+            lattice_side: self.desk_lattice.shader_side(),
             _pad1: 0.0,
             _pad2: 0.0,
             desk_metrics: [
@@ -1821,7 +1955,13 @@ impl Renderer {
         let guide_count = self.write_guides(doc);
         let mut overlay_range = 0u32..0u32;
         let mut screen_overlay_range = 0u32..0u32;
+        // `brush_range` is the segments to *union into* the coverage target this frame, which is
+        // empty on any frame the pointer did not move; `brush_active` is whether there is a live
+        // brush stroke to composite onto the board at all. They used to be the same question,
+        // because the target was rebuilt from the first point every frame.
         let mut brush_range = 0u32..0u32;
+        let mut brush_active = false;
+        let mut brush_restart = false;
         if !camera_only {
             let radius = doc.effective_brush_size() * 0.5;
             let stroke_color = if doc.tool == Tool::Eraser {
@@ -1857,12 +1997,39 @@ impl Renderer {
                     self.started.elapsed().as_secs_f32(),
                 ));
             } else if doc.previews_brush_stroke() {
-                brush_instances = stroke_instances(
+                brush_active = true;
+                let profile = doc.active_brush_profile();
+                // Ahead of the append decision rather than after the ranges are built: a target
+                // the surface resize just recreated is empty, and only `ensure` knows that.
+                let recreated = self.stroke_coverage.ensure(
+                    &self.device,
+                    self.config.width,
+                    self.config.height,
+                );
+                let progress = CoverageProgress {
+                    generation: doc.stroke_generation(),
+                    points: doc.stroke_points.len(),
+                    pan,
+                    zoom: doc.camera.zoom,
+                    dpr: doc.camera.dpr,
+                    brush: brush_params(radius, &profile),
+                    color: stroke_color,
+                };
+                let first_segment = match self.coverage_progress {
+                    Some(prev) if !recreated && prev.appendable(&progress) => {
+                        stroke_segment_count(prev.points)
+                    }
+                    _ => 0,
+                };
+                brush_restart = first_segment == 0;
+                brush_instances = stroke_instances_from(
                     &doc.stroke_points,
+                    first_segment,
                     radius,
                     stroke_color,
-                    &doc.active_brush_profile(),
+                    &profile,
                 );
+                self.coverage_progress = Some(progress);
             } else if !doc.stroke_points.is_empty() && doc.tool.previews_stroke() {
                 instances.extend(stroke_instances(
                     &doc.stroke_points,
@@ -1911,10 +2078,6 @@ impl Renderer {
             let brush_start = screen_overlay_range.end;
             instances.append(&mut brush_instances);
             brush_range = brush_start..prefix_len as u32 + instances.len() as u32;
-            if !brush_range.is_empty() {
-                self.stroke_coverage
-                    .ensure(&self.device, self.config.width, self.config.height);
-            }
             let total = prefix_len + instances.len();
             let grew = self.ensure_stroke_capacity(total);
             let stride = std::mem::size_of::<StrokeInstance>() as u64;
@@ -1997,17 +2160,17 @@ impl Renderer {
                 })
                 .is_some();
 
-        if !brush_range.is_empty() {
-            // TODO(F4): pass the segments added since the last frame and `restart: false`.
-            // `accumulate` already appends correctly; the renderer still has to track how much
-            // of the stroke is in the target and when the camera/brush invalidates it.
+        if brush_active {
+            // `accumulate` no-ops on an empty range that is not a restart, which is the frame
+            // where the pointer has not moved far enough to add a segment — the target already
+            // holds the whole stroke and the board pass below still composites it.
             self.stroke_coverage.accumulate(
                 &mut encoder,
                 &self.preview_bg,
                 &self.stroke_buf,
                 brush_range.clone(),
                 scissor,
-                true,
+                brush_restart,
             );
         }
 
@@ -2093,7 +2256,7 @@ impl Renderer {
             // stamp to promise, and on a pasted layer that overflows the paper that stamp can
             // land out over the desk; clipping the ring to the paper drew nothing there while
             // the shell had already hidden its own cursor, so the pointer disappeared.
-            if !brush_range.is_empty() {
+            if brush_active {
                 pass.set_scissor_rect(0, 0, self.config.width, self.config.height);
                 self.stroke_coverage.composite(&mut pass, &self.preview_bg);
             }
@@ -2108,11 +2271,17 @@ impl Renderer {
         // top of content nobody changed. Pinning `Content` here instead re-synced every tile
         // and recomposited the whole stack on every frame of every stroke, for a stroke that
         // lays no pixels down until pointer-up.
-        self.frame_dirty = if doc.has_live_preview() || doc.has_animated_overlay() {
+        // A caret no longer pins `Overlay` — the phase comparison at the top of the frame is what
+        // asks for its next one, and pinning `Overlay` here would defeat that by making the
+        // early-out unreachable for as long as a text session was open.
+        self.frame_dirty = if doc.has_live_preview() {
             FrameDirty::Overlay
         } else {
             FrameDirty::Clean
         };
+        // Recorded here rather than at the top, so a frame abandoned on a lost surface leaves the
+        // caret asking to be drawn instead of counting as drawn.
+        self.drawn_caret_phase = caret_phase;
     }
 }
 
@@ -2173,6 +2342,44 @@ fn tile_shared_bgl(device: &wgpu::Device) -> wgpu::BindGroupLayout {
             },
         ],
     })
+}
+
+/// Group 0 for `fs_paper`: the desk uniforms and the baked lattice period it reads its grid
+/// coverage out of. Rebuilt whenever the lattice is rebaked, which is a backing-scale change and
+/// nothing else — a bind group holds the view it was built from, so without this the shader
+/// would keep reading the texture for the old `dpr`.
+pub(crate) fn paper_bind_group(
+    device: &wgpu::Device,
+    layout: &wgpu::BindGroupLayout,
+    uniforms: &wgpu::Buffer,
+    lattice: &DeskLattice,
+) -> wgpu::BindGroup {
+    device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("paper-bg"),
+        layout,
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: uniforms.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: wgpu::BindingResource::TextureView(lattice.view()),
+            },
+        ],
+    })
+}
+
+/// The adapter, reduced to the one thing [`DeviceTier::classify`] reads. `core` owns the tier
+/// table and is kept free of platform dependencies, so the mapping from wgpu's own enum lives
+/// here — the render crate is the only place that has an adapter to ask.
+fn gpu_kind(device_type: wgpu::DeviceType) -> GpuKind {
+    match device_type {
+        wgpu::DeviceType::DiscreteGpu => GpuKind::Discrete,
+        wgpu::DeviceType::IntegratedGpu | wgpu::DeviceType::VirtualGpu => GpuKind::Integrated,
+        wgpu::DeviceType::Cpu => GpuKind::Software,
+        wgpu::DeviceType::Other => GpuKind::Other,
+    }
 }
 
 fn uniform_entry(binding: u32, size: usize) -> wgpu::BindGroupLayoutEntry {
@@ -2551,6 +2758,87 @@ mod tests {
             Some(before),
             "panning back lands on the same tiles, so a pan gesture uploads nothing new"
         );
+    }
+
+    /// Apple Silicon reports `IntegratedGpu`, so the mapping has to keep it distinguishable
+    /// from a software adapter — `DeviceTier::classify` separates the two by limits, and it can
+    /// only do that if this does not flatten them into the same kind first.
+    #[test]
+    fn every_adapter_kind_maps_to_the_one_the_tier_table_reads() {
+        assert_eq!(gpu_kind(wgpu::DeviceType::DiscreteGpu), GpuKind::Discrete);
+        assert_eq!(
+            gpu_kind(wgpu::DeviceType::IntegratedGpu),
+            GpuKind::Integrated
+        );
+        assert_eq!(gpu_kind(wgpu::DeviceType::VirtualGpu), GpuKind::Integrated);
+        assert_eq!(gpu_kind(wgpu::DeviceType::Cpu), GpuKind::Software);
+        assert_eq!(gpu_kind(wgpu::DeviceType::Other), GpuKind::Other);
+    }
+
+    fn progress(generation: u64, points: usize) -> CoverageProgress {
+        CoverageProgress {
+            generation,
+            points,
+            pan: (0.0, 0.0),
+            zoom: 1.0,
+            dpr: 2.0,
+            brush: [8.0, 1.0, 0.0, 1.0],
+            color: [0.1, 0.1, 0.1, 1.0],
+        }
+    }
+
+    /// The ordinary frame: the pointer travelled, the camera did not, so the segments already
+    /// unioned into the coverage target stay and only the new ones are drawn.
+    #[test]
+    fn a_stroke_that_only_grew_is_appended_to() {
+        assert!(progress(7, 40).appendable(&progress(7, 41)));
+        assert!(progress(7, 40).appendable(&progress(7, 40)));
+    }
+
+    /// `stroke_segment_count` maps one point to one segment — the degenerate capsule behind a
+    /// tap's dot — and segment 0 replaces it rather than following it, so the first real capsule
+    /// would never be drawn if this appended.
+    #[test]
+    fn the_one_point_dot_restarts_rather_than_being_appended_to() {
+        assert!(!progress(7, 1).appendable(&progress(7, 2)));
+        assert!(!progress(7, 0).appendable(&progress(7, 1)));
+    }
+
+    /// Two guards on the same failure, because `Max` blending cannot take a capsule back out of
+    /// the target. `Document::push_stroke_point` bumps the generation when a Shift-held straight
+    /// segment rewinds the list; the shorter-point-count test is what catches a rewind that
+    /// forgot to.
+    #[test]
+    fn a_rewound_or_restarted_stroke_is_not_appendable() {
+        assert!(!progress(7, 40).appendable(&progress(8, 41)));
+        assert!(!progress(7, 40).appendable(&progress(7, 39)));
+    }
+
+    /// The coverage pass rasterizes in device pixels off the preview uniform, so pixels
+    /// accumulated at one camera are in the wrong place at the next one — and a capsule carries
+    /// the width and color it was drawn at.
+    #[test]
+    fn moving_the_camera_or_the_brush_invalidates_what_was_accumulated() {
+        let base = progress(7, 40);
+        let mut panned = progress(7, 41);
+        panned.pan = (4.0, 0.0);
+        assert!(!base.appendable(&panned));
+
+        let mut zoomed = progress(7, 41);
+        zoomed.zoom = 1.5;
+        assert!(!base.appendable(&zoomed));
+
+        let mut rescaled = progress(7, 41);
+        rescaled.dpr = 1.0;
+        assert!(!base.appendable(&rescaled));
+
+        let mut resized = progress(7, 41);
+        resized.brush[0] = 12.0;
+        assert!(!base.appendable(&resized));
+
+        let mut recolored = progress(7, 41);
+        recolored.color = [1.0, 0.0, 0.0, 1.0];
+        assert!(!base.appendable(&recolored));
     }
 }
 

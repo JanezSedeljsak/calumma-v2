@@ -29,6 +29,11 @@ pub struct OverviewPass {
     dirty: bool,
     active: bool,
     prewarm_pending: bool,
+    /// How many textures this pass has allocated over its life. Nothing reads it in a running
+    /// app; it exists because "the same size re-composites into the texture it already has" is
+    /// the whole point of `upload`'s fast path, and wgpu exposes no identity on a `Texture` to
+    /// assert that against.
+    allocations: u32,
 }
 
 impl OverviewPass {
@@ -135,6 +140,7 @@ impl OverviewPass {
             dirty: true,
             active: false,
             prewarm_pending: false,
+            allocations: 0,
         }
     }
 
@@ -196,6 +202,20 @@ impl OverviewPass {
         let dw = doc.width;
         let dh = doc.height;
         let (tw, th, rgba) = doc.composite_overview(OVERVIEW_MAX_SIDE);
+        // Every content change re-composites in full — 10ms at one layer, 86ms at ten — and the
+        // result is the same size as last time unless the *document* was resized. Allocating a
+        // texture and a bind group for it each time put a driver allocation on that path for no
+        // reason; only a size change actually needs new ones.
+        if let (Some(texture), true) = (
+            self.texture.as_ref(),
+            self.tex_width == tw && self.tex_height == th,
+        ) {
+            write_level(queue, texture, tw, th, &rgba);
+            self.doc_width = dw;
+            self.doc_height = dh;
+            self.dirty = false;
+            return;
+        }
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("overview"),
             size: wgpu::Extent3d {
@@ -210,25 +230,7 @@ impl OverviewPass {
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
             view_formats: &[],
         });
-        queue.write_texture(
-            wgpu::TexelCopyTextureInfo {
-                texture: &texture,
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            &rgba,
-            wgpu::TexelCopyBufferLayout {
-                offset: 0,
-                bytes_per_row: Some(tw * 4),
-                rows_per_image: Some(th),
-            },
-            wgpu::Extent3d {
-                width: tw,
-                height: th,
-                depth_or_array_layers: 1,
-            },
-        );
+        write_level(queue, &texture, tw, th, &rgba);
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("overview-bg"),
@@ -250,6 +252,7 @@ impl OverviewPass {
         });
         self.texture = Some(texture);
         self.bind_group = Some(bind_group);
+        self.allocations += 1;
         self.tex_width = tw;
         self.tex_height = th;
         self.doc_width = dw;
@@ -277,6 +280,28 @@ impl OverviewPass {
         pass.set_bind_group(0, bg, &[]);
         pass.draw(0..6, 0..1);
     }
+}
+
+fn write_level(queue: &wgpu::Queue, texture: &wgpu::Texture, w: u32, h: u32, rgba: &[u8]) {
+    queue.write_texture(
+        wgpu::TexelCopyTextureInfo {
+            texture,
+            mip_level: 0,
+            origin: wgpu::Origin3d::ZERO,
+            aspect: wgpu::TextureAspect::All,
+        },
+        rgba,
+        wgpu::TexelCopyBufferLayout {
+            offset: 0,
+            bytes_per_row: Some(w * 4),
+            rows_per_image: Some(h),
+        },
+        wgpu::Extent3d {
+            width: w,
+            height: h,
+            depth_or_array_layers: 1,
+        },
+    );
 }
 
 #[cfg(test)]
@@ -382,6 +407,41 @@ mod tests {
         assert!(overview.dirty);
         overview.sync(&doc, &gpu.device, &gpu.queue);
         assert!(!overview.dirty);
+    }
+
+    /// A re-composite at the same size reuses the texture it already has. Every content change
+    /// pays a full CPU flatten of the document; it should not also pay a driver allocation for a
+    /// texture identical to the one being replaced.
+    #[test]
+    fn re_uploading_at_the_same_size_keeps_the_texture_it_already_had() {
+        let Some(gpu) = gpu() else { return };
+        let mut overview = pass(gpu);
+        let doc = doc(512, 256);
+        overview.should_use(OVERVIEW_ENTER_TILE_THRESHOLD, false);
+        overview.sync(&doc, &gpu.device, &gpu.queue);
+        assert_eq!(overview.allocations, 1);
+
+        overview.mark_dirty();
+        overview.sync(&doc, &gpu.device, &gpu.queue);
+
+        assert_eq!(overview.allocations, 1, "same size, same texture");
+        assert!(!overview.dirty);
+    }
+
+    /// A resize is the one thing that does need a new one, and the bind group has to follow it —
+    /// a bind group holds the view it was built from.
+    #[test]
+    fn a_resize_replaces_the_texture_and_its_bind_group() {
+        let Some(gpu) = gpu() else { return };
+        let mut overview = pass(gpu);
+        overview.should_use(OVERVIEW_ENTER_TILE_THRESHOLD, false);
+        overview.sync(&doc(512, 256), &gpu.device, &gpu.queue);
+        assert_eq!(overview.allocations, 1);
+
+        overview.sync(&doc(256, 512), &gpu.device, &gpu.queue);
+
+        assert_eq!(overview.allocations, 2);
+        assert_eq!((overview.tex_width, overview.tex_height), (256, 512));
     }
 
     /// Prewarm is the one path that uploads while the pass is *inactive*: it pays the

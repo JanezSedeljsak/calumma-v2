@@ -72,8 +72,16 @@ drag. It forces the overview proxy off and blocks a shifted pan-cache blit, beca
 valid for a frame whose content is moving.
 
 `Document::has_animated_overlay()` means an overlay is animating on the renderer's own clock
-with nothing about the document changing. Only the blinking text caret. It pins `frame_dirty`
-to `Overlay`, not `Content`.
+with nothing about the document changing. Only the blinking text caret.
+
+It no longer pins `frame_dirty` at all. The caret is a square wave — `TEXT_CARET_BLINK_SECONDS`
+is 1.06 — and pinning `Overlay` ran the whole board pass at display rate for as long as a text
+session was open: on a ProMotion panel, 120 frames a second to service a signal that changes
+state twice. `render()` instead compares `compose::text_caret_visible` against the phase of the
+frame it last actually drew (`drawn_caret_phase`) and returns early while that answer has not
+moved, so a parked cursor costs two frames a second. The gate and the drawing call the *same*
+function on purpose: a gate that disagreed would drop the frame meant to show the flip. The
+comparison also catches the caret going away, which needs one frame to erase it.
 
 A **hovered layer is deliberately in neither**. Its outline is a static overlay, and
 `calm_engine_set_hover_layer` already calls `invalidate()` on the way in and on the way out,
@@ -89,9 +97,9 @@ overview proxy off. Every FFI entry that touches either (`calm_engine_deselect`,
 `calm_engine_toggle_transform`, `calm_engine_exit_transform`, the pointer commits) already
 calls `Renderer::invalidate`, which is the one frame they need.
 
-Nothing pins `Content` any more. `render()` ends a frame on `Overlay` while a gesture or the
-caret is live and `Clean` otherwise; content invalidation comes from the events that actually
-change content. `calm_engine_pointer_move` asks `Document::pointer_move` which kind it was — a
+Nothing pins `Content` any more, and only a live *gesture* pins `Overlay`. `render()` ends a
+frame on `Overlay` while a gesture is live and `Clean` otherwise; content invalidation comes
+from the events that actually change content. `calm_engine_pointer_move` asks `Document::pointer_move` which kind it was — a
 pen or a shape drag lays no pixels down until pointer-up, so those frames are overlay-only,
 while the blur brush (which commits mid-drag), a layer move and a transform/vector drag all
 return `true` and invalidate content.
@@ -126,6 +134,95 @@ whole SQLite transaction at an arbitrary point in a frame, with no back-pressure
 takes the lock with `try_lock` and skips on contention, forcing the lock only after
 `AUTOSAVE_MAX_SKIPPED_TICKS` consecutive skips so a continuously-drawn document still reaches
 disk. A skipped tick costs 800 ms of staleness; a blocked frame is visible.
+
+---
+
+## Frame pacing
+
+The `MTKView` runs free (`isPaused = false`, `enableSetNeedsDisplay = false`) at whatever the
+screen it is on can do. What it draws at is now the engine's call: `calm_engine_frame_hint`
+answers frames per second, or **0** for "as fast as the display allows", and
+`Coordinator.draw(in:)` assigns it to `preferredFramesPerSecond`. The ceiling stays the shell's
+(`BoardMTKView.displayCeiling`, from `NSScreen.maximumFramesPerSecond`); the engine names only
+the floor it can live with, and `applyFrameRate` takes the min.
+
+`Renderer::frame_hint` returns the display maximum whenever something is in flight — a gesture
+(`has_live_preview`), a camera still settling (`camera_motion`), a text session, or a frame the
+renderer has already marked dirty for itself. Otherwise `FRAME_HINT_IDLE_FPS` (10): a board
+sitting still has nothing waiting on the display link, and 120 wakeups a second for a picture
+that is not moving is the whole of what idle costs.
+
+A `DeviceTier::Low` machine gets `FRAME_HINT_LOW_TIER_FPS` (60) in place of the display maximum
+— a GPU that cannot hold 120 gains nothing from being asked to try, and pacing it at a rate it
+can actually hold is what makes a gesture feel even. On a 60 Hz display the clamp is a no-op.
+
+**Latency.** `BoardMTKView.wake()` puts the rate straight back to the ceiling from every event
+that can arrive while the board is idle. Without it the first frame after a rest waits out an
+idle interval before the engine gets to report that something is happening — which is exactly
+the frame the pointer is waiting on. `wake()` only ever speeds the view *up*; the engine still
+owns when it may go quiet. This is deliberately smaller than C4 below (`isPaused` plus explicit
+`setNeedsDisplay` wiring) and is not thrown away by it: `frame_hint` returning 0 is the natural
+way to say "pause" if a wakeup per interval ever turns out to be too much.
+
+---
+
+## Device tier
+
+`calumma_core::DeviceTier` is classified once in `Renderer::from_surface` from the adapter —
+`GpuKind` (mapped from `wgpu::DeviceType`) plus `max_texture_array_layers`. A software adapter
+is `Low` outright; an integrated one is `Low` only when it *also* reports no more than the
+WebGPU downlevel baseline of 256 array layers. Apple Silicon reports `IntegratedGpu` with a
+large limit and stays `Standard`: the tier must not punish the machine the app is built on.
+
+| Knob | `Standard` | `Low` |
+| --- | --- | --- |
+| Retention margin | `GPU_TILE_RETENTION_MARGIN_TILES` (3) | 1 |
+| Atlas ceiling | `TILE_ATLAS_MAX_CAPACITY` | ÷ 4 |
+| Frame-hint ceiling | display maximum | 60 |
+| `wgpu::MemoryHints` | `Performance` | `MemoryUsage` |
+
+**A tier is a floor; memory pressure is a ceiling.** Both want the retention margin and the
+atlas ceiling, so neither may set them directly — `GpuBudget` holds the fixed tier and the live
+`PressureState` and answers with the **stricter** of the two. `set_memory_pressure` reads its
+new capacity back out of the budget rather than off the level, so a report that recovered all
+the way to `Normal` cannot hand a weak GPU a ceiling it never had.
+
+`PowerPreference` is deliberately left at `HighPerformance`. On a dual-GPU Intel Mac it forces
+the discrete part for a workload whose hot path is CPU→GPU tile uploads — free on unified
+memory, a bus copy on a discrete one — so `LowPower` is arguable there. Only arguable: the
+integrated part it would pick instead is genuinely weaker on fill rate, and it is not measurable
+on the machine this is developed on. Deciding it by guess would risk making things worse on
+exactly the machines the tier exists to help.
+
+---
+
+## Desk lattice
+
+`fs_paper` is a fullscreen triangle on every frame the board renders at all, and its grid used
+to be evaluated per pixel: two divisions, two `floor`/`round` pairs, six comparisons and two
+`mix`es, at every pixel of a 4K viewport, every frame.
+
+It does not have to be. `desk_pattern` reads **only** `screen` — the desk is deliberately
+screen-locked, so it does not scroll with the board and does not scale with zoom — and both
+halves of it repeat with period `DeskMetrics::cell`, anchored at the viewport origin. So
+`render/src/desk.rs` bakes one period into a `cell × dpr` square `Rg8Unorm` texture (red = on a
+cell rule, green = on a corner cross) and `fs_paper` reads it with `textureLoad` at
+`device_pixel % side`. Integer modulo rather than a sampler and UVs: the texel a pixel lands on
+is then exact arithmetic at any viewport coordinate, instead of a fraction that has to survive
+being scaled up and wrapped back down.
+
+Coverage stays a hard 0 or 255 and the two channels stay separate, so the shader performs
+exactly the two `mix`es it always did against the theme's own `grid` color and alpha — the grid
+*colors* are still uniforms, and a theme switch is still a buffer write. `render/tests` checks
+the two paths byte-for-byte over a whole viewport at 1x, 1.5x and 2x.
+
+`PaperUniforms::lattice_side` is 0 where `cell * dpr` is not a whole number of texels, which
+puts the shader back on the procedural path — a period that does not tile would drift out of
+phase across the viewport, and on a hard-edged grid that is visible. The condition is on the
+*product*: a 26pt cell tiles at 1x, 1.5x and 2x alike. Rebaked on a `dpr` change and never
+otherwise, at ~2.7 KiB.
+
+The paper border band is untouched: it depends on pan and zoom, and it is four comparisons.
 
 ---
 
@@ -188,7 +285,10 @@ sharp depends on where it happens to be scrolled.
 
 Regen is why the thresholds are set that way. One `composite_overview` on an 8K document costs
 ~10 ms at 1 layer, ~32 ms at 5, ~86 ms at 10, and any content change pays it **in full** — the
-path has one resolution and no partial invalidation. Disabling it during a live preview is what
+path has one resolution and no partial invalidation. (It no longer also allocates: `upload`
+re-composites into the texture it already has whenever the size is unchanged, and only a
+*document* resize builds a new texture and bind group. That is a cleanup, not a fix for the
+above.) Disabling it during a live preview is what
 avoids that, and it is also what drops a fit-to-view stroke back onto ~10,000 tile instances.
 
 Both problems are the same missing feature: **levels, and chunked invalidation**. A pyramid
@@ -259,6 +359,12 @@ While active:
 | Camera-only frames: skip preview uniform + stroke clone | Less CPU + buffer writes |
 | Cached visible tile count | Skip recount for overview hysteresis |
 
+`visible_needs_gpu_upload` is memoized across frames on the same basis (`visible_upload_needed`,
+cleared by `invalidate`, `sync_tiles` and `release_document`). It is only *reached* on a frame
+where nothing dirtied content and the retained tile span did not move — a pan inside a single
+tile — which is exactly the frame where the previous answer is still the answer. This is C1
+below.
+
 ---
 
 ## Paper solid quad
@@ -307,8 +413,10 @@ longer touches the swapchain.
 
 After Tier A **and** shipped Tier B1/B2 (below):
 
-- Desk fullscreen triangle every frame (simplified in motion mode; not blitted — see PanCache's
-  known gap above for why)
+- Desk fullscreen triangle every frame — not blitted, see PanCache's known gap above for why.
+  It is now one texel fetch and two `mix`es per pixel rather than the branchy per-pixel lattice
+  math (see Desk lattice); it has never been simplified in motion mode, and an earlier version
+  of this file said it was
 - `PanCache` blit quad: one `copy_texture_to_texture` + a scissored draw per exposed strip,
   bounded by how far the camera moved that frame, not by document size
 - Uniform writes: paper + tile camera (+ overview camera if active)
@@ -360,10 +468,10 @@ fidelity problem before it is a performance one.
 
 | # | Change | Effect | Throw away? |
 | --- | --- | --- | --- |
-| C1 | **Separate tile path entirely during motion** — never rebuild draw list; only uniforms | Already partial; finish by skipping `visible_needs_gpu_upload` on camera-only. That walk is one hash lookup per candidate tile per layer — measured 3 µs at 1 layer, 34 µs at 10, per frame on an 8K fit-to-view — so it is worth removing but is not what makes a big document slow | No |
+| C1 | ~~**Separate tile path entirely during motion**~~ — **shipped**, plan 29. The `visible_needs_gpu_upload` walk (3 µs at 1 layer, 34 µs at 10) is memoized across the frames where its answer cannot have moved; see Motion mode above | — | — |
 | C2 | ~~**GPU compositing for adjustments** instead of CPU bake per dirty tile~~ — **shipped 2026-09-02**, `docs/plans/23-gpu-adjustment-evaluation.md`. LUT + opacity moved onto the `LayerData` table (see `docs/ENGINE.md` § Bind groups); `fs_tile`/`fs_solid_tile` evaluate them per pixel via `apply_adjustments` | Slider drag on large docs | CPU path for export/flatten/pick stays (`AdjustmentLut`) |
 | C3 | **Layer flatten cache** — one GPU texture per layer at rest, patch on edit | Fewer instances when many layers. Note the instance count is already bounded at 48 by the overview threshold, so this is only worth it *inside* a pyramid rebuild, not for the live tile path | Memory ↑ |
-| C4 | **Display link driven render** — `isPaused = true`, draw only when dirty | No idle 120 Hz wakeups | Requires explicit `setNeedsDisplay` wiring |
+| C4 | **Display link driven render** — `isPaused = true`, draw only when dirty | No idle 120 Hz wakeups | Requires explicit `setNeedsDisplay` wiring. **Largely obviated** by plan 29's `calm_engine_frame_hint` (see Frame pacing), which drops idle to 10 fps and the caret from 120 full board passes a second to 2, without the wiring. What is left here is the last wakeup per interval |
 | C5 | **Read zoom pill from atomics** — `flushPendingState` only when chrome visible | Less Swift publish per frame | No |
 
 ## Tier D — simplify / throw out
@@ -372,7 +480,7 @@ Things you can remove or gate behind quality settings if smooth pan matters more
 
 | Remove or defer | Savings | Product cost |
 | --- | --- | --- |
-| **Procedural desk grid** at rest (static texture or no grid until zoom > 1) | Shader ALU every pixel | Desk looks flatter when idle |
+| ~~**Procedural desk grid** at rest~~ — **shipped** as a baked one-period lattice, plan 29. No product cost at all: the drawn result is byte-identical (see Desk lattice) | Shader ALU every pixel | None |
 | **Multiply / Screen blend modes** on tile path (Normal only live) | 2 of 3 tile pipelines + blend state churn | Feature loss |
 | **Per-tile mip chain** at rest (bilinear only, accept shimmer when zoomed far out) | CPU on upload, VRAM × ~1.33 | Moiré when heavily zoomed out |
 | **Layer transform GPU path** for pan frames | Uniform + shader branch per layer | Transformed layers wrong during fast pan until settle |
@@ -407,6 +515,7 @@ pyramid in place of the single 2048px overview flatten (see Overview path).
 | --- | --- |
 | `engine/render/src/renderer.rs` | Frame loop, dirty flags, sync, draw lists |
 | `engine/render/src/framebuffer.rs` | `PanCache` — scroll-blit reference/working textures, shift + exposed-rect math |
+| `engine/render/src/desk.rs` | Baked desk lattice — one period, two coverage channels |
 | `engine/render/src/overview.rs` | Overview texture LOD |
 | `engine/render/src/tile_atlas.rs` | Shared GPU tile array |
 | `engine/render/src/shaders/board.wgsl` | Desk, tiles, overview, solid quad, vectors, `PanCache` blit/clear |
@@ -414,4 +523,5 @@ pyramid in place of the single 2048px overview flatten (see Overview path).
 | `engine/ffi/src/engine.rs` | Pan coalescing, `calm_engine_render` |
 | `engine/ffi/src/autosave.rs` | Background autosave thread |
 | `platform/macos/.../BoardCanvas.swift` | `MTKView` delegate, input |
-| `engine/core/src/limits.rs` | Thresholds (overview, retention, latency) |
+| `engine/core/src/device_tier.rs` | `DeviceTier` / `GpuBudget` — the tier floor combined with the pressure ceiling |
+| `engine/core/src/limits.rs` | Thresholds (overview, retention, latency, frame hints) |

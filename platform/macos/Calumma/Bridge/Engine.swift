@@ -301,6 +301,14 @@ final class Engine: ObservableObject, @unchecked Sendable {
         _ = calm_engine_render(ptr)
     }
 
+    /// Frames per second the engine wants next, or `nil` for "as fast as the display allows".
+    /// The engine decides when the board may be drawn less often; the ceiling stays the screen's.
+    func frameHint() -> Int? {
+        guard let ptr else { return nil }
+        let fps = calm_engine_frame_hint(ptr)
+        return fps == 0 ? nil : Int(fps)
+    }
+
     func pointerDown(x: Float, y: Float) {
         guard let ptr else { return }
         _ = calm_engine_pointer_down(ptr, x, y)

@@ -110,6 +110,7 @@ struct BoardCanvas: NSViewRepresentable {
             }
             engine.flushPendingState()
             engine.render()
+            (view as? BoardMTKView)?.applyFrameRate(engine.frameHint())
         }
 
         func screenPoint(in view: MTKView, event: NSEvent) -> CGPoint {
@@ -139,6 +140,9 @@ final class BoardMTKView: MTKView {
     /// see `refreshCursor`.
     private var pointerInside = false
     private var trackingArea: NSTrackingArea?
+    /// Frames per second the screen the window is on can actually show. `syncRefreshRate` owns
+    /// it; `applyFrameRate` never goes above it.
+    private var displayCeiling = 60
 
     override var acceptsFirstResponder: Bool { true }
 
@@ -147,6 +151,7 @@ final class BoardMTKView: MTKView {
     /// command chords still reach the editor shortcuts, so ⌘Z and ⌘S keep working mid-word
     /// while a bare `p` types a p instead of selecting the pen.
     override func keyDown(with event: NSEvent) {
+        wake()
         if isTypingOnBoard {
             let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
             if flags.contains(.command) {
@@ -166,6 +171,7 @@ final class BoardMTKView: MTKView {
     }
 
     override func keyUp(with event: NSEvent) {
+        wake()
         if isTypingOnBoard {
             return
         }
@@ -213,23 +219,43 @@ final class BoardMTKView: MTKView {
     /// every other frame. Follow whichever screen the window is actually on.
     private func syncRefreshRate() {
         let screen = window?.screen ?? NSScreen.main
-        preferredFramesPerSecond = screen?.maximumFramesPerSecond ?? 60
+        displayCeiling = screen?.maximumFramesPerSecond ?? 60
+        wake()
+    }
+
+    /// Applies the engine's pacing floor against the ceiling the display sets. The engine names
+    /// how often it wants to be drawn (`calm_engine_frame_hint`) and nothing else — a settled
+    /// board has nothing waiting on the display link, and on a 120Hz panel that is otherwise a
+    /// hundred and twenty wakeups a second for a picture that is not moving.
+    func applyFrameRate(_ hint: Int?) {
+        preferredFramesPerSecond = min(hint ?? displayCeiling, displayCeiling)
+    }
+
+    /// An event arrived, so draw at the display's rate until the engine says it may slow down
+    /// again. This only ever speeds the view *up*: without it the first frame after a rest waits
+    /// out an idle interval before the engine gets to report that something is happening, which
+    /// is exactly the frame the pointer is waiting on.
+    private func wake() {
+        preferredFramesPerSecond = displayCeiling
     }
 
     /// AppKit calls this exactly when the pointer is over the tracking area, which makes it the
     /// surer of the two "inside" signals: a window becoming key with the pointer already on the
     /// board gets a `cursorUpdate` without a `mouseEntered` to go with it.
     override func cursorUpdate(with event: NSEvent) {
+        wake()
         pointerInside = true
         refreshCursor()
     }
 
     override func mouseEntered(with event: NSEvent) {
+        wake()
         pointerInside = true
         refreshCursor()
     }
 
     override func mouseMoved(with event: NSEvent) {
+        wake()
         updateHoveredGuide(with: event)
         updateBrushCursor(with: event)
         refreshCursor()
@@ -237,6 +263,7 @@ final class BoardMTKView: MTKView {
     }
 
     override func mouseExited(with event: NSEvent) {
+        wake()
         pointerInside = false
         hoveredGuideAxis = nil
         boardCoordinator?.engine.clearPointerHover()
@@ -268,6 +295,7 @@ final class BoardMTKView: MTKView {
     /// itself — waiting for the next mouse-move would leave the board showing a rectangle
     /// while the user is already holding Shift.
     override func flagsChanged(with event: NSEvent) {
+        wake()
         refreshCursor()
         if painting {
             boardCoordinator?.engine.setShift(event.modifierFlags.contains(.shift))
@@ -276,6 +304,7 @@ final class BoardMTKView: MTKView {
     }
 
     override func mouseDown(with event: NSEvent) {
+        wake()
         guard let coordinator = boardCoordinator else { return }
         let point = coordinator.screenPoint(in: self, event: event)
         if shouldPan(with: event) {
@@ -342,6 +371,7 @@ final class BoardMTKView: MTKView {
     }
 
     override func otherMouseDown(with event: NSEvent) {
+        wake()
         guard event.buttonNumber == middleButton, let coordinator = boardCoordinator else {
             super.otherMouseDown(with: event)
             return
@@ -381,6 +411,7 @@ final class BoardMTKView: MTKView {
     }
 
     override func scrollWheel(with event: NSEvent) {
+        wake()
         guard let coordinator = boardCoordinator else { return }
         let point = coordinator.screenPoint(in: self, event: event)
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
@@ -402,6 +433,7 @@ final class BoardMTKView: MTKView {
     }
 
     override func magnify(with event: NSEvent) {
+        wake()
         guard let coordinator = boardCoordinator else { return }
         let point = coordinator.screenPoint(in: self, event: event)
         coordinator.engine.zoom(
