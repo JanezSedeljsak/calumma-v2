@@ -1180,6 +1180,39 @@ pub unsafe extern "C" fn calm_engine_set_stroke_color(
 }
 
 #[no_mangle]
+pub unsafe extern "C" fn calm_engine_set_select_color(
+    engine: *mut CalmEngine,
+    r: u8,
+    g: u8,
+    b: u8,
+    a: u8,
+) -> CalmStatus {
+    with_inner(engine, |inner| {
+        if let Some(doc) = &mut inner.doc {
+            doc.set_select_color([r, g, b, a]);
+        }
+        Ok(())
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn calm_engine_get_select_color(
+    engine: *mut CalmEngine,
+    out_rgba: *mut u32,
+) -> CalmStatus {
+    if out_rgba.is_null() {
+        return CalmStatus::Null;
+    }
+    with_inner(engine, |inner| {
+        let doc = inner.doc.as_ref().context("no project is open")?;
+        unsafe {
+            *out_rgba = pack_rgba(doc.select_color());
+        }
+        Ok(())
+    })
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn calm_engine_set_shape_fill_color(
     engine: *mut CalmEngine,
     r: u8,

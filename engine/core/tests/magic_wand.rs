@@ -54,17 +54,22 @@ fn wand_bounds_are_tight_to_the_region() {
     );
 }
 
-/// Clicking the transparent field selects the field — alpha counts toward the tolerance, which
-/// is what makes "select the empty space around a sketch" work at all.
+/// Transparent pixels inside the layer's painted bounds are selectable — alpha counts
+/// toward the tolerance, which is what makes "select the empty space inside a frame"
+/// work. Clicks outside painted bounds leave no selection (the scope is tight to ink).
 #[test]
-fn wand_selects_transparency_too() {
+fn wand_selects_transparency_within_layer_bounds() {
     let mut doc = board_with_square();
+    doc.layers[doc.active_layer]
+        .tiles_mut()
+        .unwrap()
+        .fill_uniform(DocRect::new(90, 90, 109, 109), [0, 0, 0, 0]);
     doc.tool = Tool::MagicWand;
-    click(&mut doc, 10.0, 10.0);
+    click(&mut doc, 100.0, 100.0);
 
     let sel = doc.selection.as_ref().expect("a selection");
-    assert!(sel.contains(10.5, 10.5), "the empty field is selected");
-    assert!(!sel.contains(100.5, 100.5), "the square is not");
+    assert!(sel.contains(100.5, 100.5), "the hole is selected");
+    assert!(!sel.contains(70.5, 70.5), "the red ring around it is not");
 }
 
 /// The wand reads the *active* layer, not the composite. Clicking the transparent hole in a
@@ -76,16 +81,24 @@ fn wand_reads_the_active_layer_not_the_composite() {
         .find(|&i| doc.layers[i].is_paper())
         .expect("Paper");
     assert_ne!(paper, doc.active_layer, "the square is on its own layer");
+    doc.layers[doc.active_layer]
+        .tiles_mut()
+        .unwrap()
+        .fill_uniform(DocRect::new(90, 90, 109, 109), [0, 0, 0, 0]);
 
     doc.tool = Tool::MagicWand;
-    click(&mut doc, 10.0, 10.0);
+    click(&mut doc, 100.0, 100.0);
     let sel = doc.selection.as_ref().expect("a selection");
     assert!(
-        !sel.contains(100.5, 100.5),
+        !sel.contains(70.5, 70.5),
         "Paper is opaque white everywhere, so a composite read would have selected \
          everything but the square's color — this must be the active layer's transparency"
     );
-    assert!(sel.contains(10.5, 10.5));
+    assert!(sel.contains(100.5, 100.5));
+    assert!(
+        !sel.contains(10.5, 10.5),
+        "outside painted bounds is not in scope"
+    );
 }
 
 /// The wand replaces the selection, so a previous one must not clip it. The bucket, which

@@ -27,6 +27,10 @@ const TRANSFORM_HANDLE_BORDER_PX: f32 = 1.0;
 const TEXT_BOX_COLOR: [f32; 4] = [0.24, 0.78, 0.84, 0.45];
 const TEXT_BOX_WIDTH_PX: f32 = 0.5;
 const TEXT_CARET_WIDTH_PX: f32 = 1.0;
+/// The selection wash. Light enough that the glyphs read straight through it — the highlight
+/// rides *over* the text (the overlay pass runs after the tile pass) rather than behind it, so
+/// its alpha is the only thing keeping the words legible.
+const TEXT_SELECTION_COLOR: [f32; 4] = [0.24, 0.78, 0.84, 0.28];
 /// Seconds for one on-off caret cycle. The blink runs off the renderer clock rather than a
 /// shell timer, so nothing outside the engine has to know a caret exists.
 const TEXT_CARET_BLINK_SECONDS: f32 = 1.06;
@@ -44,6 +48,16 @@ pub struct StrokeInstance {
 /// of it that could drift.
 pub fn brush_params(radius: f32, profile: &BrushProfile) -> [f32; 4] {
     [radius, profile.hardness, profile.grain, profile.grain_scale]
+}
+
+/// Overlay instance parameters for a filled rectangle rather than a capsule.
+///
+/// `fs_overlay` reads a non-zero half *height* as "this is a box", which is why every existing
+/// overlay instance — all of them `BrushProfile::HARD`, whose grain is 0 — keeps drawing a
+/// capsule with no change. The height is in screen pixels like the width, so a selection row
+/// is handed `row_height * zoom * 0.5` and tracks the glyphs it covers instead of the chrome.
+pub fn overlay_rect_params(half_height_px: f32) -> [f32; 4] {
+    [0.0, 0.0, half_height_px, 0.0]
 }
 
 pub fn rgba_unit(rgba: [u8; 4]) -> [f32; 4] {
@@ -317,7 +331,17 @@ pub fn text_overlay_instances(doc: &Document, elapsed: f32) -> Vec<StrokeInstanc
     let Some((x0, y0, x1, y1)) = doc.text_box() else {
         return Vec::new();
     };
-    let mut out = Vec::with_capacity(5);
+    let mut out = Vec::with_capacity(8);
+    // First, so the box hairline and the caret paint over it: instances draw in order.
+    let zoom = doc.camera.zoom.max(f32::MIN_POSITIVE);
+    for row in doc.text_selection_rows() {
+        let mid_y = row.y + row.height * 0.5;
+        out.push(StrokeInstance {
+            segment: [row.x, mid_y, row.x + row.width, mid_y],
+            color: TEXT_SELECTION_COLOR,
+            brush: overlay_rect_params(row.height * 0.5 * zoom),
+        });
+    }
     let corners = [(x0, y0), (x1, y0), (x1, y1), (x0, y1)];
     for i in 0..4 {
         let a = corners[i];

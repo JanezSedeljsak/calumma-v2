@@ -394,6 +394,8 @@ pub struct Document {
     /// How far a flood may stray from the color it started on. One knob for the bucket and
     /// the magic wand both, since they are one traversal.
     pub tolerance: u8,
+    /// Match color for `Tool::SelectColor`, pushed from the shell's tertiary swatch.
+    pub select_color: [u8; 4],
     /// Radius of the disc the eyedropper averages over — see
     /// `limits::EYEDROPPER_RADIUS_DEFAULT`.
     pub eyedropper_radius: u32,
@@ -634,6 +636,7 @@ impl Document {
             stroke_before: TileSnapshot::default(),
             blur_strength: BLUR_STRENGTH_DEFAULT,
             tolerance: TOLERANCE_DEFAULT,
+            select_color: DEFAULT_INK,
             eyedropper_radius: EYEDROPPER_RADIUS_DEFAULT,
             brush: Brush::default(),
             eraser_hardness: ERASER_HARDNESS_DEFAULT,
@@ -1405,6 +1408,10 @@ impl Document {
             self.commit_magic_wand(dx, dy);
             return;
         }
+        if self.tool == Tool::SelectColor {
+            self.commit_select_color(dx, dy);
+            return;
+        }
         if self.tool == Tool::Eyedropper {
             let _ = self.pick_color(dx, dy);
             return;
@@ -1458,6 +1465,9 @@ impl Document {
             self.update_move_drag(dx, dy);
             return true;
         }
+        if self.tool == Tool::Text {
+            return self.text_pointer_move(dx, dy);
+        }
         if self.tool.is_stroke() && self.stroke_active {
             self.push_stroke_point(dx, dy);
             return self.blur_pending_stamps();
@@ -1483,6 +1493,10 @@ impl Document {
                 return;
             }
             self.end_move_drag();
+            return;
+        }
+        if self.tool == Tool::Text {
+            self.text_pointer_up();
             return;
         }
         if self.tool.is_stroke() {
@@ -1606,8 +1620,32 @@ impl Document {
         }
     }
 
+    /// Tolerance is one knob for the bucket, the wand and Select Color. Only the last of the
+    /// three re-runs on it: it is Color Range's Fuzziness, where the point is watching the
+    /// selection open up as you drag. The other two apply it to their next click, which is what
+    /// a flood from a pixel you are no longer pointing at would have to guess.
     pub fn set_tolerance(&mut self, tolerance: u8) {
-        self.tolerance = tolerance.clamp(TOLERANCE_MIN, TOLERANCE_MAX);
+        let next = tolerance.clamp(TOLERANCE_MIN, TOLERANCE_MAX);
+        if self.tolerance == next {
+            return;
+        }
+        self.tolerance = next;
+        self.reselect_color();
+    }
+
+    /// The match colour, pushed from the shell's tertiary swatch. Ringing that swatch while
+    /// Select Color is in hand re-runs the selection, which is what makes it *the* match colour
+    /// rather than a note about one — Photoshop's Color Range updates as you re-sample too.
+    pub fn set_select_color(&mut self, color: [u8; 4]) {
+        if self.select_color == color {
+            return;
+        }
+        self.select_color = color;
+        self.reselect_color();
+    }
+
+    pub fn select_color(&self) -> [u8; 4] {
+        self.select_color
     }
 
     pub fn set_eyedropper_radius(&mut self, radius: u32) {
@@ -1848,7 +1886,7 @@ impl Document {
         if self.tool_blocked(self.tool) {
             return;
         }
-        let selection_shape = match shape.tool {
+        let geom = match shape.tool {
             Tool::Rect => SelectionShape::Rect {
                 start: shape.start,
                 end: shape.end,
@@ -1859,15 +1897,38 @@ impl Document {
             },
             _ => return,
         };
+        self.commit_geometry_selection(geom);
+    }
+
+    /// A marquee or a lasso, kept only where the active layer has ink.
+    ///
+    /// Two answers, not one. A layer with **nothing painted** has nothing for the region to hug,
+    /// so the geometry stands as drawn — that is the only thing a marquee on a fresh layer could
+    /// sensibly mean, and it is what Photoshop does everywhere. A layer that *does* have ink and
+    /// simply none inside the region leaves the selection alone, the same as a wand that hit
+    /// nothing: the gesture asked for artwork and found none.
+    fn commit_geometry_selection(&mut self, geom: SelectionShape) {
+        let doc_bounds = self.bounds();
+        let Some(layer) = self.layers.get(self.active_layer) else {
+            return;
+        };
+        if crate::select_sample::painted_scope(layer, doc_bounds).is_none() {
+            self.selection = Some(Selection { shape: geom });
+            return;
+        }
+        let Some(mask) = crate::select_sample::selection_from_geometry(layer, doc_bounds, &geom)
+        else {
+            return;
+        };
         self.selection = Some(Selection {
-            shape: selection_shape,
+            shape: SelectionShape::Mask(mask),
         });
     }
 
     /// Select by color: flood from the clicked pixel of the active layer and keep what the
     /// walk reached.
     ///
-    /// Scope is the whole document rather than the existing selection's bounds — the wand
+    /// Scope is the active layer's painted bounds intersected with the document — the wand
     /// *replaces* the selection, so letting the old one clip the new one would make a second
     /// click inside a previous wand result unable to grow past it. That is the one place the
     /// wand deliberately diverges from the bucket, which paints *into* the selection and so
@@ -1882,18 +1943,48 @@ impl Document {
         }
         let x = doc_x.floor() as i32;
         let y = doc_y.floor() as i32;
-        let scope = self.bounds();
-        if !scope.contains(x, y) {
-            return;
-        }
-        let Some(grid) = self.layers.get(self.active_layer).and_then(Layer::tiles) else {
+        let doc_bounds = self.bounds();
+        let active = self.active_layer;
+        let Some(layer) = self.layers.get(active) else {
             return;
         };
+        let Some(sample) = crate::select_sample::LayerSelectSample::new(layer, doc_bounds) else {
+            return;
+        };
+        if !sample.scope.contains(x, y) {
+            return;
+        }
         let tolerance = self.tolerance;
+        let scope = sample.scope;
         self.selection =
-            crate::fill::flood_region(grid, scope, x, y, None, tolerance).map(|mask| Selection {
-                shape: SelectionShape::Mask(mask),
-            });
+            crate::fill::flood_region_pixels(scope, x, y, tolerance, |px, py| sample.pixel(px, py))
+                .map(|mask| Selection {
+                    shape: SelectionShape::Mask(mask),
+                });
+    }
+
+    /// Clicking with Select Color is the eyedropper half of Photoshop's Color Range: it samples
+    /// the pixel into the match swatch and then selects everything that matches it. Changing the
+    /// swatch or the tolerance afterwards re-runs against the same layer — see
+    /// `Document::reselect_color`.
+    fn commit_select_color(&mut self, doc_x: f32, doc_y: f32) {
+        if self.tool_blocked(Tool::SelectColor) {
+            return;
+        }
+        let x = doc_x.floor() as i32;
+        let y = doc_y.floor() as i32;
+        let doc_bounds = self.bounds();
+        let Some(layer) = self.layers.get(self.active_layer) else {
+            return;
+        };
+        let Some(sample) = crate::select_sample::LayerSelectSample::new(layer, doc_bounds) else {
+            return;
+        };
+        if !sample.scope.contains(x, y) {
+            return;
+        }
+        self.select_color = sample.pixel(x, y);
+        self.apply_color_range();
     }
 
     fn commit_lasso_selection(&mut self) {
@@ -1906,12 +1997,11 @@ impl Document {
             .into_iter()
             .map(|p| (p.x, p.y))
             .collect();
+        let points = crate::select_sample::simplify_lasso_points(points);
         if points.len() < 3 {
             return;
         }
-        self.selection = Some(Selection {
-            shape: SelectionShape::Lasso { points },
-        });
+        self.commit_geometry_selection(SelectionShape::Lasso { points });
     }
 
     /// The one place the ink color changes, so a text layer being typed into recolors with
@@ -2332,10 +2422,17 @@ impl Document {
         Some(svg)
     }
 
+    /// The selected pixels of the active layer, for copy and cut.
+    ///
+    /// Read through the same `LayerSelectSample` the selection was *built* from, which is the
+    /// only way the two can agree: a vector layer has no tiles to read at all, and a
+    /// transformed raster layer's tiles sit in its own space while the selection is in the
+    /// document's. Reading the grid directly answered both of those wrong.
     pub fn selection_rgba(&self) -> Option<(u32, u32, Vec<u8>)> {
         let selection = self.selection.as_ref()?;
         let bounds = selection.bounds().intersect(self.bounds())?;
-        let tiles = self.layers.get(self.active_layer)?.tiles()?;
+        let layer = self.layers.get(self.active_layer)?;
+        let sample = crate::select_sample::LayerSelectSample::new(layer, self.bounds())?;
         let w = (bounds.max_x - bounds.min_x + 1) as u32;
         let h = (bounds.max_y - bounds.min_y + 1) as u32;
         let mut buf = vec![0u8; (w as usize) * (h as usize) * 4];
@@ -2349,7 +2446,7 @@ impl Document {
                     if !selection.contains(doc_x as f32 + 0.5, doc_y as f32 + 0.5) {
                         continue;
                     }
-                    let px = tiles.get_pixel(doc_x, doc_y);
+                    let px = sample.pixel(doc_x, doc_y);
                     if px[3] == 0 {
                         continue;
                     }

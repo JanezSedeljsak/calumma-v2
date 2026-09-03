@@ -26,6 +26,7 @@ extension CalmTool {
         case .pentagon: return "pentagon"
         case .selectRect, .selectEllipse, .selectLasso: return "select-rect"
         case .magicWand: return "magic-wand"
+        case .selectColor: return "select-color"
         }
     }
 
@@ -35,6 +36,7 @@ extension CalmTool {
         case .selectEllipse: return "select-ellipse"
         case .selectLasso: return "select-lasso"
         case .magicWand: return "magic-wand"
+        case .selectColor: return "select-color"
         default: return "select-rect"
         }
     }

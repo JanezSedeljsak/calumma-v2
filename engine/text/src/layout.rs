@@ -1,7 +1,6 @@
-use crate::fonts::{with_engine, TextEngine};
-use crate::run::{TextAlign, TextRun};
-use cosmic_text::fontdb::Family;
-use cosmic_text::{Align, Attrs, Buffer, Cursor, FontSystem, LayoutRun, Metrics, Motion, Shaping};
+use crate::buffer::with_buffer;
+use crate::run::TextRun;
+use cosmic_text::{Buffer, Cursor, LayoutRun, Motion};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct CaretRect {
@@ -23,6 +22,8 @@ pub enum Step {
     LineEnd = 5,
     DocStart = 6,
     DocEnd = 7,
+    WordLeft = 8,
+    WordRight = 9,
 }
 
 impl Step {
@@ -31,46 +32,7 @@ impl Step {
     }
 }
 
-fn align_of(align: TextAlign) -> Align {
-    match align {
-        TextAlign::Left => Align::Left,
-        TextAlign::Center => Align::Center,
-        TextAlign::Right => Align::Right,
-    }
-}
-
-/// Shapes the run into a throwaway buffer. Everything else in this crate is a question asked
-/// of that buffer, so shaping lives in exactly one place and every answer — extent, caret,
-/// hit test, coverage — comes from the same layout.
-pub(crate) fn build_buffer(engine: &mut TextEngine, run: &TextRun) -> Buffer {
-    let metrics = Metrics::new(run.size.max(1.0), run.line_spacing().max(1.0));
-    let mut buffer = Buffer::new(&mut engine.font_system, metrics);
-    buffer.set_size(run.wrap_width, None);
-    let attrs = Attrs::new()
-        .family(Family::Name(&run.family))
-        .weight(crate::fonts::weight_of(run.bold))
-        .style(crate::fonts::style_of(run.italic));
-    buffer.set_text(
-        &run.display_text(),
-        &attrs,
-        Shaping::Advanced,
-        Some(align_of(run.align)),
-    );
-    buffer.shape_until_scroll(&mut engine.font_system, false);
-    buffer
-}
-
-pub(crate) fn with_buffer<R>(
-    run: &TextRun,
-    f: impl FnOnce(&mut Buffer, &mut FontSystem) -> R,
-) -> R {
-    with_engine(|engine| {
-        let mut buffer = build_buffer(engine, run);
-        f(&mut buffer, &mut engine.font_system)
-    })
-}
-
-fn cursor_to_offset(buffer: &Buffer, cursor: Cursor) -> usize {
+pub(crate) fn cursor_to_offset(buffer: &Buffer, cursor: Cursor) -> usize {
     let mut offset = 0usize;
     for (i, line) in buffer.lines.iter().enumerate() {
         if i == cursor.line {
@@ -81,7 +43,7 @@ fn cursor_to_offset(buffer: &Buffer, cursor: Cursor) -> usize {
     offset
 }
 
-fn offset_to_cursor(buffer: &Buffer, offset: usize) -> Cursor {
+pub(crate) fn offset_to_cursor(buffer: &Buffer, offset: usize) -> Cursor {
     let mut remaining = offset;
     for (i, line) in buffer.lines.iter().enumerate() {
         let len = line.text().len();
@@ -114,7 +76,7 @@ pub fn measure(run: &TextRun) -> (f32, f32) {
 /// Byte range of the original line that one visual row covers. A wrapped paragraph is a
 /// single `BufferLine` laid out as several rows, so the row a caret belongs to can only be
 /// found by asking which glyphs it holds — `line_i` alone names the paragraph, not the row.
-fn run_span(run: &LayoutRun<'_>) -> (usize, usize) {
+pub(crate) fn run_span(run: &LayoutRun<'_>) -> (usize, usize) {
     let mut start = usize::MAX;
     let mut end = 0usize;
     for glyph in run.glyphs {
@@ -229,7 +191,7 @@ pub fn caret_rect(run: &TextRun, index: usize) -> CaretRect {
     }
 }
 
-fn display_to_text_index(run: &TextRun, display: usize) -> usize {
+pub(crate) fn display_to_text_index(run: &TextRun, display: usize) -> usize {
     if run.marked.is_empty() {
         return run.clamp_index(display);
     }
@@ -313,10 +275,11 @@ pub fn step_index(run: &TextRun, index: usize, step: Step) -> usize {
         }
         _ => {
             let display = run.display_index(index);
-            let motion = if step == Step::Left {
-                Motion::Left
-            } else {
-                Motion::Right
+            let motion = match step {
+                Step::Left => Motion::Left,
+                Step::WordLeft => Motion::LeftWord,
+                Step::WordRight => Motion::RightWord,
+                _ => Motion::Right,
             };
             let target = with_buffer(run, |buffer, font_system| {
                 let cursor = offset_to_cursor(buffer, display);

@@ -91,6 +91,9 @@ extension BoardMTKView: NSTextInputClient {
 
     /// Selector-driven editing. Anything not listed is deliberately dropped rather than
     /// falling through to `super`, so a stray command cannot fire a tool shortcut mid-word.
+    ///
+    /// AppKit names the shift-held variants separately (`…AndModifySelection:`), which is the
+    /// whole of how selection reaches the engine from the keyboard: same step, `extend` set.
     override func doCommand(by selector: Selector) {
         guard let engine = textEngine else { return }
         switch selector {
@@ -99,18 +102,28 @@ extension BoardMTKView: NSTextInputClient {
             engine.textInsert("\n")
         case #selector(NSStandardKeyBindingResponding.insertTab(_:)):
             engine.textInsert("\t")
-        case #selector(NSStandardKeyBindingResponding.deleteBackward(_:)),
-             #selector(NSStandardKeyBindingResponding.deleteWordBackward(_:)):
+        case #selector(NSStandardKeyBindingResponding.deleteBackward(_:)):
             engine.textBackspace()
-        case #selector(NSStandardKeyBindingResponding.deleteForward(_:)),
-             #selector(NSStandardKeyBindingResponding.deleteWordForward(_:)):
+        case #selector(NSStandardKeyBindingResponding.deleteForward(_:)):
             engine.textDeleteForward()
-        case #selector(NSStandardKeyBindingResponding.moveLeft(_:)),
-             #selector(NSStandardKeyBindingResponding.moveWordLeft(_:)):
+        // Deleting a word is a word-wide selection and then a delete, which is what it always
+        // was — it just could not be said before there was an anchor to hold the far end.
+        case #selector(NSStandardKeyBindingResponding.deleteWordBackward(_:)):
+            engine.textMoveCaret(.wordLeft, extend: true)
+            engine.textBackspace()
+        case #selector(NSStandardKeyBindingResponding.deleteWordForward(_:)):
+            engine.textMoveCaret(.wordRight, extend: true)
+            engine.textDeleteForward()
+        case #selector(NSStandardKeyBindingResponding.moveLeft(_:)):
             engine.textMoveCaret(.left)
-        case #selector(NSStandardKeyBindingResponding.moveRight(_:)),
-             #selector(NSStandardKeyBindingResponding.moveWordRight(_:)):
+        case #selector(NSStandardKeyBindingResponding.moveRight(_:)):
             engine.textMoveCaret(.right)
+        case #selector(NSStandardKeyBindingResponding.moveWordLeft(_:)),
+             #selector(NSStandardKeyBindingResponding.moveWordBackward(_:)):
+            engine.textMoveCaret(.wordLeft)
+        case #selector(NSStandardKeyBindingResponding.moveWordRight(_:)),
+             #selector(NSStandardKeyBindingResponding.moveWordForward(_:)):
+            engine.textMoveCaret(.wordRight)
         case #selector(NSStandardKeyBindingResponding.moveUp(_:)):
             engine.textMoveCaret(.up)
         case #selector(NSStandardKeyBindingResponding.moveDown(_:)):
@@ -125,6 +138,34 @@ extension BoardMTKView: NSTextInputClient {
             engine.textMoveCaret(.docStart)
         case #selector(NSStandardKeyBindingResponding.moveToEndOfDocument(_:)):
             engine.textMoveCaret(.docEnd)
+        case #selector(NSStandardKeyBindingResponding.moveLeftAndModifySelection(_:)):
+            engine.textMoveCaret(.left, extend: true)
+        case #selector(NSStandardKeyBindingResponding.moveRightAndModifySelection(_:)):
+            engine.textMoveCaret(.right, extend: true)
+        case #selector(NSStandardKeyBindingResponding.moveWordLeftAndModifySelection(_:)),
+             #selector(NSStandardKeyBindingResponding.moveWordBackwardAndModifySelection(_:)):
+            engine.textMoveCaret(.wordLeft, extend: true)
+        case #selector(NSStandardKeyBindingResponding.moveWordRightAndModifySelection(_:)),
+             #selector(NSStandardKeyBindingResponding.moveWordForwardAndModifySelection(_:)):
+            engine.textMoveCaret(.wordRight, extend: true)
+        case #selector(NSStandardKeyBindingResponding.moveUpAndModifySelection(_:)):
+            engine.textMoveCaret(.up, extend: true)
+        case #selector(NSStandardKeyBindingResponding.moveDownAndModifySelection(_:)):
+            engine.textMoveCaret(.down, extend: true)
+        case #selector(NSStandardKeyBindingResponding.moveToBeginningOfLineAndModifySelection(_:)),
+             #selector(NSStandardKeyBindingResponding.moveToLeftEndOfLineAndModifySelection(_:)):
+            engine.textMoveCaret(.lineStart, extend: true)
+        case #selector(NSStandardKeyBindingResponding.moveToEndOfLineAndModifySelection(_:)),
+             #selector(NSStandardKeyBindingResponding.moveToRightEndOfLineAndModifySelection(_:)):
+            engine.textMoveCaret(.lineEnd, extend: true)
+        case #selector(
+            NSStandardKeyBindingResponding.moveToBeginningOfDocumentAndModifySelection(_:)
+        ):
+            engine.textMoveCaret(.docStart, extend: true)
+        case #selector(NSStandardKeyBindingResponding.moveToEndOfDocumentAndModifySelection(_:)):
+            engine.textMoveCaret(.docEnd, extend: true)
+        case #selector(NSStandardKeyBindingResponding.selectAll(_:)):
+            engine.textSelectAll()
         case #selector(NSStandardKeyBindingResponding.cancelOperation(_:)):
             markedTextValue = ""
             engine.commitText()

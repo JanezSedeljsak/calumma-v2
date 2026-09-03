@@ -133,12 +133,15 @@ fn editing_keys_reach_the_run() {
     engine.type_text("abcd");
     unsafe {
         assert_eq!(
-            calm_engine_text_move_caret(engine.ptr, 0),
+            calm_engine_text_move_caret(engine.ptr, 0, 0),
             CalmStatus::Ok,
             "left"
         );
         assert_eq!(calm_engine_text_backspace(engine.ptr), CalmStatus::Ok);
-        assert_eq!(calm_engine_text_move_caret(engine.ptr, 6), CalmStatus::Ok);
+        assert_eq!(
+            calm_engine_text_move_caret(engine.ptr, 6, 0),
+            CalmStatus::Ok
+        );
         assert_eq!(calm_engine_text_delete_forward(engine.ptr), CalmStatus::Ok);
     }
     let index = (0..8)
@@ -450,4 +453,173 @@ fn the_new_text_calls_are_null_safe() {
             calm_text_line_height_default()
         );
     }
+}
+
+#[test]
+fn the_selection_and_wrap_calls_are_null_safe() {
+    unsafe {
+        assert_eq!(
+            calm_engine_text_move_caret(ptr::null_mut(), 0, 1),
+            CalmStatus::Null
+        );
+        assert_eq!(
+            calm_engine_text_select_all(ptr::null_mut()),
+            CalmStatus::Null
+        );
+        assert_eq!(
+            calm_engine_text_select_word_at(ptr::null_mut(), 0.0, 0.0),
+            CalmStatus::Null
+        );
+        assert_eq!(
+            calm_engine_text_select_paragraph_at(ptr::null_mut(), 0.0, 0.0),
+            CalmStatus::Null
+        );
+        assert_eq!(calm_engine_text_has_selection(ptr::null_mut()), 0);
+        assert_eq!(
+            calm_engine_set_text_wrap_width(ptr::null_mut(), 100.0),
+            CalmStatus::Null
+        );
+        assert_eq!(calm_engine_text_wrap_width(ptr::null_mut()), 0.0);
+        assert_eq!(calm_engine_text_wrap_max(ptr::null_mut()), 0.0);
+    }
+}
+
+/// The bridge for selection: a shift-extended step, then a style knob that has to land on the
+/// range rather than on the block.
+#[test]
+fn a_shift_extended_step_selects_and_a_plain_one_cancels() {
+    let engine = TextEngine::new();
+    engine.click(200.0, 200.0);
+    engine.type_text("hello world");
+    unsafe {
+        assert_eq!(calm_engine_text_has_selection(engine.ptr), 0);
+        assert_eq!(
+            calm_engine_text_move_caret(engine.ptr, 8, 1),
+            CalmStatus::Ok,
+            "word left, extending"
+        );
+        assert_eq!(calm_engine_text_has_selection(engine.ptr), 1);
+        assert_eq!(
+            calm_engine_text_move_caret(engine.ptr, 1, 0),
+            CalmStatus::Ok
+        );
+        assert_eq!(calm_engine_text_has_selection(engine.ptr), 0);
+    }
+}
+
+#[test]
+fn select_all_reaches_the_run_and_is_refused_with_no_session() {
+    let engine = TextEngine::new();
+    engine.click(200.0, 200.0);
+    engine.type_text("hello world");
+    unsafe {
+        assert_eq!(calm_engine_text_select_all(engine.ptr), CalmStatus::Ok);
+        assert_eq!(calm_engine_text_has_selection(engine.ptr), 1);
+        assert_eq!(calm_engine_text_commit(engine.ptr), CalmStatus::Ok);
+        assert_eq!(
+            calm_engine_text_select_all(engine.ptr),
+            CalmStatus::Error,
+            "nothing is being edited"
+        );
+        assert_eq!(calm_engine_text_has_selection(engine.ptr), 0);
+    }
+}
+
+#[test]
+fn a_double_and_triple_click_select_a_word_and_a_paragraph() {
+    let engine = TextEngine::new();
+    engine.click(200.0, 200.0);
+    engine.type_text("hello world\nsecond line");
+    unsafe {
+        assert_eq!(
+            calm_engine_text_select_word_at(engine.ptr, 205.0, 202.0),
+            CalmStatus::Ok
+        );
+        assert_eq!(calm_engine_text_has_selection(engine.ptr), 1);
+        assert_eq!(
+            calm_engine_text_select_paragraph_at(engine.ptr, 205.0, 202.0),
+            CalmStatus::Ok
+        );
+        assert_eq!(calm_engine_text_has_selection(engine.ptr), 1);
+    }
+}
+
+#[test]
+fn a_size_set_over_a_selection_is_read_back_at_the_selection() {
+    let engine = TextEngine::new();
+    engine.click(200.0, 200.0);
+    engine.type_text("hello world");
+    unsafe {
+        assert_eq!(calm_engine_set_text_size(engine.ptr, 40.0), CalmStatus::Ok);
+        assert_eq!(
+            calm_engine_text_move_caret(engine.ptr, 8, 1),
+            CalmStatus::Ok
+        );
+        assert_eq!(calm_engine_set_text_size(engine.ptr, 90.0), CalmStatus::Ok);
+        assert_eq!(calm_engine_text_size(engine.ptr), 90.0);
+        assert_eq!(
+            calm_engine_text_move_caret(engine.ptr, 6, 0),
+            CalmStatus::Ok
+        );
+        assert_eq!(
+            calm_engine_text_size(engine.ptr),
+            40.0,
+            "the caret in the unstyled half reports the block's size"
+        );
+    }
+}
+
+#[test]
+fn the_wrap_width_crosses_the_bridge_and_answers_zero_for_no_box() {
+    let engine = TextEngine::new();
+    engine.click(200.0, 200.0);
+    engine.type_text("wrapping words onto several rows");
+    unsafe {
+        assert_eq!(calm_engine_text_wrap_width(engine.ptr), 0.0);
+        assert_eq!(
+            calm_engine_set_text_wrap_width(engine.ptr, 140.0),
+            CalmStatus::Ok
+        );
+        assert_eq!(calm_engine_text_wrap_width(engine.ptr), 140.0);
+        assert_eq!(
+            calm_engine_set_text_wrap_width(engine.ptr, 0.0),
+            CalmStatus::Ok
+        );
+        assert_eq!(calm_engine_text_wrap_width(engine.ptr), 0.0);
+        assert_eq!(
+            calm_engine_set_text_wrap_width(engine.ptr, 2.0),
+            CalmStatus::Ok
+        );
+        assert_eq!(
+            calm_engine_text_wrap_width(engine.ptr),
+            0.0,
+            "a box under the floor is no box"
+        );
+        assert!(calm_text_wrap_min() > 0.0);
+        assert_eq!(calm_engine_text_wrap_max(engine.ptr), 512.0);
+    }
+}
+
+/// Dragging with the Text tool: press, move, release, all through the same pointer entries
+/// every other tool uses — the shell has no text-box gesture of its own.
+#[test]
+fn a_pointer_drag_sweeps_a_wrap_box() {
+    let engine = TextEngine::new();
+    engine.click(120.0, 120.0);
+    unsafe {
+        assert_eq!(
+            calm_engine_pointer_move(engine.ptr, 320.0, 260.0),
+            CalmStatus::Ok
+        );
+        assert_eq!(
+            calm_engine_pointer_up(engine.ptr, 320.0, 260.0),
+            CalmStatus::Ok
+        );
+        assert!(
+            calm_engine_text_wrap_width(engine.ptr) > 0.0,
+            "the drag left a box behind"
+        );
+    }
+    engine.type_text("boxed");
+    assert!(engine.editing());
 }

@@ -92,10 +92,7 @@ fn the_table_comes_back_indexed_by_tool() {
     assert_eq!(blocks[Tool::Eraser as usize], ToolBlock::VectorLayer as u32);
     assert_eq!(blocks[Tool::Pen as usize], ToolBlock::None as u32);
     assert_eq!(blocks[Tool::Move as usize], ToolBlock::None as u32);
-    assert_eq!(
-        blocks[Tool::SelectRect as usize],
-        ToolBlock::VectorLayer as u32
-    );
+    assert_eq!(blocks[Tool::SelectRect as usize], ToolBlock::None as u32);
     assert_eq!(
         blocks[Tool::Eraser as usize],
         e.block(Tool::Eraser),

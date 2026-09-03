@@ -88,6 +88,8 @@ fn cutting_without_a_selection_is_an_error() {
 #[test]
 fn cutting_a_selection_returns_a_png_and_clears_the_ink() {
     let engine = ClipEngine::new();
+    engine.set_tool(Tool::Pen);
+    engine.drag((2.0, 2.0), (25.0, 25.0));
     engine.set_tool(Tool::SelectRect);
     engine.drag((2.0, 2.0), (20.0, 20.0));
     let (mut bytes, mut len, mut kind) = out_slots();

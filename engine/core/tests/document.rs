@@ -217,6 +217,10 @@ fn clear_selection_pixels_only_touches_selection_and_is_undoable() {
 #[test]
 fn lasso_selection_commits_from_stroke_points() {
     let mut doc = Document::new("p".into(), "t", 64, 64);
+    doc.layers[doc.active_layer]
+        .tiles_mut()
+        .unwrap()
+        .set_pixel(12, 12, [1, 2, 3, 255]);
     doc.tool = Tool::SelectLasso;
     doc.resize_viewport(64.0, 64.0, 1.0);
     doc.fit_to_view();
@@ -232,9 +236,9 @@ fn lasso_selection_commits_from_stroke_points() {
     doc.pointer_up(sx, sy);
     match &doc.selection {
         Some(Selection {
-            shape: SelectionShape::Lasso { points },
-        }) => assert!(points.len() >= 3),
-        _ => panic!("expected a lasso selection"),
+            shape: SelectionShape::Mask(_),
+        }) => {}
+        _ => panic!("expected a mask selection"),
     }
 }
 
@@ -1081,6 +1085,10 @@ fn hovering_a_layer_outlines_it_without_forcing_a_live_frame() {
 #[test]
 fn a_settled_selection_is_a_mode_not_a_live_preview() {
     let mut doc = Document::new("p".into(), "t", 64, 64);
+    doc.layers[doc.active_layer]
+        .tiles_mut()
+        .unwrap()
+        .set_pixel(12, 12, [1, 2, 3, 255]);
     doc.tool = Tool::SelectRect;
     doc.resize_viewport(64.0, 64.0, 1.0);
     doc.fit_to_view();

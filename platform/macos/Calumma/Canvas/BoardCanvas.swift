@@ -324,16 +324,34 @@ final class BoardMTKView: MTKView {
         } else if MainActor.assumeIsolated({ app?.tool == .text }) {
             // A click with the Text tool opens or re-enters a layer, so the board has to own
             // the keyboard before the next keystroke and the layers panel has to hear about
-            // the new layer straight away.
+            // the new layer straight away. The press is tracked like a paint drag because
+            // dragging is how a wrap box is swept and how a selection is made — which of the
+            // two is the engine's call, not the board's.
             window?.makeFirstResponder(self)
             markedTextValue = ""
+            painting = true
+            // Shift-click extends the selection rather than moving the caret, which is the
+            // engine's call — the board only reports that the modifier was down.
+            coordinator.engine.setShift(event.modifierFlags.contains(.shift))
             coordinator.engine.pointerDown(x: Float(point.x), y: Float(point.y))
+            // A second or third click widens what the press already put a caret in.
+            switch event.clickCount {
+            case 2:
+                coordinator.engine.textSelectWord(x: Float(point.x), y: Float(point.y))
+            case 3...:
+                coordinator.engine.textSelectParagraph(x: Float(point.x), y: Float(point.y))
+            default:
+                break
+            }
             coordinator.engine.refreshLayers()
             refreshCursor()
         } else {
             painting = true
             coordinator.engine.setShift(event.modifierFlags.contains(.shift))
             coordinator.engine.pointerDown(x: Float(point.x), y: Float(point.y))
+            if MainActor.assumeIsolated({ app?.tool == .selectColor }) {
+                MainActor.assumeIsolated { app?.syncMatchColorFromEngine() }
+            }
             refreshCursor()
         }
     }

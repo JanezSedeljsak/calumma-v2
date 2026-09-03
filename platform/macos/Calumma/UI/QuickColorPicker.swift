@@ -105,7 +105,8 @@ struct QuickColorPicker: View {
         switch index {
         case 0: return app.tool.takesFill ? l10n.strokeColor : l10n.primaryColor
         case 1: return app.tool.takesFill ? l10n.fill : l10n.secondaryColor
-        default: return l10n.tertiaryColor
+        default:
+            return app.tool == .selectColor ? l10n.matchColor : l10n.tertiaryColor
         }
     }
 

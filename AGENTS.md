@@ -79,7 +79,7 @@ bind groups — is shipped; see `docs/ENGINE.md` § Bind groups.
 | Path | Role |
 | --- | --- |
 | `engine/core` | Document, sparse tiles, camera, viewport culling, history, shapes, palette, `LayerContent` — no GPU |
-| `engine/text` | System fonts, shaping, layout, caret/hit-test, glyph rasterizing (`cosmic-text`). Leaf crate; `core` depends on it |
+| `engine/text` | System fonts, shaping, layout, caret/hit-test, selection geometry, style spans, glyph rasterizing (`cosmic-text`). Leaf crate; `core` depends on it |
 | `engine/render` | wgpu; surface created by the shell; applies layer masks at upload |
 | `engine/io` | SQLite projects + encode/decode |
 | `engine/ops` | `Op` / `OpRegistry` dispatch; apply results into the document |
@@ -231,7 +231,29 @@ pub enum LayerContent {
 - Caret questions are answered against the **shaped layout**, never against the string:
   a wrapped paragraph is one `BufferLine` laid out as several rows, so `layout.rs` picks the
   row by glyph byte range (`run_span`) rather than by `line_i`, and horizontal steps go
-  through cosmic-text `Motion` so one press crosses a whole grapheme cluster.
+  through cosmic-text `Motion` so one press crosses a whole grapheme cluster. Selection is the
+  same rule: `text_select.rs` extends the caret with an **anchor** (`TextEdit.anchor`, equal to
+  the caret when nothing is selected) and `select.rs` answers the highlight geometry
+  (`selection_rects`, one quad per *visual* row), the word under a double-click (`word_range`)
+  and the paragraph under a triple-click (`paragraph_range`). `Document::place_caret` is the
+  one place either end is written, and `extend` there is the whole difference between a motion
+  and a selection.
+- **A run's style can vary inside the block** (`text/src/span.rs`). `TextRun.spans` is a
+  sorted, non-overlapping `Vec<StyleSpan>`; **empty means uniform**, which is exactly what
+  every project written before spans decodes to, so this is additive rather than a rewrite.
+  A `SpanStyle` states only what it overrides — family, weight, slant, size, colour — while
+  `align`, `line_height`, `origin` and `wrap_width` stay run-level because they are paragraph
+  properties. Layout builds cosmic-text's rich-text pieces from them (`set_rich_text`); an
+  empty list still takes the single-`Attrs` path. Two rules keep it honest: **`span::shift` is
+  the only place a text edit moves a boundary** (every insert and delete goes through
+  `TextRun::replace_range`), and the character knobs write a *span* when something is selected
+  and the run's own field — clearing that field from every span — when nothing is.
+- **A text box is a `wrap_width`, and the gesture is a drag.** Dragging with the Text tool
+  sweeps the box (`text_pointer_move`, `TextPress::Box`); a drag narrower than
+  `TEXT_WRAP_MIN_WIDTH` falls back to a click-placed point. Dragging *inside* text that was
+  already there sweeps a selection instead — resizing somebody's paragraph by dragging in it
+  would be a trap. `set_text_wrap_width` is the same setting stated exactly; re-wrapping is
+  `resync`, which is what every other run edit already is.
 - A typing session (`Document::text_edit`) is **one** undo step: tiles *and* the run are
   snapshotted when it opens, and a single `TileDiff` + `RunDiff` lands when it closes
   (`History::push_layer_text`). The run has to be in the step because it is what the project
@@ -270,8 +292,9 @@ pub enum LayerContent {
   `nudge_move_target` — selected vector item first, otherwise the active
   layer's `transform.offset` when Move or transform mode is on. Transform is
   a *toggle on Move* (options panel / `⌘T`): on, the same grab shows
-  scale/rotate handles and selects the layer; off, it only drags. `V` stays
-  vector mode.
+  scale/rotate handles and selects the layer; off, it only drags. `V` picks
+  Move and nothing else — it never turns transform on or off — and vector
+  mode moved to `⇧V`.
 - **Paper** (`Layer::paper`) is an ordinary raster layer, name-matched via
   `Layer::is_paper()`, pre-filled fully opaque white at creation — not a
   cheap vector fill. It is paintable/eraseable/editable like any other
@@ -378,6 +401,18 @@ pub enum LayerContent {
   buffer to flip for the parametric shapes, so it always produces the `SelectionShape::Mask`
   the wand already built, filled through `SelectionMask::from_predicate` (one rayon task per
   row, because unlike a flood it asks about every pixel of the canvas).
+- **Every select tool reads the layer through `select_sample.rs`, and nothing else does.**
+  `LayerSelectSample` is the one answer to "what colour is this layer at this pixel", whatever
+  the layer is made of: tiles for raster and text, the parametric distance functions for a
+  vector item, and either one read *through* the layer's transform. It resolves the source,
+  the pivot and the painted scope **once** — a colour range asks per pixel over the whole
+  painted box, and re-deriving them per pixel turned a masked layer's cached-bounds mutex into
+  a lock per pixel across every rayon row. `selection_rgba` reads it too, because a copy that
+  did not would disagree with the selection it was made from on exactly the layers this
+  existed for. Two consequences to respect: select tools are never blocked by layer *kind*
+  (only by lock), and `Tool::samples_layer_pixels` is the line between the tools that
+  **describe** a region — rect, ellipse, lasso, which work on an empty layer — and the two
+  that **read** one, which do not.
 - **A shape carries a fill and a stroke independently** (`engine/core/src/shape.rs`).
   `Shape::region_distance` is the one SDF evaluation; `fill_distance` and `stroke_distance`
   are the two parts taken off it, either of which may be `None`. Painting a shape means
@@ -597,6 +632,11 @@ LOD, motion mode) are documented in `docs/RENDERING.md`, not repeated here.
   px. Ink-shaped previews (a live stroke, a lasso, a selection's marching ants) stay on
   `vs_stroke`, where the brush is measured in document units because that is what it will
   commit as. Adding chrome means adding to the overlay pass, never to the stroke pass.
+  The overlay pass draws a capsule unless the instance carries a non-zero **half height**
+  (`overlay_rect_params`), which makes it a filled box — how a text selection's rows are drawn.
+  Every other overlay instance is `BrushProfile::HARD`, whose grain sits in that slot at zero,
+  so the discriminant costs no new field and no new pipeline. A selection row is the one piece
+  of chrome whose height *is* scaled by the zoom: it has to cover the glyphs underneath it.
 
 ### WGSL naming
 
@@ -700,21 +740,22 @@ thumbnail; cancelled 2026-08-26 with the same call that made clipping masks merg
 layered PSD import (import is flattened composite only;
 PSD, SVG *and PDF export* are layered and shipped — see `docs/FLOW.md`), picking a layer by clicking it outside
 transform mode as a *modifier* (the Move tool on the tools island is the path; Option-click and ⌘-click are
-both already Pan), text *selection*
-(the Text tool ships with a caret only — no shift-arrow, no styled ranges) — add
+both already Pan) — add
 only as considered features, not by restoring old app code.
 
 **Shipped from this list:** Select All / Invert Selection (`⌘A` / `⌘⇧I`), shape fill *and*
 stroke together, titlebar tabs (shipped first as *workspaces*, then cut back to one tab per
 project — see Projects and navigation; do not restore the grouping), Eyedropper
 (`I` / tools island; samples the composited pixel under the cursor into the active ink
-swatch), vector layers (`V` / tool options; one item per layer, moved and scaled with
+swatch), vector layers (`⇧V` / tool options; one item per layer, moved and scaled with
 `⌘T` and the Move tool), text layers (`T` / tools island),
+full text support (plan `17` — wrapped text boxes swept with a Text-tool drag, selection ranges
+with shift-arrows / double- and triple-click / drag-select / `⌘A`, and style spans so one word
+in a block can carry its own family, weight, slant, size or colour),
 Move tool (tools island; pick-and-drag, Transform toggle / `⌘T` for scale/rotate),
 document undo for layer stack, props, and vectors (`docs/plans/01-document-undo.md`).
 See `docs/FLOW.md`.
 
-**Now carrying plans** in `docs/todo.md`: full text support (`17`).
 Vector multi-select (`10`) is closed by the 1:1 rule — do not build it.
 
 **Shipped from this list (cont.):** GPU adjustment evaluation (plan 23 — the `LayerData` table

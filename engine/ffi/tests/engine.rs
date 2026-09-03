@@ -513,12 +513,28 @@ fn selection_copy_cut_paste() {
     let engine = TestEngine::new();
     engine.create_project("Selection", 64, 64);
     assert_eq!(
-        unsafe { calm_engine_set_tool(engine.ptr, Tool::SelectRect as u32) },
+        unsafe { calm_engine_set_tool(engine.ptr, Tool::Pen as u32) },
         CalmStatus::Ok
     );
     assert_eq!(unsafe { calm_engine_fit(engine.ptr) }, CalmStatus::Ok);
     assert_eq!(
         unsafe { calm_engine_resize(engine.ptr, 64, 64, 1.0) },
+        CalmStatus::Ok
+    );
+    assert_eq!(
+        unsafe { calm_engine_pointer_down(engine.ptr, 5.0, 5.0) },
+        CalmStatus::Ok
+    );
+    assert_eq!(
+        unsafe { calm_engine_pointer_move(engine.ptr, 25.0, 25.0) },
+        CalmStatus::Ok
+    );
+    assert_eq!(
+        unsafe { calm_engine_pointer_up(engine.ptr, 25.0, 25.0) },
+        CalmStatus::Ok
+    );
+    assert_eq!(
+        unsafe { calm_engine_set_tool(engine.ptr, Tool::SelectRect as u32) },
         CalmStatus::Ok
     );
     assert_eq!(

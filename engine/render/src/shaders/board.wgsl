@@ -450,6 +450,11 @@ fn sd_segment_pts(p: vec2<f32>, a: vec2<f32>, b: vec2<f32>) -> f32 {
     return length(pa - ba * h);
 }
 
+fn sd_box(p: vec2<f32>, center: vec2<f32>, half: vec2<f32>) -> f32 {
+    let q = abs(p - center) - half;
+    return length(max(q, vec2<f32>(0.0))) + min(max(q.x, q.y), 0.0);
+}
+
 fn sd_polygon3(p: vec2<f32>, v0: vec2<f32>, v1: vec2<f32>, v2: vec2<f32>) -> f32 {
     var d = dot(p - v0, p - v0);
     var s = 1.0;
@@ -538,11 +543,7 @@ fn shape_region(tool: u32, p0: vec2<f32>, p1: vec2<f32>, half_width: f32, p: vec
             return d;
         }
         case TOOL_RECT: {
-            let center = (p0 + p1) * 0.5;
-            let half = abs(p1 - p0) * 0.5;
-            let d = p - center;
-            let q = abs(d) - half;
-            return length(max(q, vec2<f32>(0.0))) + min(max(q.x, q.y), 0.0);
+            return sd_box(p, (p0 + p1) * 0.5, abs(p1 - p0) * 0.5);
         }
         case TOOL_ELLIPSE: {
             let center = (p0 + p1) * 0.5;
@@ -836,6 +837,7 @@ struct OverlayOut {
     @location(1) p0: vec2<f32>,
     @location(2) p1: vec2<f32>,
     @location(3) @interpolate(flat) half_width_px: f32,
+    @location(4) @interpolate(flat) half_height_px: f32,
 }
 
 // Board furniture — transform grips, the frames they sit on, the layer hover outline — measured
@@ -858,7 +860,7 @@ fn vs_overlay(input: StrokeIn, @builtin(vertex_index) idx: u32) -> OverlayOut {
     );
     let a = input.segment.xy * pu.zoom + pu.pan;
     let b = input.segment.zw * pu.zoom + pu.pan;
-    let pad = vec2<f32>(input.brush.x + OVERLAY_QUAD_PAD_PX);
+    let pad = vec2<f32>(max(input.brush.x, input.brush.z) + OVERLAY_QUAD_PAD_PX);
     let lo = min(a, b) - pad;
     let hi = max(a, b) + pad;
     let screen = mix(lo, hi, corners[idx]);
@@ -873,14 +875,29 @@ fn vs_overlay(input: StrokeIn, @builtin(vertex_index) idx: u32) -> OverlayOut {
     out.p0 = a;
     out.p1 = b;
     out.half_width_px = input.brush.x;
+    out.half_height_px = input.brush.z;
     return out;
 }
 
+// A non-zero half height means the instance is a filled box — a text selection row — spanning
+// its two points horizontally and that height about their midpoint. Chrome is all capsules and
+// carries a zero there (`BrushProfile::HARD`'s grain), so this is one more SDF over the same
+// geometry rather than a pass of its own, exactly as `vs_overlay` is over the stroke pass.
 @fragment
 fn fs_overlay(input: OverlayOut) -> @location(0) vec4<f32> {
     let screen = input.position.xy / max(pu.dpr, 1.0);
-    let d = sd_segment_pts(screen, input.p0, input.p1);
-    let cov = clamp(input.half_width_px + 0.5 - d, 0.0, 1.0);
+    var d: f32;
+    if input.half_height_px > 0.0 {
+        let center = (input.p0 + input.p1) * 0.5;
+        let half = vec2<f32>(
+            abs(input.p1.x - input.p0.x) * 0.5 + input.half_width_px,
+            input.half_height_px,
+        );
+        d = sd_box(screen, center, half);
+    } else {
+        d = sd_segment_pts(screen, input.p0, input.p1) - input.half_width_px;
+    }
+    let cov = clamp(0.5 - d, 0.0, 1.0);
     if cov <= 0.0 {
         return vec4<f32>(0.0);
     }

@@ -1,4 +1,4 @@
-use calumma_core::{Document, Layer, TextAlign, TextRun, Tool};
+use calumma_core::{Document, Layer, SpanStyle, TextAlign, TextRun, Tool};
 use calumma_io::*;
 use rusqlite::{params, Connection};
 use tempfile::tempdir;
@@ -224,4 +224,150 @@ fn a_project_saved_before_styled_text_still_opens() {
     assert_eq!(run.origin, (40.0, 60.0));
     assert!(!run.bold && !run.italic, "an older run has no styles");
     assert!(text_layer(&reopened).is_text(), "still a text layer");
+}
+
+/// Version 2 is the blob a project saved before style spans holds: everything up to the wrap
+/// width, and then nothing. It has to keep opening, with the run read as uniform.
+fn version_two_blob(text: &str, family: &str, size: f32) -> Vec<u8> {
+    let mut out = vec![2u8];
+    out.extend_from_slice(&(text.len() as u32).to_le_bytes());
+    out.extend_from_slice(text.as_bytes());
+    out.extend_from_slice(&(family.len() as u32).to_le_bytes());
+    out.extend_from_slice(family.as_bytes());
+    out.push(1);
+    out.push(0);
+    out.extend_from_slice(&size.to_le_bytes());
+    out.extend_from_slice(&1.25f32.to_le_bytes());
+    out.extend_from_slice(&[0, 0, 0, 255]);
+    out.extend_from_slice(&1u32.to_le_bytes());
+    out.extend_from_slice(&40.0f32.to_le_bytes());
+    out.extend_from_slice(&60.0f32.to_le_bytes());
+    out.push(0);
+    out
+}
+
+fn replace_blob(store: &ProjectStore, doc: &Document, layer_id: &str, blob: Vec<u8>) {
+    Connection::open(store.path())
+        .unwrap()
+        .execute(
+            "UPDATE layers SET text_data = ?1 WHERE project_id = ?2 AND layer_id = ?3",
+            params![blob, doc.id, layer_id],
+        )
+        .unwrap();
+}
+
+#[test]
+fn a_project_saved_before_style_spans_still_opens_as_uniform() {
+    let (_dir, store) = store();
+    let saved = typed_project(&store, "uniform");
+    let layer = text_layer(&saved);
+    let layer_id = layer.id.clone();
+    let family = layer.run().unwrap().family.clone();
+    replace_blob(
+        &store,
+        &saved,
+        &layer_id,
+        version_two_blob("uniform", &family, 48.0),
+    );
+
+    let reopened = store.open_project(&saved.id).unwrap();
+    let run = text_layer(&reopened).run().unwrap();
+    assert_eq!(run.text, "uniform");
+    assert!(run.bold, "version 2 did carry weight");
+    assert!(run.spans.is_empty(), "and no spans, which means uniform");
+    assert_eq!(run.origin, (40.0, 60.0));
+}
+
+#[test]
+fn style_spans_round_trip() {
+    let (_dir, store) = store();
+    let mut doc = typed_project(&store, "hello world");
+    let layer_id = text_layer(&doc).id.clone();
+    let index = doc
+        .layers
+        .iter()
+        .position(|l| l.id == layer_id)
+        .expect("the layer");
+    doc.edit_text_layer(index);
+    doc.select_all();
+    doc.set_text_bold(true);
+    doc.text_step_caret(calumma_core::Step::DocStart, false);
+    doc.text_step_caret(calumma_core::Step::WordRight, true);
+    doc.set_text_family(&text_layer(&doc).run().unwrap().family.clone());
+    doc.commit_text();
+    let before = text_layer(&doc).run().unwrap().spans.clone();
+    assert!(!before.is_empty());
+    store.save(&mut doc).unwrap();
+
+    let reopened = store.open_project(&doc.id).unwrap();
+    let after = text_layer(&reopened).run().unwrap();
+    assert_eq!(after.spans, before);
+    assert!(after.style_at(8).bold);
+}
+
+#[test]
+fn every_span_field_survives_the_round_trip() {
+    let (_dir, store) = store();
+    let mut doc = typed_project(&store, "hello world");
+    let index = doc
+        .layers
+        .iter()
+        .position(|l| l.is_text())
+        .expect("the layer");
+    let family = doc.layers[index].run().unwrap().family.clone();
+    if let Some(run) = doc.layers[index].content.run_mut() {
+        run.apply_style(
+            0,
+            5,
+            &SpanStyle {
+                family: Some(family.clone()),
+                bold: Some(true),
+                italic: Some(true),
+                size: Some(72.0),
+                color: Some([12, 34, 56, 200]),
+            },
+        );
+    }
+    store.save(&mut doc).unwrap();
+
+    let reopened = store.open_project(&doc.id).unwrap();
+    let run = text_layer(&reopened).run().unwrap();
+    assert_eq!(run.spans.len(), 1);
+    let style = &run.spans[0].style;
+    assert_eq!(style.family.as_deref(), Some(family.as_str()));
+    assert_eq!(style.bold, Some(true));
+    assert_eq!(style.italic, Some(true));
+    assert_eq!(style.size, Some(72.0));
+    assert_eq!(style.color, Some([12, 34, 56, 200]));
+}
+
+#[test]
+fn a_wrap_box_round_trips_and_re_wraps_on_open() {
+    let (_dir, store) = store();
+    let mut doc = typed_project(&store, "wrapping words onto several rows");
+    let index = doc
+        .layers
+        .iter()
+        .position(|l| l.is_text())
+        .expect("the layer");
+    doc.edit_text_layer(index);
+    doc.set_text_wrap_width(Some(120.0));
+    let boxed = doc.text_box().expect("a box");
+    doc.commit_text();
+    store.save(&mut doc).unwrap();
+
+    let reopened = store.open_project(&doc.id).unwrap();
+    let run = text_layer(&reopened).run().unwrap();
+    assert_eq!(run.wrap_width, Some(120.0));
+    assert_eq!(
+        calumma_core::text_layer::run_box(run),
+        boxed,
+        "the reopened run lays out over the same rows rather than on one line"
+    );
+    assert!(
+        text_layer(&reopened)
+            .tiles()
+            .is_some_and(|grid| grid.coords().count() > 0),
+        "and it was re-rasterized from the run"
+    );
 }

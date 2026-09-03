@@ -36,6 +36,7 @@ struct ToolOptions: View {
                 selectPick(.selectEllipse)
                 selectPick(.selectLasso)
                 selectPick(.magicWand)
+                selectPick(.selectColor)
             }
         }
         if app.tool == .text {

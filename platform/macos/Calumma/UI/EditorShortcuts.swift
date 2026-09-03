@@ -115,6 +115,16 @@ extension AppModel {
             return true
         }
         let key = chars.lowercased()
+        // `⇧V` before the tool table, not after: `charactersIgnoringModifiers` reports the same
+        // letter either way, so a shifted V would otherwise be swallowed by `V` = Move.
+        if flags.contains(.shift), key == "v" {
+            vectorMode.toggle()
+            return true
+        }
+        if flags.contains(.shift), key == "w" {
+            pickTool(.selectColor)
+            return true
+        }
         // Tool keys come from `CalmTool.byKey` rather than a switch of their own, so the key
         // that switches a tool is the same one its tooltip prints. What is left below is the
         // keys that are not tools.
@@ -127,7 +137,6 @@ extension AppModel {
         switch key {
         case "f": fill.toggle()
         case "s": stroke.toggle()
-        case "v": vectorMode.toggle()
         case "0": engine.fit()
         case "[":
             if tool.takesEyedropperRadius {

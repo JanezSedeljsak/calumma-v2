@@ -8,11 +8,12 @@ use calumma_core::*;
 const DOC: u32 = 128;
 
 const PAINT_TOOLS: [Tool; 4] = [Tool::Pen, Tool::Eraser, Tool::Blur, Tool::Fill];
-const SELECT_TOOLS: [Tool; 4] = [
+const SELECT_TOOLS: [Tool; 5] = [
     Tool::SelectRect,
     Tool::SelectEllipse,
     Tool::SelectLasso,
     Tool::MagicWand,
+    Tool::SelectColor,
 ];
 const SHAPE_TOOLS: [Tool; 6] = [
     Tool::Line,
@@ -99,14 +100,13 @@ fn a_raster_layer_blocks_nothing() {
 #[test]
 fn a_text_layer_leaves_move_transform_and_text() {
     let doc = with_text();
-    for tool in [Tool::Move, Tool::Transform, Tool::Text, Tool::Eyedropper] {
-        assert_eq!(doc.tool_block(tool), ToolBlock::None, "{tool:?}");
-    }
-    for tool in PAINT_TOOLS
+    for tool in [Tool::Move, Tool::Transform, Tool::Text, Tool::Eyedropper]
         .into_iter()
         .chain(SELECT_TOOLS)
-        .chain(SHAPE_TOOLS)
     {
+        assert_eq!(doc.tool_block(tool), ToolBlock::None, "{tool:?}");
+    }
+    for tool in PAINT_TOOLS.into_iter().chain(SHAPE_TOOLS) {
         assert_eq!(doc.tool_block(tool), ToolBlock::TextLayer, "{tool:?}");
     }
 }
@@ -131,11 +131,11 @@ fn a_vector_layer_leaves_the_tools_that_draw_vectors() {
     ]) {
         assert_eq!(doc.tool_block(tool), ToolBlock::None, "{tool:?}");
     }
-    for tool in [Tool::Eraser, Tool::Blur, Tool::Fill]
-        .into_iter()
-        .chain(SELECT_TOOLS)
-    {
+    for tool in [Tool::Eraser, Tool::Blur, Tool::Fill] {
         assert_eq!(doc.tool_block(tool), ToolBlock::VectorLayer, "{tool:?}");
+    }
+    for tool in SELECT_TOOLS {
+        assert_eq!(doc.tool_block(tool), ToolBlock::None, "{tool:?}");
     }
 }
 
@@ -196,25 +196,9 @@ fn the_engines_own_guards_agree_with_the_table() {
         doc.tool = Tool::Fill;
         doc.pointer_down(30.0, 30.0);
 
-        doc.tool = Tool::SelectRect;
-        doc.pointer_down(20.0, 20.0);
-        doc.pointer_up(70.0, 70.0);
-        assert!(doc.selection.is_none(), "no marquee you could not then use");
-
-        doc.tool = Tool::SelectLasso;
-        doc.pointer_down(20.0, 20.0);
-        doc.pointer_move(40.0, 20.0);
-        doc.pointer_move(40.0, 40.0);
-        doc.pointer_up(20.0, 40.0);
-        assert!(doc.selection.is_none());
-
-        doc.tool = Tool::MagicWand;
-        doc.pointer_down(30.0, 30.0);
-        assert!(doc.selection.is_none());
-
         assert_eq!(
             doc.layers[index], before,
-            "the layer came through untouched"
+            "paint tools the layer refuses leave it untouched"
         );
     }
 }

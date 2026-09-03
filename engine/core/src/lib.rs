@@ -27,13 +27,16 @@ pub mod paste;
 pub mod pick;
 pub mod rasterize;
 pub mod ruler;
+pub mod select_sample;
 pub mod selection;
 pub mod selection_edit;
 pub mod selection_mask;
 pub mod shape;
 pub mod size_curve;
 pub mod text_edit;
+pub mod text_input;
 pub mod text_layer;
+pub mod text_select;
 pub mod text_style;
 pub mod tile;
 pub mod tool_gate;
@@ -49,9 +52,9 @@ pub use brush::{Brush, BrushProfile};
 pub use calumma_text::{
     canonical_family, families as font_families, family_at as font_family_at,
     family_count as font_family_count, family_exists as font_family_exists,
-    family_styles as font_family_styles, FontFamily, Step, TextAlign, TextRun,
-    TEXT_LINE_HEIGHT_DEFAULT, TEXT_LINE_HEIGHT_MAX, TEXT_LINE_HEIGHT_MIN, TEXT_SIZE_DEFAULT,
-    TEXT_SIZE_MAX, TEXT_SIZE_MIN,
+    family_styles as font_family_styles, FontFamily, ResolvedStyle, SelectionRect, SpanStyle, Step,
+    StyleSpan, TextAlign, TextRun, TEXT_LINE_HEIGHT_DEFAULT, TEXT_LINE_HEIGHT_MAX,
+    TEXT_LINE_HEIGHT_MIN, TEXT_SIZE_DEFAULT, TEXT_SIZE_MAX, TEXT_SIZE_MIN, TEXT_WRAP_MIN_WIDTH,
 };
 pub use camera::Camera;
 pub use color::{format_hex_rgb, pack_rgb, pack_rgba, parse_hex_rgb, unpack_rgb, unpack_rgba};
@@ -82,7 +85,7 @@ pub use size_curve::{
     brush_size_from_unit, brush_size_unit, size_from_unit, step_brush_size, text_size_from_unit,
     text_size_unit, unit_from_size,
 };
-pub use text_edit::TextEdit;
+pub use text_edit::{TextEdit, TextRange};
 pub use tile::{
     blend_over, blend_with_mode, unpremultiply_rgba, DirtyChannel, DocRect, TileCoord, TileGrid,
     TILE_SIZE,

@@ -112,6 +112,10 @@ fn releasing_shift_mid_drag_resumes_freehand_from_where_it_left_off() {
 #[test]
 fn the_lasso_is_left_alone_by_shift() {
     let mut doc = doc_with_tool(Tool::SelectLasso);
+    doc.layers[doc.active_layer]
+        .tiles_mut()
+        .unwrap()
+        .set_pixel(30, 30, [1, 2, 3, 255]);
     doc.set_shift_held(true);
     down_at(&mut doc, (20.0, 20.0));
     move_to(&mut doc, (40.0, 60.0));

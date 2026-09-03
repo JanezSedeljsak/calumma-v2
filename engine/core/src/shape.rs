@@ -22,6 +22,7 @@ pub enum Tool {
     Move = 15,
     Blur = 16,
     MagicWand = 17,
+    SelectColor = 18,
 }
 
 impl Tool {
@@ -39,7 +40,11 @@ impl Tool {
     pub fn is_selection(self) -> bool {
         matches!(
             self,
-            Tool::SelectRect | Tool::SelectEllipse | Tool::SelectLasso | Tool::MagicWand
+            Tool::SelectRect
+                | Tool::SelectEllipse
+                | Tool::SelectLasso
+                | Tool::MagicWand
+                | Tool::SelectColor
         )
     }
 
@@ -56,10 +61,18 @@ impl Tool {
     }
 
     /// Whether this tool floods from the pixel under the pointer, and so needs a tolerance.
+    /// The select tools that answer by *reading* the layer rather than by describing a region.
+    /// A layer with nothing painted has no answer for these two, while a marquee or a lasso is
+    /// still a perfectly good region to draw on it — which is the whole difference the tool
+    /// gate makes between them.
+    pub fn samples_layer_pixels(self) -> bool {
+        matches!(self, Tool::MagicWand | Tool::SelectColor)
+    }
+
     /// One knob shared by the bucket and the wand, because they share one traversal — see
     /// `fill::flood_region`.
     pub fn takes_tolerance(self) -> bool {
-        matches!(self, Tool::Fill | Tool::MagicWand)
+        matches!(self, Tool::Fill | Tool::MagicWand | Tool::SelectColor)
     }
 
     /// Whether this tool encloses an area, and so can carry a fill and an outline
@@ -359,7 +372,8 @@ impl Shape {
             | Tool::Text
             | Tool::Move
             | Tool::Blur
-            | Tool::MagicWand => f32::MAX,
+            | Tool::MagicWand
+            | Tool::SelectColor => f32::MAX,
             Tool::Line => sd_segment(p, self.start, self.end),
             Tool::Arrow => self.arrow_distance(p),
             Tool::Rect => sd_box(p, self.center(), self.half_extent()),

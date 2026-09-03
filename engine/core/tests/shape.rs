@@ -183,6 +183,7 @@ fn the_tool_taxonomy_says_which_knobs_a_tool_carries() {
     );
 
     assert!(Tool::Fill.takes_tolerance() && Tool::MagicWand.takes_tolerance());
+    assert!(Tool::SelectColor.takes_tolerance());
     assert!(!Tool::Pen.takes_tolerance());
 
     assert!(Tool::Blur.takes_blur_strength());
@@ -234,7 +235,8 @@ fn only_the_shapes_and_the_pen_can_become_vector_items() {
 #[test]
 fn an_unknown_wire_value_is_not_a_tool() {
     assert_eq!(Tool::from_u32(999), None);
-    assert_eq!(Tool::from_u32(18), None);
+    assert_eq!(Tool::from_u32(18), Some(Tool::SelectColor));
+    assert_eq!(Tool::from_u32(19), None);
     assert_eq!(Tool::from_u32(0), Some(Tool::Pen));
 }
 

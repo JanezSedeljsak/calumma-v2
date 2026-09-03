@@ -226,6 +226,8 @@ CalmStatus calm_engine_set_fill(CalmEngine *engine, uint8_t fill);
 CalmStatus calm_engine_set_stroke(CalmEngine *engine, uint8_t stroke);
 CalmStatus calm_engine_set_stroke_color(CalmEngine *engine, uint8_t r, uint8_t g, uint8_t b, uint8_t a);
 CalmStatus calm_engine_set_shape_fill_color(CalmEngine *engine, uint8_t r, uint8_t g, uint8_t b, uint8_t a);
+CalmStatus calm_engine_set_select_color(CalmEngine *engine, uint8_t r, uint8_t g, uint8_t b, uint8_t a);
+CalmStatus calm_engine_get_select_color(CalmEngine *engine, uint32_t *out_rgba);
 CalmStatus calm_engine_set_dark(CalmEngine *engine, uint8_t dark);
 CalmStatus calm_engine_set_shift(CalmEngine *engine, uint8_t held);
 CalmStatus calm_engine_reset_layer_transform(CalmEngine *engine, uint32_t index);
@@ -338,6 +340,8 @@ typedef enum CalmCaretStep {
     CalmCaretStepLineEnd = 5,
     CalmCaretStepDocStart = 6,
     CalmCaretStepDocEnd = 7,
+    CalmCaretStepWordLeft = 8,
+    CalmCaretStepWordRight = 9,
 } CalmCaretStep;
 
 typedef enum CalmTextAlign {
@@ -359,6 +363,8 @@ float calm_text_size_max(void);
 float calm_text_size_default(void);
 float calm_text_size_unit(float size);
 float calm_text_size_from_unit(float unit);
+float calm_text_wrap_min(void);
+float calm_engine_text_wrap_max(CalmEngine *engine);
 float calm_text_line_height_min(void);
 float calm_text_line_height_max(void);
 float calm_text_line_height_default(void);
@@ -366,7 +372,11 @@ CalmStatus calm_engine_text_insert(CalmEngine *engine, const char *text);
 CalmStatus calm_engine_text_set_marked(CalmEngine *engine, const char *text);
 CalmStatus calm_engine_text_backspace(CalmEngine *engine);
 CalmStatus calm_engine_text_delete_forward(CalmEngine *engine);
-CalmStatus calm_engine_text_move_caret(CalmEngine *engine, uint32_t step);
+CalmStatus calm_engine_text_move_caret(CalmEngine *engine, uint32_t step, int extend);
+CalmStatus calm_engine_text_select_all(CalmEngine *engine);
+CalmStatus calm_engine_text_select_word_at(CalmEngine *engine, float x, float y);
+CalmStatus calm_engine_text_select_paragraph_at(CalmEngine *engine, float x, float y);
+int calm_engine_text_has_selection(CalmEngine *engine);
 CalmStatus calm_engine_text_commit(CalmEngine *engine);
 CalmStatus calm_engine_text_edit_layer(CalmEngine *engine, uint32_t index);
 int calm_engine_text_editing(CalmEngine *engine);
@@ -377,6 +387,8 @@ CalmStatus calm_engine_set_text_align(CalmEngine *engine, uint32_t align);
 CalmStatus calm_engine_set_text_bold(CalmEngine *engine, int bold);
 CalmStatus calm_engine_set_text_italic(CalmEngine *engine, int italic);
 CalmStatus calm_engine_set_text_line_height(CalmEngine *engine, float line_height);
+CalmStatus calm_engine_set_text_wrap_width(CalmEngine *engine, float width);
+float calm_engine_text_wrap_width(CalmEngine *engine);
 char *calm_engine_text_family(CalmEngine *engine);
 float calm_engine_text_size(CalmEngine *engine);
 uint32_t calm_engine_text_align(CalmEngine *engine);

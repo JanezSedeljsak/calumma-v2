@@ -33,6 +33,7 @@ extension CalmTool {
         case .selectEllipse: return l10n.toolSelectEllipse
         case .selectLasso: return l10n.toolSelectLasso
         case .magicWand: return l10n.toolMagicWand
+        case .selectColor: return l10n.toolSelectColor
         case .eyedropper: return l10n.toolEyedropper
         case .text: return l10n.toolText
         case .move: return l10n.toolMove
@@ -63,6 +64,7 @@ extension CalmTool {
         "i": .eyedropper,
         "m": .selectRect,
         "w": .magicWand,
+        "v": .move,
     ]
 
     private static let keyByTool: [CalmTool: String] = Dictionary(
@@ -77,14 +79,12 @@ extension CalmTool {
     /// it — which member the key lands on is whichever was used last (`AppModel.lastSelectTool`).
     /// The magic wand has its own key and is not part of that family.
     private var shortcutFamily: CalmTool {
-        isSelection && self != .magicWand ? .selectRect : self
+        isSelection && self != .magicWand && self != .selectColor ? .selectRect : self
     }
 
-    /// What a tooltip prints beside the tool's name, or nothing for a tool with no key of its
-    /// own. Move is the one chord in here: it has no bare letter (`V` is vector mode), and with
-    /// transform now coming on with it, `⌘T` is exactly the shortcut that reaches it.
     var shortcutLabel: String? {
-        if self == .move || self == .transform { return "⌘T" }
+        if self == .transform { return "⌘T" }
+        if self == .selectColor { return "⇧W" }
         return CalmTool.keyByTool[shortcutFamily]?.uppercased()
     }
 }

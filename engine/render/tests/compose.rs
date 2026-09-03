@@ -398,6 +398,80 @@ fn text_overlay_draws_a_four_edge_box_and_a_caret_that_blinks() {
     assert_eq!(hidden.len(), 4, "mid-cycle the caret blinks off");
 }
 
+/// A selection row is a *filled box*, not a capsule, and `fs_overlay` tells the two apart by
+/// the half height being non-zero. Every other overlay instance is `BrushProfile::HARD`, whose
+/// grain sits in the same slot at zero — so this test is what keeps the discriminant honest.
+#[test]
+fn a_text_selection_draws_a_filled_row_under_the_box_and_caret() {
+    let mut doc = Document::new("t".to_string(), "Text", 256, 256);
+    doc.resize_viewport(256.0, 256.0, 1.0);
+    doc.fit_to_view();
+    doc.tool = Tool::Text;
+    doc.text_style.size = 32.0;
+    let (sx, sy) = doc.camera.to_screen(20.0, 40.0);
+    doc.pointer_down(sx, sy);
+    doc.pointer_up(sx, sy);
+    doc.text_insert("hello");
+
+    let plain = text_overlay_instances(&doc, 0.0);
+    assert_eq!(plain.len(), 5, "four box edges plus the caret");
+
+    doc.text_select_all();
+    let selected = text_overlay_instances(&doc, 0.0);
+    assert_eq!(selected.len(), 6, "one row of highlight came first");
+    let row = selected[0];
+    assert!(row.brush[2] > 0.0, "a non-zero half height means a box");
+    assert_eq!(row.brush[0], 0.0, "and a box needs no capsule width");
+    assert!(row.segment[2] > row.segment[0], "it spans the glyphs");
+    assert_eq!(
+        row.segment[1], row.segment[3],
+        "the row is a horizontal midline"
+    );
+    for chrome in &selected[1..] {
+        assert_eq!(
+            chrome.brush[2], 0.0,
+            "the box edges and caret stay capsules"
+        );
+    }
+}
+
+/// Rows are handed a screen-pixel half height derived from the zoom, so the highlight tracks
+/// the glyphs it covers instead of staying one size like the rest of the chrome.
+#[test]
+fn a_selection_row_scales_with_the_zoom() {
+    let mut doc = Document::new("t".to_string(), "Text", 256, 256);
+    doc.resize_viewport(256.0, 256.0, 1.0);
+    doc.fit_to_view();
+    doc.tool = Tool::Text;
+    doc.text_style.size = 32.0;
+    let (sx, sy) = doc.camera.to_screen(20.0, 40.0);
+    doc.pointer_down(sx, sy);
+    doc.pointer_up(sx, sy);
+    doc.text_insert("hello");
+    doc.text_select_all();
+
+    let at_fit = text_overlay_instances(&doc, 0.0)[0].brush[2];
+    let zoom = doc.camera.zoom;
+    doc.camera.zoom = zoom * 2.0;
+    let zoomed = text_overlay_instances(&doc, 0.0)[0].brush[2];
+    assert!(
+        (zoomed - at_fit * 2.0).abs() < 0.01,
+        "{zoomed} should be twice {at_fit}"
+    );
+}
+
+#[test]
+fn overlay_rect_params_keep_the_capsule_slot_clear() {
+    let params = overlay_rect_params(12.0);
+    assert_eq!(params[0], 0.0);
+    assert_eq!(params[2], 12.0);
+    assert_eq!(
+        brush_params(1.0, &calumma_core::BrushProfile::HARD)[2],
+        0.0,
+        "chrome must never claim to be a box"
+    );
+}
+
 #[test]
 fn brush_params_hand_the_shader_the_engines_own_profile() {
     let crayon = calumma_core::Brush::Crayon.profile();

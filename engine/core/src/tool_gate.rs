@@ -71,6 +71,19 @@ impl Document {
         if matches!(tool, Tool::Eyedropper | Tool::Move) || self.draws_new_vector(tool) {
             return ToolBlock::None;
         }
+        // Select tools are never blocked by layer *kind* — selecting the red shape on a vector
+        // layer is the point of `select_sample`. Only the two that read pixels need there to be
+        // any: a marquee or a lasso on an empty layer is a region like any other, and refusing
+        // it would make a fresh document's first gesture a toast.
+        if tool.is_selection() {
+            return if layer.locked {
+                ToolBlock::LayerLocked
+            } else if tool.samples_layer_pixels() && layer.content_bounds().is_none() {
+                ToolBlock::NoContent
+            } else {
+                ToolBlock::None
+            };
+        }
         if layer.locked {
             return ToolBlock::LayerLocked;
         }

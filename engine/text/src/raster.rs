@@ -1,5 +1,5 @@
+use crate::buffer::build_buffer;
 use crate::fonts::with_engine;
-use crate::layout::build_buffer;
 use crate::limits::TEXT_RASTER_MAX_SIDE;
 use crate::run::TextRun;
 use cosmic_text::Color;

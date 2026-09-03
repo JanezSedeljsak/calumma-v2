@@ -3,7 +3,7 @@ use crate::selection_mask::SelectionMask;
 use crate::tile::{blend_over, DocRect, TileGrid};
 use std::collections::VecDeque;
 
-fn color_distance(a: [u8; 4], b: [u8; 4]) -> u32 {
+pub(crate) fn color_distance(a: [u8; 4], b: [u8; 4]) -> u32 {
     let dr = a[0] as i32 - b[0] as i32;
     let dg = a[1] as i32 - b[1] as i32;
     let db = a[2] as i32 - b[2] as i32;
@@ -27,6 +27,47 @@ fn color_distance(a: [u8; 4], b: [u8; 4]) -> u32 {
 /// marks enqueued, `reached` marks passed the tolerance test — at a bit per pixel rather than
 /// a 64-bit hash entry per pixel, which is what lets the wand flood a whole document without
 /// the bookkeeping outweighing the document.
+pub fn flood_region_pixels<F>(
+    scope: DocRect,
+    start_x: i32,
+    start_y: i32,
+    tolerance: u8,
+    mut pixel: F,
+) -> Option<SelectionMask>
+where
+    F: FnMut(i32, i32) -> [u8; 4],
+{
+    if !scope.contains(start_x, start_y) || scope.is_empty() {
+        return None;
+    }
+    let target = pixel(start_x, start_y);
+    let tol2 = (tolerance as u32) * (tolerance as u32) * 4;
+    let origin = (scope.min_x, scope.min_y);
+    let width = (scope.max_x - scope.min_x + 1) as u32;
+    let height = (scope.max_y - scope.min_y + 1) as u32;
+
+    let mut visited = SelectionMask::new(origin, width, height);
+    let mut reached = SelectionMask::new(origin, width, height);
+    let mut queue = VecDeque::new();
+    queue.push_back((start_x, start_y));
+    visited.set(start_x, start_y);
+
+    while let Some((x, y)) = queue.pop_front() {
+        if color_distance(pixel(x, y), target) > tol2 {
+            continue;
+        }
+        reached.set(x, y);
+        for (nx, ny) in [(x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)] {
+            if !scope.contains(nx, ny) || visited.get(nx, ny) {
+                continue;
+            }
+            visited.set(nx, ny);
+            queue.push_back((nx, ny));
+        }
+    }
+    reached.finish()
+}
+
 pub fn flood_region(
     tiles: &TileGrid,
     scope: DocRect,
@@ -69,6 +110,27 @@ pub fn flood_region(
         }
     }
     reached.finish()
+}
+
+pub fn color_range_pixels<F>(
+    scope: DocRect,
+    target: [u8; 4],
+    tolerance: u8,
+    pixel: F,
+) -> Option<SelectionMask>
+where
+    F: Fn(i32, i32) -> [u8; 4] + Sync,
+{
+    if scope.is_empty() {
+        return None;
+    }
+    let tol2 = (tolerance as u32) * (tolerance as u32) * 4;
+    let width = (scope.max_x - scope.min_x + 1) as u32;
+    let height = (scope.max_y - scope.min_y + 1) as u32;
+    SelectionMask::from_predicate((scope.min_x, scope.min_y), width, height, |x, y| {
+        color_distance(pixel(x, y), target) <= tol2
+    })
+    .finish()
 }
 
 /// Traverse, then paint what was reached. Returns the pixel count so the caller can tell a

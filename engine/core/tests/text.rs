@@ -76,12 +76,12 @@ fn backspace_and_delete_edit_at_the_caret() {
     let mut doc = board();
     click(&mut doc, 60.0, 100.0);
     doc.text_insert("abcd");
-    doc.text_step_caret(Step::Left);
+    doc.text_step_caret(Step::Left, false);
     doc.text_backspace();
     assert_eq!(doc.active_text_run().unwrap().text, "abd");
     doc.text_delete_forward();
     assert_eq!(doc.active_text_run().unwrap().text, "ab");
-    doc.text_step_caret(Step::DocStart);
+    doc.text_step_caret(Step::DocStart, false);
     doc.text_delete_forward();
     assert_eq!(doc.active_text_run().unwrap().text, "b");
     doc.text_backspace();
@@ -138,7 +138,7 @@ fn re_entering_keeps_the_text_and_starts_a_fresh_step() {
     assert!(doc.text_editing());
     assert_eq!(doc.text_edit_layer(), Some(layer));
     assert_eq!(doc.layers.len(), 3, "re-entering must not add a layer");
-    doc.text_step_caret(Step::DocEnd);
+    doc.text_step_caret(Step::DocEnd, false);
     doc.text_insert("!");
     doc.commit_text();
     assert_eq!(doc.active_text_run().unwrap().text, "hi!");

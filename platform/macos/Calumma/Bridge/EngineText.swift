@@ -20,6 +20,8 @@ enum CalmCaretStep: UInt32 {
     case lineEnd = 5
     case docStart = 6
     case docEnd = 7
+    case wordLeft = 8
+    case wordRight = 9
 }
 
 /// One row of the font picker, as the engine reports it: the family name plus the cuts the
@@ -62,6 +64,12 @@ extension Engine {
         calm_text_line_height_min()...calm_text_line_height_max()
     }
 
+    /// `0` is the off value — a run that grows with its longest line — so the field's floor is
+    /// zero rather than the engine's narrowest honoured box.
+    var textWrapRange: ClosedRange<Float> {
+        0...max(textWrapMax, calm_text_wrap_min())
+    }
+
     /// The cuts the active family ships, for greying out the style buttons.
     var activeFontFamily: CalmFontFamily? {
         Engine.fontFamilies.first { $0.name == textFamily }
@@ -91,6 +99,14 @@ extension Engine {
         let lineHeight = calm_engine_text_line_height(ptr)
         if textLineHeight != lineHeight {
             textLineHeight = lineHeight
+        }
+        let wrapWidth = calm_engine_text_wrap_width(ptr)
+        if textWrapWidth != wrapWidth {
+            textWrapWidth = wrapWidth
+        }
+        let wrapMax = calm_engine_text_wrap_max(ptr)
+        if textWrapMax != wrapMax {
+            textWrapMax = wrapMax
         }
         let styles = calm_engine_text_styles(ptr)
         let bold = styles & UInt32(CalmFontStyleBold.rawValue) != 0
@@ -126,9 +142,33 @@ extension Engine {
         _ = calm_engine_text_delete_forward(ptr)
     }
 
-    func textMoveCaret(_ step: CalmCaretStep) {
+    /// `extend` is shift held: the engine keeps the anchor and grows the selection.
+    func textMoveCaret(_ step: CalmCaretStep, extend: Bool = false) {
         guard let ptr else { return }
-        _ = calm_engine_text_move_caret(ptr, step.rawValue)
+        _ = calm_engine_text_move_caret(ptr, step.rawValue, extend ? 1 : 0)
+    }
+
+    func textSelectAll() {
+        guard let ptr else { return }
+        _ = calm_engine_text_select_all(ptr)
+    }
+
+    /// A double or triple click on the board, forwarded as the point it landed on. Which bytes
+    /// a word or a paragraph covers is the shaped layout's answer, so the shell never scans
+    /// the string itself.
+    func textSelectWord(x: Float, y: Float) {
+        guard let ptr else { return }
+        _ = calm_engine_text_select_word_at(ptr, x, y)
+    }
+
+    func textSelectParagraph(x: Float, y: Float) {
+        guard let ptr else { return }
+        _ = calm_engine_text_select_paragraph_at(ptr, x, y)
+    }
+
+    var textHasSelection: Bool {
+        guard let ptr else { return false }
+        return calm_engine_text_has_selection(ptr) == 1
     }
 
     func commitText() {
@@ -182,6 +222,13 @@ extension Engine {
     func setTextLineHeight(_ lineHeight: Float) {
         guard let ptr else { return }
         _ = calm_engine_set_text_line_height(ptr, lineHeight)
+        syncTextState()
+    }
+
+    /// `0` is a run that grows with its longest line; anything else is a wrapped box.
+    func setTextWrapWidth(_ width: Float) {
+        guard let ptr else { return }
+        _ = calm_engine_set_text_wrap_width(ptr, width)
         syncTextState()
     }
 

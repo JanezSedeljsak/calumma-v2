@@ -195,6 +195,8 @@ struct L10nCatalog: Equatable {
     var toolBucket: String { self["toolBucket"] }
     var toolBlur: String { self["toolBlur"] }
     var toolMagicWand: String { self["toolMagicWand"] }
+    var toolSelectColor: String { self["toolSelectColor"] }
+    var matchColor: String { self["matchColor"] }
     var brush: String { self["brush"] }
     var brushPen: String { self["brushPen"] }
     var brushMarker: String { self["brushMarker"] }
@@ -215,6 +217,8 @@ struct L10nCatalog: Equatable {
     var textAlignRight: String { self["textAlignRight"] }
     var textNoFonts: String { self["textNoFonts"] }
     var textLineHeight: String { self["textLineHeight"] }
+    var textWrapWidth: String { self["textWrapWidth"] }
+    var textWrapWidthHint: String { self["textWrapWidthHint"] }
     var textBold: String { self["textBold"] }
     var textItalic: String { self["textItalic"] }
     var layerRasterize: String { self["layerRasterize"] }

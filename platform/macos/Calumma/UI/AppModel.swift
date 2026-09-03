@@ -551,6 +551,9 @@ final class AppModel: ObservableObject {
         engine.setStroke(stroke)
         engine.setStrokeColor(shapeStrokeColor)
         engine.setShapeFillColor(shapeFillColor)
+        if quickColors.count > 2 {
+            engine.setSelectColor(quickColors[2])
+        }
         engine.setVectorMode(vectorMode)
         engine.setDark(theme.isDark)
         engine.setBoardColors(
@@ -558,6 +561,14 @@ final class AppModel: ObservableObject {
             grid: colors.deskGrid,
             paperBorder: colors.paperBorder
         )
+    }
+
+    func syncMatchColorFromEngine() {
+        guard quickColors.count > 2 else { return }
+        let next = engine.matchColor
+        if quickColors[2] != next {
+            quickColors[2] = next
+        }
     }
 
     func rename(projectId: String, to name: String) {

@@ -27,7 +27,7 @@ Six crates, one workspace (`Cargo.toml`), strictly layered:
 
 ```
                     ┌──────────────┐
-                    │ calumma-text │  cosmic-text: fonts, shaping, layout, glyph raster
+                    │ calumma-text │  cosmic-text: fonts, shaping, layout, spans, glyph raster
                     └──────┬───────┘  (leaf — knows nothing about documents)
                            │
                     ┌──────▼───────┐
@@ -109,8 +109,10 @@ pushes in. **One document is resident at a time**; everything else lives in SQLi
 no cache and nothing to evict on a timer.
 
 `document.rs` is large and is being split outward as it grows: `impl Document` blocks live in
-`text_edit.rs`, `vector_edit.rs`, `move_edit.rs` and `selection_edit.rs` — same type, one
-topic per file. `viewport.rs` extends `Camera` the same way.
+`text_edit.rs`, `text_input.rs`, `text_select.rs`, `vector_edit.rs`, `move_edit.rs` and
+`selection_edit.rs` — same type, one topic per file. `viewport.rs` extends `Camera` the same
+way. The three text files are the split in miniature: the session's lifetime, the edits that
+change the string, and where the caret and its anchor are.
 
 ### Layers
 
@@ -133,7 +135,9 @@ vector layer is one GPU draw call. A second shape is a second layer. See
 thumbnails, GPU upload and PNG/PSD/SVG export need no text-awareness at all — while the run
 stays editable forever. Two consequences: branch on `layer.tiles().is_none()` when you mean
 "has no pixels" (`is_raster()` is **false** for text), and never write text tiles to SQLite —
-the run is what is stored.
+the run is what is stored. This holds for everything a run has since grown — a wrap width, a
+selection range, style spans over byte ranges — because all of it is content the next `resync`
+turns into the same flat RGBA the compositor already knew how to draw.
 
 Everything else a layer carries is **non-destructive** and never baked into tile bytes:
 `mask`, `opacity`, `blend_mode`, `transform`. They are applied either at GPU
@@ -335,6 +339,13 @@ furniture (the `⌘T` and vector-item frames, the text session's box and caret, 
 hover outline) has to be the same size at every zoom. Both ride contiguous ranges of the
 one stroke buffer, so the split costs a second `draw`, not a second upload. New chrome goes
 on the overlay pass; only ink goes on the stroke pass.
+
+`fs_overlay` has one branch: an instance carrying a non-zero **half height** (`brush.z`, which
+`BrushProfile::HARD` leaves at zero, so every other piece of chrome is unaffected) is a filled
+box rather than a capsule, evaluated with the same `sd_box` `shape_distance`'s `TOOL_RECT`
+uses. That is how a text selection's rows are drawn, and it is the one piece of chrome whose
+size *does* follow the zoom — the engine hands it `row_height * zoom * 0.5`, because a
+highlight that stayed one screen size would stop covering the glyphs beneath it.
 
 `build_layer_draws` walks the **whole layer stack once** and emits an ordered
 `Vec<LayerDraw>`:

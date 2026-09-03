@@ -17,6 +17,7 @@ struct TextOptions: View {
             familyButton
             sizeSlider
             lineHeightSlider
+            wrapRow
             styleRow
             alignRow
         }
@@ -96,6 +97,24 @@ struct TextOptions: View {
             )
             .controlSize(.mini)
         }
+    }
+
+    /// How wide the block wraps, with `0` for a run that grows with its longest line. The
+    /// gesture is dragging a box with the Text tool; this is the same setting stated exactly,
+    /// for a box that has to match a measurement rather than a drag.
+    private var wrapRow: some View {
+        HStack {
+            CalmText.muted(l10n.textWrapWidth)
+            Spacer()
+            CalmSliderValueField(
+                value: Binding(
+                    get: { app.engine.textWrapWidth },
+                    set: { app.engine.setTextWrapWidth($0) }
+                ),
+                range: app.engine.textWrapRange
+            )
+        }
+        .calmTooltip(l10n.textWrapWidthHint, edge: .trailing)
     }
 
     /// Bold and italic are offered only where the family really has that cut — the engine

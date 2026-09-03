@@ -392,15 +392,35 @@ live in `engine/core`; the actual PNG/JPEG/WebP/AVIF **encode** happens in the s
   caret where you clicked, and glyphs land on the board as you type — no dialog, no commit
   step. Click an existing text layer with the tool, or double-click it in the layers panel
   (also on its context menu), to re-enter and retype it.
+- **Drag instead of clicking and you get a text box**: the drag's rectangle is the block, and
+  the text wraps at its width instead of running on in one line. A drag too narrow to wrap
+  (under 16 px) is treated as a click. The width is also a number in the tool options —
+  **Wrap**, where `0` means "grow with the longest line" — so a box can be set exactly rather
+  than swept, and changing it re-wraps the text that is already there.
+- **Selecting text.** Shift with any caret motion extends a selection (arrows, ⌥-arrows for
+  whole words, Home/End, ⌘↑/⌘↓); a plain arrow collapses it to the end it points at rather
+  than stepping past it. **Double-click** takes the word under the pointer, **triple-click**
+  the paragraph, and **dragging inside existing text** sweeps a range. `⌘A` while typing
+  selects all of the text rather than the canvas. Typing, `⌦` or `⌫` replaces the selection;
+  ⌥⌫ deletes the word behind the caret. The highlight is drawn on the board as one filled row
+  per *visual* line, so a wrapped paragraph highlights the way it reads.
 - The session ends when you click elsewhere, press `Esc`, pick another tool, switch layers,
   undo, or change the layer stack. A text layer created and left empty removes itself;
   emptying one that already existed is an ordinary edit. Anything typed becomes **one** undo
   step, and undoing it takes back the *text*, not only the pixels.
 - Options while the tool is active: **font** (a searchable list of every installed system
-  family, each row previewed in its own face), **size**, **line height**, **bold**,
-  **italic**, **alignment**. Bold and italic are offered only for families that really ship
-  that cut — the engine reports which faces it loaded. Changing the ink color recolors the
-  run you are typing. The style you last used carries to the next text layer.
+  family, each row previewed in its own face), **size**, **line height**, **wrap width**,
+  **bold**, **italic**, **alignment**. Bold and italic are offered only for families that
+  really ship that cut — the engine reports which faces it loaded. Changing the ink color
+  recolors the run you are typing. The style you last used carries to the next text layer.
+- **With something selected, the character options apply to the selection** — font, size,
+  bold, italic and the ink color — so one word in a paragraph can be bold, bigger, or a
+  different colour without becoming a layer of its own. The panel reads back the style *at*
+  the selection, so it shows that word's font rather than the block's. Line height, alignment
+  and wrap width are paragraph settings and always take the whole block. With nothing
+  selected the options behave as they always did and make the whole block agree — a knob
+  turned with no selection clears that one property's overrides rather than reading as having
+  failed, and leaves the others alone.
 - All keyboard input goes through `NSTextInputClient`, so dead keys, the accent popover, the
   emoji picker and IME compositions all work; a composition in progress is drawn at the
   caret. While typing, only ⌘-chords still act as editor shortcuts.
@@ -418,7 +438,7 @@ live in `engine/core`; the actual PNG/JPEG/WebP/AVIF **encode** happens in the s
 - Raster layers (sparse 256×256 tiles); optional non-destructive mask.
 - **Text layers** carry an editable run plus a tile cache rebuilt from it (see Text above).
 - **Vector layers** carry **exactly one** item — one shape drawn or one stroke pen-drawn with
-  **vector mode** on (`V`, or the toggle under the tool options). Each commit is a new layer;
+  **vector mode** on (`⇧V`, or the toggle under the tool options). Each commit is a new layer;
   clicking a vector selects that layer. Nothing is rasterized: the board evaluates the same
   distance functions the exporter does, so a vector stays sharp at any zoom, exports as real
   SVG primitives (`<rect>`, `<ellipse>`, `<path>`, …) and is stored as parameters.
@@ -638,44 +658,81 @@ live in `engine/core`; the actual PNG/JPEG/WebP/AVIF **encode** happens in the s
 
 ## Selection
 
-Four selection tools share one grid slot on the tools island (`M` cycles to whichever was
+Five selection tools share one grid slot on the tools island (`M` cycles to whichever was
 used last), with the specific one chosen from the options panel below the tool grid:
-rectangle, ellipse, freehand lasso, and **magic wand**. Three of the four are shapes (not
-persisted document-sized masks) — `engine/core/src/selection.rs`'s
-`Selection`/`SelectionShape` store just the rect/ellipse endpoints or the lasso polygon, and
-coverage is computed on demand by reusing the same coverage math the Rect/Ellipse paint
-shapes already use. The outline renders by reusing the existing shape-preview and
+rectangle, ellipse, freehand lasso, **magic wand**, and **select by colour**. Rect, ellipse
+and lasso are shapes rather than persisted document-sized masks —
+`engine/core/src/selection.rs`'s `Selection`/`SelectionShape` store just the endpoints or the
+lasso polygon, and coverage is computed on demand by reusing the same math the Rect/Ellipse
+paint shapes already use. The outline renders by reusing the existing shape-preview and
 stroke-preview GPU pipelines rather than a dedicated marching-ants pass — a known
 simplification: the outline briefly stops rendering while a *different* tool's live paint
 preview is on-screen at the same time, reappearing once that drag ends.
 
+**Every select tool answers against the active layer's visible pixels**, whatever the layer
+is made of (`engine/core/src/select_sample.rs`). A raster or text layer is read from its
+`TileGrid`; a vector layer is sampled by evaluating the same distance functions the board and
+the exporter use, with nothing written back — the `VectorItem` stays editable. A layer
+carrying a transform is read *through* it, so the selection and the copy that follows agree
+about where the artwork is. Select tools are therefore never blocked by layer **kind**; only
+a locked layer refuses them.
+
+- **Regions vs. readers.** Rect, ellipse and lasso *describe* a region; the wand and select-
+  by-colour *read* one. That is the line the tool gate draws: the first three work on a layer
+  with nothing painted on it (there is nothing to hug, so the region stands as drawn — a fresh
+  document's first marquee must not be a toast), while the other two are refused with the
+  usual notice, because a layer with no pixels has no colour to match.
+- **A region hugs the artwork.** Once the layer *does* have ink, a marquee or lasso commits as
+  a `SelectionShape::Mask` AND-ed with the layer's opaque pixels, on the same
+  `LAYER_PICK_MIN_ALPHA` threshold that decides whether a click can grab a layer — so copying
+  from a marquee over a small sketch takes the sketch, not the transparent box around it. This
+  is deliberately *more* than Photoshop's marquee does. A region that reaches no ink at all
+  leaves the selection alone, the same answer a wand click on empty space gives. The lasso's
+  polygon is simplified first: repeated points from a pointer that did not move, and midpoints
+  on a straight run, are dropped before it is tested once per pixel of its own box.
 - **Magic wand** (`W`, in the select flyout). Click a pixel of the **active layer** and the
   contiguous region within **Tolerance** of its color becomes the selection. Reading the
   active layer rather than the composite is deliberate: clicking a sketch's background
   selects that layer's background, not the Paper showing through it. Alpha counts toward
   the tolerance, so the empty space around a drawing is selectable like any color.
-  Tolerance is **one knob shared with the bucket**, because they are one traversal
-  (`fill::flood_region`) — a wand that disagreed with the bucket about what "contiguous"
-  means would be a bug report. Unlike the bucket, the wand ignores any existing selection
-  when it floods: it *replaces* the selection, so letting the old one clip the new one would
-  make a second click unable to grow past the first.
-  This is the one selection whose answer is **stored** rather than derived —
-  `SelectionShape::Mask`, one bit per pixel (8 MiB, not 64, for a full-canvas wand on an
-  8K document), cropped to what the flood actually reached. Because it lives inside
-  `SelectionShape`, paint clipping, copy, cut and delete needed no changes at all: they
-  already go through `bounds()` and `contains()`. Its ants come from a boundary traced once
-  at commit and merged into maximal runs, so the render pass never walks the bitmap however
-  large the selection is. A click that reaches nothing leaves the selection untouched — an
-  empty-but-present selection would silently clip every later stroke to nothing.
-  Not in scope for this pass: global (non-contiguous) select-by-color, feathering,
-  grow/shrink, and sample-all-layers.
+  Tolerance is **one knob shared with the bucket**, because they are one traversal — a wand
+  that disagreed with the bucket about what "contiguous" means would be a bug report. Unlike
+  the bucket, the wand ignores any existing selection when it floods: it *replaces* the
+  selection, so letting the old one clip the new one would make a second click unable to grow
+  past the first.
+- **Select by colour** (`⇧W`), Photoshop's Color Range: every matching pixel on the active
+  layer, contiguous or not. The **tertiary swatch is the match colour** — ring it, pick a
+  colour, and the selection re-runs against it; a board click is the eyedropper half, sampling
+  that pixel into the swatch and then selecting. Tolerance is this tool's Fuzziness and
+  re-runs live too, so widening it opens the selection up under the pointer. Both re-runs are
+  scoped to the tool actually being in hand: turning the same tolerance knob with the bucket
+  or the wand out applies to their *next* click, which is the only thing a flood from a pixel
+  you are no longer pointing at could mean.
+- The walk is scoped to the layer's **painted bounds**, not the canvas, so Paper white never
+  floods through the empty tiles of the layer above it — and a colour range over a small
+  sketch on a large board costs the sketch.
+- Every one of these lands as `SelectionShape::Mask`, one bit per pixel (8 MiB, not 64, for a
+  full-canvas selection on an 8K document), cropped to what was actually reached. Because it
+  lives inside `SelectionShape`, paint clipping, copy, cut and delete needed no changes at
+  all: they already go through `bounds()` and `contains()`. The ants come from a boundary
+  traced once at commit and merged into maximal runs, so the render pass never walks the
+  bitmap however large the selection is. A gesture that reaches nothing leaves the selection
+  untouched — an empty-but-present selection would silently clip every later stroke to
+  nothing.
+- **Cut and delete still need pixels to remove.** Copy works on every layer kind; clearing the
+  selected pixels goes through `active_layer_accepts_paint`, so a cut on a vector or text
+  layer copies and leaves the layer alone. Rasterize it first to cut from it.
+- Still not built: feathering, grow/shrink, sample-all-layers, transforming a selection as its
+  own object, and a Color Range dialog.
 
 | Shortcut | Action |
 | --- | --- |
-| `M` | Selection tool (rect / ellipse / lasso / magic wand — remembers the last one used) |
+| `M` | Selection tool (rect / ellipse / lasso / magic wand / select by colour — remembers the last one used) |
 | `W` | Magic wand directly |
+| `⇧W` | Select by colour directly (the wand family's other half) |
 | `⌘A` | Select All — the whole canvas as one rect, matching Photoshop rather than the active
-  layer's painted bounds |
+  layer's painted bounds. While a text layer is open it selects all of the **text** instead:
+  one shortcut, always whatever is in front of you |
 | `⌘⇧I` | Invert Selection — everything the current selection leaves out, clipped to the
   canvas. With no selection it selects all, the way Photoshop answers an inverted nothing.
   The result is always a `SelectionShape::Mask`, since the parametric shapes have no buffer
@@ -838,10 +895,11 @@ panel toggles are shell knobs.
 | `E` | Eraser | Yes |
 | `W` | Magic wand (select by color) | Yes (Ps Magic Wand) |
 | `U` | Blur | Ps puts Blur on `R`, which is Rectangle here, and `B` stays reserved for the brush family |
-| `M` | Selection (rect / ellipse / lasso — last one used) | Yes (Ps Marquee) |
+| `M` | Selection (rect / ellipse / lasso / wand / colour — last one used) | Yes (Ps Marquee) |
+| `⇧W` | Select by colour — Photoshop's Color Range, with the tertiary swatch as the match colour and Tolerance as its Fuzziness | Yes (Ps Color Range, which is a dialog rather than a tool) |
 | `G` | Fill (bucket) | Yes (Ps Paint Bucket, shared with Gradient) |
 | `I` | Eyedropper (live sample under the cursor into the active primary/secondary swatch; loupe shows color + hex; a circle shows the sample area) | Yes |
-| Move tool | Tools island — click a layer's pixels or a vector item to drag it; Transform off, that is all it does. Transform on (options toggle or `⌘T`) adds scale/rotate handles and selecting a layer's pixels makes it active. Empty space is a no-op. No bare key of its own — `V` stays vector mode, so `⌘T` is the chord its tooltip prints. | Ps `V` is Move; that key is already vector mode here |
+| `V` | Move tool — click a layer's pixels or a vector item to drag it; Transform off, that is all it does. Transform on (options toggle or `⌘T`) adds scale/rotate handles and selecting a layer's pixels makes it active. Empty space is a no-op. The key only changes which tool is in hand: it never touches the transform state, so `V` while transform is on leaves it on. | Yes (Ps `V` is Move) |
 | `⌘T` | Select Move and toggle transform mode on the active layer (scale/rotate/move); click another layer's pixels to retarget, click empty space, `Return` or `Esc` to exit | Yes (Ps Free Transform) |
 | `Return` | Exit transform mode, leaving the selection and the layer's transform alone. Does nothing outside transform, and types a newline while a text layer is open | Yes (Ps commits Free Transform on Return) |
 | `⌥⌘G` | Clip to Below on the active layer — see Layers | Yes (Ps Create Clipping Mask, though ours merges rather than clipping live) |
@@ -849,7 +907,7 @@ panel toggles are shell knobs.
 | `F` | Toggle shape fill | — |
 | `S` | Toggle shape stroke — independent of fill, so a shape can carry both | — (Figma has both by default) |
 | `⇧` (held while dragging) | Constrain Rect / Ellipse to a square / circle; on a `⌘T` or vector-item corner, free the two axes instead; on a **guide**, round its position to a whole 10 | Yes (Ps shape constrain) |
-| `V` | Toggle vector mode (shapes and the pen each commit as their own vector layer) | — (Ps has no equivalent; closest is Figma's vector tools) |
+| `⇧V` | Toggle vector mode (shapes and the pen each commit as their own vector layer). It moved off bare `V` when Move took that key back, and is checked **before** the tool table — `charactersIgnoringModifiers` reports the same letter shifted or not | — (Ps has no equivalent; closest is Figma's vector tools) |
 | `←` `→` `↑` `↓` | Nudge the selected vector item, or the active layer when Move / `⌘T` is the current tool | Yes (Ps nudge) |
 | `⌫` / `⌦` | Delete the selected vector item (falls back to the old clear behaviour when none is selected) | Yes |
 | `[` / `]` | Brush smaller / larger; with the Eyedropper, sample size | Yes |
@@ -866,6 +924,9 @@ panel toggles are shell knobs.
 | `⌘=` / `⌘+` | Zoom in one core step (`limits::ZOOM_STEP`) |
 | `⌘-` | Zoom out one core step |
 | `⌘A` / `⌘⇧I` | Select All / Invert Selection — see Selection above |
+| Caret and selection keys while a text layer is open | Everything `NSTextInputClient` names:
+  arrows, ⌥-arrows by word, Home/End, ⌘↑/⌘↓, each of them shift-extended into a selection, plus
+  ⌥⌫ / ⌥⌦ by word — see the Text tool above. Only ⌘-chords still reach the editor shortcuts |
 
 ### Pointer modifiers (board)
 
@@ -943,6 +1004,5 @@ Layered PSD
 PDF text as *selectable* text (PDF export is shipped, but text rides as pixels — font
 embedding needs `FontFile2`, `/Widths` and a `/ToUnicode` CMap),
 picking a layer by clicking it *outside* transform mode as a *modifier* (the Move tool on the tools island is the path — click painted pixels or a vector item to drag; Option-click and ⌘-click stay Pan),
-text *selection* (the Text tool ships with a caret only — no shift-arrow, no styled ranges),
 vectorize, generate-texture, BiRefNet core remove-bg — see
 `AGENTS.md` deferred list. Add a FLOW section when a feature ships, not before.

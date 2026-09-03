@@ -1,8 +1,11 @@
+pub mod buffer;
 pub mod fonts;
 pub mod layout;
 pub mod limits;
 pub mod raster;
 pub mod run;
+pub mod select;
+pub mod span;
 
 pub use fonts::{
     canonical_family, default_family, families, family_at, family_count, family_exists,
@@ -14,4 +17,6 @@ pub use limits::{
     TEXT_SIZE_MAX, TEXT_SIZE_MIN, TEXT_WRAP_MIN_WIDTH, TEXT_WRAP_PADDING,
 };
 pub use raster::{rasterize, TextRaster};
-pub use run::{TextAlign, TextRun};
+pub use run::{ResolvedStyle, TextAlign, TextRun};
+pub use select::{paragraph_range, selection_rects, word_range, SelectionRect};
+pub use span::{SpanStyle, StyleSpan};

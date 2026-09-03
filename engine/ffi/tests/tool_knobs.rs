@@ -270,3 +270,56 @@ fn brush_size_steps_reach_both_ends() {
     assert!(calm_brush_size_step(mid, 1) > mid);
     assert!(calm_brush_size_step(mid, 0) < mid);
 }
+
+/// The match swatch crossing the bridge. Setting it while Select Color is in hand is what makes
+/// the tertiary colour *the* match colour rather than a note about one, so the round trip is
+/// worth guarding at the boundary as well as in core.
+#[test]
+fn the_match_swatch_round_trips_and_drives_the_selection() {
+    let (_dir, e) = engine_with_project(64, 64);
+    unsafe {
+        assert_eq!(
+            calm_engine_set_tool(e, Tool::SelectColor as u32),
+            CalmStatus::Ok
+        );
+        assert_eq!(
+            calm_engine_set_select_color(e, 12, 34, 56, 255),
+            CalmStatus::Ok
+        );
+        let mut packed = 0u32;
+        assert_eq!(calm_engine_get_select_color(e, &mut packed), CalmStatus::Ok);
+        assert_eq!(
+            calumma_core::unpack_rgba(packed),
+            [12, 34, 56, 255],
+            "what went in is what comes back"
+        );
+        calm_engine_free(e);
+    }
+}
+
+#[test]
+fn the_select_color_calls_are_null_safe() {
+    unsafe {
+        assert_eq!(
+            calm_engine_set_select_color(ptr::null_mut(), 1, 2, 3, 4),
+            CalmStatus::Null
+        );
+        let mut packed = 0u32;
+        assert_eq!(
+            calm_engine_get_select_color(ptr::null_mut(), &mut packed),
+            CalmStatus::Null
+        );
+        assert_eq!(
+            calm_engine_get_select_color(ptr::null_mut(), ptr::null_mut()),
+            CalmStatus::Null
+        );
+    }
+}
+
+/// Select Color joins the four tools that were already selections, and carries the tolerance
+/// knob the wand and the bucket share. The shell greys its controls off these two answers.
+#[test]
+fn select_color_reports_itself_as_a_selection_tool_that_takes_tolerance() {
+    assert_eq!(calm_tool_is_selection(Tool::SelectColor as u32), 1);
+    assert_eq!(calm_tool_takes_tolerance(Tool::SelectColor as u32), 1);
+}

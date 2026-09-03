@@ -1,9 +1,17 @@
+//! The text session: opening one, placing a block, and closing it into a single undo step.
+//!
+//! Two neighbours split the rest off. `text_input.rs` holds the edits that change the string,
+//! and `text_select.rs` holds where the caret and its anchor are and what the board draws for
+//! them. What stays here is the session's own lifetime, which is the part every structural
+//! layer edit has to reason about: a session indexes a layer by position, so it must not
+//! outlive a stack that moved.
+
 use crate::document::Document;
 use crate::history::TileSnapshot;
 use crate::layer::Layer;
 use crate::text_layer;
 use crate::tile::TileCoord;
-use calumma_text::{caret_rect, index_at_point, step_index, Step, TextRun};
+use calumma_text::{index_at_point, TextRun, TEXT_WRAP_MIN_WIDTH};
 
 /// A live typing session on one text layer.
 ///
@@ -15,10 +23,43 @@ use calumma_text::{caret_rect, index_at_point, step_index, Step, TextRun};
 pub struct TextEdit {
     pub layer: usize,
     pub caret: usize,
+    /// The other end of the selection, equal to `caret` whenever nothing is selected. Every
+    /// caret mutation resets it unless the motion was shift-extended — that one rule is what
+    /// keeps selection from leaking into every call site.
+    pub anchor: usize,
     layer_id: String,
     created: bool,
     before: TileSnapshot,
     before_run: Box<TextRun>,
+    pub(crate) press: Option<TextPress>,
+}
+
+/// What the pointer is doing between a press and its release, which decides what a drag means.
+/// A press that made a new layer draws its wrap box; a press into text that was already there
+/// sweeps a selection, because resizing somebody's paragraph by dragging inside it would be a
+/// trap.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum TextPress {
+    Box { start: (f32, f32) },
+    Select,
+}
+
+/// A caret and its anchor. `(min, max)` of the pair is the selected range, and the pair being
+/// equal is the ordinary no-selection case.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TextRange {
+    pub caret: usize,
+    pub anchor: usize,
+}
+
+impl TextRange {
+    pub fn ordered(self) -> (usize, usize) {
+        (self.caret.min(self.anchor), self.caret.max(self.anchor))
+    }
+
+    pub fn is_empty(self) -> bool {
+        self.caret == self.anchor
+    }
 }
 
 impl Document {
@@ -30,10 +71,6 @@ impl Document {
         self.text_edit.as_ref().map(|e| e.layer)
     }
 
-    pub fn text_caret(&self) -> Option<usize> {
-        self.text_edit.as_ref().map(|e| e.caret)
-    }
-
     /// The run being typed into, or the active layer's run when nothing is being edited —
     /// so the shell can show the font and size of a selected text layer without entering it.
     pub fn active_text_run(&self) -> Option<&TextRun> {
@@ -41,13 +78,25 @@ impl Document {
         self.layers.get(index)?.run()
     }
 
-    fn editing_run(&self) -> Option<&TextRun> {
+    pub(crate) fn editing_run(&self) -> Option<&TextRun> {
         self.layers.get(self.text_edit.as_ref()?.layer)?.run()
     }
 
     /// Click with the Text tool: re-enter the topmost text layer under the pointer, or start
     /// a new one there. Either way the caret lands where the click did, like Photoshop.
     pub fn begin_text_at(&mut self, doc_x: f32, doc_y: f32) {
+        // Shift-click extends the range in the session that is already open, so this one press
+        // must not close the session it is extending — every other press does.
+        if self.shift_held && self.text_editing() {
+            let hit = self.text_layer_at(doc_x, doc_y);
+            if hit.is_some() && hit == self.text_edit_layer() {
+                self.text_extend_to(doc_x, doc_y);
+                if let Some(edit) = &mut self.text_edit {
+                    edit.press = Some(TextPress::Select);
+                }
+                return;
+            }
+        }
         self.commit_text();
         if let Some(index) = self.text_layer_at(doc_x, doc_y) {
             self.enter_text(index, false);
@@ -55,20 +104,45 @@ impl Document {
                 let caret = index_at_point(run, doc_x, doc_y);
                 if let Some(edit) = &mut self.text_edit {
                     edit.caret = caret;
+                    edit.anchor = caret;
+                    edit.press = Some(TextPress::Select);
                 }
             }
             return;
         }
-        let run = TextRun {
+        self.push_text_layer(TextRun {
             origin: (doc_x, doc_y - self.text_style.size * 0.5),
             color: self.color,
             ..self.text_style.clone()
+        });
+        if let Some(edit) = &mut self.text_edit {
+            edit.press = Some(TextPress::Box {
+                start: (doc_x, doc_y),
+            });
         }
-        .clamped();
+    }
+
+    /// A wrapped text box, from the rectangle a drag swept. The engine has honoured
+    /// `wrap_width` since text existed — this is the gesture that finally reaches it, and the
+    /// only difference from a click-placed run is that the origin is the box's corner rather
+    /// than a baseline guess.
+    pub fn begin_text_box(&mut self, x0: f32, y0: f32, x1: f32, y1: f32) {
+        self.commit_text();
+        let (min_x, max_x) = (x0.min(x1), x0.max(x1));
+        let min_y = y0.min(y1);
+        self.push_text_layer(TextRun {
+            origin: (min_x, min_y),
+            color: self.color,
+            wrap_width: Some(max_x - min_x),
+            ..self.text_style.clone()
+        });
+    }
+
+    fn push_text_layer(&mut self, run: TextRun) {
         let n = self.layers.iter().filter(|l| l.is_text()).count() + 1;
         let layer = Layer::text(
             crate::names::numbered_text_layer(n),
-            run,
+            run.clamped(),
             self.width,
             self.height,
         );
@@ -76,6 +150,45 @@ impl Document {
         self.active_layer = self.layers.len() - 1;
         let index = self.active_layer;
         self.enter_text(index, true);
+    }
+
+    /// Dragging with the Text tool. A press that opened a fresh layer is still deciding how
+    /// wide the block is; a press into existing text is sweeping a selection. Nothing else can
+    /// be dragged with this tool, so there is no third case.
+    ///
+    /// Returns whether the layer's *pixels* moved, which is the answer `pointer_move` turns
+    /// into a content invalidate rather than an overlay one. Re-wrapping re-rasterizes; sweeping
+    /// a selection only moves furniture the overlay pass draws every frame anyway.
+    pub fn text_pointer_move(&mut self, doc_x: f32, doc_y: f32) -> bool {
+        let Some(press) = self.text_edit.as_ref().and_then(|e| e.press) else {
+            return false;
+        };
+        match press {
+            TextPress::Select => {
+                self.text_extend_to(doc_x, doc_y);
+                false
+            }
+            TextPress::Box { start } => {
+                let width = (doc_x - start.0).abs();
+                let wrap = (width >= TEXT_WRAP_MIN_WIDTH).then_some(width);
+                let size = self.text_style.size;
+                self.with_run(|run, _| {
+                    run.wrap_width = wrap;
+                    run.origin = match wrap {
+                        Some(_) => (start.0.min(doc_x), start.1.min(doc_y)),
+                        None => (start.0, start.1 - size * 0.5),
+                    };
+                    *run = std::mem::take(run).clamped();
+                })
+                .is_some()
+            }
+        }
+    }
+
+    pub fn text_pointer_up(&mut self) {
+        if let Some(edit) = &mut self.text_edit {
+            edit.press = None;
+        }
     }
 
     pub fn text_layer_at(&self, doc_x: f32, doc_y: f32) -> Option<usize> {
@@ -103,6 +216,7 @@ impl Document {
         if let Some(len) = self.editing_run().map(|r| r.text.len()) {
             if let Some(edit) = &mut self.text_edit {
                 edit.caret = len;
+                edit.anchor = len;
             }
         }
         true
@@ -126,10 +240,12 @@ impl Document {
         self.text_edit = Some(TextEdit {
             layer: index,
             caret: 0,
+            anchor: 0,
             layer_id,
             created,
             before,
             before_run,
+            press: None,
         });
     }
 
@@ -199,147 +315,19 @@ impl Document {
         }
     }
 
-    pub(crate) fn with_run<R>(&mut self, f: impl FnOnce(&mut TextRun, usize) -> R) -> Option<R> {
+    pub(crate) fn with_run<R>(
+        &mut self,
+        f: impl FnOnce(&mut TextRun, TextRange) -> R,
+    ) -> Option<R> {
         let edit = self.text_edit.as_ref()?;
         let index = self.text_edit_index(edit)?;
-        let caret = edit.caret;
+        let range = TextRange {
+            caret: edit.caret,
+            anchor: edit.anchor,
+        };
         let run = self.layers.get_mut(index)?.content.run_mut()?;
-        let out = f(run, caret);
+        let out = f(run, range);
         self.resync_text(index);
         Some(out)
     }
-
-    pub fn text_insert(&mut self, insert: &str) {
-        if insert.is_empty() {
-            return;
-        }
-        let Some(caret) = self.with_run(|run, caret| {
-            let at = run.clamp_index(caret);
-            let at = clear_marked(run, at);
-            run.text.insert_str(at, insert);
-            at + insert.len()
-        }) else {
-            return;
-        };
-        self.set_caret(caret);
-    }
-
-    /// An in-flight IME or dead-key composition. It is stored on the run so the board shows
-    /// it exactly where it will land, and replaced wholesale on every update — the platform
-    /// always sends the full composition, never a delta.
-    pub fn text_set_marked(&mut self, marked: &str) {
-        self.with_run(|run, caret| {
-            let at = run.clamp_index(caret);
-            let at = if run.marked.is_empty() {
-                at
-            } else {
-                run.marked_at
-            };
-            run.marked_at = at;
-            run.marked = marked.to_string();
-        });
-    }
-
-    pub fn text_backspace(&mut self) {
-        let Some(caret) = self.with_run(|run, caret| {
-            let at = run.clamp_index(caret);
-            if !run.marked.is_empty() {
-                return clear_marked(run, at);
-            }
-            if at == 0 {
-                return 0;
-            }
-            let prev = step_index(run, at, Step::Left);
-            run.text.replace_range(prev..at, "");
-            prev
-        }) else {
-            return;
-        };
-        self.set_caret(caret);
-    }
-
-    pub fn text_delete_forward(&mut self) {
-        let Some(caret) = self.with_run(|run, caret| {
-            let at = run.clamp_index(caret);
-            if !run.marked.is_empty() {
-                return clear_marked(run, at);
-            }
-            let next = step_index(run, at, Step::Right);
-            if next > at {
-                run.text.replace_range(at..next, "");
-            }
-            at
-        }) else {
-            return;
-        };
-        self.set_caret(caret);
-    }
-
-    pub fn text_step_caret(&mut self, step: Step) {
-        let Some(edit) = self.text_edit.as_ref() else {
-            return;
-        };
-        let (index, caret) = (edit.layer, edit.caret);
-        let Some(run) = self.layers.get(index).and_then(Layer::run) else {
-            return;
-        };
-        let next = step_index(run, caret, step);
-        self.set_caret(next);
-    }
-
-    pub fn text_set_caret_at(&mut self, doc_x: f32, doc_y: f32) {
-        let Some(run) = self.editing_run() else {
-            return;
-        };
-        let caret = index_at_point(run, doc_x, doc_y);
-        self.set_caret(caret);
-    }
-
-    fn set_caret(&mut self, caret: usize) {
-        let Some(edit) = self.text_edit.as_ref() else {
-            return;
-        };
-        let index = edit.layer;
-        let clamped = self
-            .layers
-            .get(index)
-            .and_then(Layer::run)
-            .map(|run| run.clamp_index(caret))
-            .unwrap_or(0);
-        if let Some(edit) = &mut self.text_edit {
-            edit.caret = clamped;
-        }
-    }
-
-    /// Caret as a document-space segment for the board to draw. `None` whenever nothing is
-    /// being edited, which is also how the renderer knows to stop blinking.
-    pub fn text_caret_segment(&self) -> Option<((f32, f32), (f32, f32))> {
-        let edit = self.text_edit.as_ref()?;
-        let run = self.layers.get(edit.layer)?.run()?;
-        let caret = caret_rect(run, edit.caret);
-        Some(((caret.x, caret.y), (caret.x, caret.y + caret.height)))
-    }
-
-    pub fn text_box(&self) -> Option<(f32, f32, f32, f32)> {
-        let edit = self.text_edit.as_ref()?;
-        let run = self.layers.get(edit.layer)?.run()?;
-        Some(text_layer::run_box(run))
-    }
-
-    pub fn text_caret_color(&self) -> [u8; 4] {
-        self.editing_run()
-            .map(|run| run.color)
-            .unwrap_or(self.color)
-    }
-}
-
-/// Drops any composition in progress and reports where the caret should sit afterwards.
-fn clear_marked(run: &mut TextRun, caret: usize) -> usize {
-    if run.marked.is_empty() {
-        return caret;
-    }
-    let at = run.clamp_index(run.marked_at);
-    run.marked.clear();
-    run.marked_at = at;
-    at
 }

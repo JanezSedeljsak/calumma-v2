@@ -122,6 +122,10 @@ fn a_shift_held_only_at_release_still_constrains_what_is_committed() {
 #[test]
 fn the_selection_marquees_constrain_the_same_way() {
     let mut doc = doc_with_tool(Tool::SelectRect);
+    doc.layers[doc.active_layer]
+        .tiles_mut()
+        .unwrap()
+        .fill_uniform(DocRect::new(40, 40, 199, 199), [1, 2, 3, 255]);
     doc.set_shift_held(true);
     drag(&mut doc, (40.0, 40.0), (140.0, 80.0));
     let (w, h) = span(preview(&doc));
@@ -129,14 +133,15 @@ fn the_selection_marquees_constrain_the_same_way() {
 
     let up = doc.camera.to_screen(140.0, 80.0);
     doc.pointer_up(up.0, up.1);
-    let Some(Selection {
-        shape: SelectionShape::Rect { start, end },
-    }) = doc.selection
-    else {
-        unreachable!("a rect selection was committed")
-    };
-    assert!(close(start, (40.0, 40.0)));
-    assert!(close(end, (140.0, 140.0)));
+    let sel = doc
+        .selection
+        .as_ref()
+        .expect("a rect selection was committed");
+    assert!(sel.contains(40.5, 40.5));
+    assert!(sel.contains(139.5, 139.5));
+    assert!(!sel.contains(141.5, 141.5));
+    let bounds = sel.bounds();
+    assert_eq!(bounds.max_x - bounds.min_x, bounds.max_y - bounds.min_y);
 }
 
 #[test]

@@ -72,6 +72,7 @@ enum CalmTool: UInt32 {
     case move = 15
     case blur = 16
     case magicWand = 17
+    case selectColor = 18
 
     var isShape: Bool { calm_tool_is_shape(rawValue) != 0 }
     var isSelection: Bool { calm_tool_is_selection(rawValue) != 0 }
@@ -206,6 +207,9 @@ final class Engine: ObservableObject, @unchecked Sendable {
     @Published var textLineHeight: Float = 1.25
     @Published var textBold = false
     @Published var textItalic = false
+    /// `0` means the run grows with its longest line; anything else is a wrapped text box.
+    @Published var textWrapWidth: Float = 0
+    @Published var textWrapMax: Float = 0
     @Published private(set) var thumbnailRevision: UInt64 = 0
     /// One rendered preview per layer, parallel to `layerNames`. Rows read this array — they
     /// never call into the engine while building their body, which is what made a click on the
@@ -610,6 +614,21 @@ final class Engine: ObservableObject, @unchecked Sendable {
         guard let ptr else { return }
         let (r, g, b, a) = channels(color)
         _ = calm_engine_set_shape_fill_color(ptr, r, g, b, a)
+    }
+
+    func setSelectColor(_ color: Color) {
+        guard let ptr else { return }
+        let (r, g, b, a) = channels(color)
+        _ = calm_engine_set_select_color(ptr, r, g, b, a)
+    }
+
+    var matchColor: Color {
+        guard let ptr else { return .gray }
+        var packed: UInt32 = 0
+        guard calm_engine_get_select_color(ptr, &packed) == CalmStatusOk else {
+            return .gray
+        }
+        return Self.color(fromPackedRGBA: packed)
     }
 
     private func channels(_ color: Color) -> (UInt8, UInt8, UInt8, UInt8) {
