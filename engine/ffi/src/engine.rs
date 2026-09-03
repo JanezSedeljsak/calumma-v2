@@ -1434,6 +1434,73 @@ pub unsafe extern "C" fn calm_engine_set_active_layer(
 }
 
 #[no_mangle]
+pub unsafe extern "C" fn calm_engine_set_layer_selection(
+    engine: *mut CalmEngine,
+    indices: *const u32,
+    len: usize,
+) -> CalmStatus {
+    if engine.is_null() {
+        return CalmStatus::Null;
+    }
+    with_inner(engine, |inner| {
+        if let Some(doc) = &mut inner.doc {
+            let selection = if indices.is_null() || len == 0 {
+                Vec::new()
+            } else {
+                std::slice::from_raw_parts(indices, len)
+                    .iter()
+                    .map(|&index| index as usize)
+                    .collect::<Vec<_>>()
+            };
+            doc.set_layer_selection(&selection);
+            if let Some(r) = &mut inner.renderer {
+                r.invalidate_overlay();
+            }
+        }
+        Ok(())
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn calm_engine_align_layers(
+    engine: *mut CalmEngine,
+    indices: *const u32,
+    len: usize,
+    edge: u32,
+) -> CalmStatus {
+    if engine.is_null() {
+        return CalmStatus::Null;
+    }
+    let edge = match edge {
+        0 => calumma_core::AlignEdge::Left,
+        1 => calumma_core::AlignEdge::CenterH,
+        2 => calumma_core::AlignEdge::Right,
+        3 => calumma_core::AlignEdge::Top,
+        4 => calumma_core::AlignEdge::CenterV,
+        5 => calumma_core::AlignEdge::Bottom,
+        _ => return CalmStatus::Error,
+    };
+    with_inner(engine, |inner| {
+        let doc = inner.doc.as_mut().context("no project is open")?;
+        let selection = if indices.is_null() || len == 0 {
+            Vec::new()
+        } else {
+            std::slice::from_raw_parts(indices, len)
+                .iter()
+                .map(|&index| index as usize)
+                .collect::<Vec<_>>()
+        };
+        if !doc.align_layers(&selection, edge) {
+            bail!("layers could not be aligned");
+        }
+        if let Some(r) = &mut inner.renderer {
+            r.invalidate();
+        }
+        Ok(())
+    })
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn calm_engine_duplicate_layer(
     engine: *mut CalmEngine,
     index: u32,

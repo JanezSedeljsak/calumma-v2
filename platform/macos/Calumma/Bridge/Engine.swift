@@ -20,6 +20,15 @@ enum CalmBlendMode: UInt32, CaseIterable, Identifiable {
     var id: UInt32 { rawValue }
 }
 
+enum CalmAlignEdge: UInt32 {
+    case left = 0
+    case centerH = 1
+    case right = 2
+    case top = 3
+    case centerV = 4
+    case bottom = 5
+}
+
 struct LayerAdjustments: Equatable {
     var brightness: Float = 0
     var contrast: Float = 0
@@ -902,6 +911,28 @@ final class Engine: ObservableObject, @unchecked Sendable {
         guard let ptr else { return }
         _ = calm_engine_set_active_layer(ptr, UInt32(index))
         syncState()
+    }
+
+    func setLayerSelection(_ indices: [Int]) {
+        guard let ptr else { return }
+        let selection = indices.map(UInt32.init)
+        selection.withUnsafeBufferPointer { buffer in
+            _ = calm_engine_set_layer_selection(ptr, buffer.baseAddress, buffer.count)
+        }
+        render()
+    }
+
+    @discardableResult
+    func alignLayers(_ indices: [Int], edge: CalmAlignEdge) -> Bool {
+        guard let ptr else { return false }
+        let selection = indices.map(UInt32.init)
+        let ok = selection.withUnsafeBufferPointer { buffer in
+            calm_engine_align_layers(ptr, buffer.baseAddress, buffer.count, edge.rawValue) == CalmStatusOk
+        }
+        if ok {
+            render()
+        }
+        return ok
     }
 
     func setHoverLayer(_ index: Int?) {

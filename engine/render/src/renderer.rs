@@ -2059,7 +2059,7 @@ impl Renderer {
             // Unconditional for the same reason: the engine decides whether there is a brush
             // cursor to draw, and answers with nothing when there is not.
             screen_instances.extend(brush_ring_instances(doc));
-            if let Some((index, corners)) = doc.layer_highlight() {
+            for (index, corners) in doc.layer_highlights() {
                 let covered = doc
                     .transform_handles()
                     .is_some_and(|(handle_index, _, _)| handle_index == index);

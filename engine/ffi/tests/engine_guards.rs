@@ -94,6 +94,8 @@ fn every_status_entry_point_rejects_a_null_engine() {
         assert_eq!(calm_engine_remove_layer(e, 0), CalmStatus::Null);
         assert_eq!(calm_engine_set_layer_visible(e, 0, 1), CalmStatus::Null);
         assert_eq!(calm_engine_set_active_layer(e, 0), CalmStatus::Null);
+        assert_eq!(calm_engine_set_layer_selection(e, ptr::null(), 0), CalmStatus::Null);
+        assert_eq!(calm_engine_align_layers(e, ptr::null(), 0, 0), CalmStatus::Null);
         assert_eq!(calm_engine_duplicate_layer(e, 0), CalmStatus::Null);
         assert_eq!(calm_engine_merge_layer_down(e, 0), CalmStatus::Null);
         assert_eq!(calm_engine_clip_layer_down(e, 0), CalmStatus::Null);

@@ -386,6 +386,7 @@ pub struct Document {
     pub text_style: TextRun,
     pub text_edit: Option<TextEdit>,
     pub(crate) transform_drag: Option<TransformDrag>,
+    pub(crate) layer_selection: Vec<usize>,
     stroke_before: TileSnapshot,
     /// How far each pixel the blur brush passes over travels toward its blurred neighbourhood.
     /// A document-level knob like `brush_size`, not a shell one — see `blur.rs`.
@@ -447,31 +448,55 @@ impl TransformHandle {
 }
 
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct TransformDrag {
+pub(crate) struct TransformTarget {
     pub(crate) layer_index: usize,
-    pub(crate) handle: TransformHandle,
     pub(crate) pivot: (f32, f32),
     pub(crate) raw_bounds: (f32, f32, f32, f32),
     pub(crate) start_transform: LayerTransform,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct TransformDrag {
+    pub(crate) targets: Vec<TransformTarget>,
+    pub(crate) handle: TransformHandle,
     pub(crate) start_pointer: (f32, f32),
 }
 
 impl TransformDrag {
-    pub(crate) fn layer_move(
+    pub(crate) fn single(
         layer_index: usize,
+        handle: TransformHandle,
         pivot: (f32, f32),
         raw_bounds: (f32, f32, f32, f32),
         start_transform: LayerTransform,
         start_pointer: (f32, f32),
     ) -> Self {
         Self {
-            layer_index,
-            handle: TransformHandle::Move,
-            pivot,
-            raw_bounds,
-            start_transform,
+            targets: vec![TransformTarget {
+                layer_index,
+                pivot,
+                raw_bounds,
+                start_transform,
+            }],
+            handle,
             start_pointer,
         }
+    }
+
+    pub(crate) fn layer_move(targets: Vec<TransformTarget>, start_pointer: (f32, f32)) -> Self {
+        Self {
+            targets,
+            handle: TransformHandle::Move,
+            start_pointer,
+        }
+    }
+
+    pub(crate) fn layer_index(&self) -> usize {
+        self.targets[0].layer_index
+    }
+
+    pub(crate) fn primary(&self) -> &TransformTarget {
+        &self.targets[0]
     }
 
     /// The frame's centre *on the board*. `pivot` is the raw content centre, which `forward`
@@ -480,9 +505,10 @@ impl TransformDrag {
     /// have to measure from what is on screen, or a moved layer turns about a point off in
     /// space and its corners jump the moment they are grabbed.
     pub(crate) fn center(&self) -> (f32, f32) {
+        let target = self.primary();
         (
-            self.pivot.0 + self.start_transform.offset_x,
-            self.pivot.1 + self.start_transform.offset_y,
+            target.pivot.0 + target.start_transform.offset_x,
+            target.pivot.1 + target.start_transform.offset_y,
         )
     }
 }
@@ -535,6 +561,25 @@ fn glazed(color: [u8; 4], opacity: f32) -> [u8; 4] {
     rgba
 }
 
+fn union_aabb_after_delta(
+    targets: &[TransformTarget],
+    dx: f32,
+    dy: f32,
+) -> (f32, f32, f32, f32) {
+    let mut union = (f32::INFINITY, f32::INFINITY, f32::NEG_INFINITY, f32::NEG_INFINITY);
+    for target in targets {
+        let mut next = target.start_transform;
+        next.offset_x += dx;
+        next.offset_y += dy;
+        let aabb = next.transformed_aabb(target.raw_bounds);
+        union.0 = union.0.min(aabb.0);
+        union.1 = union.1.min(aabb.1);
+        union.2 = union.2.max(aabb.2);
+        union.3 = union.3.max(aabb.3);
+    }
+    union
+}
+
 impl Document {
     pub fn new(id: String, name: impl Into<String>, width: u32, height: u32) -> Self {
         let width = width.max(1);
@@ -584,6 +629,7 @@ impl Document {
             text_style: TextRun::default(),
             text_edit: None,
             transform_drag: None,
+            layer_selection: Vec::new(),
             stroke_before: TileSnapshot::default(),
             blur_strength: BLUR_STRENGTH_DEFAULT,
             tolerance: TOLERANCE_DEFAULT,
@@ -670,6 +716,12 @@ impl Document {
                 self.hover_layer = None;
             } else if hover > index {
                 self.hover_layer = Some(hover - 1);
+            }
+        }
+        self.layer_selection.retain(|&i| i != index);
+        for selected in &mut self.layer_selection {
+            if *selected > index {
+                *selected -= 1;
             }
         }
         true
@@ -896,37 +948,37 @@ impl Document {
         if self.selected_vector_item().is_none() {
             for (corner, handle) in corners.iter().zip(TransformHandle::CORNERS) {
                 if point_dist(*corner, point) <= hit_r {
-                    return Some(TransformDrag {
-                        layer_index: index,
+                    return Some(TransformDrag::single(
+                        index,
                         handle,
                         pivot,
                         raw_bounds,
-                        start_transform: t,
-                        start_pointer: point,
-                    });
+                        t,
+                        point,
+                    ));
                 }
             }
             let rotate_handle = Self::rotate_handle_position(corners, zoom);
             if point_dist(rotate_handle, point) <= hit_r {
-                return Some(TransformDrag {
-                    layer_index: index,
-                    handle: TransformHandle::Rotate,
+                return Some(TransformDrag::single(
+                    index,
+                    TransformHandle::Rotate,
                     pivot,
                     raw_bounds,
-                    start_transform: t,
-                    start_pointer: point,
-                });
+                    t,
+                    point,
+                ));
             }
         }
         if point_in_quad(point, corners) {
-            return Some(TransformDrag {
-                layer_index: index,
-                handle: TransformHandle::Move,
+            return Some(TransformDrag::single(
+                index,
+                TransformHandle::Move,
                 pivot,
                 raw_bounds,
-                start_transform: t,
-                start_pointer: point,
-            });
+                t,
+                point,
+            ));
         }
         None
     }
@@ -954,7 +1006,11 @@ impl Document {
     /// (checked first) are still how the whole layer is scaled or turned.
     fn transform_pointer_down(&mut self, doc_x: f32, doc_y: f32) {
         let handle = self.transform_handle_at(doc_x, doc_y);
-        if let Some(drag) = handle.filter(|d| d.handle != TransformHandle::Move) {
+        if let Some(drag) = handle
+            .as_ref()
+            .filter(|d| d.handle != TransformHandle::Move)
+            .cloned()
+        {
             self.clear_vector_selection();
             self.transform_drag = Some(drag);
             return;
@@ -984,47 +1040,62 @@ impl Document {
     }
 
     pub(crate) fn update_transform_drag(&mut self, doc_x: f32, doc_y: f32) {
-        let Some(drag) = self.transform_drag else {
+        let Some(drag) = self.transform_drag.clone() else {
             return;
         };
-        // A scale handle *is* the pointer, so it snaps to a guide directly; a move keeps hold
-        // of the layer wherever it was grabbed and lets the layer's own outline do the landing.
         let (doc_x, doc_y) = match drag.handle {
             TransformHandle::Move | TransformHandle::Rotate => (doc_x, doc_y),
             _ => self.snap_doc_point((doc_x, doc_y)),
         };
-        let mut next = drag.start_transform;
         match drag.handle {
             TransformHandle::Move => {
-                next.offset_x = drag.start_transform.offset_x + (doc_x - drag.start_pointer.0);
-                next.offset_y = drag.start_transform.offset_y + (doc_y - drag.start_pointer.1);
-                let (snap_x, snap_y) = self.snap_box_offset(next.transformed_aabb(drag.raw_bounds));
-                next.offset_x += snap_x;
-                next.offset_y += snap_y;
+                let dx = doc_x - drag.start_pointer.0;
+                let dy = doc_y - drag.start_pointer.1;
+                let union = union_aabb_after_delta(&drag.targets, dx, dy);
+                let (snap_x, snap_y) = self.snap_box_offset(union);
+                for target in &drag.targets {
+                    let mut next = target.start_transform;
+                    next.offset_x += dx + snap_x;
+                    next.offset_y += dy + snap_y;
+                    let next = next.clamped();
+                    if let Some(layer) = self.layers.get_mut(target.layer_index) {
+                        layer.transform = Some(next);
+                    }
+                }
             }
             TransformHandle::Rotate => {
+                let target = drag.primary();
+                let mut next = target.start_transform;
                 let center = drag.center();
                 let start_angle = angle_from(center, drag.start_pointer);
                 let now_angle = angle_from(center, (doc_x, doc_y));
-                next.rotation = drag.start_transform.rotation + (now_angle - start_angle);
+                next.rotation = target.start_transform.rotation + (now_angle - start_angle);
+                let next = next.clamped();
+                if let Some(layer) = self.layers.get_mut(target.layer_index) {
+                    layer.transform = Some(next);
+                }
             }
             corner => {
+                let target = drag.primary();
                 let Some(signs) = corner.corner_signs() else {
                     return;
                 };
                 let half = (
-                    (drag.raw_bounds.2 - drag.raw_bounds.0) * 0.5,
-                    (drag.raw_bounds.3 - drag.raw_bounds.1) * 0.5,
+                    (target.raw_bounds.2 - target.raw_bounds.0) * 0.5,
+                    (target.raw_bounds.3 - target.raw_bounds.1) * 0.5,
                 );
-                let reach = drag.start_transform.to_local(drag.center(), (doc_x, doc_y));
+                let reach = target
+                    .start_transform
+                    .to_local(drag.center(), (doc_x, doc_y));
                 let (scale_x, scale_y) = corner_scale(half, signs, reach, !self.shift_held);
+                let mut next = target.start_transform;
                 next.scale_x = scale_x;
                 next.scale_y = scale_y;
+                let next = next.clamped();
+                if let Some(layer) = self.layers.get_mut(target.layer_index) {
+                    layer.transform = Some(next);
+                }
             }
-        }
-        let next = next.clamped();
-        if let Some(layer) = self.layers.get_mut(drag.layer_index) {
-            layer.transform = Some(next);
         }
     }
 
@@ -1147,8 +1218,15 @@ impl Document {
         self.active_layer = remap(self.active_layer);
         self.hover_layer = self.hover_layer.map(remap);
         if let Some(drag) = &mut self.transform_drag {
-            drag.layer_index = remap(drag.layer_index);
+            for target in &mut drag.targets {
+                target.layer_index = remap(target.layer_index);
+            }
         }
+        self.layer_selection = self
+            .layer_selection
+            .iter()
+            .map(|&index| remap(index))
+            .collect();
         if let Some(pick) = &mut self.selected_vector {
             pick.layer = remap(pick.layer);
         }
@@ -2401,12 +2479,34 @@ impl Document {
             if drag.handle != TransformHandle::Move {
                 return None;
             }
-            let corners = self.layer_outline_corners(drag.layer_index)?;
-            return Some((drag.layer_index, corners));
+            let corners = self.layer_outline_corners(drag.layer_index())?;
+            return Some((drag.layer_index(), corners));
         }
         let index = self.hover_layer?;
         let corners = self.layer_outline_corners(index)?;
         Some((index, corners))
+    }
+
+    pub fn layer_highlights(&self) -> Vec<(usize, [(f32, f32); 4])> {
+        if let Some(drag) = &self.transform_drag {
+            if drag.handle == TransformHandle::Move {
+                return drag
+                    .targets
+                    .iter()
+                    .filter_map(|target| {
+                        self.layer_outline_corners(target.layer_index)
+                            .map(|corners| (target.layer_index, corners))
+                    })
+                    .collect();
+            }
+            if let Some(corners) = self.layer_outline_corners(drag.layer_index()) {
+                return vec![(drag.layer_index(), corners)];
+            }
+            return Vec::new();
+        }
+        self.layer_highlight()
+            .into_iter()
+            .collect()
     }
 
     fn layer_outline_corners(&self, index: usize) -> Option<[(f32, f32); 4]> {

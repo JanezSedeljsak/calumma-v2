@@ -19,6 +19,8 @@ struct EditorView: View {
     @State private var renameDraft = ""
     @State private var dropTargetRow: Int?
     @State private var draggingRow: Int?
+    @State private var selectedLayers: Set<Int> = []
+    @State private var selectionAnchor: Int?
     @State private var aiBlinkOn = false
 
     var body: some View {
@@ -388,6 +390,9 @@ struct EditorView: View {
                     .calmTooltip(l10n.addLayer, edge: .leading)
                     .calmPointer()
                 }
+                if selectedLayers.count >= 2 {
+                    layerAlignRow
+                }
                 // The stack takes every point the header and the bounds fields below it do
                 // not, and scrolls once it runs out — rather than stopping at a fixed share of
                 // the island with dead space underneath it.
@@ -422,11 +427,36 @@ struct EditorView: View {
         .onAppear {
             syncCanvasSize()
             syncLayerBounds()
+            let active = Int(app.engine.state.activeLayer)
+            selectedLayers = [active]
+            selectionAnchor = active
+            app.engine.setLayerSelection([active])
         }
         .onChange(of: app.engine.state.width) { _, _ in syncCanvasSize() }
         .onChange(of: app.engine.state.height) { _, _ in syncCanvasSize() }
-        .onChange(of: app.engine.state.activeLayer) { _, _ in syncLayerBounds() }
-        .onChange(of: app.engine.layerNames.count) { _, _ in syncLayerBounds() }
+        .onChange(of: app.engine.state.activeLayer) { _, new in
+            syncLayerBounds()
+            let active = Int(new)
+            if !selectedLayers.contains(active) {
+                selectedLayers = [active]
+                app.engine.setLayerSelection(Array(selectedLayers).sorted())
+            }
+        }
+        .onChange(of: app.engine.layerNames.count) { _, _ in
+            syncLayerBounds()
+            selectedLayers = selectedLayers.filter { $0 < app.engine.layerNames.count }
+            if selectedLayers.isEmpty, app.engine.layerNames.count > 0 {
+                let active = Int(app.engine.state.activeLayer)
+                selectedLayers = [active]
+            }
+            app.engine.setLayerSelection(Array(selectedLayers).sorted())
+        }
+        .onChange(of: app.activeProjectId) { _, _ in
+            let active = Int(app.engine.state.activeLayer)
+            selectedLayers = [active]
+            selectionAnchor = active
+            app.engine.setLayerSelection([active])
+        }
         .onChange(of: app.engine.thumbnailRevision) { _, _ in syncLayerBounds() }
     }
 
@@ -518,8 +548,69 @@ struct EditorView: View {
         app.engine.setLayerName(index, name: renameDraft)
     }
 
+    private var layerAlignRow: some View {
+        VStack(alignment: .leading, spacing: Tokens.Space.xs) {
+            CalmText.label(l10n.layerAlign)
+            ToolsPanel.iconGrid {
+                layerAlignButton(.left, icon: "object-align-left", help: l10n.layerAlignLeft)
+                layerAlignButton(.centerH, icon: "object-align-center-h", help: l10n.layerAlignCenterH)
+                layerAlignButton(.right, icon: "object-align-right", help: l10n.layerAlignRight)
+                layerAlignButton(.top, icon: "object-align-top", help: l10n.layerAlignTop)
+                layerAlignButton(.centerV, icon: "object-align-center-v", help: l10n.layerAlignCenterV)
+                layerAlignButton(.bottom, icon: "object-align-bottom", help: l10n.layerAlignBottom)
+            }
+        }
+    }
+
+    private func layerAlignButton(_ edge: CalmAlignEdge, icon: String, help: String) -> some View {
+        CalmToolButton(
+            selected: false,
+            action: { alignSelectedLayers(edge) },
+            tooltip: help,
+            tooltipEdge: .leading
+        ) {
+            SvgIcon(name: icon, color: colors.textMuted)
+        }
+    }
+
+    private func alignSelectedLayers(_ edge: CalmAlignEdge) {
+        let indices = Array(selectedLayers).sorted()
+        if app.engine.alignLayers(indices, edge: edge) {
+            syncLayerBounds()
+        }
+    }
+
+    private func selectLayerRow(_ index: Int) {
+        let flags = NSEvent.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        let shift = flags.contains(.shift)
+        let command = flags.contains(.command)
+        if shift {
+            let anchor = selectionAnchor ?? Int(app.engine.state.activeLayer)
+            let range = min(anchor, index)...max(anchor, index)
+            selectedLayers = Set(range).filter { !app.engine.isLayerPaper(index: $0) }
+        } else if command {
+            if app.engine.isLayerPaper(index: index) {
+                return
+            }
+            if selectedLayers.contains(index) {
+                selectedLayers.remove(index)
+                if selectedLayers.isEmpty {
+                    selectedLayers = [index]
+                }
+            } else {
+                selectedLayers.insert(index)
+            }
+        } else {
+            selectedLayers = [index]
+        }
+        selectionAnchor = index
+        app.engine.setActiveLayer(index)
+        app.engine.setLayerSelection(Array(selectedLayers).sorted())
+    }
+
     private func layerRow(_ index: Int) -> some View {
-        let selected = app.engine.state.activeLayer == UInt32(index)
+        let active = app.engine.state.activeLayer == UInt32(index)
+        let selected = selectedLayers.contains(index)
         let name = app.engine.layerNames[index]
         let visible = index < app.engine.layerVisibles.count ? app.engine.layerVisibles[index] : true
         let locked = index < app.engine.layerLocked.count ? app.engine.layerLocked[index] : false
@@ -528,7 +619,7 @@ struct EditorView: View {
         let row = layerDisplayRow(index)
         return HStack(spacing: Tokens.Space.sm) {
             Button {
-                app.engine.setActiveLayer(index)
+                selectLayerRow(index)
             } label: {
                 HStack(spacing: Tokens.Space.md) {
                     layerThumb(index)
@@ -537,7 +628,7 @@ struct EditorView: View {
                             .onSubmit { commitRename(index) }
                             .onExitCommand { renamingLayer = nil }
                     } else {
-                        CalmText.body(name, strong: selected)
+                        CalmText.body(name, strong: active)
                             .lineLimit(1)
                             .truncationMode(.tail)
                             .opacity(visible ? 1 : 0.45)

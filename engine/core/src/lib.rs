@@ -12,6 +12,8 @@ pub mod guide;
 pub mod history;
 pub mod history_tile;
 pub mod layer;
+pub mod layer_align;
+pub mod layer_multi;
 pub mod limits;
 pub mod mask_bake;
 pub mod memory;
@@ -60,6 +62,7 @@ pub use guide::{Guide, GuideAxis};
 pub use history::History;
 pub use history_tile::HistoryTile;
 pub use layer::{BlendMode, Layer, LayerContent};
+pub use layer_align::AlignEdge;
 pub use limits::{
     BRUSH_SIZE_DEFAULT, BRUSH_SIZE_MAX, BRUSH_SIZE_MIN, CRISP_PIXEL_ZOOM, IMPORT_MAX_SIDE,
     LOSSY_EXPORT_QUALITY, MAX_ZOOM_HARD, MIN_VISIBLE_DOC_SIDE, MIN_ZOOM_FILL,

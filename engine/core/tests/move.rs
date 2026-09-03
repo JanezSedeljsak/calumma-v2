@@ -437,3 +437,51 @@ fn a_nudge_prefers_the_selected_item_over_its_layer() {
         "the layer itself did not move"
     );
 }
+
+#[test]
+fn bulk_move_drags_every_selected_layer_together() {
+    let mut doc = doc_with_viewport();
+    doc.add_layer("Layer 2");
+    paint(&mut doc, 1, DocRect::new(20, 20, 40, 40), [255, 0, 0, 255]);
+    paint(&mut doc, 2, DocRect::new(60, 60, 80, 80), [0, 255, 0, 255]);
+    doc.set_layer_selection(&[1, 2]);
+    doc.set_tool(Tool::Move);
+    drag(&mut doc, (30.0, 30.0), (50.0, 40.0));
+    let t1 = doc.layers[1].transform.expect("layer 1 moved");
+    let t2 = doc.layers[2].transform.expect("layer 2 moved");
+    assert!((t1.offset_x - 20.0).abs() < 0.6);
+    assert!((t1.offset_y - 10.0).abs() < 0.6);
+    assert!((t2.offset_x - 20.0).abs() < 0.6);
+    assert!((t2.offset_y - 10.0).abs() < 0.6);
+}
+
+#[test]
+fn bulk_nudge_moves_every_selected_layer() {
+    let mut doc = doc_with_viewport();
+    doc.add_layer("Layer 2");
+    paint(&mut doc, 1, DocRect::new(20, 20, 40, 40), [255, 0, 0, 255]);
+    paint(&mut doc, 2, DocRect::new(60, 60, 80, 80), [0, 255, 0, 255]);
+    doc.set_layer_selection(&[1, 2]);
+    doc.set_tool(Tool::Move);
+    assert!(doc.nudge_move_target(2.0, -1.0));
+    let step = limits::LAYER_NUDGE_STEP;
+    let t1 = doc.layers[1].transform.expect("layer 1 nudged");
+    let t2 = doc.layers[2].transform.expect("layer 2 nudged");
+    assert!((t1.offset_x - 2.0 * step).abs() < 0.01);
+    assert!((t1.offset_y + step).abs() < 0.01);
+    assert!((t2.offset_x - 2.0 * step).abs() < 0.01);
+    assert!((t2.offset_y + step).abs() < 0.01);
+}
+
+#[test]
+fn layer_selection_skips_paper() {
+    let mut doc = doc_with_viewport();
+    paint(&mut doc, 1, DocRect::new(20, 20, 40, 40), [255, 0, 0, 255]);
+    doc.set_layer_selection(&[0, 1]);
+    doc.set_tool(Tool::Move);
+    assert!(doc.nudge_move_target(1.0, 0.0));
+    assert!(doc.layers[1].transform.is_some());
+    assert!(
+        doc.layers[0].transform.is_none() || doc.layers[0].transform.unwrap().is_identity()
+    );
+}

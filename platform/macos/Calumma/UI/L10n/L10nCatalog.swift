@@ -100,6 +100,13 @@ struct L10nCatalog: Equatable {
     var pasteOverflows: String { self["pasteOverflows"] }
     var pasteFailed: String { self["pasteFailed"] }
     var layers: String { self["layers"] }
+    var layerAlign: String { self["layerAlign"] }
+    var layerAlignLeft: String { self["layerAlignLeft"] }
+    var layerAlignCenterH: String { self["layerAlignCenterH"] }
+    var layerAlignRight: String { self["layerAlignRight"] }
+    var layerAlignTop: String { self["layerAlignTop"] }
+    var layerAlignCenterV: String { self["layerAlignCenterV"] }
+    var layerAlignBottom: String { self["layerAlignBottom"] }
     var fill: String { self["fill"] }
     var stroke: String { self["stroke"] }
     var memoryUsed: String { self["memoryUsed"] }

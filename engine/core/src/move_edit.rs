@@ -1,4 +1,4 @@
-use crate::document::{Document, TransformDrag};
+use crate::document::{Document, TransformDrag, TransformTarget};
 use crate::limits::LAYER_NUDGE_STEP;
 use crate::shape::Tool;
 use crate::transform::bounds_center;
@@ -65,42 +65,43 @@ impl Document {
     }
 
     fn begin_layer_move(&mut self, index: usize, doc_x: f32, doc_y: f32) -> bool {
-        let Some(layer) = self.layers.get(index) else {
-            return false;
-        };
-        if layer.is_paper() || layer.locked {
+        let indices = self.movable_selection_for_click(index);
+        if indices.is_empty() {
             return false;
         }
-        let Some(raw_bounds) = layer.content_bounds() else {
+        let mut targets = Vec::with_capacity(indices.len());
+        for layer_index in indices {
+            let Some(layer) = self.layers.get(layer_index) else {
+                continue;
+            };
+            let Some(raw_bounds) = layer.content_bounds() else {
+                continue;
+            };
+            let pivot = bounds_center(raw_bounds);
+            let t = layer.transform.unwrap_or_default();
+            targets.push(TransformTarget {
+                layer_index,
+                pivot,
+                raw_bounds,
+                start_transform: t,
+            });
+        }
+        if targets.is_empty() {
             return false;
-        };
-        let pivot = bounds_center(raw_bounds);
-        let t = layer.transform.unwrap_or_default();
-        self.transform_drag = Some(TransformDrag::layer_move(
-            index,
-            pivot,
-            raw_bounds,
-            t,
-            (doc_x, doc_y),
-        ));
+        }
+        self.transform_drag = Some(TransformDrag::layer_move(targets, (doc_x, doc_y)));
         true
     }
 
     fn nudge_active_layer(&mut self, steps_x: f32, steps_y: f32) -> bool {
-        let index = self.active_layer;
-        let Some(layer) = self.layers.get_mut(index) else {
-            return false;
-        };
-        if layer.is_paper() || layer.locked {
+        let indices = self.nudge_layer_indices();
+        if indices.is_empty() {
             return false;
         }
-        if layer.content_bounds().is_none() {
-            return false;
-        }
-        let mut t = layer.transform.unwrap_or_default();
-        t.offset_x += steps_x * LAYER_NUDGE_STEP;
-        t.offset_y += steps_y * LAYER_NUDGE_STEP;
-        layer.transform = Some(t.clamped());
-        true
+        self.offset_layers(
+            &indices,
+            steps_x * LAYER_NUDGE_STEP,
+            steps_y * LAYER_NUDGE_STEP,
+        )
     }
 }
