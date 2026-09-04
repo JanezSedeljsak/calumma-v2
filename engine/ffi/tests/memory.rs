@@ -1,5 +1,6 @@
 use calumma_ffi::*;
 use std::ffi::CString;
+use std::ptr;
 
 const SIDE: u32 = 1024;
 
@@ -98,5 +99,42 @@ fn the_memory_report_guards_its_pointers() {
         "no project open is still a valid answer"
     );
     assert_eq!(out, CalmMemory::default());
+    unsafe { calm_engine_free(ptr) };
+}
+
+#[test]
+fn memory_pressure_levels_reach_the_renderer() {
+    let (_dir, ptr) = engine();
+    create(ptr, "Pressure");
+    let before = memory(ptr).gpu_bytes;
+    assert_eq!(
+        unsafe { calm_engine_set_memory_pressure(ptr, 1) },
+        CalmStatus::Ok
+    );
+    let warn = memory(ptr).gpu_bytes;
+    assert_eq!(
+        unsafe { calm_engine_set_memory_pressure(ptr, 2) },
+        CalmStatus::Ok
+    );
+    let critical = memory(ptr).gpu_bytes;
+    assert_eq!(
+        unsafe { calm_engine_set_memory_pressure(ptr, 0) },
+        CalmStatus::Ok
+    );
+    let _ = (before, warn, critical);
+    unsafe { calm_engine_free(ptr) };
+}
+
+#[test]
+fn memory_pressure_rejects_unknown_levels() {
+    let (_dir, ptr) = engine();
+    assert_eq!(
+        unsafe { calm_engine_set_memory_pressure(ptr, 99) },
+        CalmStatus::Error
+    );
+    assert_eq!(
+        unsafe { calm_engine_set_memory_pressure(ptr::null_mut(), 1) },
+        CalmStatus::Null
+    );
     unsafe { calm_engine_free(ptr) };
 }

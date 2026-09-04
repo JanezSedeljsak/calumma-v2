@@ -723,6 +723,17 @@ impl Document {
     }
 
     pub fn place_image(&mut self, rgba: &[u8], width: u32, height: u32) -> bool {
+        self.place_image_at(rgba, width, height, 0, 0)
+    }
+
+    pub fn place_image_at(
+        &mut self,
+        rgba: &[u8],
+        width: u32,
+        height: u32,
+        ox: i32,
+        oy: i32,
+    ) -> bool {
         if !self.active_layer_accepts_paint() {
             return false;
         }
@@ -733,7 +744,9 @@ impl Document {
         let Some(tiles) = self.active_mut().and_then(|layer| layer.tiles_mut()) else {
             return false;
         };
-        tiles.blit_rgba(rgba, width, height) > 0
+        let placed = DocRect::new(ox, oy, ox + width as i32 - 1, oy + height as i32 - 1);
+        tiles.grow_extent(placed);
+        tiles.blit_rgba_at(rgba, width, height, ox, oy) > 0
     }
 
     pub fn remove_layer(&mut self, index: usize) -> bool {

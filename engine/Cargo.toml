@@ -28,6 +28,7 @@ flate2 = "1.1"
 rustc-hash = "2.1"
 zstd = "0.13"
 cosmic-text = "0.19.0"
+ttf-parser = "0.25.1"
 
 [profile.dev]
 # Line tables (for backtraces/panics) without full variable/type DWARF info: dev builds spend

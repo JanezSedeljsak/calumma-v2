@@ -114,3 +114,159 @@ fn premultiplied_bytes_are_undone_at_the_boundary() {
     unsafe { calm_buffer_free(buf, (w * h * 4) as usize) };
     unsafe { calm_engine_free(e) };
 }
+
+#[test]
+fn batch_paste_adds_every_image_in_one_call() {
+    let (_dir, e) = engine_with_project();
+    let one = [255u8, 0, 0, 255].repeat(8 * 8);
+    let two = [0u8, 255, 0, 255].repeat(8 * 8);
+    let images = [
+        CalmPasteImage {
+            name: std::ptr::null(),
+            premultiplied_rgba: one.as_ptr(),
+            len: one.len(),
+            width: 8,
+            height: 8,
+        },
+        CalmPasteImage {
+            name: std::ptr::null(),
+            premultiplied_rgba: two.as_ptr(),
+            len: two.len(),
+            width: 8,
+            height: 8,
+        },
+    ];
+    let mut pasted = 0u32;
+    let mut outcome = u32::MAX;
+    assert_eq!(
+        unsafe {
+            calm_engine_paste_images(e, images.as_ptr(), images.len(), &mut pasted, &mut outcome)
+        },
+        CalmStatus::Ok
+    );
+    assert_eq!(pasted, 2);
+    assert_eq!(outcome, PasteOutcome::Native.into());
+    let after = state(e);
+    assert_eq!(after.layer_count, 4);
+    unsafe { calm_engine_free(e) };
+}
+
+#[test]
+fn the_stagger_constant_is_exposed_for_the_shell() {
+    assert_eq!(
+        calm_paste_stagger_px(),
+        calumma_core::limits::PASTE_STAGGER_PX as u32
+    );
+}
+
+#[test]
+fn paste_images_rejects_a_null_engine_or_empty_batch() {
+    let rgba = [255u8, 0, 0, 255];
+    let image = CalmPasteImage {
+        name: ptr::null(),
+        premultiplied_rgba: rgba.as_ptr(),
+        len: rgba.len(),
+        width: 1,
+        height: 1,
+    };
+    let mut outcome = 0u32;
+    assert_eq!(
+        unsafe {
+            calm_engine_paste_images(ptr::null_mut(), &image, 1, ptr::null_mut(), &mut outcome)
+        },
+        CalmStatus::Null
+    );
+    assert_eq!(
+        unsafe {
+            calm_engine_paste_images(
+                ptr::null_mut(),
+                ptr::null(),
+                0,
+                ptr::null_mut(),
+                &mut outcome,
+            )
+        },
+        CalmStatus::Null
+    );
+
+    let (_dir, e) = engine_with_project();
+    assert_eq!(
+        unsafe { calm_engine_paste_images(e, ptr::null(), 0, ptr::null_mut(), &mut outcome) },
+        CalmStatus::Error
+    );
+    assert_eq!(outcome, PasteOutcome::Failed.into());
+    unsafe { calm_engine_free(e) };
+}
+
+#[test]
+fn paste_images_without_a_project_is_an_error() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = CString::new(dir.path().join("p.sqlite").to_str().unwrap()).unwrap();
+    let e = unsafe { calm_engine_new(path.as_ptr()) };
+    let rgba = [255u8, 0, 0, 255];
+    let image = CalmPasteImage {
+        name: ptr::null(),
+        premultiplied_rgba: rgba.as_ptr(),
+        len: rgba.len(),
+        width: 1,
+        height: 1,
+    };
+    let mut outcome = 0u32;
+    assert_eq!(
+        unsafe { calm_engine_paste_images(e, &image, 1, ptr::null_mut(), &mut outcome) },
+        CalmStatus::Error
+    );
+    unsafe { calm_engine_free(e) };
+}
+
+#[test]
+fn a_batch_with_one_bad_image_fails_the_whole_call() {
+    let (_dir, e) = engine_with_project();
+    let good = [255u8, 0, 0, 255].repeat(4);
+    let bad = CalmPasteImage {
+        name: ptr::null(),
+        premultiplied_rgba: ptr::null(),
+        len: 0,
+        width: 2,
+        height: 2,
+    };
+    let images = [
+        CalmPasteImage {
+            name: ptr::null(),
+            premultiplied_rgba: good.as_ptr(),
+            len: good.len(),
+            width: 2,
+            height: 2,
+        },
+        bad,
+    ];
+    let mut outcome = 0u32;
+    assert_eq!(
+        unsafe {
+            calm_engine_paste_images(
+                e,
+                images.as_ptr(),
+                images.len(),
+                ptr::null_mut(),
+                &mut outcome,
+            )
+        },
+        CalmStatus::Error
+    );
+    assert_eq!(outcome, PasteOutcome::Failed.into());
+    unsafe { calm_engine_free(e) };
+}
+
+#[test]
+fn single_image_paste_rejects_null_pixels() {
+    assert_eq!(
+        unsafe { calm_engine_paste_image(ptr::null_mut(), ptr::null(), 0, 1, 1, ptr::null_mut()) },
+        CalmStatus::Null
+    );
+    let (_dir, e) = engine_with_project();
+    assert_eq!(
+        unsafe { calm_engine_paste_image(e, ptr::null(), 0, 1, 1, ptr::null_mut()) },
+        CalmStatus::Null
+    );
+    unsafe { calm_engine_free(e) };
+}

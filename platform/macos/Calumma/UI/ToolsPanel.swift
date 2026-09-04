@@ -23,7 +23,7 @@ struct ToolsPanel: View {
     }
 
     var body: some View {
-        CalmIsland(padding: Tokens.Space.xs) {
+        CalmIsland(padding: Tokens.Space.xs, bordered: false) {
             GeometryReader { proxy in
                 ScrollView(.vertical) {
                     VStack(spacing: Tokens.Space.sm) {

@@ -11,7 +11,10 @@
 //! `/SMask` for masks is what makes PDF the one format that could carry them live, but the
 //! mask storage has to grow first.
 use crate::flate::deflate;
-use calumma_core::{vector_pdf, BlendMode, Document, Layer};
+use calumma_core::transform::bounds_center;
+use calumma_core::{embed_font, layout_for_pdf, text_pdf, to_unicode_entries, vector_pdf};
+use calumma_core::{BlendMode, Document, Layer, PdfFontKey};
+use std::collections::BTreeMap;
 
 /// PDF measures in points, 72 to the inch, so this is the DPI at which one document pixel is
 /// one point. Exporting at a higher DPI keeps the same pixels and prints them smaller.
@@ -190,6 +193,7 @@ pub fn encode(doc: &Document, dpi: f32) -> Vec<u8> {
 
     let mut ext_g_states = String::new();
     let mut xobjects = String::new();
+    let mut fonts = String::new();
     let mut deferred: Vec<(usize, String, Vec<u8>)> = Vec::new();
     let mut body = String::new();
 
@@ -203,16 +207,26 @@ pub fn encode(doc: &Document, dpi: f32) -> Vec<u8> {
         if !layer.visible || layer.opacity <= 0.0 {
             continue;
         }
-        let drawn = match layer.content.item() {
-            Some(item) => vector_pdf::item_pdf(item).map(|geometry| {
-                let matrix = vector_pdf::pdf_transform_matrix(item, layer.transform);
+        let drawn = if let Some(item) = layer.content.item() {
+            vector_pdf::item_pdf(item).map(|geometry| {
+                let pivot = layer.content_bounds().map(bounds_center);
+                let matrix = pivot.and_then(|p| vector_pdf::transform_matrix(p, layer.transform));
                 format!("q {}{geometry} Q", matrix.unwrap_or_default())
-            }),
-            None => raster_layer(doc, index, &mut pdf, &mut deferred).map(|(id, box_)| {
+            })
+        } else if layer.is_text() {
+            text_layer(layer, index, &mut pdf, &mut deferred, &mut fonts).or_else(|| {
+                raster_layer(doc, index, &mut pdf, &mut deferred).map(|(id, box_)| {
+                    let name = format!("Im{index}");
+                    xobjects.push_str(&format!("/{name} {id} 0 R "));
+                    image_placement(&name, box_)
+                })
+            })
+        } else {
+            raster_layer(doc, index, &mut pdf, &mut deferred).map(|(id, box_)| {
                 let name = format!("Im{index}");
                 xobjects.push_str(&format!("/{name} {id} 0 R "));
                 image_placement(&name, box_)
-            }),
+            })
         };
         let Some(drawn) = drawn else {
             continue;
@@ -240,7 +254,7 @@ pub fn encode(doc: &Document, dpi: f32) -> Vec<u8> {
         page,
         format!(
             "<< /Type /Page /Parent {pages} 0 R /MediaBox [0 0 {page_w:.4} {page_h:.4}] \
-/Resources << /ExtGState << {ext_g_states}>> /XObject << {xobjects}>> >> \
+/Resources << /ExtGState << {ext_g_states}>> /XObject << {xobjects}>> /Font << {fonts}>> >> \
 /Contents {contents} 0 R >>"
         )
         .as_bytes(),
@@ -285,4 +299,117 @@ fn raster_layer(
     }
     deferred.push((id, dict, color));
     Some((id, box_))
+}
+
+/// A text layer as real, selectable content-stream text rather than a picture of itself —
+/// `None` falls the caller back to `raster_layer`, which is what happens whenever any font
+/// this layer's text needs cannot be embedded (a CFF-outline face; see `calumma_text::pdf`'s
+/// module doc) or carries a translucent ink color (the real-text path is opaque-only for now,
+/// the one thing the rasterized path could do that this one cannot yet). Falling every run of
+/// a layer back together, rather than dropping just the glyphs that would not embed, is
+/// deliberate: invisible text is a worse failure than a slightly larger file.
+fn text_layer(
+    layer: &Layer,
+    index: usize,
+    pdf: &mut Pdf,
+    deferred: &mut Vec<(usize, String, Vec<u8>)>,
+    fonts: &mut String,
+) -> Option<String> {
+    let run = layer.run()?;
+    let runs = layout_for_pdf(run)?;
+    if runs.iter().any(|r| r.color[3] != 255) {
+        return None;
+    }
+
+    let mut keys: Vec<PdfFontKey> = runs.iter().map(|r| r.font).collect();
+    keys.sort();
+    keys.dedup();
+
+    let mut names: BTreeMap<PdfFontKey, String> = BTreeMap::new();
+    for (i, key) in keys.into_iter().enumerate() {
+        let glyph_ids = text_pdf::glyph_ids_for(&runs, key);
+        let font = embed_font(key, &glyph_ids)?;
+        let to_unicode: Vec<(u16, String)> = runs
+            .iter()
+            .filter(|r| r.font == key)
+            .flat_map(|r| to_unicode_entries(&r.glyphs))
+            .collect();
+        let type0 = embed_text_font(pdf, deferred, &font, &to_unicode);
+        let name = format!("TF{index}_{i}");
+        fonts.push_str(&format!("/{name} {type0} 0 R "));
+        names.insert(key, name);
+    }
+
+    let text = text_pdf::runs_pdf(&runs, &names)?;
+    let pivot = layer.content_bounds().map(bounds_center)?;
+    let matrix = vector_pdf::transform_matrix(pivot, layer.transform);
+    Some(format!("q {}{text} Q", matrix.unwrap_or_default()))
+}
+
+/// The PDF objects one embedded font needs — a `/FontFile2` stream, a `/FontDescriptor`, a
+/// `/CIDFontType2` descendant naming it, a `/ToUnicode` CMap stream, and the `/Type0` font
+/// that ties them together — returning the `Type0` object's id, the one a `/Font` resource
+/// entry and a content stream's `Tf` both name.
+///
+/// Metrics in the descriptor and the descendant font's `/W` are in PDF's fixed 1000-unit glyph
+/// space, not the face's own `unitsPerEm` — `calumma_text::PdfFont::widths` is pre-scaled
+/// already; the ascender/descender here are the two values that are not.
+fn embed_text_font(
+    pdf: &mut Pdf,
+    deferred: &mut Vec<(usize, String, Vec<u8>)>,
+    font: &calumma_core::PdfFont,
+    to_unicode: &[(u16, String)],
+) -> usize {
+    let scale = 1000.0 / font.units_per_em.max(1) as f32;
+    let ascent = (font.ascender as f32 * scale).round() as i32;
+    let descent = (font.descender as f32 * scale).round() as i32;
+
+    let file_id = pdf.reserve();
+    deferred.push((
+        file_id,
+        format!("/Length1 {}", font.program.len()),
+        font.program.clone(),
+    ));
+
+    let descriptor_id = pdf.reserve();
+    pdf.write(
+        descriptor_id,
+        format!(
+            "<< /Type /FontDescriptor /FontName /Embedded{file_id} /Flags 4 \
+/FontBBox [0 {descent} 1000 {ascent}] /ItalicAngle 0 /Ascent {ascent} /Descent {descent} \
+/CapHeight {ascent} /StemV 80 /FontFile2 {file_id} 0 R >>"
+        )
+        .as_bytes(),
+    );
+
+    let cid_font_id = pdf.reserve();
+    pdf.write(
+        cid_font_id,
+        format!(
+            "<< /Type /Font /Subtype /CIDFontType2 /BaseFont /Embedded{file_id} \
+/CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> \
+/FontDescriptor {descriptor_id} 0 R /CIDToGIDMap /Identity /DW 1000 \
+/W [{}] >>",
+            text_pdf::widths_array(&font.widths)
+        )
+        .as_bytes(),
+    );
+
+    let to_unicode_id = pdf.reserve();
+    pdf.write_stream(
+        to_unicode_id,
+        "",
+        text_pdf::to_unicode_cmap(to_unicode).as_bytes(),
+    );
+
+    let type0_id = pdf.reserve();
+    pdf.write(
+        type0_id,
+        format!(
+            "<< /Type /Font /Subtype /Type0 /BaseFont /Embedded{file_id} \
+/Encoding /Identity-H /DescendantFonts [{cid_font_id} 0 R] /ToUnicode {to_unicode_id} 0 R >>"
+        )
+        .as_bytes(),
+    );
+    type0_id
 }

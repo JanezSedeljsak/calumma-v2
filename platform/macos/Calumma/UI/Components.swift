@@ -106,22 +106,29 @@ private struct MutedText: View {
     }
 }
 
+/// `bordered` panels (canvas, Paste Artwork, the zoom pill) are the `surface` card STYLE.md
+/// rule 1 describes: a raised card stroked with `islandBorder`. `bordered: false` (tools,
+/// layers) instead sits flush on `color.bg` — the app's own background, not a card — with no
+/// stroke, so the panel reads as part of the window chrome rather than a floating tile.
 struct CalmIsland<Content: View>: View {
     @Environment(\.themeColors) private var colors
     var padding: CGFloat = Tokens.Space.md
+    var bordered: Bool = true
     @ViewBuilder let content: () -> Content
 
     var body: some View {
         content()
             .padding(padding)
             .background(
-                colors.surface,
+                bordered ? colors.surface : colors.bg,
                 in: RoundedRectangle(cornerRadius: Tokens.Radius.island, style: .continuous)
             )
-            .overlay(
-                RoundedRectangle(cornerRadius: Tokens.Radius.island, style: .continuous)
-                    .strokeBorder(colors.islandBorder, lineWidth: 1)
-            )
+            .overlay {
+                if bordered {
+                    RoundedRectangle(cornerRadius: Tokens.Radius.island, style: .continuous)
+                        .strokeBorder(colors.islandBorder, lineWidth: 1)
+                }
+            }
     }
 }
 
@@ -289,6 +296,7 @@ enum CalmToolButtonLayout {
 }
 
 struct CalmToolButton<Icon: View>: View {
+    @Environment(\.themeColors) private var colors
     let selected: Bool
     let action: () -> Void
     var tooltip: String? = nil
@@ -325,7 +333,10 @@ struct CalmToolButton<Icon: View>: View {
             icon
                 .padding(Tokens.Space.xs)
                 .frame(width: CalmToolButtonLayout.size, height: CalmToolButtonLayout.size)
-                .calmSurface(hover: selected, radius: Tokens.Radius.sm)
+                .background(
+                    selected ? colors.surfaceHover : .clear,
+                    in: RoundedRectangle(cornerRadius: Tokens.Radius.sm, style: .continuous)
+                )
                 .opacity(enabled ? 1 : CalmToolButtonLayout.disabledOpacity)
         }
         .buttonStyle(.plain)

@@ -64,11 +64,18 @@ bind groups — is shipped; see `docs/ENGINE.md` § Bind groups.
   two layers the moment it is applied, the way merge-down already bakes. Acting on
   several layers at once (shift-select rows, then align, distribute or drag) is fine
   and is not an exception: that is one gesture applied N times, not a relationship.
+  **A non-destructive adjustment layer is permanently cancelled by this rule** — it
+  is exactly "a layer whose rendering depends on another layer's contents," the one
+  thing this bullet exists to rule out. The backlog plan that proposed one (`#19`)
+  predates this line and is retired, not pending: do not build it, and do not
+  reopen it as a plan. `Layer.adjustments` (per-layer, destructive-at-flatten) is
+  the whole filter model and stays that way.
 - **1:1 vector limit.** `LayerContent::Vector(VectorItem)` — exactly one item, never
   `Vec`. A second shape or stroke is a new layer. Clicking a vector selects the layer;
   there is no `(layer, item)` address. **Multi-select of vector items is permanently
-  cancelled** (see `docs/plans/24-layer-multi-select.md`, which replaces it at the *layer*
-  level). Do not build it.
+  cancelled** — layer-level multi-select (align, distribute, bulk move) shipped instead;
+  see `docs/FLOW.md`'s Layers section, "Selecting several rows is a bulk action, not a
+  group." Do not build item-level multi-select.
 - **Basic vector editing only.** Vectors are drawn, moved, and scaled. No node / point
   editing, no bezier handles, no per-item rotation on the GPU, no boolean ops.
 
@@ -515,12 +522,15 @@ CLI paths/binaries live in `cli/constants.py`.
 Compose `CalmText`, `CalmField`, `CalmRow`, `calmSurface()`, `CalmChip`, etc. Theme colors
 via `@Environment(\.themeColors)`; copy via `@Environment(\.l10n)`.
 
-1. Islands (`CalmIsland`) carry a thin `Tokens.Light/Dark.islandBorder` stroke. Text/number
-   inputs, buttons, and list rows carry a stronger `controlBorder` (focused inputs:
-   `controlFocusBorder`) via `calmSurface(bordered:focused:)`. Everywhere else — chips,
-   swatches, the tool grid, sliders — separate surfaces by background contrast only.
+1. `CalmIsland(bordered: true)` (default — canvas, Paste Artwork, the zoom pill) is a raised
+   `surface` card with a thin `Tokens.Light/Dark.islandBorder` stroke. `bordered: false`
+   (tools, layers) drops both and sits on `color.bg` instead, flush with the window rather
+   than a floating tile. Text/number inputs, buttons, and list rows carry a stronger
+   `controlBorder` (focused inputs: `controlFocusBorder`) via `calmSurface(bordered:focused:)`.
+   Everywhere else — chips, swatches, the tool grid, sliders — separate surfaces by
+   background contrast only.
 2. Controls use `Tokens.Radius.sm` / `md`. Islands use `Tokens.Radius.island` (rounded) and
-   sit apart with a minimal gap and window margin (`Tokens.Space.sm`), not flush.
+   sit apart with a minimal gap and window margin (`Tokens.Space.xs`), not flush.
 3. Custom Canvas/`AppIcon` drawings only — no icon packs / SF Symbols as product icons.
 4. Light and dark from tokens; push desk / grid / paper-border into the engine via
    `calm_engine_set_board_colors`. Never hardcode a color in `.rs` or `.wgsl`.
@@ -736,10 +746,9 @@ Pin versions in `[workspace.dependencies]`. Never `*` or bare `^`.
 ## Deliberately deferred
 
 Vector *rotation* on the GPU (see Layers; per-item undo rides document
-history, `docs/plans/01-document-undo.md`), BiRefNet / `ort`,
+history, shipped as plan `01`), BiRefNet / `ort`,
 GenerateTexture model manager, SuggestShape,
-Vectorize (`vtracer`), font embedding in PDF export (the exporter is shipped and layered, but
-text rides as pixels), **authoring a layer mask** (`layer.mask` composites, persists and
+Vectorize (`vtracer`), **authoring a layer mask** (`layer.mask` composites, persists and
 undoes, but Remove Background is its only writer — no mask painting, invert, toggle, apply or
 thumbnail; cancelled 2026-08-26 with the same call that made clipping masks merge-on-apply),
 layered PSD import (import is flattened composite only;
@@ -758,7 +767,10 @@ full text support (plan `17` — wrapped text boxes swept with a Text-tool drag,
 with shift-arrows / double- and triple-click / drag-select / `⌘A`, and style spans so one word
 in a block can carry its own family, weight, slant, size or colour),
 Move tool (tools island; pick-and-drag, Transform toggle / `⌘T` for scale/rotate),
-document undo for layer stack, props, and vectors (`docs/plans/01-document-undo.md`).
+document undo for layer stack, props, and vectors (plan `01`),
+font embedding in PDF export (TrueType-outline text layers embed as real, selectable,
+searchable `Type0`/`CIDFontType2` text with a `ToUnicode` CMap; a CFF-outline font or any
+translucent ink still falls back to the old rasterized path — see `docs/FLOW.md`).
 See `docs/FLOW.md`.
 
 Vector multi-select (`10`) is closed by the 1:1 rule — do not build it.

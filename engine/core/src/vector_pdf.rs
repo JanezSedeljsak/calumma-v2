@@ -6,7 +6,7 @@
 //! of the page content stream, so nothing downstream has to remember that PDF measures y
 //! upward from the bottom-left.
 use crate::shape::{Shape, Tool};
-use crate::transform::{bounds_center, LayerTransform};
+use crate::transform::LayerTransform;
 use crate::vector::VectorItem;
 
 /// Circle-to-bezier constant: the control-point offset, as a fraction of the radius, that
@@ -149,16 +149,15 @@ fn shape_path(shape: &Shape) -> Option<String> {
     })
 }
 
-/// A layer transform as a PDF `cm` matrix, so a moved or scaled vector layer stays geometry
-/// instead of being baked into its coordinates — the same reason `vector_svg` emits a `<g
+/// A layer transform as a PDF `cm` matrix, so a moved or scaled layer stays geometry instead of
+/// being baked into its coordinates — the same reason `vector_svg` emits a `<g
 /// transform=...>`. The order matches that function exactly: translate to the pivot, rotate,
-/// scale, translate back, then the layer offset.
-pub fn pdf_transform_matrix(
-    item: &VectorItem,
-    transform: Option<LayerTransform>,
-) -> Option<String> {
+/// scale, translate back, then the layer offset. `pivot` is the layer's own
+/// `content_bounds()` centre — a vector item's or, just as well, a text run's, since both are
+/// "one thing positioned in the layer's own local space" as far as this matrix cares.
+pub fn transform_matrix(pivot: (f32, f32), transform: Option<LayerTransform>) -> Option<String> {
     let t = transform.filter(|t| !t.is_identity())?;
-    let (px, py) = bounds_center(item.bounds()?);
+    let (px, py) = pivot;
     let (sin, cos) = t.rotation.sin_cos();
     let (a, b) = (cos * t.scale_x, sin * t.scale_x);
     let (c, d) = (-sin * t.scale_y, cos * t.scale_y);

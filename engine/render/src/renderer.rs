@@ -252,10 +252,52 @@ enum FrameDirty {
     Content,
 }
 
+enum FrameOutput {
+    Surface(wgpu::Surface<'static>),
+    #[cfg(test)]
+    Headless(wgpu::Texture),
+}
+
+impl FrameOutput {
+    #[cfg(test)]
+    fn headless_texture(device: &wgpu::Device, config: &wgpu::SurfaceConfiguration) -> wgpu::Texture {
+        device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("headless-frame"),
+            size: wgpu::Extent3d {
+                width: config.width.max(1),
+                height: config.height.max(1),
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: config.format,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        })
+    }
+
+    fn configure(&mut self, device: &wgpu::Device, config: &wgpu::SurfaceConfiguration) {
+        match self {
+            Self::Surface(surface) => surface.configure(device, config),
+            #[cfg(test)]
+            Self::Headless(texture) => {
+                *texture = Self::headless_texture(device, config);
+            }
+        }
+    }
+}
+
+enum AcquiredFrame {
+    Surface(wgpu::SurfaceTexture),
+    #[cfg(test)]
+    Headless,
+}
+
 pub struct Renderer {
     device: wgpu::Device,
     queue: wgpu::Queue,
-    surface: wgpu::Surface<'static>,
+    output: FrameOutput,
     config: wgpu::SurfaceConfiguration,
     paper_pipeline: wgpu::RenderPipeline,
     tile_pipeline_normal: wgpu::RenderPipeline,
@@ -411,7 +453,85 @@ impl Renderer {
             desired_maximum_frame_latency: SURFACE_FRAME_LATENCY,
         };
         surface.configure(&device, &config);
+        let output = FrameOutput::Surface(surface);
 
+        Ok(Self::assemble(
+            device,
+            queue,
+            format,
+            config,
+            output,
+            budget,
+            atlas_max_capacity,
+        ))
+    }
+
+    #[cfg(test)]
+    pub fn new_headless(width: u32, height: u32) -> Option<Self> {
+        let instance = wgpu::Instance::default();
+        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+            power_preference: wgpu::PowerPreference::LowPower,
+            compatible_surface: None,
+            force_fallback_adapter: false,
+            ..Default::default()
+        }))
+        .ok()?;
+        let adapter_array_layers = adapter.limits().max_texture_array_layers;
+        let atlas_max_capacity = adapter_array_layers.min(TILE_ATLAS_MAX_CAPACITY);
+        let budget = GpuBudget::new(DeviceTier::classify(
+            gpu_kind(adapter.get_info().device_type),
+            adapter_array_layers,
+        ));
+        let (device, queue) =
+            pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+                label: Some("calumma-render-headless"),
+                required_features: wgpu::Features::empty(),
+                required_limits: wgpu::Limits {
+                    max_texture_array_layers: atlas_max_capacity,
+                    ..wgpu::Limits::default()
+                },
+                memory_hints: if budget.tier().prefers_small_allocations() {
+                    wgpu::MemoryHints::MemoryUsage
+                } else {
+                    wgpu::MemoryHints::Performance
+                },
+                trace: wgpu::Trace::Off,
+                ..Default::default()
+            }))
+            .ok()?;
+        let format = wgpu::TextureFormat::Bgra8UnormSrgb;
+        let config = wgpu::SurfaceConfiguration {
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            format,
+            color_space: wgpu::SurfaceColorSpace::default(),
+            width: width.max(1),
+            height: height.max(1),
+            present_mode: wgpu::PresentMode::Fifo,
+            alpha_mode: wgpu::CompositeAlphaMode::Auto,
+            view_formats: vec![],
+            desired_maximum_frame_latency: SURFACE_FRAME_LATENCY,
+        };
+        let output = FrameOutput::Headless(FrameOutput::headless_texture(&device, &config));
+        Some(Self::assemble(
+            device,
+            queue,
+            format,
+            config,
+            output,
+            budget,
+            atlas_max_capacity,
+        ))
+    }
+
+    fn assemble(
+        device: wgpu::Device,
+        queue: wgpu::Queue,
+        format: wgpu::TextureFormat,
+        config: wgpu::SurfaceConfiguration,
+        output: FrameOutput,
+        budget: GpuBudget,
+        atlas_max_capacity: u32,
+    ) -> Self {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("board"),
             source: wgpu::ShaderSource::Wgsl(include_str!("shaders/board.wgsl").into()),
@@ -759,10 +879,10 @@ impl Renderer {
         let overview = OverviewPass::new(&device, &shader, format);
         let pan_cache = PanCache::new(&device, &shader, format);
 
-        Ok(Self {
+        Self {
             device,
             queue,
-            surface,
+            output,
             config,
             paper_pipeline,
             tile_pipeline_normal,
@@ -821,7 +941,7 @@ impl Renderer {
             pan_cache,
             coverage_progress: None,
             drawn_caret_phase: None,
-        })
+        }
     }
 
     fn tile_pipeline(&self, mode: BlendMode) -> &wgpu::RenderPipeline {
@@ -1211,7 +1331,7 @@ impl Renderer {
         if self.config.width != width || self.config.height != height {
             self.config.width = width;
             self.config.height = height;
-            self.surface.configure(&self.device, &self.config);
+            self.output.configure(&self.device, &self.config);
             self.invalidate_camera();
         }
     }
@@ -2117,18 +2237,28 @@ impl Renderer {
             );
         }
 
-        let frame = match self.surface.get_current_texture() {
-            wgpu::CurrentSurfaceTexture::Success(t)
-            | wgpu::CurrentSurfaceTexture::Suboptimal(t) => t,
-            wgpu::CurrentSurfaceTexture::Outdated | wgpu::CurrentSurfaceTexture::Lost => {
-                self.surface.configure(&self.device, &self.config);
-                return;
+        let (view, acquired) = match &mut self.output {
+            FrameOutput::Surface(surface) => {
+                let frame = match surface.get_current_texture() {
+                    wgpu::CurrentSurfaceTexture::Success(t)
+                    | wgpu::CurrentSurfaceTexture::Suboptimal(t) => t,
+                    wgpu::CurrentSurfaceTexture::Outdated | wgpu::CurrentSurfaceTexture::Lost => {
+                        surface.configure(&self.device, &self.config);
+                        return;
+                    }
+                    _ => return,
+                };
+                let view = frame
+                    .texture
+                    .create_view(&wgpu::TextureViewDescriptor::default());
+                (view, AcquiredFrame::Surface(frame))
             }
-            _ => return,
+            #[cfg(test)]
+            FrameOutput::Headless(texture) => {
+                let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+                (view, AcquiredFrame::Headless)
+            }
         };
-        let view = frame
-            .texture
-            .create_view(&wgpu::TextureViewDescriptor::default());
 
         let mut encoder = self
             .device
@@ -2264,7 +2394,11 @@ impl Renderer {
         }
 
         self.queue.submit(Some(encoder.finish()));
-        self.queue.present(frame);
+        match acquired {
+            AcquiredFrame::Surface(frame) => self.queue.present(frame),
+            #[cfg(test)]
+            AcquiredFrame::Headless => {}
+        }
         self.tick_camera_motion();
         // A gesture in flight asks for another frame, but only an *overlay* one: the pointer
         // events that move it already invalidate at the right level — `Content` for anything
@@ -3470,5 +3604,290 @@ mod layer_table_tests {
                 row.lut_mode
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod headless_tests {
+    use super::*;
+    use calumma_core::{BlendMode, Brush, Document, MemoryPressureLevel, Tool};
+
+    fn doc(w: u32, h: u32) -> Document {
+        let mut doc = Document::new("p".into(), "t", w, h);
+        doc.resize_viewport(256.0, 256.0, 1.0);
+        doc.fit_to_view();
+        doc
+    }
+
+    fn renderer() -> Option<Renderer> {
+        Renderer::new_headless(256, 256)
+    }
+
+    #[test]
+    fn headless_renderer_draws_an_empty_board() {
+        let Some(mut r) = renderer() else {
+            return;
+        };
+        let mut doc = doc(128, 128);
+        r.render(&mut doc);
+        assert!(r.cached_tile_count() <= 2);
+    }
+
+    #[test]
+    fn headless_renderer_uploads_painted_tiles() {
+        let Some(mut r) = renderer() else {
+            return;
+        };
+        let mut doc = doc(128, 128);
+        doc.tool = Tool::Pen;
+        doc.pointer_down(20.0, 20.0);
+        doc.pointer_move(40.0, 40.0);
+        doc.pointer_up(40.0, 40.0);
+        r.invalidate();
+        r.render(&mut doc);
+        assert!(r.cached_tile_count() > 0);
+        assert!(r.gpu_tile_bytes() > 0);
+    }
+
+    #[test]
+    fn headless_renderer_follows_camera_motion_and_pressure() {
+        let Some(mut r) = renderer() else {
+            return;
+        };
+        let mut doc = doc(256, 256);
+        r.render(&mut doc);
+        r.begin_camera_motion();
+        doc.camera.pan_x += 32.0;
+        r.invalidate_camera();
+        r.render(&mut doc);
+        r.end_camera_motion();
+        r.set_memory_pressure(MemoryPressureLevel::Critical);
+        r.request_overview_prewarm();
+        let _hint = r.frame_hint(&doc);
+        r.release_document();
+        assert_eq!(r.cached_tile_count(), 0);
+    }
+
+    #[test]
+    fn headless_renderer_draws_vectors_guides_and_previews() {
+        let Some(mut r) = renderer() else {
+            return;
+        };
+        let mut doc = doc(256, 256);
+        doc.add_guide(calumma_core::GuideAxis::Horizontal, 40.0);
+        doc.set_vector_mode(true);
+        doc.tool = Tool::Rect;
+        doc.pointer_down(30.0, 30.0);
+        doc.pointer_move(90.0, 90.0);
+        r.invalidate_overlay();
+        r.render(&mut doc);
+        doc.pointer_up(90.0, 90.0);
+        r.invalidate();
+        r.render(&mut doc);
+
+        doc.tool = Tool::Pen;
+        doc.brush = Brush::Airbrush;
+        doc.pointer_down(10.0, 10.0);
+        doc.pointer_move(50.0, 50.0);
+        r.invalidate_overlay();
+        r.render(&mut doc);
+
+        doc.tool = Tool::Eraser;
+        doc.pointer_move(55.0, 55.0);
+        r.render(&mut doc);
+    }
+
+    #[test]
+    fn headless_renderer_handles_blend_modes_and_layer_props() {
+        let Some(mut r) = renderer() else {
+            return;
+        };
+        let mut doc = doc(128, 128);
+        let layer = doc.active_layer;
+        doc.layers[layer].blend_mode = BlendMode::Multiply;
+        doc.layers[layer].opacity = 0.5;
+        doc.layers[layer].adjustments = Some(calumma_core::Adjustments {
+            brightness: 0.1,
+            contrast: 0.0,
+            vibrance: 0.0,
+            saturation: 0.0,
+            levels_gamma: 1.0,
+        });
+        doc.tool = Tool::Pen;
+        doc.pointer_down(8.0, 8.0);
+        doc.pointer_move(40.0, 40.0);
+        doc.pointer_up(40.0, 40.0);
+        r.invalidate();
+        r.render(&mut doc);
+        r.resize(320, 240);
+        r.invalidate_overlay();
+        r.render(&mut doc);
+    }
+
+    #[test]
+    fn headless_renderer_zooms_out_into_overview() {
+        let Some(mut r) = renderer() else {
+            return;
+        };
+        let mut doc = doc(2048, 2048);
+        doc.camera.zoom = 0.05;
+        doc.tool = Tool::Pen;
+        doc.pointer_down(100.0, 100.0);
+        doc.pointer_move(200.0, 200.0);
+        doc.pointer_up(200.0, 200.0);
+        r.invalidate();
+        r.render(&mut doc);
+        doc.camera.zoom = 0.01;
+        r.invalidate_camera();
+        r.render(&mut doc);
+    }
+
+    #[test]
+    fn headless_renderer_pushes_a_vector_item_layer() {
+        let Some(mut r) = renderer() else {
+            return;
+        };
+        let mut doc = doc(256, 256);
+        doc.set_vector_mode(true);
+        doc.tool = Tool::Rect;
+        doc.pointer_down(20.0, 20.0);
+        doc.pointer_move(80.0, 80.0);
+        doc.pointer_up(80.0, 80.0);
+        r.invalidate();
+        r.render(&mut doc);
+    }
+
+    #[test]
+    fn headless_renderer_text_caret_and_selection_overlay() {
+        let Some(mut r) = renderer() else {
+            return;
+        };
+        let mut doc = doc(256, 256);
+        doc.tool = Tool::Text;
+        doc.pointer_down(40.0, 40.0);
+        doc.text_insert("hello");
+        r.invalidate_overlay();
+        r.render(&mut doc);
+        r.render(&mut doc);
+
+        doc.tool = Tool::SelectRect;
+        doc.pointer_down(60.0, 60.0);
+        doc.pointer_move(120.0, 120.0);
+        r.invalidate_overlay();
+        r.render(&mut doc);
+    }
+
+    #[test]
+    fn headless_renderer_clone_and_transform_overlays() {
+        let Some(mut r) = renderer() else {
+            return;
+        };
+        let mut doc = doc(256, 256);
+        doc.tool = Tool::Pen;
+        doc.pointer_down(30.0, 30.0);
+        doc.pointer_move(80.0, 80.0);
+        doc.pointer_up(80.0, 80.0);
+        doc.tool = Tool::Clone;
+        doc.set_clone_anchor(40.0, 50.0);
+        let (sx, sy) = doc.camera.to_screen(80.0, 60.0);
+        doc.set_pointer_hover(sx, sy);
+        r.invalidate_overlay();
+        r.render(&mut doc);
+
+        doc.enter_transform();
+        r.invalidate_overlay();
+        r.render(&mut doc);
+    }
+
+    #[test]
+    fn headless_renderer_dark_theme_and_shape_preview() {
+        let Some(mut r) = renderer() else {
+            return;
+        };
+        let mut doc = doc(256, 256);
+        doc.dark_theme = true;
+        doc.fill = true;
+        doc.stroke = true;
+        doc.tool = Tool::Ellipse;
+        doc.pointer_down(40.0, 40.0);
+        doc.pointer_move(120.0, 120.0);
+        r.invalidate_overlay();
+        r.render(&mut doc);
+        doc.pointer_up(120.0, 120.0);
+        r.invalidate();
+        r.render(&mut doc);
+    }
+
+    #[test]
+    fn headless_renderer_lasso_selection_and_pan_cache() {
+        let Some(mut r) = renderer() else {
+            return;
+        };
+        let mut doc = doc(512, 512);
+        doc.camera.zoom = 2.0;
+        doc.tool = Tool::Pen;
+        doc.pointer_down(40.0, 40.0);
+        doc.pointer_move(100.0, 100.0);
+        doc.pointer_up(100.0, 100.0);
+        r.invalidate();
+        r.render(&mut doc);
+
+        r.begin_camera_motion();
+        doc.camera.pan_x += 48.0;
+        r.invalidate_camera();
+        r.render(&mut doc);
+        r.end_camera_motion();
+
+        doc.tool = Tool::SelectLasso;
+        doc.pointer_down(60.0, 60.0);
+        doc.pointer_move(80.0, 90.0);
+        doc.pointer_move(110.0, 70.0);
+        r.invalidate_overlay();
+        r.render(&mut doc);
+    }
+
+    #[test]
+    fn headless_renderer_heal_and_fill_tools() {
+        let Some(mut r) = renderer() else {
+            return;
+        };
+        let mut doc = doc(256, 256);
+        doc.tool = Tool::Pen;
+        doc.pointer_down(20.0, 20.0);
+        doc.pointer_move(60.0, 60.0);
+        doc.pointer_up(60.0, 60.0);
+        doc.tool = Tool::Heal;
+        doc.set_clone_anchor(30.0, 30.0);
+        doc.pointer_down(80.0, 80.0);
+        doc.pointer_move(100.0, 100.0);
+        r.invalidate_overlay();
+        r.render(&mut doc);
+        doc.pointer_up(100.0, 100.0);
+        r.invalidate();
+        r.render(&mut doc);
+
+        doc.tool = Tool::Fill;
+        doc.pointer_down(50.0, 50.0);
+        r.render(&mut doc);
+    }
+
+    #[test]
+    fn headless_renderer_stacked_layers_and_screen_blend() {
+        let Some(mut r) = renderer() else {
+            return;
+        };
+        let mut doc = doc(256, 256);
+        doc.tool = Tool::Pen;
+        doc.pointer_down(10.0, 10.0);
+        doc.pointer_move(80.0, 80.0);
+        doc.pointer_up(80.0, 80.0);
+        doc.add_layer("Ink");
+        doc.layers[doc.active_layer].blend_mode = BlendMode::Screen;
+        doc.tool = Tool::Pen;
+        doc.pointer_down(30.0, 30.0);
+        doc.pointer_move(90.0, 90.0);
+        doc.pointer_up(90.0, 90.0);
+        r.invalidate();
+        r.render(&mut doc);
     }
 }

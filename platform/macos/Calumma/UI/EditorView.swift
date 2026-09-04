@@ -71,7 +71,7 @@ struct EditorView: View {
     }
 
     private var editorLayout: some View {
-        HStack(alignment: .top, spacing: Tokens.Space.sm) {
+        HStack(alignment: .top, spacing: Tokens.Space.xs) {
             ToolsPanel()
                 .frame(maxHeight: .infinity)
                 .zIndex(2)
@@ -86,7 +86,8 @@ struct EditorView: View {
                     .zIndex(1)
             }
         }
-        .padding([.horizontal, .bottom], Tokens.Space.sm)
+        .padding(.horizontal, Tokens.Space.xs)
+        .padding(.bottom, Tokens.Space.xs)
         .padding(.top, Tokens.Space.xs)
         .calmScreen()
         .toolbar { editorToolbar }
@@ -377,8 +378,8 @@ struct EditorView: View {
     private static let rowIconSide: CGFloat = 18
 
     private var layersIsland: some View {
-        CalmIsland {
-            VStack(alignment: .leading, spacing: Tokens.Space.md) {
+        CalmIsland(padding: Tokens.Space.sm, bordered: false) {
+            VStack(alignment: .leading, spacing: Tokens.Space.sm) {
                 HStack {
                     CalmText.label(l10n.layers)
                     Spacer()
@@ -804,7 +805,7 @@ struct EditorView: View {
     /// one sitting under a stray click, and the row keeps its width for the layer's name. The
     /// slot is reserved rather than inserted — rows that shuffle their controls around as the
     /// pointer crosses them are the reason a mis-click happens in the first place. No
-    /// confirmation: bringing a layer back is undo's job ([[01-document-undo]]), not a dialog's.
+    /// confirmation: bringing a layer back is undo's job (plan `01`), not a dialog's.
     private func deleteButton(_ index: Int, shown: Bool) -> some View {
         Button {
             app.engine.removeLayer(index)

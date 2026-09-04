@@ -160,28 +160,27 @@ final class AppModel: ObservableObject {
     }
 
     func pasteFromClipboard() {
-        guard let artwork = ArtworkImport.fromPasteboard() else { return }
-        pasteIntoBoard(artwork)
+        let artworks = ArtworkImport.fromPasteboardAll()
+        guard !artworks.isEmpty else { return }
+        if showLanding || activeProjectId == nil {
+            createFromArtworks(artworks)
+        } else {
+            pasteIntoBoard(artworks)
+        }
     }
 
     /// A pasted image lands as a new layer at the top of the stack, and the first thing anyone
     /// does with one is put it somewhere — so the board hands it over already grabbed: Move
     /// selected, the new layer inside `⌘T` with its corners live. Dropping onto an open board
     /// is the same gesture by another route, so it goes through here too.
-    private func pasteIntoBoard(_ artwork: ArtworkImage) {
-        let outcome = engine.pasteImage(
-            premultipliedRGBA: artwork.premultipliedRGBA,
-            width: artwork.width,
-            height: artwork.height
-        )
-        guard outcome != .failed else {
+    private func pasteIntoBoard(_ artworks: [ArtworkImage]) {
+        let (count, outcome) = engine.pasteImages(artworks)
+        guard count > 0, outcome != .failed else {
             showToast(l10n.pasteFailed, kind: .error)
             return
         }
         enterMoveTransform()
         if outcome == .overflowing {
-            // Worth one line, because half the picture is off the paper and the layer is
-            // already inside `⌘T` — which is how you scale or drag the rest of it into view.
             showToast(l10n.pasteOverflows, kind: .success)
         }
     }
@@ -210,13 +209,19 @@ final class AppModel: ObservableObject {
     }
 
     func createFromArtwork(_ artwork: ArtworkImage?) {
-        guard let artwork, let id = engine.createProject(name: artwork.name, artwork: artwork)
-        else {
+        guard let artwork else { return }
+        createFromArtworks([artwork])
+    }
+
+    func createFromArtworks(_ artworks: [ArtworkImage]) {
+        guard !artworks.isEmpty else { return }
+        let name = artworks[0].name
+        guard let id = engine.createProjectFromImages(name: name, artworks: artworks) else {
             artworkError = l10n.artworkImportFailed
             return
         }
         artworkError = nil
-        adoptProject(id: id, name: artwork.name)
+        adoptProject(id: id, name: name)
     }
 
     func importArtwork(url: URL) {
@@ -224,7 +229,7 @@ final class AppModel: ObservableObject {
     }
 
     func pasteArtwork() {
-        createFromArtwork(ArtworkImport.fromPasteboard())
+        createFromArtworks(ArtworkImport.fromPasteboardAll())
     }
 
     func chooseArtwork() {
@@ -237,16 +242,19 @@ final class AppModel: ObservableObject {
         importArtwork(url: url)
     }
 
+    @discardableResult
     func dropArtwork(providers: [NSItemProvider]) -> Bool {
-        ArtworkImport.load(providers: providers) { [weak self] artwork in
-            self?.createFromArtwork(artwork)
+        ArtworkImport.loadAll(providers: providers) { [weak self] artworks in
+            guard !artworks.isEmpty else { return }
+            self?.createFromArtworks(artworks)
         }
     }
 
+    @discardableResult
     func dropArtworkIntoBoard(providers: [NSItemProvider]) -> Bool {
-        ArtworkImport.load(providers: providers) { [weak self] artwork in
-            guard let artwork else { return }
-            self?.pasteIntoBoard(artwork)
+        ArtworkImport.loadAll(providers: providers) { [weak self] artworks in
+            guard !artworks.isEmpty else { return }
+            self?.pasteIntoBoard(artworks)
         }
     }
 

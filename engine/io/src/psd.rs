@@ -36,6 +36,25 @@ fn pascal_name(name: &str) -> Vec<u8> {
     out
 }
 
+/// The legacy Pascal name above is 8-bit and gets mangled for anything outside ASCII —
+/// Photoshop always also writes this `'luni'` additional-layer-info block and prefers it for
+/// display whenever it's present, so it's the block that actually carries the name faithfully.
+fn unicode_layer_name(name: &str) -> Vec<u8> {
+    let units: Vec<u16> = name.encode_utf16().collect();
+    let mut data = Vec::with_capacity(4 + units.len() * 2);
+    data.extend_from_slice(&u32be(units.len() as u32));
+    for unit in &units {
+        data.extend_from_slice(&unit.to_be_bytes());
+    }
+
+    let mut block = Vec::with_capacity(12 + data.len());
+    block.extend_from_slice(BLEND_SIGNATURE);
+    block.extend_from_slice(b"luni");
+    block.extend_from_slice(&u32be(data.len() as u32));
+    block.extend_from_slice(&data);
+    block
+}
+
 struct Planes {
     r: Vec<u8>,
     g: Vec<u8>,
@@ -92,6 +111,7 @@ fn layer_record(layer: &PreparedLayer, width: u32, height: u32, pixel_count: usi
     extra.extend_from_slice(&u32be(0));
     extra.extend_from_slice(&u32be(0));
     extra.extend_from_slice(&pascal_name(layer.name));
+    extra.extend_from_slice(&unicode_layer_name(layer.name));
     out.extend_from_slice(&u32be(extra.len() as u32));
     out.extend_from_slice(&extra);
 

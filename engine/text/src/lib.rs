@@ -2,6 +2,7 @@ pub mod buffer;
 pub mod fonts;
 pub mod layout;
 pub mod limits;
+pub mod pdf;
 pub mod raster;
 pub mod run;
 pub mod select;
@@ -15,6 +16,9 @@ pub use layout::{caret_rect, index_at_point, measure, step_index, CaretRect, Ste
 pub use limits::{
     TEXT_LINE_HEIGHT_DEFAULT, TEXT_LINE_HEIGHT_MAX, TEXT_LINE_HEIGHT_MIN, TEXT_SIZE_DEFAULT,
     TEXT_SIZE_MAX, TEXT_SIZE_MIN, TEXT_WRAP_MIN_WIDTH, TEXT_WRAP_PADDING,
+};
+pub use pdf::{
+    embed_font, layout_for_pdf, to_unicode_entries, PdfFont, PdfFontKey, PdfGlyph, PdfRun,
 };
 pub use raster::{rasterize, TextRaster};
 pub use run::{ResolvedStyle, TextAlign, TextRun};

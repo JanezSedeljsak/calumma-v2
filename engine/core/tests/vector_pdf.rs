@@ -193,26 +193,21 @@ fn numbers_are_trimmed_to_the_shortest_form_that_still_parses() {
     assert_eq!(tokens[m - 1], "2.5");
 }
 
-#[test]
-fn a_layer_with_no_meaningful_transform_needs_no_matrix() {
-    let item = shape_item(Tool::Rect, true, false);
-
-    assert_eq!(pdf_transform_matrix(&item, None), None);
-    assert_eq!(
-        pdf_transform_matrix(&item, Some(LayerTransform::default())),
-        None,
-        "an identity transform is not worth a cm"
-    );
+fn pivot_of(item: &VectorItem) -> (f32, f32) {
+    bounds_center(item.bounds().expect("bounds"))
 }
 
 #[test]
-fn an_item_with_no_bounds_has_no_pivot_to_transform_around() {
-    let empty = path_item(vec![], false, false, true);
-    let moved = LayerTransform {
-        offset_x: 5.0,
-        ..LayerTransform::default()
-    };
-    assert_eq!(pdf_transform_matrix(&empty, Some(moved)), None);
+fn a_layer_with_no_meaningful_transform_needs_no_matrix() {
+    let item = shape_item(Tool::Rect, true, false);
+    let pivot = pivot_of(&item);
+
+    assert_eq!(transform_matrix(pivot, None), None);
+    assert_eq!(
+        transform_matrix(pivot, Some(LayerTransform::default())),
+        None,
+        "an identity transform is not worth a cm"
+    );
 }
 
 #[test]
@@ -224,7 +219,7 @@ fn a_pure_offset_is_an_identity_matrix_carrying_the_translation() {
         ..LayerTransform::default()
     };
 
-    let cm = pdf_transform_matrix(&item, Some(moved)).expect("matrix");
+    let cm = transform_matrix(pivot_of(&item), Some(moved)).expect("matrix");
 
     let parts: Vec<f32> = cm
         .split_whitespace()
@@ -247,7 +242,7 @@ fn a_scale_is_taken_about_the_items_centre() {
         ..LayerTransform::default()
     };
 
-    let cm = pdf_transform_matrix(&item, Some(scaled)).expect("matrix");
+    let cm = transform_matrix(pivot_of(&item), Some(scaled)).expect("matrix");
 
     let parts: Vec<f32> = cm
         .split_whitespace()
@@ -267,7 +262,7 @@ fn a_rotation_fills_all_four_matrix_terms() {
         ..LayerTransform::default()
     };
 
-    let cm = pdf_transform_matrix(&item, Some(turned)).expect("matrix");
+    let cm = transform_matrix(pivot_of(&item), Some(turned)).expect("matrix");
 
     let parts: Vec<f32> = cm
         .split_whitespace()

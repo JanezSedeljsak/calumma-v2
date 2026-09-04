@@ -256,3 +256,103 @@ fn an_empty_document_still_produces_a_readable_pdf() {
     assert!(text(&pdf).contains("/Type /Page "));
     assert_xref_resolves(&pdf);
 }
+
+fn text_layer(doc: &mut Document, text: &str) -> usize {
+    doc.tool = Tool::Text;
+    doc.text_style.size = 20.0;
+    let (sx, sy) = doc.camera.to_screen(4.0, 8.0);
+    doc.pointer_down(sx, sy);
+    doc.text_insert(text);
+    doc.commit_text();
+    doc.layers.len() - 1
+}
+
+/// The reason any of this exists: real, selectable text instead of a picture of it. `BT`/`Tj`
+/// in the content stream and no extra image XObject for the layer are the two halves of that.
+#[test]
+fn a_text_layer_exports_as_real_text_not_an_image() {
+    let mut doc = doc();
+    let baseline_images = text(&encode_pdf(&doc, PDF_DEFAULT_DPI))
+        .matches("/Subtype /Image")
+        .count();
+
+    text_layer(&mut doc, "Hi");
+    let pdf = encode_pdf(&doc, PDF_DEFAULT_DPI);
+    let images = text(&pdf).matches("/Subtype /Image").count();
+    assert_eq!(images, baseline_images, "no new image for the text layer");
+
+    let content = streams(&pdf);
+    assert!(content.contains("BT"), "missing a text-showing block");
+    assert!(content.contains("Tj"), "missing a glyph-showing operator");
+    assert_xref_resolves(&pdf);
+}
+
+/// A `Type0`/`CIDFontType2` pair over an embedded `FontFile2`, with a `ToUnicode` CMap so a
+/// reader's "copy text" gives back the real string rather than nothing.
+#[test]
+fn a_text_layer_embeds_a_real_font_with_a_tounicode_cmap() {
+    let mut doc = doc();
+    text_layer(&mut doc, "Hi");
+    let pdf = text(&encode_pdf(&doc, PDF_DEFAULT_DPI));
+
+    assert!(
+        pdf.contains("/Subtype /Type0"),
+        "missing the composite font"
+    );
+    assert!(
+        pdf.contains("/Subtype /CIDFontType2"),
+        "missing the descendant font"
+    );
+    assert!(pdf.contains("/Encoding /Identity-H"));
+    assert!(pdf.contains("/CIDToGIDMap /Identity"));
+    assert!(
+        pdf.contains("/FontFile2"),
+        "the font program was not embedded"
+    );
+    assert!(pdf.contains("/ToUnicode"));
+}
+
+/// The CMap is what makes the exported text worth having at all — assert the actual mapping
+/// rather than just its presence, by inflating the CMap stream and reading the hex pairs back.
+#[test]
+fn the_tounicode_cmap_names_the_letters_actually_typed() {
+    let mut doc = doc();
+    text_layer(&mut doc, "AB");
+    let content = streams(&encode_pdf(&doc, PDF_DEFAULT_DPI));
+    assert!(content.contains("beginbfchar"), "no CMap body decoded");
+    // "A" is U+0041, "B" is U+0042 — their UTF-16BE hex forms have to appear as a CMap value.
+    assert!(
+        content.contains("<0041>"),
+        "missing the mapping for 'A': {content}"
+    );
+    assert!(
+        content.contains("<0042>"),
+        "missing the mapping for 'B': {content}"
+    );
+}
+
+/// The real-text path is opaque-only for now; a translucent ink color falls back to the
+/// rasterized image rather than silently rendering fully opaque.
+#[test]
+fn translucent_text_falls_back_to_a_rasterized_image() {
+    let mut doc = doc();
+    let baseline_images = text(&encode_pdf(&doc, PDF_DEFAULT_DPI))
+        .matches("/Subtype /Image")
+        .count();
+    let index = text_layer(&mut doc, "Hi");
+    if let Some(run) = doc.layers[index].content.run_mut() {
+        run.color = [0, 0, 0, 128];
+    }
+    calumma_core::text_layer::resync(&mut doc.layers[index]);
+
+    let pdf = encode_pdf(&doc, PDF_DEFAULT_DPI);
+    let images = text(&pdf).matches("/Subtype /Image").count();
+    assert!(
+        images > baseline_images,
+        "should have fallen back to a rasterized image (translucent ink also means an /SMask)"
+    );
+    assert!(
+        !text(&pdf).contains("/Subtype /Type0"),
+        "should not have also embedded a font for the fallback"
+    );
+}

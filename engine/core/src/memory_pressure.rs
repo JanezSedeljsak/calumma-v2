@@ -1,5 +1,5 @@
-//! What an OS memory-pressure signal means for GPU tile residency — the product table from
-//! docs/plans/22-adaptive-gpu-memory-pressure.md, plus the hysteresis around it. Only the
+//! What an OS memory-pressure signal means for GPU tile residency — the product table shipped
+//! as plan 22, plus the hysteresis around it. Only the
 //! shell can receive the underlying OS signal (a dispatch memory-pressure source on macOS), so
 //! this is the inbound side: the shell forwards a level, never a tile count or byte budget, and
 //! core owns what each level costs the atlas.

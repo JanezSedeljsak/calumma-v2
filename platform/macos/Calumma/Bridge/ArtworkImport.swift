@@ -56,42 +56,90 @@ enum ArtworkImport {
     }
 
     static func fromPasteboard(_ pasteboard: NSPasteboard = .general) -> ArtworkImage? {
-        if let urls = pasteboard.readObjects(forClasses: [NSURL.self]) as? [URL],
-           let url = urls.first(where: supports),
-           let artwork = decode(url: url)
-        {
-            return artwork
+        fromPasteboardAll(pasteboard).first
+    }
+
+    static func fromPasteboardAll(_ pasteboard: NSPasteboard = .general) -> [ArtworkImage] {
+        if let urls = pasteboard.readObjects(forClasses: [NSURL.self]) as? [URL] {
+            let artworks = urls.compactMap { url -> ArtworkImage? in
+                supports(url) ? decode(url: url) : nil
+            }
+            if !artworks.isEmpty { return artworks }
         }
         for type in pasteTypes {
             let raw = NSPasteboard.PasteboardType(type.identifier)
             if let data = pasteboard.data(forType: raw),
                let artwork = decode(data: data, name: L10nStore.catalog.untitled)
             {
-                return artwork
+                return [artwork]
             }
         }
-        return nil
+        return []
     }
 
     static func load(
         providers: [NSItemProvider],
         into complete: @MainActor @escaping (ArtworkImage?) -> Void
     ) -> Bool {
-        for provider in providers where provider.canLoadObject(ofClass: URL.self) {
-            _ = provider.loadObject(ofClass: URL.self) { url, _ in
-                let artwork = url.flatMap(decode(url:))
-                Task { @MainActor in complete(artwork) }
+        loadAll(providers: providers) { artworks in
+            complete(artworks.first)
+        }
+    }
+
+    static func loadAll(
+        providers: [NSItemProvider],
+        into complete: @MainActor @escaping ([ArtworkImage]) -> Void
+    ) -> Bool {
+        let urlProviders = providers.enumerated().filter { $0.element.canLoadObject(ofClass: URL.self) }
+        if !urlProviders.isEmpty {
+            let group = DispatchGroup()
+            var results: [(Int, ArtworkImage)] = []
+            let lock = NSLock()
+            for (index, provider) in urlProviders {
+                group.enter()
+                _ = provider.loadObject(ofClass: URL.self) { url, _ in
+                    defer { group.leave() }
+                    guard let url, let artwork = decode(url: url) else { return }
+                    lock.lock()
+                    results.append((index, artwork))
+                    lock.unlock()
+                }
+            }
+            group.notify(queue: .main) {
+                let sorted = results.sorted(by: { $0.0 < $1.0 }).map(\.1)
+                Task { @MainActor in
+                    complete(sorted)
+                }
             }
             return true
         }
-        for provider in providers {
+        let dataProviders: [(Int, NSItemProvider, UTType)] = providers.enumerated().compactMap {
+            index, provider in
             guard let type = pasteTypes.first(where: {
                 provider.hasItemConformingToTypeIdentifier($0.identifier)
-            }) else { continue }
+            }) else { return nil }
+            return (index, provider, type)
+        }
+        if !dataProviders.isEmpty {
+            let group = DispatchGroup()
+            var results: [(Int, ArtworkImage)] = []
+            let lock = NSLock()
             let fallbackName = L10nStore.catalog.untitled
-            provider.loadDataRepresentation(forTypeIdentifier: type.identifier) { data, _ in
-                let artwork = data.flatMap { decode(data: $0, name: fallbackName) }
-                Task { @MainActor in complete(artwork) }
+            for (index, provider, type) in dataProviders {
+                group.enter()
+                provider.loadDataRepresentation(forTypeIdentifier: type.identifier) { data, _ in
+                    defer { group.leave() }
+                    guard let data, let artwork = decode(data: data, name: fallbackName) else { return }
+                    lock.lock()
+                    results.append((index, artwork))
+                    lock.unlock()
+                }
+            }
+            group.notify(queue: .main) {
+                let sorted = results.sorted(by: { $0.0 < $1.0 }).map(\.1)
+                Task { @MainActor in
+                    complete(sorted)
+                }
             }
             return true
         }

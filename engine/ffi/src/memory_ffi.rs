@@ -55,7 +55,7 @@ pub unsafe extern "C" fn calm_engine_memory(
     CalmStatus::Ok
 }
 
-/// The one inbound knob docs/plans/22-adaptive-gpu-memory-pressure.md adds: the shell forwards
+/// The one inbound knob plan 22 added: the shell forwards
 /// whatever level the OS just reported — mirroring `DISPATCH_SOURCE_TYPE_MEMORYPRESSURE` on
 /// macOS, `0` = normal, `1` = warn, `2` = critical, the same raw-`u32` convention
 /// `calm_engine_set_tool` uses rather than a declared C enum type — and the engine decides what

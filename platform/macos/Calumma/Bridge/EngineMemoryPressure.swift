@@ -2,7 +2,7 @@ import Dispatch
 import Foundation
 
 /// The raw values `calm_engine_set_memory_pressure` reads, mirrored from
-/// `calumma_core::MemoryPressureLevel` (`docs/plans/22-adaptive-gpu-memory-pressure.md`). Crossed
+/// `calumma_core::MemoryPressureLevel` (shipped as plan `22`). Crossed
 /// as a plain `UInt32` rather than a declared C enum type — the same convention `CalmTool` uses.
 enum CalmMemoryPressure: UInt32 {
     case normal = 0

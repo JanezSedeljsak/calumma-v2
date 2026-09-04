@@ -143,6 +143,7 @@ pub const RECENT_PROJECTS_LIMIT: usize = 32;
 pub const PROJECT_THUMB_MAX_SIDE: u32 = 1024;
 
 pub const IMPORT_MAX_SIDE: u32 = 4096;
+pub const PASTE_STAGGER_PX: i32 = 16;
 
 pub const STROKE_INSTANCE_CAPACITY: usize = 1024;
 pub const VECTOR_SHAPE_INSTANCE_CAPACITY: usize = 256;

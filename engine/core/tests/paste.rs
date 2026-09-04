@@ -183,3 +183,135 @@ fn a_malformed_buffer_is_refused_without_adding_a_layer() {
     );
     assert_eq!(doc.layers.len(), before);
 }
+
+fn solid_rgba(w: u32, h: u32, px: [u8; 4]) -> Vec<u8> {
+    let mut out = vec![0u8; (w as usize) * (h as usize) * 4];
+    for chunk in out.chunks_exact_mut(4) {
+        chunk.copy_from_slice(&px);
+    }
+    out
+}
+
+#[test]
+fn batch_paste_adds_each_image_on_its_own_layer_with_a_stagger() {
+    use calumma_core::limits::PASTE_STAGGER_PX;
+    use calumma_core::paste::PasteImage;
+
+    let mut doc = Document::new("p".into(), "t", 64, 64);
+    let before = doc.layers.len();
+    let images = [
+        PasteImage {
+            name: "one",
+            rgba: &solid_rgba(4, 4, [255, 0, 0, 255]),
+            width: 4,
+            height: 4,
+        },
+        PasteImage {
+            name: "two",
+            rgba: &solid_rgba(4, 4, [0, 255, 0, 255]),
+            width: 4,
+            height: 4,
+        },
+    ];
+    let (pasted, outcome) = doc.paste_images_as_layers(&images);
+    assert_eq!(pasted, 2);
+    assert_eq!(outcome, PasteOutcome::Native);
+    assert_eq!(doc.layers.len(), before + 2);
+    let first = opaque_bounds(&doc, doc.layers.len() - 2);
+    let second = opaque_bounds(&doc, doc.layers.len() - 1);
+    assert_eq!((first.min_x, first.min_y), (0, 0));
+    assert_eq!(
+        (second.min_x, second.min_y),
+        (PASTE_STAGGER_PX, PASTE_STAGGER_PX)
+    );
+}
+
+#[test]
+fn batch_paste_is_one_undo_step() {
+    use calumma_core::paste::PasteImage;
+
+    let mut doc = Document::new("p".into(), "t", 64, 64);
+    let images = [
+        PasteImage {
+            name: "one",
+            rgba: &solid_rgba(4, 4, [255, 0, 0, 255]),
+            width: 4,
+            height: 4,
+        },
+        PasteImage {
+            name: "two",
+            rgba: &solid_rgba(4, 4, [0, 255, 0, 255]),
+            width: 4,
+            height: 4,
+        },
+    ];
+    let before = doc.layers.len();
+    let (pasted, _) = doc.paste_images_as_layers(&images);
+    assert_eq!(pasted, 2);
+    assert_eq!(doc.layers.len(), before + 2);
+    assert!(doc.history.can_undo());
+    doc.undo();
+    assert_eq!(doc.layers.len(), before);
+}
+
+#[test]
+fn install_images_staggered_sizes_layers_on_a_fresh_project() {
+    use calumma_core::limits::PASTE_STAGGER_PX;
+    use calumma_core::paste::PasteImage;
+
+    let mut doc = Document::new("p".into(), "t", 32, 32);
+    let images = [
+        PasteImage {
+            name: "wide",
+            rgba: &solid_rgba(8, 4, [255, 0, 0, 255]),
+            width: 8,
+            height: 4,
+        },
+        PasteImage {
+            name: "tall",
+            rgba: &solid_rgba(4, 10, [0, 255, 0, 255]),
+            width: 4,
+            height: 10,
+        },
+    ];
+    assert_eq!(doc.install_images_staggered(&images), 2);
+    assert_eq!((doc.width, doc.height), (32, 32));
+    let first = opaque_bounds(&doc, 1);
+    let second = opaque_bounds(&doc, 2);
+    assert_eq!((first.min_x, first.min_y), (0, 0));
+    assert_eq!(
+        (second.min_x, second.min_y),
+        (PASTE_STAGGER_PX, PASTE_STAGGER_PX)
+    );
+}
+
+#[test]
+fn install_images_staggered_uses_image_names_on_extra_layers() {
+    use calumma_core::paste::PasteImage;
+
+    let mut doc = Document::new("p".into(), "t", 32, 32);
+    let first = solid_rgba(4, 4, [255, 0, 0, 255]);
+    let second = solid_rgba(4, 4, [0, 255, 0, 255]);
+    let images = [
+        PasteImage {
+            name: "first",
+            rgba: &first,
+            width: 4,
+            height: 4,
+        },
+        PasteImage {
+            name: "overlay",
+            rgba: &second,
+            width: 4,
+            height: 4,
+        },
+    ];
+    assert_eq!(doc.install_images_staggered(&images), 2);
+    assert_eq!(doc.layers[2].name, "overlay");
+}
+
+#[test]
+fn install_images_on_an_empty_list_places_nothing() {
+    let mut doc = Document::new("p".into(), "t", 32, 32);
+    assert_eq!(doc.install_images_staggered(&[]), 0);
+}

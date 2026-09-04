@@ -38,6 +38,7 @@ pub mod size_curve;
 pub mod text_edit;
 pub mod text_input;
 pub mod text_layer;
+pub mod text_pdf;
 pub mod text_select;
 pub mod text_style;
 pub mod tile;
@@ -52,11 +53,12 @@ pub mod viewport;
 pub use blur::blur_radius;
 pub use brush::{Brush, BrushProfile};
 pub use calumma_text::{
-    canonical_family, families as font_families, family_at as font_family_at,
+    canonical_family, embed_font, families as font_families, family_at as font_family_at,
     family_count as font_family_count, family_exists as font_family_exists,
-    family_styles as font_family_styles, FontFamily, ResolvedStyle, SelectionRect, SpanStyle, Step,
-    StyleSpan, TextAlign, TextRun, TEXT_LINE_HEIGHT_DEFAULT, TEXT_LINE_HEIGHT_MAX,
-    TEXT_LINE_HEIGHT_MIN, TEXT_SIZE_DEFAULT, TEXT_SIZE_MAX, TEXT_SIZE_MIN, TEXT_WRAP_MIN_WIDTH,
+    family_styles as font_family_styles, layout_for_pdf, to_unicode_entries, FontFamily, PdfFont,
+    PdfFontKey, PdfGlyph, PdfRun, ResolvedStyle, SelectionRect, SpanStyle, Step, StyleSpan,
+    TextAlign, TextRun, TEXT_LINE_HEIGHT_DEFAULT, TEXT_LINE_HEIGHT_MAX, TEXT_LINE_HEIGHT_MIN,
+    TEXT_SIZE_DEFAULT, TEXT_SIZE_MAX, TEXT_SIZE_MIN, TEXT_WRAP_MIN_WIDTH,
 };
 pub use camera::Camera;
 pub use color::{format_hex_rgb, pack_rgb, pack_rgba, parse_hex_rgb, unpack_rgb, unpack_rgba};

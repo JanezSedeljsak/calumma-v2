@@ -856,7 +856,10 @@ visibility, masks, opacity, blend mode, and adjustments) and opens a native save
 with its own opacity and blend-mode signature (`engine/io/src/psd.rs`, hand-written since
 ImageIO can only *read* PSD, not write it; RAW/uncompressed channel data, not PackBits RLE); a
 vector layer reaches the PSD rasterized, because this writer emits raster channels only and
-losing the artwork would be worse. SVG (`engine/io/src/svg.rs`) keeps a vector layer as real
+losing the artwork would be worse. Every layer name is written twice — the legacy 8-bit Pascal
+string every reader understands, and the `'luni'` additional-layer-info block real Photoshop
+also always writes and prefers for display, so a non-ASCII layer name (CJK, emoji, accents)
+round-trips faithfully instead of mangling through the 8-bit field alone. SVG (`engine/io/src/svg.rs`) keeps a vector layer as real
 `<rect>` / `<ellipse>` / `<path>` geometry and gives every other layer an embedded PNG
 `<image>`, cropped to its ink; a layer painted in a single color (Paper, a flood fill) becomes
 a `<rect>` instead, so a flat page costs bytes rather than megabytes of base64. Layer opacity
@@ -870,10 +873,22 @@ model maps onto most exactly: `layer.opacity` is `/ca` and `/CA`, the three blen
 `m`/`l`) rather than a picture of itself, and a painted layer becomes a cropped image XObject
 with its alpha in a `/SMask` — PDF images carry no alpha channel of their own. One flip
 matrix at the top of the page reconciles PDF's bottom-left origin with Calumma's top-left.
-Masks and adjustments are still baked; text still exports as pixels, so a PDF's text is not
-selectable yet. Page size is document pixels at 72 dpi by default (`calm_pdf_default_dpi`),
-and the encoder is Rust (`engine/io/src/pdf.rs`) for the same reason PSD and SVG are:
-`CGPDFContext` would need the shell to re-emit every shape.
+Masks and adjustments are still baked. Page size is document pixels at 72 dpi by default
+(`calm_pdf_default_dpi`), and the encoder is Rust (`engine/io/src/pdf.rs`) for the same reason
+PSD and SVG are: `CGPDFContext` would need the shell to re-emit every shape.
+
+A text layer exports as **real, selectable, searchable text**, not a picture of itself. Every
+font a layer's shaped runs touch is embedded as a `Type0`/`CIDFontType2` composite font over a
+`FontFile2` program (`calumma_text::pdf`, `engine/text/src/pdf.rs`): a `.ttc`-sourced face
+(what macOS's own UI font is) is unpacked into a standalone `sfnt` by hand, and a CFF-outline
+face (no `glyf` table) is declined rather than mis-embedded. A `ToUnicode` CMap
+(`calumma_core::text_pdf`, `engine/core/src/text_pdf.rs`) maps every glyph id back to the text
+it stands for, so a reader's "copy text" and search both work. Each glyph carries its own
+absolute `Tm` rather than leaning on the font's declared advance width, so `cosmic-text`'s own
+shaping and kerning is what a reader sees, not a second approximation of it. This path is
+opaque-ink-only for now: a layer with translucent text color, or that needs a font it cannot
+embed as TrueType, falls all the way back to the old rasterized-image export instead of mixing
+real and dropped glyphs.
 
 **One layer at a time**: the layer `…` card has **Export…** next to Copy, writing just that
 layer through the same encoders — SVG first for a vector layer (its geometry, via
@@ -1046,8 +1061,6 @@ zoom-in while ⌘/Option held over the board, pointing hand on chrome controls.
 
 Layered PSD
 **import** (we import the flattened composite only; PSD *export* is layered and shipped),
-PDF text as *selectable* text (PDF export is shipped, but text rides as pixels — font
-embedding needs `FontFile2`, `/Widths` and a `/ToUnicode` CMap),
 picking a layer by clicking it *outside* transform mode as a *modifier* (the Move tool on the tools island is the path — click painted pixels or a vector item to drag; Option-click and ⌘-click stay Pan),
 vectorize, generate-texture, BiRefNet core remove-bg — see
 `AGENTS.md` deferred list. Add a FLOW section when a feature ships, not before.

@@ -333,7 +333,18 @@ CalmStatus calm_engine_deselect(CalmEngine *engine);
 CalmStatus calm_engine_select_all(CalmEngine *engine);
 CalmStatus calm_engine_invert_selection(CalmEngine *engine);
 CalmStatus calm_engine_selection_clear_pixels(CalmEngine *engine);
+
+typedef struct CalmPasteImage {
+    const char *name;
+    const uint8_t *premultiplied_rgba;
+    size_t len;
+    uint32_t width;
+    uint32_t height;
+} CalmPasteImage;
+
+uint32_t calm_paste_stagger_px(void);
 CalmStatus calm_engine_paste_image(CalmEngine *engine, const uint8_t *premultiplied_rgba, size_t len, uint32_t width, uint32_t height, uint32_t *out_outcome);
+CalmStatus calm_engine_paste_images(CalmEngine *engine, const CalmPasteImage *images, size_t count, uint32_t *out_count, uint32_t *out_outcome);
 
 typedef enum CalmCaretStep {
     CalmCaretStepLeft = 0,
@@ -414,6 +425,7 @@ int calm_engine_nudge_move_target(CalmEngine *engine, float steps_x, float steps
 char *calm_project_create(CalmEngine *engine, const char *name, uint32_t width, uint32_t height);
 uint32_t calm_import_max_side(void);
 char *calm_project_create_from_image(CalmEngine *engine, const char *name, uint32_t width, uint32_t height, const uint8_t *premultiplied_rgba, size_t len);
+char *calm_project_create_from_images(CalmEngine *engine, const char *name, const CalmPasteImage *images, size_t count);
 CalmStatus calm_project_open(CalmEngine *engine, const char *id);
 CalmStatus calm_project_close(CalmEngine *engine);
 size_t calm_project_list(CalmEngine *engine, CalmProjectInfo *out, size_t cap);

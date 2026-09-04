@@ -1002,23 +1002,46 @@ final class Engine: ObservableObject, @unchecked Sendable {
 
     @discardableResult
     func createProject(name: String, artwork: ArtworkImage) -> String? {
-        guard let ptr else { return nil }
-        let created: String? = artwork.premultipliedRGBA.withUnsafeBytes { raw in
-            guard let base = raw.bindMemory(to: UInt8.self).baseAddress else { return nil }
-            let idPtr = name.withCString {
-                calm_project_create_from_image(
-                    ptr,
-                    $0,
-                    UInt32(artwork.width),
-                    UInt32(artwork.height),
-                    base,
-                    raw.count
-                )
+        createProjectFromImages(name: name, artworks: [artwork])
+    }
+
+    @discardableResult
+    func createProjectFromImages(name: String, artworks: [ArtworkImage]) -> String? {
+        guard let ptr, !artworks.isEmpty else { return nil }
+        if artworks.count == 1 {
+            let artwork = artworks[0]
+            let created: String? = artwork.premultipliedRGBA.withUnsafeBytes { raw in
+                guard let base = raw.bindMemory(to: UInt8.self).baseAddress else { return nil }
+                let idPtr = name.withCString {
+                    calm_project_create_from_image(
+                        ptr,
+                        $0,
+                        UInt32(artwork.width),
+                        UInt32(artwork.height),
+                        base,
+                        raw.count
+                    )
+                }
+                guard let idPtr else { return nil }
+                let id = String(cString: idPtr)
+                calm_string_free(idPtr)
+                return id
             }
-            guard let idPtr else { return nil }
-            let id = String(cString: idPtr)
-            calm_string_free(idPtr)
-            return id
+            guard let created else { return nil }
+            syncState()
+            refreshLayers()
+            refreshRecents()
+            return created
+        }
+        let created = withPasteImages(artworks) { images, count in
+            name.withCString { namePtr in
+                guard let idPtr = calm_project_create_from_images(ptr, namePtr, images, count) else {
+                    return nil as String?
+                }
+                let id = String(cString: idPtr)
+                calm_string_free(idPtr)
+                return id
+            }
         }
         guard let created else { return nil }
         syncState()
@@ -1624,18 +1647,70 @@ final class Engine: ObservableObject, @unchecked Sendable {
     /// Pastes at native size and reports whether it fit on the paper, so the caller can say so.
     @discardableResult
     func pasteImage(premultipliedRGBA: Data, width: Int, height: Int) -> CalmPasteOutcome {
-        guard let ptr else { return .failed }
+        let (count, outcome) = pasteImages([
+            ArtworkImage(
+                name: "",
+                width: width,
+                height: height,
+                premultipliedRGBA: premultipliedRGBA
+            ),
+        ])
+        guard count > 0 else { return .failed }
+        return outcome
+    }
+
+    @discardableResult
+    func pasteImages(_ artworks: [ArtworkImage]) -> (count: Int, outcome: CalmPasteOutcome) {
+        guard let ptr, !artworks.isEmpty else { return (0, .failed) }
+        var pasted: UInt32 = 0
         var raw: UInt32 = 0
-        premultipliedRGBA.withUnsafeBytes { bytes in
-            guard let base = bytes.bindMemory(to: UInt8.self).baseAddress else { return }
-            _ = calm_engine_paste_image(
-                ptr, base, premultipliedRGBA.count, UInt32(width), UInt32(height), &raw
-            )
+        let status = withPasteImages(artworks) { images, count in
+            calm_engine_paste_images(ptr, images, count, &pasted, &raw)
         }
         syncState()
         refreshLayers()
         render()
-        return CalmPasteOutcome(rawValue: raw) ?? .failed
+        guard status == CalmStatusOk, pasted > 0 else { return (0, .failed) }
+        return (Int(pasted), CalmPasteOutcome(rawValue: raw) ?? .failed)
+    }
+
+    private func withPasteImages<T>(
+        _ artworks: [ArtworkImage],
+        _ body: (UnsafePointer<CalmPasteImage>, Int) -> T
+    ) -> T {
+        var namePtrs: [UnsafeMutablePointer<CChar>?] = []
+        var rgbaPtrs: [UnsafeMutablePointer<UInt8>] = []
+        defer {
+            for ptr in namePtrs {
+                if let ptr { free(ptr) }
+            }
+            for ptr in rgbaPtrs {
+                ptr.deallocate()
+            }
+        }
+        var payloads: [CalmPasteImage] = []
+        payloads.reserveCapacity(artworks.count)
+        for artwork in artworks {
+            let namePtr = strdup(artwork.name)
+            namePtrs.append(namePtr)
+            let rgbaPtr = UnsafeMutablePointer<UInt8>.allocate(
+                capacity: artwork.premultipliedRGBA.count
+            )
+            artwork.premultipliedRGBA.copyBytes(to: rgbaPtr, count: artwork.premultipliedRGBA.count)
+            rgbaPtrs.append(rgbaPtr)
+            payloads.append(
+                CalmPasteImage(
+                    name: namePtr,
+                    premultiplied_rgba: UnsafePointer(rgbaPtr),
+                    len: artwork.premultipliedRGBA.count,
+                    width: UInt32(artwork.width),
+                    height: UInt32(artwork.height)
+                )
+            )
+        }
+        return payloads.withUnsafeBufferPointer { buffer in
+            body(buffer.baseAddress!, buffer.count)
+        }
     }
 
     var canRemoveBackground: Bool {
