@@ -1078,6 +1078,21 @@ pub unsafe extern "C" fn calm_engine_set_blur_strength(
     })
 }
 
+/// Whether the clone stamp's / healing brush's source offset survives to the next stroke.
+/// Shared by both tools, like the source itself.
+#[no_mangle]
+pub unsafe extern "C" fn calm_engine_set_clone_aligned(
+    engine: *mut CalmEngine,
+    aligned: u8,
+) -> CalmStatus {
+    with_inner(engine, |inner| {
+        if let Some(doc) = &mut inner.doc {
+            doc.set_clone_aligned(aligned != 0);
+        }
+        Ok(())
+    })
+}
+
 /// Which brush the pen lays ink down with. Size stays `calm_engine_set_brush`; this is the
 /// character of the ink, not how much of it there is.
 #[no_mangle]
@@ -1255,6 +1270,23 @@ pub unsafe extern "C" fn calm_engine_set_shift(engine: *mut CalmEngine, held: u8
             return Ok(());
         }
         doc.set_shift_held(held != 0);
+        inner.invalidate_renderer();
+        Ok(())
+    })
+}
+
+#[no_mangle]
+/// `⌥`, read the same live way as `calm_engine_set_shift` — the clone stamp and the healing
+/// brush need it to tell an anchor click apart from an ordinary paint press.
+pub unsafe extern "C" fn calm_engine_set_alt(engine: *mut CalmEngine, held: u8) -> CalmStatus {
+    with_inner(engine, |inner| {
+        let Some(doc) = &mut inner.doc else {
+            return Ok(());
+        };
+        if doc.alt_held == (held != 0) {
+            return Ok(());
+        }
+        doc.set_alt_held(held != 0);
         inner.invalidate_renderer();
         Ok(())
     })

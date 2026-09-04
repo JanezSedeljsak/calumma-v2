@@ -33,6 +33,14 @@ enum AppIcon {
         SvgIcon(name: "blur", color: color)
     }
 
+    static func clone(color: Color) -> some View {
+        SvgIcon(name: "clone", color: color)
+    }
+
+    static func heal(color: Color) -> some View {
+        SvgIcon(name: "heal", color: color)
+    }
+
     static func magicWand(color: Color) -> some View {
         SvgIcon(name: "magic-wand", color: color)
     }

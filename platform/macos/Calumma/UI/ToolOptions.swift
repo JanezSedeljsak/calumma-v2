@@ -146,6 +146,9 @@ struct ToolOptions: View {
             paintToggle(l10n.fill, isOn: $app.fill)
             paintToggle(l10n.stroke, isOn: $app.stroke)
         }
+        if showsCloneAligned {
+            paintToggle(l10n.cloneAligned, isOn: $app.cloneAligned)
+        }
         if showsVectorMode {
             let pinned = app.engine.vectorModeLocked
             HStack {
@@ -256,6 +259,10 @@ struct ToolOptions: View {
 
     private var showsBlurStrength: Bool {
         app.tool.takesBlurStrength
+    }
+
+    private var showsCloneAligned: Bool {
+        app.tool.takesCloneAligned
     }
 
     private var showsTolerance: Bool {

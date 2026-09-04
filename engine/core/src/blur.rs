@@ -63,7 +63,7 @@ pub fn blur_stamps(
         return 0;
     };
 
-    let pass_radius = ((blur_radius(radius) / BLUR_BOX_PASSES as f32).round() as i32).max(1);
+    let pass_radius = pass_radius_for(radius);
     let margin = snapshot_margin(pass_radius);
     let source = DocRect::new(
         target.min_x - margin,
@@ -74,12 +74,8 @@ pub fn blur_stamps(
     let width = (source.max_x - source.min_x + 1) as usize;
     let height = (source.max_y - source.min_y + 1) as usize;
 
-    let mut buf = to_premultiplied(&grid.copy_rect_rgba(source), width * height);
-    let mut scratch = vec![[0f32; 4]; width * height];
-    for _ in 0..BLUR_BOX_PASSES {
-        box_pass_horizontal(&buf, &mut scratch, width, height, pass_radius as usize);
-        box_pass_vertical(&scratch, &mut buf, width, height, pass_radius as usize);
-    }
+    let buf = to_premultiplied(&grid.copy_rect_rgba(source), width * height);
+    let buf = box_blur_premultiplied(&buf, width, height, pass_radius);
 
     let r2_soft = radius + 0.5;
     grid.paint_rect(target, |px, py, dst| {
@@ -108,10 +104,37 @@ pub fn blur_stamps(
     })
 }
 
+/// The box-pass radius one event's worth of `blur_radius(brush_radius)` spreads over, split
+/// evenly across `BLUR_BOX_PASSES` passes. Shared with `clone.rs` and `heal.rs`, whose kernels
+/// read a neighbourhood the same way and pay the same snapshot margin for it.
+pub(crate) fn pass_radius_for(brush_radius: f32) -> i32 {
+    ((blur_radius(brush_radius) / BLUR_BOX_PASSES as f32).round() as i32).max(1)
+}
+
+/// Three sliding box passes over a premultiplied buffer, stacked as a Gaussian approximation —
+/// see the module doc for why premultiplied and why three passes. Pulled out of `blur_stamps`
+/// so the healing brush's frequency split (`heal::heal_stamps`) can blur both its source and
+/// destination snapshots with the exact same kernel blur already pays for.
+pub(crate) fn box_blur_premultiplied(
+    buf: &[[f32; 4]],
+    width: usize,
+    height: usize,
+    pass_radius: i32,
+) -> Vec<[f32; 4]> {
+    let pass_radius = pass_radius.max(1) as usize;
+    let mut buf = buf.to_vec();
+    let mut scratch = vec![[0f32; 4]; width * height];
+    for _ in 0..BLUR_BOX_PASSES {
+        box_pass_horizontal(&buf, &mut scratch, width, height, pass_radius);
+        box_pass_vertical(&scratch, &mut buf, width, height, pass_radius);
+    }
+    buf
+}
+
 /// How much of the brush passed over this pixel, antialiased over the outermost pixel of the
 /// disc so the stamp has a soft edge instead of a stair-stepped one. Overlapping stamps take
 /// the maximum, so one pointer event's worth of brush cannot blur the same pixel twice.
-fn disc_coverage(stamps: &[(f32, f32)], cx: f32, cy: f32, outer: f32) -> f32 {
+pub(crate) fn disc_coverage(stamps: &[(f32, f32)], cx: f32, cy: f32, outer: f32) -> f32 {
     let mut coverage = 0f32;
     for &(sx, sy) in stamps {
         let dx = cx - sx;
@@ -129,11 +152,11 @@ fn disc_coverage(stamps: &[(f32, f32)], cx: f32, cy: f32, outer: f32) -> f32 {
 /// by its own radius, so a snapshot cut any tighter would blur the edge of the target rect
 /// against whatever it happened to cut off — a visible seam along the stamp's bounding box,
 /// which is the artefact the soft disc edge exists to avoid.
-fn snapshot_margin(pass_radius: i32) -> i32 {
+pub(crate) fn snapshot_margin(pass_radius: i32) -> i32 {
     pass_radius * BLUR_BOX_PASSES as i32
 }
 
-fn premultiply(px: [u8; 4]) -> [f32; 4] {
+pub(crate) fn premultiply(px: [u8; 4]) -> [f32; 4] {
     let a = px[3] as f32 / 255.0;
     [
         px[0] as f32 / 255.0 * a,
@@ -143,7 +166,7 @@ fn premultiply(px: [u8; 4]) -> [f32; 4] {
     ]
 }
 
-fn unpremultiply(px: [f32; 4]) -> [u8; 4] {
+pub(crate) fn unpremultiply(px: [f32; 4]) -> [u8; 4] {
     let a = px[3].clamp(0.0, 1.0);
     if a <= 0.0 {
         return [0, 0, 0, 0];
@@ -157,7 +180,7 @@ fn unpremultiply(px: [f32; 4]) -> [u8; 4] {
     ]
 }
 
-fn to_premultiplied(rgba: &[u8], pixels: usize) -> Vec<[f32; 4]> {
+pub(crate) fn to_premultiplied(rgba: &[u8], pixels: usize) -> Vec<[f32; 4]> {
     (0..pixels)
         .map(|i| {
             let o = i * 4;

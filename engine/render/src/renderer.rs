@@ -1,9 +1,9 @@
 use crate::compose::{
-    brush_params, brush_ring_instances, composited_tile_payload, guide_instances,
-    layer_highlight_instances, rgba_unit, selection_lasso_points, selection_mask_edges,
-    selection_rect_or_ellipse, stroke_instances, stroke_instances_from, stroke_segment_count,
-    text_caret_visible, text_overlay_instances, tile_upload_mips, transform_overlay_instances,
-    GuideInstance, StrokeInstance,
+    brush_params, brush_ring_instances, clone_source_overlay_instances, composited_tile_payload,
+    guide_instances, layer_highlight_instances, rgba_unit, selection_lasso_points,
+    selection_mask_edges, selection_rect_or_ellipse, stroke_instances, stroke_instances_from,
+    stroke_segment_count, text_caret_visible, text_overlay_instances, tile_upload_mips,
+    transform_overlay_instances, GuideInstance, StrokeInstance,
 };
 use crate::desk::DeskLattice;
 use crate::framebuffer::{self, PanCache, PxRect};
@@ -2059,6 +2059,7 @@ impl Renderer {
             // Unconditional for the same reason: the engine decides whether there is a brush
             // cursor to draw, and answers with nothing when there is not.
             screen_instances.extend(brush_ring_instances(doc));
+            screen_instances.extend(clone_source_overlay_instances(doc));
             for (index, corners) in doc.layer_highlights() {
                 let covered = doc
                     .transform_handles()

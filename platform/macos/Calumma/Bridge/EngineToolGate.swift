@@ -26,8 +26,9 @@ enum CalmToolBlock: UInt32 {
 
 extension Engine {
     /// One slot per `Tool` discriminant in the engine, so the table can be read whole and then
-    /// indexed by `CalmTool.rawValue` without a second call per button.
-    static let toolSlots = 18
+    /// indexed by `CalmTool.rawValue` without a second call per button. One more than the
+    /// highest discriminant (`Tool::Heal = 20`).
+    static let toolSlots = 21
 
     func toolBlock(_ tool: CalmTool) -> CalmToolBlock {
         let index = Int(tool.rawValue)

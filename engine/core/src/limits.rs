@@ -84,6 +84,12 @@ pub const INK_OPACITY_MIN: f32 = 0.0;
 pub const INK_OPACITY_MAX: f32 = 1.0;
 pub const INK_OPACITY_DEFAULT: f32 = 1.0;
 
+/// Whether a fresh `⌥`-click's source offset survives to the next stroke of the clone stamp
+/// or the healing brush. On (the default) tracks a moving source across strokes, the way most
+/// retouching wants it; off snaps back to the anchor every time, for stamping the same patch
+/// repeatedly.
+pub const CLONE_ALIGNED_DEFAULT: bool = true;
+
 pub const FIT_PADDING: f32 = 0.99;
 /// How far the camera may drift from a fit and still read as fitted: a thousandth of the
 /// zoom, and a pixel of pan. The Fit control lights up while this holds, so the tolerance

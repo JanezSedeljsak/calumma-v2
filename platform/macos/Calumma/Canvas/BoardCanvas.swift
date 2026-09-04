@@ -281,9 +281,8 @@ final class BoardMTKView: MTKView {
     private func updateBrushCursor(with event: NSEvent) {
         guard let coordinator = boardCoordinator else { return }
         let flags = NSEvent.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        let zoomChord = flags.contains(.command) || flags.contains(.option)
         let covered = MainActor.assumeIsolated { app?.modalPresented == true }
-        guard !panning, !spaceHeld, !zoomChord, !covered else {
+        guard !panning, !spaceHeld, !zoomChord(flags), !covered else {
             coordinator.engine.clearPointerHover()
             return
         }
@@ -299,6 +298,7 @@ final class BoardMTKView: MTKView {
         refreshCursor()
         if painting {
             boardCoordinator?.engine.setShift(event.modifierFlags.contains(.shift))
+            boardCoordinator?.engine.setAlt(event.modifierFlags.contains(.option))
         }
         super.flagsChanged(with: event)
     }
@@ -348,6 +348,7 @@ final class BoardMTKView: MTKView {
         } else {
             painting = true
             coordinator.engine.setShift(event.modifierFlags.contains(.shift))
+            coordinator.engine.setAlt(event.modifierFlags.contains(.option))
             coordinator.engine.pointerDown(x: Float(point.x), y: Float(point.y))
             if MainActor.assumeIsolated({ app?.tool == .selectColor }) {
                 MainActor.assumeIsolated { app?.syncMatchColorFromEngine() }
@@ -474,6 +475,20 @@ final class BoardMTKView: MTKView {
     private func shouldPan(with event: NSEvent) -> Bool {
         if spaceHeld { return true }
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        return zoomChord(flags)
+    }
+
+    /// Whether the clone stamp or the healing brush is in hand, in which case bare `⌥` is
+    /// their anchor-setting gesture rather than the universal pan/zoom chord — `⌘` alone, or
+    /// `⌘⌥` together, still pan.
+    private var toolClaimsOption: Bool {
+        MainActor.assumeIsolated { app?.tool == .clone || app?.tool == .heal }
+    }
+
+    private func zoomChord(_ flags: NSEvent.ModifierFlags) -> Bool {
+        if flags.contains(.option), !flags.contains(.command), toolClaimsOption {
+            return false
+        }
         return flags.contains(.option) || flags.contains(.command)
     }
 
@@ -525,13 +540,12 @@ final class BoardMTKView: MTKView {
         // panel and left it there. A drag is the exception: it keeps the pointer off the board.
         guard pointerInside || painting || panning else { return }
         let flags = NSEvent.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        let zoomChord = flags.contains(.command) || flags.contains(.option)
         let cursor: NSCursor
         if panning {
             cursor = .closedHand
         } else if spaceHeld {
             cursor = .openHand
-        } else if zoomChord {
+        } else if zoomChord(flags) {
             cursor = .zoomIn
         } else if MainActor.assumeIsolated({ app?.tool == .text }) {
             cursor = .iBeam

@@ -7,12 +7,12 @@ use crate::history::{History, TileSnapshot};
 use crate::layer::Layer;
 use crate::limits::{
     ALPHA_MAX, ALPHA_OPAQUE, BLUR_STRENGTH_DEFAULT, BLUR_STRENGTH_MAX, BLUR_STRENGTH_MIN,
-    BRUSH_SIZE_DEFAULT, DEFAULT_INK, EFFECT_CHUNK_BYTES, ERASER_HARDNESS_DEFAULT,
-    ERASER_HARDNESS_MAX, ERASER_HARDNESS_MIN, EYEDROPPER_RADIUS_DEFAULT, EYEDROPPER_RADIUS_MAX,
-    EYEDROPPER_RADIUS_MIN, INK_OPACITY_DEFAULT, INK_OPACITY_MAX, INK_OPACITY_MIN, MAX_CANVAS_SIDE,
-    MIN_CANVAS_SIDE, MIN_STAMP_SPACING, MIN_STROKE_POINT_DISTANCE, PAPER_WHITE,
-    STAMP_COVERAGE_PADDING, STAMP_SPACING_RATIO, STROKE_POINT_CAPACITY, TOLERANCE_DEFAULT,
-    TOLERANCE_MAX, TOLERANCE_MIN,
+    BRUSH_SIZE_DEFAULT, CLONE_ALIGNED_DEFAULT, DEFAULT_INK, EFFECT_CHUNK_BYTES,
+    ERASER_HARDNESS_DEFAULT, ERASER_HARDNESS_MAX, ERASER_HARDNESS_MIN, EYEDROPPER_RADIUS_DEFAULT,
+    EYEDROPPER_RADIUS_MAX, EYEDROPPER_RADIUS_MIN, INK_OPACITY_DEFAULT, INK_OPACITY_MAX,
+    INK_OPACITY_MIN, MAX_CANVAS_SIDE, MIN_CANVAS_SIDE, MIN_STAMP_SPACING,
+    MIN_STROKE_POINT_DISTANCE, PAPER_WHITE, STAMP_COVERAGE_PADDING, STAMP_SPACING_RATIO,
+    STROKE_POINT_CAPACITY, TOLERANCE_DEFAULT, TOLERANCE_MAX, TOLERANCE_MIN,
 };
 use crate::palette::BoardColors;
 use crate::selection::{Selection, SelectionShape};
@@ -367,6 +367,9 @@ pub struct Document {
     pub(crate) guides: Vec<Guide>,
     pub(crate) guide_drag: Option<GuideDrag>,
     pub shift_held: bool,
+    /// `⌥`, read the same live way as `shift_held`: the clone stamp and the healing brush use
+    /// it to tell an anchor click apart from an ordinary paint press on the same tool.
+    pub alt_held: bool,
     /// Whether the shape tools and the pen commit as resolution-independent vector items
     /// instead of stamping pixels. A shell knob, like `fill`.
     pub vector_mode: bool,
@@ -391,6 +394,14 @@ pub struct Document {
     /// How far each pixel the blur brush passes over travels toward its blurred neighbourhood.
     /// A document-level knob like `brush_size`, not a shell one — see `blur.rs`.
     pub blur_strength: f32,
+    /// Whether the clone stamp's / healing brush's source offset survives to the next stroke.
+    /// A shell knob like `blur_strength`, shared by both tools since they read one
+    /// `CloneSource`.
+    pub clone_aligned: bool,
+    /// Where the clone stamp / healing brush reads from — set by an `⌥`-click
+    /// (`Document::set_clone_anchor`), `None` until the first one. Not a shell knob: unlike
+    /// `clone_aligned`, a click position is state the engine owns outright.
+    clone_source: Option<CloneSource>,
     /// How far a flood may stray from the color it started on. One knob for the bucket and
     /// the magic wand both, since they are one traversal.
     pub tolerance: u8,
@@ -405,14 +416,25 @@ pub struct Document {
     /// How sharp the eraser's rim is. The eraser's own knob rather than the pen's brush —
     /// see `limits::ERASER_HARDNESS_DEFAULT`.
     pub eraser_hardness: f32,
-    /// How many of the current stroke's stamps the blur has already committed. Blur has no ink
-    /// preview, so it paints as the pointer moves; this is what stops each event re-blurring
-    /// the whole stroke from the start.
-    blur_stamped: usize,
-    /// Whether the current blur stroke has actually changed a pixel. A stroke that touched
-    /// nothing — strength at zero, or dragged across empty space — must not leave an undo
-    /// entry behind, and the snapshot alone cannot tell the difference.
-    blur_painted: bool,
+    /// How many of the current stroke's stamps the live-committing brushes (blur, clone, heal)
+    /// have already applied. None of the three has an ink preview, so they paint as the pointer
+    /// moves; this is what stops each event re-applying the whole stroke from the start.
+    live_stamp_progress: usize,
+    /// Whether the current live-committing stroke has actually changed a pixel. A stroke that
+    /// touched nothing — blur strength at zero, or dragged across empty space — must not leave
+    /// an undo entry behind, and the snapshot alone cannot tell the difference.
+    live_stamp_painted: bool,
+}
+
+/// Where the clone stamp / healing brush reads from. `offset` is `anchor − first destination
+/// point`, fixed once a stroke starts and cleared again — forcing a recompute from `anchor` on
+/// the next one — whenever `⌥` sets a fresh anchor or `clone_aligned` is off (`begin_stroke`).
+/// Shared by both tools rather than duplicated: they differ only in what they do with the pixels
+/// this locates, never in how the source is tracked.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct CloneSource {
+    anchor: (f32, f32),
+    offset: Option<(f32, f32)>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -620,6 +642,7 @@ impl Document {
             guides: Vec::new(),
             guide_drag: None,
             shift_held: false,
+            alt_held: false,
             vector_mode: false,
             blocked_notice: None,
             blocked_notice_key: None,
@@ -635,13 +658,15 @@ impl Document {
             layer_selection: Vec::new(),
             stroke_before: TileSnapshot::default(),
             blur_strength: BLUR_STRENGTH_DEFAULT,
+            clone_aligned: CLONE_ALIGNED_DEFAULT,
+            clone_source: None,
             tolerance: TOLERANCE_DEFAULT,
             select_color: DEFAULT_INK,
             eyedropper_radius: EYEDROPPER_RADIUS_DEFAULT,
             brush: Brush::default(),
             eraser_hardness: ERASER_HARDNESS_DEFAULT,
-            blur_stamped: 0,
-            blur_painted: false,
+            live_stamp_progress: 0,
+            live_stamp_painted: false,
         }
     }
 
@@ -866,6 +891,10 @@ impl Document {
 
     pub fn set_shift_held(&mut self, held: bool) {
         self.shift_held = held;
+    }
+
+    pub fn set_alt_held(&mut self, held: bool) {
+        self.alt_held = held;
     }
 
     /// The shape as it will be drawn and committed: the live drag with the Shift constraint
@@ -1400,6 +1429,13 @@ impl Document {
         if self.press_blocked(self.tool) {
             return;
         }
+        // `⌥`-click sets where the clone stamp / healing brush reads from, rather than
+        // painting — the one gesture that means something different on these two tools than
+        // the plain press every other stroke tool takes.
+        if self.alt_held && matches!(self.tool, Tool::Clone | Tool::Heal) {
+            self.set_clone_anchor(dx, dy);
+            return;
+        }
         if self.tool == Tool::Fill {
             self.commit_fill(dx, dy);
             return;
@@ -1419,7 +1455,7 @@ impl Document {
         if self.tool.is_stroke() {
             self.begin_stroke();
             self.push_stroke_point(dx, dy);
-            self.blur_pending_stamps();
+            self.live_stamp_pending();
         } else {
             let shape_tool = match self.tool {
                 Tool::SelectRect => Tool::Rect,
@@ -1470,7 +1506,7 @@ impl Document {
         }
         if self.tool.is_stroke() && self.stroke_active {
             self.push_stroke_point(dx, dy);
-            return self.blur_pending_stamps();
+            return self.live_stamp_pending();
         }
         if let Some(shape) = &mut self.shape_drag {
             shape.end = (dx, dy);
@@ -1529,8 +1565,16 @@ impl Document {
         self.stroke_generation = self.stroke_generation.wrapping_add(1);
         self.stroke_straight_anchor = None;
         self.stroke_before.clear();
-        self.blur_stamped = 0;
-        self.blur_painted = false;
+        self.live_stamp_progress = 0;
+        self.live_stamp_painted = false;
+        // Unaligned means every stroke starts fresh off the anchor: dropping the offset here
+        // is what makes the next `clone_pending_stamps` / `heal_pending_stamps` recompute it
+        // from `anchor` instead of carrying the last stroke's.
+        if !self.clone_aligned {
+            if let Some(source) = self.clone_source.as_mut() {
+                source.offset = None;
+            }
+        }
     }
 
     /// Identifies the stroke `stroke_points` currently belongs to. See the field's own note —
@@ -1572,6 +1616,37 @@ impl Document {
 
     pub fn set_blur_strength(&mut self, strength: f32) {
         self.blur_strength = strength.clamp(BLUR_STRENGTH_MIN, BLUR_STRENGTH_MAX);
+    }
+
+    pub fn set_clone_aligned(&mut self, aligned: bool) {
+        self.clone_aligned = aligned;
+    }
+
+    /// `⌥`-click: where the clone stamp / healing brush reads from next. Always replaces
+    /// whatever anchor was there and drops any carried-over offset — a fresh click means
+    /// "start relative to here," aligned or not.
+    pub fn set_clone_anchor(&mut self, x: f32, y: f32) {
+        self.clone_source = Some(CloneSource {
+            anchor: (x, y),
+            offset: None,
+        });
+    }
+
+    /// Where the board should draw the source crosshair: the anchor itself before a stroke has
+    /// fixed an offset, then the point that offset tracks the pointer to. `None` off the clone
+    /// stamp and the healing brush, or before either has ever had an anchor set.
+    pub fn clone_source_cursor(&self) -> Option<(f32, f32)> {
+        if !matches!(self.tool, Tool::Clone | Tool::Heal) {
+            return None;
+        }
+        let source = self.clone_source?;
+        match source.offset {
+            Some(offset) => {
+                let hover = self.pointer_hover?;
+                Some((hover.0 + offset.0, hover.1 + offset.1))
+            }
+            None => Some(source.anchor),
+        }
     }
 
     pub fn set_brush(&mut self, brush: Brush) {
@@ -1652,72 +1727,168 @@ impl Document {
         self.eyedropper_radius = radius.clamp(EYEDROPPER_RADIUS_MIN, EYEDROPPER_RADIUS_MAX);
     }
 
-    /// Blur whatever part of the stroke has not been blurred yet, straight into the layer.
+    /// Shared bookkeeping for every live-committing brush (blur, clone, heal): batch whatever
+    /// part of the stroke has not been applied yet, snapshot whichever of the tiles it touches
+    /// the stroke has not already snapshotted, and hand the caller the fresh stamps to paint.
     ///
-    /// Unlike every other stamp tool this runs *during* the drag rather than at pointer-up:
-    /// there is nothing to preview on the GPU, so committing as it goes is what makes the
-    /// brush visible while you use it. `blur_stamped` is the boundary — `stroke_stamps` only
+    /// Unlike every other stamp tool these run *during* the drag rather than at pointer-up:
+    /// none of the three has an ink preview, so committing as it goes is what makes the brush
+    /// visible while you use it. `live_stamp_progress` is the boundary — `stroke_stamps` only
     /// ever appends as points arrive, so a stamp already applied is never re-applied and the
     /// spacing phase along the polyline stays the same as the pen's.
     ///
-    /// The tiles the whole stroke touches accumulate into one `stroke_before` snapshot, so a
-    /// blur is still a single undo step no matter how many pointer events it spanned. Only
+    /// The tiles the whole stroke touches accumulate into one `stroke_before` snapshot, so the
+    /// stroke is still a single undo step no matter how many pointer events it spanned. Only
     /// tiles not already in the snapshot are captured — re-snapshotting a tile the stroke has
-    /// already blurred would record the blurred state as the "before".
-    fn blur_pending_stamps(&mut self) -> bool {
-        if self.tool != Tool::Blur || !self.stroke_active {
-            return false;
-        }
-        if self.tool_blocked(Tool::Blur) {
-            return false;
-        }
-        let radius = self.effective_brush_size() * 0.5;
-        let strength = self.blur_strength;
-        if strength <= 0.0 {
-            return false;
+    /// already touched would record the touched state as the "before".
+    ///
+    /// Returns the fresh stamps and whether this is the first batch of the stroke — the clone
+    /// stamp and the healing brush need the latter to know whether their offset still needs
+    /// computing.
+    fn live_stamp_batch(&mut self, radius: f32) -> Option<(Vec<(f32, f32)>, bool)> {
+        if !self.stroke_active || self.tool_blocked(self.tool) {
+            return None;
         }
         let all = stroke_stamps(&self.stroke_points, radius);
-        let Some(fresh) = all.get(self.blur_stamped..).filter(|s| !s.is_empty()) else {
-            return false;
-        };
+        let fresh = all
+            .get(self.live_stamp_progress..)
+            .filter(|s| !s.is_empty())?;
         let stamps: Vec<(f32, f32)> = fresh.iter().map(|p| (p.x, p.y)).collect();
-        self.blur_stamped = all.len();
+        let is_first = self.live_stamp_progress == 0;
+        self.live_stamp_progress = all.len();
 
-        let Some(span) = stamps_bounds(fresh, radius).and_then(|r| r.intersect(self.bounds()))
-        else {
-            return false;
-        };
+        let span = stamps_bounds(fresh, radius).and_then(|r| r.intersect(self.bounds()))?;
         let mut touched = TileSet::default();
         tiles_covering(span, &mut touched);
 
         let active = self.active_layer;
-        let Some(grid) = self.layers.get(active).and_then(Layer::tiles) else {
-            return false;
-        };
+        let grid = self.layers.get(active).and_then(Layer::tiles)?;
         let unseen: Vec<TileCoord> = touched
             .into_iter()
             .filter(|c| grid.tile_in_bounds(*c) && !self.stroke_before.contains_key(c))
             .collect();
         self.stroke_before.extend(grid.snapshot_tiles(&unseen));
+        Some((stamps, is_first))
+    }
 
+    /// Blur whatever part of the stroke has not been blurred yet, straight into the layer. See
+    /// `live_stamp_batch` for the shared half of this.
+    fn blur_pending_stamps(&mut self) -> bool {
+        if self.tool != Tool::Blur {
+            return false;
+        }
+        let strength = self.blur_strength;
+        if strength <= 0.0 {
+            return false;
+        }
+        let radius = self.effective_brush_size() * 0.5;
+        let Some((stamps, _)) = self.live_stamp_batch(radius) else {
+            return false;
+        };
         let selection = self.selection.clone();
         let mut painted_now = false;
-        if let Some(tiles) = self.layers.get_mut(active).and_then(|l| l.tiles_mut()) {
+        if let Some(tiles) = self
+            .layers
+            .get_mut(self.active_layer)
+            .and_then(|l| l.tiles_mut())
+        {
             let touched =
                 crate::blur::blur_stamps(tiles, &stamps, radius, strength, selection.as_ref());
             painted_now = touched > 0;
-            self.blur_painted |= painted_now;
+            self.live_stamp_painted |= painted_now;
         }
         painted_now
     }
 
-    /// Close out a blur stroke: the pixels are already committed, so all that is left is
-    /// turning the accumulated snapshot into one history entry.
-    fn commit_blur_stroke(&mut self) {
+    /// The source offset a clone/heal batch reads through, computing it from `anchor` on the
+    /// first batch of a stroke that does not already carry one — see `CloneSource` and
+    /// `begin_stroke`'s `clone_aligned` handling for when that is.
+    fn clone_offset(&mut self, is_first: bool, first_stamp: (f32, f32)) -> Option<(i32, i32)> {
+        let source = self.clone_source.as_mut()?;
+        if is_first && source.offset.is_none() {
+            source.offset = Some((
+                (source.anchor.0 - first_stamp.0).round(),
+                (source.anchor.1 - first_stamp.1).round(),
+            ));
+        }
+        source.offset.map(|(ox, oy)| (ox as i32, oy as i32))
+    }
+
+    /// Clone-stamp whatever part of the stroke has not been stamped yet. See
+    /// `live_stamp_batch` for the shared half of this.
+    fn clone_pending_stamps(&mut self) -> bool {
+        if self.tool != Tool::Clone {
+            return false;
+        }
+        let radius = self.effective_brush_size() * 0.5;
+        let Some((stamps, is_first)) = self.live_stamp_batch(radius) else {
+            return false;
+        };
+        let Some(offset) = self.clone_offset(is_first, stamps[0]) else {
+            return false;
+        };
+        let selection = self.selection.clone();
+        let mut painted_now = false;
+        if let Some(tiles) = self
+            .layers
+            .get_mut(self.active_layer)
+            .and_then(|l| l.tiles_mut())
+        {
+            let touched =
+                crate::clone::clone_stamps(tiles, &stamps, radius, offset, selection.as_ref());
+            painted_now = touched > 0;
+            self.live_stamp_painted |= painted_now;
+        }
+        painted_now
+    }
+
+    /// Heal whatever part of the stroke has not been healed yet. See `live_stamp_batch` for the
+    /// shared half of this.
+    fn heal_pending_stamps(&mut self) -> bool {
+        if self.tool != Tool::Heal {
+            return false;
+        }
+        let radius = self.effective_brush_size() * 0.5;
+        let Some((stamps, is_first)) = self.live_stamp_batch(radius) else {
+            return false;
+        };
+        let Some(offset) = self.clone_offset(is_first, stamps[0]) else {
+            return false;
+        };
+        let selection = self.selection.clone();
+        let mut painted_now = false;
+        if let Some(tiles) = self
+            .layers
+            .get_mut(self.active_layer)
+            .and_then(|l| l.tiles_mut())
+        {
+            let touched =
+                crate::heal::heal_stamps(tiles, &stamps, radius, offset, selection.as_ref());
+            painted_now = touched > 0;
+            self.live_stamp_painted |= painted_now;
+        }
+        painted_now
+    }
+
+    /// The one place that dispatches a stroke event to whichever live-committing brush is
+    /// active. A no-op for every other stroke tool (Pen, Eraser, the lasso), which commit at
+    /// pointer-up instead.
+    fn live_stamp_pending(&mut self) -> bool {
+        match self.tool {
+            Tool::Blur => self.blur_pending_stamps(),
+            Tool::Clone => self.clone_pending_stamps(),
+            Tool::Heal => self.heal_pending_stamps(),
+            _ => false,
+        }
+    }
+
+    /// Close out a live-committing stroke: the pixels are already committed, so all that is
+    /// left is turning the accumulated snapshot into one history entry.
+    fn commit_live_stamp_stroke(&mut self) {
         self.stroke_active = false;
         self.stroke_points.clear();
-        self.blur_stamped = 0;
-        let painted = std::mem::take(&mut self.blur_painted);
+        self.live_stamp_progress = 0;
+        let painted = std::mem::take(&mut self.live_stamp_painted);
         let before = std::mem::take(&mut self.stroke_before);
         if !painted || before.is_empty() {
             return;
@@ -1738,9 +1909,9 @@ impl Document {
             self.stroke_points.clear();
             return;
         }
-        if self.tool == Tool::Blur {
-            self.blur_pending_stamps();
-            self.commit_blur_stroke();
+        if matches!(self.tool, Tool::Blur | Tool::Clone | Tool::Heal) {
+            self.live_stamp_pending();
+            self.commit_live_stamp_stroke();
             return;
         }
         self.stroke_active = false;

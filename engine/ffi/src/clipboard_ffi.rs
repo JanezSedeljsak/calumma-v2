@@ -147,6 +147,11 @@ pub extern "C" fn calm_tool_takes_blur_strength(tool: u32) -> u8 {
 }
 
 #[no_mangle]
+pub extern "C" fn calm_tool_takes_clone_aligned(tool: u32) -> u8 {
+    Tool::from_u32(tool).is_some_and(Tool::takes_clone_aligned) as u8
+}
+
+#[no_mangle]
 pub extern "C" fn calm_tool_takes_tolerance(tool: u32) -> u8 {
     Tool::from_u32(tool).is_some_and(Tool::takes_tolerance) as u8
 }
@@ -263,6 +268,11 @@ pub extern "C" fn calm_blur_strength_max() -> f32 {
 #[no_mangle]
 pub extern "C" fn calm_blur_strength_default() -> f32 {
     calumma_core::limits::BLUR_STRENGTH_DEFAULT
+}
+
+#[no_mangle]
+pub extern "C" fn calm_clone_aligned_default() -> u8 {
+    calumma_core::limits::CLONE_ALIGNED_DEFAULT as u8
 }
 
 #[no_mangle]

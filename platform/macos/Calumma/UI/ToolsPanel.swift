@@ -64,6 +64,8 @@ struct ToolsPanel: View {
             toolButton(.pen) { AppIcon.pen(color: iconColor(.pen)) }
             toolButton(.eraser) { AppIcon.eraser(color: iconColor(.eraser)) }
             toolButton(.blur) { AppIcon.blur(color: iconColor(.blur)) }
+            toolButton(.clone) { AppIcon.clone(color: iconColor(.clone)) }
+            toolButton(.heal) { AppIcon.heal(color: iconColor(.heal)) }
             shapeToolButton
             toolButton(.bucket) { AppIcon.bucket(color: iconColor(.bucket)) }
             toolButton(.eyedropper) { AppIcon.eyedropper(color: iconColor(.eyedropper)) }
@@ -79,6 +81,8 @@ struct ToolsPanel: View {
         case .eraser: return l10n.toolEraser
         case .bucket: return l10n.toolBucket
         case .blur: return l10n.toolBlur
+        case .clone: return l10n.toolClone
+        case .heal: return l10n.toolHeal
         case .eyedropper: return l10n.toolEyedropper
         case .text: return l10n.toolText
         case .move: return l10n.toolMove

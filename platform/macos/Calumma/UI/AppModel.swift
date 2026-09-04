@@ -56,6 +56,7 @@ final class AppModel: ObservableObject {
     @Published var eyedropperRadius: UInt32 = Engine.eyedropperRadiusDefault
     @Published var inkOpacity: Float = Engine.inkOpacityDefault
     @Published var blurStrength: Float = Engine.blurStrengthDefault
+    @Published var cloneAligned: Bool = Engine.cloneAlignedDefault
     @Published var tolerance: UInt8 = Engine.toleranceDefault
     @Published var brush: CalmBrush = .pen
     @Published var eraserHardness: Float = Engine.eraserHardnessDefault
@@ -544,6 +545,7 @@ final class AppModel: ObservableObject {
         engine.setEyedropperRadius(eyedropperRadius)
         engine.setInkOpacity(inkOpacity)
         engine.setBlurStrength(blurStrength)
+        engine.setCloneAligned(cloneAligned)
         engine.setTolerance(tolerance)
         engine.setBrush(brush)
         engine.setEraserHardness(eraserHardness)

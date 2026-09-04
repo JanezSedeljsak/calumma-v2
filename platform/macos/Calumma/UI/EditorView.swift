@@ -102,6 +102,7 @@ struct EditorView: View {
             eyedropperRadius: app.eyedropperRadius,
             inkOpacity: app.inkOpacity,
             blurStrength: app.blurStrength,
+            cloneAligned: app.cloneAligned,
             tolerance: app.tolerance,
             brush: app.brush.rawValue,
             eraserHardness: app.eraserHardness,
@@ -956,6 +957,7 @@ private struct EditorKnobs: Equatable {
     var eyedropperRadius: UInt32
     var inkOpacity: Float
     var blurStrength: Float
+    var cloneAligned: Bool
     var tolerance: UInt8
     var brush: UInt32
     var eraserHardness: Float

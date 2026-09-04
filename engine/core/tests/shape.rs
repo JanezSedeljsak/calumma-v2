@@ -200,6 +200,17 @@ fn the_tool_taxonomy_says_which_knobs_a_tool_carries() {
 
     assert!(Tool::Blur.is_stroke(), "blur is dragged freehand");
     assert!(!Tool::Rect.is_stroke());
+
+    assert!(Tool::Clone.is_stroke() && Tool::Heal.is_stroke());
+    assert!(
+        !Tool::Clone.previews_stroke() && !Tool::Heal.previews_stroke(),
+        "both commit as they go, like blur"
+    );
+    assert!(Tool::Clone.takes_clone_aligned() && Tool::Heal.takes_clone_aligned());
+    assert!(
+        !Tool::Blur.takes_clone_aligned(),
+        "blur has no source to track"
+    );
 }
 
 /// Blur reads pixels rather than laying color down, so it takes neither ink opacity nor a
@@ -214,6 +225,9 @@ fn a_tool_that_reads_pixels_takes_a_size_but_no_ink() {
         "the bucket has no brush to size"
     );
     assert!(!Tool::Eraser.takes_ink_opacity());
+
+    assert!(Tool::Clone.takes_brush_size() && Tool::Heal.takes_brush_size());
+    assert!(!Tool::Clone.takes_ink_opacity() && !Tool::Heal.takes_ink_opacity());
 }
 
 #[test]
@@ -236,7 +250,8 @@ fn only_the_shapes_and_the_pen_can_become_vector_items() {
 fn an_unknown_wire_value_is_not_a_tool() {
     assert_eq!(Tool::from_u32(999), None);
     assert_eq!(Tool::from_u32(18), Some(Tool::SelectColor));
-    assert_eq!(Tool::from_u32(19), None);
+    assert_eq!(Tool::from_u32(20), Some(Tool::Heal));
+    assert_eq!(Tool::from_u32(21), None);
     assert_eq!(Tool::from_u32(0), Some(Tool::Pen));
 }
 

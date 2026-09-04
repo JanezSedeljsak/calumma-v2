@@ -73,6 +73,8 @@ enum CalmTool: UInt32 {
     case blur = 16
     case magicWand = 17
     case selectColor = 18
+    case clone = 19
+    case heal = 20
 
     var isShape: Bool { calm_tool_is_shape(rawValue) != 0 }
     var isSelection: Bool { calm_tool_is_selection(rawValue) != 0 }
@@ -85,6 +87,7 @@ enum CalmTool: UInt32 {
     var takesEyedropperRadius: Bool { calm_tool_takes_eyedropper_radius(rawValue) != 0 }
     var takesBrush: Bool { calm_tool_takes_brush(rawValue) != 0 }
     var takesEraserHardness: Bool { calm_tool_takes_eraser_hardness(rawValue) != 0 }
+    var takesCloneAligned: Bool { calm_tool_takes_clone_aligned(rawValue) != 0 }
 }
 
 struct ProjectInfo: Identifiable, Hashable {
@@ -263,6 +266,7 @@ final class Engine: ObservableObject, @unchecked Sendable {
     static var blurStrengthMin: Float { calm_blur_strength_min() }
     static var blurStrengthMax: Float { calm_blur_strength_max() }
     static var blurStrengthDefault: Float { calm_blur_strength_default() }
+    static var cloneAlignedDefault: Bool { calm_clone_aligned_default() != 0 }
     static var eraserHardnessMin: Float { calm_eraser_hardness_min() }
     static var eraserHardnessMax: Float { calm_eraser_hardness_max() }
     static var eraserHardnessDefault: Float { calm_eraser_hardness_default() }
@@ -688,6 +692,11 @@ final class Engine: ObservableObject, @unchecked Sendable {
         _ = calm_engine_set_blur_strength(ptr, strength)
     }
 
+    func setCloneAligned(_ aligned: Bool) {
+        guard let ptr else { return }
+        _ = calm_engine_set_clone_aligned(ptr, aligned ? 1 : 0)
+    }
+
     func setTolerance(_ tolerance: UInt8) {
         guard let ptr else { return }
         _ = calm_engine_set_tolerance(ptr, tolerance)
@@ -740,6 +749,11 @@ final class Engine: ObservableObject, @unchecked Sendable {
     func setShift(_ held: Bool) {
         guard let ptr else { return }
         _ = calm_engine_set_shift(ptr, held ? 1 : 0)
+    }
+
+    func setAlt(_ held: Bool) {
+        guard let ptr else { return }
+        _ = calm_engine_set_alt(ptr, held ? 1 : 0)
     }
 
     func resetLayerTransform(_ index: Int) {

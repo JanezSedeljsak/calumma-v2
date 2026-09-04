@@ -21,7 +21,7 @@ systems.
 **The engine owns all state and all compute. The shell owns nothing but UI knobs.**
 
 Shell knobs only: active tool, active brush, color, brush size, ink opacity, flood tolerance,
-blur strength, eyedropper sample size, shape fill, shape stroke and its color, panel visibility,
+blur strength, clone/heal aligned, eyedropper sample size, shape fill, shape stroke and its color, panel visibility,
 open tab ids, theme, **language**. Last-used shape and selection tools, tool taxonomy (`is_shape`,
 brush-size, vector-mode visibility), hex RGB, copy/cut bytes, and opening/closing a project
 live in the engine. Coordinate math, clamping, pixels, camera, history, ops dispatch,

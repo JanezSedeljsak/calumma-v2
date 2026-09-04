@@ -24,7 +24,10 @@ impl Document {
     /// should be drawn. Document units because the ring has to scale with the zoom exactly as
     /// the stamp does: a 200px brush at 10% zoom is a small circle, not a large one.
     pub fn brush_ring(&self) -> Option<((f32, f32), f32)> {
-        if !matches!(self.tool, Tool::Pen | Tool::Eraser | Tool::Blur) {
+        if !matches!(
+            self.tool,
+            Tool::Pen | Tool::Eraser | Tool::Blur | Tool::Clone | Tool::Heal
+        ) {
             return None;
         }
         if self.transform_active {

@@ -194,6 +194,8 @@ struct L10nCatalog: Equatable {
     var toolEraser: String { self["toolEraser"] }
     var toolBucket: String { self["toolBucket"] }
     var toolBlur: String { self["toolBlur"] }
+    var toolClone: String { self["toolClone"] }
+    var toolHeal: String { self["toolHeal"] }
     var toolMagicWand: String { self["toolMagicWand"] }
     var toolSelectColor: String { self["toolSelectColor"] }
     var matchColor: String { self["matchColor"] }
@@ -238,6 +240,7 @@ struct L10nCatalog: Equatable {
     var sampleSize: String { self["sampleSize"] }
     var inkOpacity: String { self["inkOpacity"] }
     var blurStrength: String { self["blurStrength"] }
+    var cloneAligned: String { self["cloneAligned"] }
     var tolerance: String { self["tolerance"] }
     var color: String { self["color"] }
     var primaryColor: String { self["primaryColor"] }

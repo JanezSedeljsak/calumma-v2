@@ -23,6 +23,8 @@ extension CalmTool {
         case .eraser: return l10n.toolEraser
         case .bucket: return l10n.toolBucket
         case .blur: return l10n.toolBlur
+        case .clone: return l10n.toolClone
+        case .heal: return l10n.toolHeal
         case .line: return l10n.toolLine
         case .rect: return l10n.toolRect
         case .ellipse: return l10n.toolEllipse
@@ -60,6 +62,8 @@ extension CalmTool {
         "t": .text,
         "e": .eraser,
         "u": .blur,
+        "c": .clone,
+        "h": .heal,
         "g": .bucket,
         "i": .eyedropper,
         "m": .selectRect,

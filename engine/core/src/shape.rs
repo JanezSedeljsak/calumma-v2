@@ -23,6 +23,8 @@ pub enum Tool {
     Blur = 16,
     MagicWand = 17,
     SelectColor = 18,
+    Clone = 19,
+    Heal = 20,
 }
 
 impl Tool {
@@ -97,6 +99,8 @@ impl Tool {
                 | Tool::Triangle
                 | Tool::Pentagon
                 | Tool::Blur
+                | Tool::Clone
+                | Tool::Heal
         )
     }
 
@@ -105,6 +109,14 @@ impl Tool {
     /// join it. Such a tool has no ink, so it takes neither color nor ink opacity.
     pub fn takes_blur_strength(self) -> bool {
         matches!(self, Tool::Blur)
+    }
+
+    /// Whether this tool samples pixels from elsewhere on the layer and so needs a source —
+    /// `⌥`-click sets one, and the **Aligned** toggle decides whether it stays put relative to
+    /// the brush across strokes (on) or snaps back to the anchor on the next one (off). Shared
+    /// by both source-based retouching tools, since they read the same `CloneSource`.
+    pub fn takes_clone_aligned(self) -> bool {
+        matches!(self, Tool::Clone | Tool::Heal)
     }
 
     /// Whether this tool reads a color off the board, and so needs a sample area. A single
@@ -126,7 +138,7 @@ impl Tool {
     pub fn is_stroke(self) -> bool {
         matches!(
             self,
-            Tool::Pen | Tool::Eraser | Tool::SelectLasso | Tool::Blur
+            Tool::Pen | Tool::Eraser | Tool::SelectLasso | Tool::Blur | Tool::Clone | Tool::Heal
         )
     }
 
@@ -373,7 +385,9 @@ impl Shape {
             | Tool::Move
             | Tool::Blur
             | Tool::MagicWand
-            | Tool::SelectColor => f32::MAX,
+            | Tool::SelectColor
+            | Tool::Clone
+            | Tool::Heal => f32::MAX,
             Tool::Line => sd_segment(p, self.start, self.end),
             Tool::Arrow => self.arrow_distance(p),
             Tool::Rect => sd_box(p, self.center(), self.half_extent()),

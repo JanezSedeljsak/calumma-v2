@@ -13,6 +13,8 @@ extension CalmTool {
         case .pen: return "pen"
         case .eraser: return "eraser"
         case .blur: return "blur"
+        case .clone: return "clone"
+        case .heal: return "heal"
         case .bucket: return "bucket"
         case .eyedropper: return "eyedropper"
         case .text: return "text"

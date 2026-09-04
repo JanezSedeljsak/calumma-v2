@@ -263,6 +263,44 @@ fn push_circle(
     }
 }
 
+/// White over a dark halo, the same two-tone contrast the brush ring uses — one colour cannot
+/// stay legible over both white paper and black ink.
+const CLONE_CROSSHAIR_LIGHT: [f32; 4] = [1.0, 1.0, 1.0, 0.95];
+const CLONE_CROSSHAIR_DARK: [f32; 4] = [0.0, 0.0, 0.0, 0.55];
+const CLONE_CROSSHAIR_RADIUS_PX: f32 = 6.0;
+const CLONE_CROSSHAIR_WIDTH_PX: f32 = 1.4;
+
+/// The clone stamp's / healing brush's source indicator: a small crosshair that tracks where
+/// the next stamp reads from. Fixed screen size regardless of zoom (`vs_overlay`/`fs_overlay`,
+/// like every other piece of board furniture), unlike the brush ring at the destination, whose
+/// radius *is* the stamp size and so scales with the zoom on purpose.
+pub fn clone_source_overlay_instances(doc: &Document) -> Vec<StrokeInstance> {
+    let Some(centre) = doc.clone_source_cursor() else {
+        return Vec::new();
+    };
+    let zoom = doc.camera.zoom.max(f32::MIN_POSITIVE);
+    let half = CLONE_CROSSHAIR_RADIUS_PX / zoom;
+    let mut out = Vec::with_capacity(4);
+    for color in [CLONE_CROSSHAIR_DARK, CLONE_CROSSHAIR_LIGHT] {
+        let width = if color == CLONE_CROSSHAIR_DARK {
+            CLONE_CROSSHAIR_WIDTH_PX + 1.0
+        } else {
+            CLONE_CROSSHAIR_WIDTH_PX
+        };
+        out.push(StrokeInstance {
+            segment: [centre.0 - half, centre.1, centre.0 + half, centre.1],
+            color,
+            brush: brush_params(width, &BrushProfile::HARD),
+        });
+        out.push(StrokeInstance {
+            segment: [centre.0, centre.1 - half, centre.0, centre.1 + half],
+            color,
+            brush: brush_params(width, &BrushProfile::HARD),
+        });
+    }
+    out
+}
+
 pub fn transform_overlay_instances(handles: TransformHandles) -> Vec<StrokeInstance> {
     let (_, corners, rotate_handle) = handles;
     box_overlay_instances(corners, Some(rotate_handle))

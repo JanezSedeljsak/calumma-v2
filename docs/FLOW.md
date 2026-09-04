@@ -127,7 +127,7 @@ are not openable, they are open.
 - **Tools / layers / canvas:** three rounded, bordered islands, full-height, separated by a
   minimal gap and window margin (`space.sm`) — each has its own `islandBorder` stroke.
 - **Tools island** (top to bottom): a 2-column tool grid (Move, Select, Pen, Eraser, Blur,
-  Shape, Fill, Eyedropper, Text). Every button's tooltip carries the tool's **name and its
+  Clone, Heal, Shape, Fill, Eyedropper, Text). Every button's tooltip carries the tool's **name and its
   key**, muted mono beside the name — except where the active layer refuses the tool, where
   the tooltip is the refusal and carries no key. When **Move** is selected the options panel
   carries a **Transform** toggle — `⌘T` on the active layer, a *mode* not a tool, lit from
@@ -143,7 +143,8 @@ are not openable, they are open.
   sub-picker for the Pen, font / size / alignment for Text, brush size for the tools that use
   one — not Fill, Eyedropper, Text, Move, or the selection tools — sample size for the
   Eyedropper (a circle under the cursor shows the area) — ink opacity for Pen, shapes,
-  and Fill, strength for Blur, and tolerance for Fill and the magic wand; Eraser stays a full
+  and Fill, strength for Blur, an **Aligned** toggle for Clone and Heal (they share one
+  source), and tolerance for Fill and the magic wand; Eraser stays a full
   erase); a color section of **exactly three swatches — primary, secondary, tertiary — and
   never more**, plus a saturation/brightness field, a hue strip, and a hex field, all three
   editing whichever swatch is ringed; the AI menu pinned at the bottom.
@@ -194,7 +195,7 @@ persist across launches.
 | --- | --- |
 | Paint / place shape | Click-drag on the board (pointer down → move → up). Engine converts **screen** coords. |
 | Brush size floor | The slider's floor is `BRUSH_SIZE_MIN` (8 document pixels), but the brush carries a **second floor in screen pixels** that rises as the board is zoomed out: never under `BRUSH_MIN_SCREEN_PX` (3) across. On a 4096px board fitted to a window a whole document pixel is a fraction of a screen one, so the finest brush would be invisible — and a stroke you cannot see is one you cannot aim. Zooming *in* never shrinks it below the document floor: the floor is on what can be seen, and zoomed in it can be. `Document::effective_brush_size` is the one answer, read by the ring, the GPU preview and the commit alike — two of them disagreeing is exactly how a stroke moves when the preview hands over. A brush of size 0 stays 0 (no brush, not a small one), and **vector mode is exempt**: its width is stored in the item and redrawn at every zoom, so folding today's camera into it would bake the zoom into the document. |
-| See the brush | Pen, Eraser and Blur draw a **ring at the pointer, the size of the brush** — document geometry, so it scales with the zoom exactly as the stamp does, with the line held at one screen pixel by `vs_overlay`. Two rings a pixel apart, light inside dark, because one colour cannot stay legible over both white paper and black ink. Under ~3px across it collapses to a dot. It is withheld exactly where a stroke would be refused — a text, vector or locked layer, or inside `⌘T` — so no ring means no stroke. `Document::brush_ring` owns every one of those rules; the shell only forwards the pointer (`calm_engine_set_pointer_hover`) and takes it away while panning or zoom-chording. |
+| See the brush | Pen, Eraser, Blur, Clone and Heal draw a **ring at the pointer, the size of the brush** — document geometry, so it scales with the zoom exactly as the stamp does, with the line held at one screen pixel by `vs_overlay`. Two rings a pixel apart, light inside dark, because one colour cannot stay legible over both white paper and black ink. Under ~3px across it collapses to a dot. It is withheld exactly where a stroke would be refused — a text, vector or locked layer, or inside `⌘T` — so no ring means no stroke. `Document::brush_ring` owns every one of those rules; the shell only forwards the pointer (`calm_engine_set_pointer_hover`) and takes it away while panning or zoom-chording. |
 | Move a layer or vector item | Select **Move** on the tools island, then drag painted pixels or a vector item. Arrow keys nudge the same target. Turn **Transform** on (options toggle or `⌘T`) for scale/rotate of that layer; the same press selects it. Picking Move does *not* turn it on — it is a mode you ask for. |
 | Resize a vector item | Select it (Move or `⌘T`), then drag a corner of its box. Proportional by default, **Shift** frees the two axes — the same polarity as a `⌘T` corner. |
 | Constrain a shape | Hold **Shift** while dragging **Rect** or **Ellipse** (and their marquee twins) for a square or circle. Corner-anchored, and the *longer* side wins, so the shape fills the drag. Press or release Shift mid-drag and the board snaps immediately — the clamp is derived from the raw drag on every frame, not baked in on the last mouse-move. Line, Arrow, Triangle and Pentagon are unconstrained (angle snap and regular-polygon lock are different clamps, not built). |
@@ -387,6 +388,34 @@ live in `engine/core`; the actual PNG/JPEG/WebP/AVIF **encode** happens in the s
   real brush builds up. It clips to the active selection (like the bucket) and refuses a text
   layer (like the pen), since `text_layer::resync` would wipe the stroke on the next
   keystroke.
+
+- **Clone stamp** (`C`) **and healing brush** (`H`, tools island). `⌥`-click sets
+  a source; painting copies from it through the brush's own coverage, tracking the pointer at
+  a fixed offset for the rest of the stroke. **Aligned** (on by default, tool options) carries
+  that offset into the next stroke too, so repeated strokes keep pulling from wherever the
+  source has moved on to; off, every new stroke snaps the source back to the anchor. A source
+  crosshair — the same fixed-screen-size furniture as the brush ring, riding `vs_overlay` —
+  tracks the pointer once a stroke has fixed the offset, and sits on the anchor itself before
+  that. Like Blur, both commit **as the pointer moves**, clip to the active selection, and
+  refuse a text layer. Reading and writing a single per-pixel document coordinate rather than
+  resampling means the offset is rounded to whole document pixels the moment a stroke fixes
+  it — a disclosed nearest-neighbour simplification, the same trade the layer-transform
+  flatten already makes.
+  The healing brush is the same sampling with a different kernel: a frequency split,
+  `out = src − blur(src) + blur(dst)`, so the copied patch keeps the source's *texture* while
+  taking the destination's *colour and lighting* — a blemish disappears instead of being
+  covered by a visible circle. The blur half is `blur.rs`'s own three-pass box blur, reused
+  verbatim. This is an approximation of the Poisson gradient-domain solve a real healing brush
+  uses, and it shows at strong edges as a halo where the two sides' colours do not agree —
+  a real limitation of the approximation, not a bug, and the reason to reach for the clone
+  stamp instead when the source and destination sit right against a hard edge.
+  `⌥` is claimed by these two tools specifically: bare Option, which is Pan everywhere else,
+  sets the source instead while the clone stamp or the healing brush is in hand. `⌘` alone,
+  and `⌘⌥` together, still pan regardless of tool — only the bare-Option chord changes meaning,
+  and only for these two.
+  Sampling is `CurrentLayer` only for now — reading through the whole composited stack
+  (`CurrentAndBelow` / `AllLayers`) is a real `Document::composite_rect_rgba` primitive that
+  does not exist yet, deliberately deferred to a second caller.
 
 - **Text tool** (`T`, tools island). Click the board: a new **text layer** opens with the
   caret where you clicked, and glyphs land on the board as you type — no dialog, no commit
@@ -902,6 +931,8 @@ panel toggles are shell knobs.
 | `E` | Eraser | Yes |
 | `W` | Magic wand (select by color) | Yes (Ps Magic Wand) |
 | `U` | Blur | Ps puts Blur on `R`, which is Rectangle here, and `B` stays reserved for the brush family |
+| `C` | Clone stamp — `⌥`-click sets the source | Yes (Ps Clone Stamp is `S`, already Toggle Shape Stroke here) |
+| `H` | Healing brush — same source gesture as Clone | Yes (Ps Spot Healing is `J`; this is the fixed-source variant, so it keeps the mnemonic letter instead) |
 | `M` | Selection (rect / ellipse / lasso / wand / colour — last one used) | Yes (Ps Marquee) |
 | `⇧W` | Select by colour — Photoshop's Color Range, with the tertiary swatch as the match colour and Tolerance as its Fuzziness | Yes (Ps Color Range, which is a dialog rather than a tool) |
 | `G` | Fill (bucket) | Yes (Ps Paint Bucket, shared with Gradient) |
@@ -941,7 +972,7 @@ panel toggles are shell knobs.
 | --- | --- |
 | Drag | Paint / shape |
 | Space (hold) | Temporary pan (open-hand cursor, applied as soon as the key goes down) |
-| Space-drag / Option-drag / ⌘-drag | Pan |
+| Space-drag / Option-drag / ⌘-drag | Pan — except bare Option-click with the clone stamp or the healing brush in hand, which sets their source instead; ⌘ and ⌥⌘ still pan regardless of tool |
 | **Middle-button drag** | Pan — same as space-drag, no key needed |
 | Scroll | Pan — follows the system scroll direction, and speeds up as the board zooms out |
 | ⌘ + scroll or Option + scroll | Zoom toward cursor |

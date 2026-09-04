@@ -176,6 +176,7 @@ uint8_t calm_tool_takes_tolerance(uint32_t tool);
 uint8_t calm_tool_takes_eyedropper_radius(uint32_t tool);
 uint8_t calm_tool_takes_brush(uint32_t tool);
 uint8_t calm_tool_takes_eraser_hardness(uint32_t tool);
+uint8_t calm_tool_takes_clone_aligned(uint32_t tool);
 
 // Why a tool cannot run on the active layer: 0 none, 1 locked, 2 text layer, 3 vector layer,
 // 4 nothing to work on. `calm_engine_tool_blocks` fills `out[tool]` for every tool below
@@ -203,6 +204,7 @@ float calm_ink_opacity_default(void);
 float calm_blur_strength_min(void);
 float calm_blur_strength_max(void);
 float calm_blur_strength_default(void);
+uint8_t calm_clone_aligned_default(void);
 float calm_eraser_hardness_min(void);
 float calm_eraser_hardness_max(void);
 float calm_eraser_hardness_default(void);
@@ -218,6 +220,7 @@ CalmStatus calm_engine_pick_color(CalmEngine *engine, float x, float y, uint32_t
 CalmStatus calm_engine_set_brush(CalmEngine *engine, float size);
 CalmStatus calm_engine_set_ink_opacity(CalmEngine *engine, float opacity);
 CalmStatus calm_engine_set_blur_strength(CalmEngine *engine, float strength);
+CalmStatus calm_engine_set_clone_aligned(CalmEngine *engine, uint8_t aligned);
 CalmStatus calm_engine_set_tolerance(CalmEngine *engine, uint8_t tolerance);
 CalmStatus calm_engine_set_eyedropper_radius(CalmEngine *engine, uint32_t radius);
 CalmStatus calm_engine_set_brush_kind(CalmEngine *engine, uint32_t brush);
@@ -230,6 +233,7 @@ CalmStatus calm_engine_set_select_color(CalmEngine *engine, uint8_t r, uint8_t g
 CalmStatus calm_engine_get_select_color(CalmEngine *engine, uint32_t *out_rgba);
 CalmStatus calm_engine_set_dark(CalmEngine *engine, uint8_t dark);
 CalmStatus calm_engine_set_shift(CalmEngine *engine, uint8_t held);
+CalmStatus calm_engine_set_alt(CalmEngine *engine, uint8_t held);
 CalmStatus calm_engine_reset_layer_transform(CalmEngine *engine, uint32_t index);
 CalmStatus calm_engine_set_pointer_hover(CalmEngine *engine, float x, float y);
 CalmStatus calm_engine_clear_pointer_hover(CalmEngine *engine);
