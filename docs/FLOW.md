@@ -365,6 +365,13 @@ live in `engine/core`; the actual PNG/JPEG/WebP/AVIF **encode** happens in the s
   is what lands on pointer-up.
   The brush is Pen-only, and vector mode hides the picker since a resolution-independent path
   has no raster coverage to shape.
+  **The pen, the eraser and the shape tools clip to the active selection**, per pixel, the
+  same as the bucket and blur already did (`CoverageGrid::paint_into` and `commit_shape`'s
+  `paint_rect` closure both take the selection). Photoshop clips every paint tool; a stroke
+  or a shape that crosses a selection boundary simply stops there rather than the whole
+  gesture landing or being refused whole. With no selection, painting is unclipped as
+  before. Vector mode is exempt — a shape or pen stroke committed as its own layer is not a
+  raster region for a selection to scope.
 - **Eraser hardness** (Eraser only). The eraser carries an edge but not a whole brush: grain
   and flow describe ink going down, and it is taking ink away, so it gets one **Hardness**
   slider instead of the picker. 100% is the complete, hard-edged erase Calumma has always had
@@ -385,9 +392,9 @@ live in `engine/core`; the actual PNG/JPEG/WebP/AVIF **encode** happens in the s
   pointer-up: there is no color to preview on the GPU, so the board shows the real result
   and the tiles it touches accumulate into one snapshot — the whole stroke is still a single
   `⌘Z`. Dragging back over the same pixels on a later event blurs them further, the way a
-  real brush builds up. It clips to the active selection (like the bucket) and refuses a text
-  layer (like the pen), since `text_layer::resync` would wipe the stroke on the next
-  keystroke.
+  real brush builds up. It clips to the active selection, like every other paint tool, and
+  refuses a text layer (like the pen), since `text_layer::resync` would wipe the stroke on the
+  next keystroke.
 
 - **Clone stamp** (`C`) **and healing brush** (`H`, tools island). `⌥`-click sets
   a source; painting copies from it through the brush's own coverage, tracking the pointer at

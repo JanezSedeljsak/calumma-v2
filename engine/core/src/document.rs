@@ -2012,7 +2012,7 @@ impl Document {
 
         let mut painted = false;
         if let Some(tiles) = self.layers.get_mut(active).and_then(|l| l.tiles_mut()) {
-            painted = coverage.paint_into(tiles, ink, erasing) > 0;
+            painted = coverage.paint_into(tiles, ink, erasing, self.selection.as_ref()) > 0;
         }
 
         if !painted {
@@ -2054,12 +2054,18 @@ impl Document {
         };
         let before = grid.snapshot_tiles(&coords);
 
+        let selection = self.selection.clone();
         let mut painted = false;
         if let Some(tiles) = self.layers.get_mut(active).and_then(|l| l.tiles_mut()) {
             // Fill first, stroke over it — the same order the shader composites in, so a
             // translucent border reads the same on the board as it does once committed.
             let touched = tiles.paint_rect(rect, |px, py, dst| {
                 let (x, y) = (px as f32 + 0.5, py as f32 + 0.5);
+                if let Some(sel) = &selection {
+                    if !sel.contains(x, y) {
+                        return None;
+                    }
+                }
                 let parts = [
                     ink_sample(shape.fill_distance(x, y), fill_color),
                     ink_sample(shape.stroke_distance(x, y), stroke_color),

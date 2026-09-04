@@ -12,6 +12,7 @@
 //! along the ribbon rather than the rectangle enclosing it.
 
 use crate::brush::{segment_distance, stroke_coverage, BrushProfile};
+use crate::selection::Selection;
 use crate::tile::{blend_over, DocRect, TileCoord, TileGrid, TileMap, TILE_SIZE};
 
 const TILE_PIXELS: usize = (TILE_SIZE as usize) * (TILE_SIZE as usize);
@@ -99,7 +100,20 @@ impl CoverageGrid {
     ///
     /// `erase` swaps ink for its opposite: coverage takes alpha away instead of adding it, so
     /// the eraser gets the same even, non-compounding stroke the brushes do.
-    pub fn paint_into(&self, grid: &mut TileGrid, ink: [u8; 4], erase: bool) -> usize {
+    ///
+    /// `selection` clips the same way the bucket and the blur brush already do — Photoshop
+    /// clips every paint tool to the active selection, and pen/eraser were the two paint tools
+    /// that did not. `x`/`y` here are the coordinates the stroke was accumulated in, which for
+    /// an untransformed layer (by far the common case) is document space; a transformed layer
+    /// pays the same known simplification blur and the bucket already do rather than mapping
+    /// back through the layer's transform for this check alone.
+    pub fn paint_into(
+        &self,
+        grid: &mut TileGrid,
+        ink: [u8; 4],
+        erase: bool,
+        selection: Option<&Selection>,
+    ) -> usize {
         let mut touched = 0;
         for (coord, cell) in &self.tiles {
             let (ox, oy) = coord.origin();
@@ -107,6 +121,11 @@ impl CoverageGrid {
                 let cov = cell[((y - oy) as usize) * TILE_SIZE as usize + (x - ox) as usize];
                 if cov == 0 {
                     return None;
+                }
+                if let Some(sel) = selection {
+                    if !sel.contains(x as f32 + 0.5, y as f32 + 0.5) {
+                        return None;
+                    }
                 }
                 let alpha = (ink[3] as u32 * cov as u32 + 127) / 255;
                 if alpha == 0 {
