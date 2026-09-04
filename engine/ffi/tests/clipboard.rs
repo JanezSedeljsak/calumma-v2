@@ -108,6 +108,51 @@ fn cutting_a_selection_returns_a_png_and_clears_the_ink() {
     }
 }
 
+/// A cut on a vector layer's selection still returns real pixels — `selection_rgba` reads
+/// through `select_sample`, the same as core — and the item behind it is untouched: there are
+/// no tiles for a clear to act on, so the layer survives the cut as if only copy had happened.
+#[test]
+fn cutting_a_selection_on_a_vector_layer_copies_and_leaves_it_intact() {
+    let engine = ClipEngine::new();
+    let index = engine.draw_a_vector_rect();
+    engine.set_tool(Tool::MagicWand);
+    engine.drag((10.0, 10.0), (10.0, 10.0));
+
+    let before = unsafe { calm_engine_layer_svg(engine.ptr, index) };
+    assert!(!before.is_null());
+    let before = unsafe { std::ffi::CStr::from_ptr(before) }
+        .to_str()
+        .unwrap()
+        .to_string();
+
+    let (mut bytes, mut len, mut kind) = out_slots();
+    unsafe {
+        assert_eq!(
+            calm_engine_cut(engine.ptr, &mut bytes, &mut len, &mut kind),
+            CalmStatus::Ok
+        );
+        assert_eq!(kind, 0, "the selection copy is still a PNG, not an SVG");
+        assert!(len > 8);
+        assert_eq!(
+            std::slice::from_raw_parts(bytes, 4),
+            &[0x89, b'P', b'N', b'G']
+        );
+        calm_buffer_free(bytes, len);
+    }
+
+    assert_eq!(calm_engine_layer_is_vector(engine.ptr, index), 1);
+    let after = unsafe { calm_engine_layer_svg(engine.ptr, index) };
+    assert!(!after.is_null());
+    let after = unsafe { std::ffi::CStr::from_ptr(after) }
+        .to_str()
+        .unwrap()
+        .to_string();
+    assert_eq!(
+        before, after,
+        "cutting the selection left the shape byte-for-byte the same"
+    );
+}
+
 #[test]
 fn copy_layer_reads_a_raster_layer_as_a_png() {
     let engine = ClipEngine::new();

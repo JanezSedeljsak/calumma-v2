@@ -56,7 +56,7 @@ fn wand_bounds_are_tight_to_the_region() {
 
 /// Transparent pixels inside the layer's painted bounds are selectable — alpha counts
 /// toward the tolerance, which is what makes "select the empty space inside a frame"
-/// work. Clicks outside painted bounds leave no selection (the scope is tight to ink).
+/// work.
 #[test]
 fn wand_selects_transparency_within_layer_bounds() {
     let mut doc = board_with_square();
@@ -70,6 +70,25 @@ fn wand_selects_transparency_within_layer_bounds() {
     let sel = doc.selection.as_ref().expect("a selection");
     assert!(sel.contains(100.5, 100.5), "the hole is selected");
     assert!(!sel.contains(70.5, 70.5), "the red ring around it is not");
+}
+
+/// The walk is document-wide, not clipped to where the layer happens to have ink. Alpha
+/// counts toward the tolerance the same way everywhere on the canvas, so a click well past
+/// the square selects the transparent field around it — the gesture that gets at a layer's
+/// background to fill or delete it.
+#[test]
+fn wand_reaches_transparency_far_from_any_ink() {
+    let mut doc = board_with_square();
+    doc.tool = Tool::MagicWand;
+    click(&mut doc, 5.0, 5.0);
+
+    let sel = doc.selection.as_ref().expect("a selection");
+    assert!(sel.contains(5.5, 5.5), "the empty corner clicked");
+    assert!(
+        sel.contains(200.5, 200.5),
+        "and the rest of the empty field"
+    );
+    assert!(!sel.contains(100.5, 100.5), "but not the opaque square");
 }
 
 /// The wand reads the *active* layer, not the composite. Clicking the transparent hole in a
@@ -97,7 +116,7 @@ fn wand_reads_the_active_layer_not_the_composite() {
     assert!(sel.contains(100.5, 100.5));
     assert!(
         !sel.contains(10.5, 10.5),
-        "outside painted bounds is not in scope"
+        "the opaque red ring blocks the flood long before it gets there —          the walk is document-wide, but flooding is still contiguous"
     );
 }
 

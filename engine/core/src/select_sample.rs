@@ -33,6 +33,14 @@ pub struct LayerSelectSample<'a> {
     /// Pivot and transform, resolved once. `None` on the common untransformed layer, which then
     /// costs nothing per pixel.
     placement: Option<((f32, f32), LayerTransform)>,
+    /// The layer's mask and the document width it is laid out against, resolved once.
+    /// `content_bounds()` already narrows `scope` to where `alpha * mask > 0` for a masked
+    /// layer (`Layer::content_bounds`'s `scan_masked_bounds` path), so `pixel` has to apply the
+    /// same multiplier or a pixel just inside that tighter scope could still read as opaque —
+    /// the scope and the sample disagreeing about the same pixel. Opacity is deliberately left
+    /// out: Photoshop's wand reads a layer's own pixel data, not its opacity-scaled result, and
+    /// this matches that rather than `layer_composited_pixel`'s full render-time answer.
+    mask: Option<(&'a [u8], u32)>,
 }
 
 impl<'a> LayerSelectSample<'a> {
@@ -48,10 +56,13 @@ impl<'a> LayerSelectSample<'a> {
             .transform
             .filter(|t| !t.is_identity())
             .map(|t| (bounds_center(raw), t));
+        let doc_width = (doc_bounds.max_x - doc_bounds.min_x + 1).max(0) as u32;
+        let mask = layer.mask().map(|m| (m, doc_width));
         Some(Self {
             scope,
             source,
             placement,
+            mask,
         })
     }
 
@@ -64,10 +75,20 @@ impl<'a> LayerSelectSample<'a> {
             Some((pivot, t)) => t.inverse(pivot, point),
             None => point,
         };
-        match self.source {
+        let mut px = match self.source {
             Source::Tiles(tiles) => tiles.get_pixel(lx.floor() as i32, ly.floor() as i32),
             Source::Vector(item) => vector_pixel(item, lx, ly),
+        };
+        if let Some((mask, doc_width)) = self.mask {
+            // `x`/`y` are document-space and already known non-negative (`scope` sits inside
+            // `doc_bounds`, whose own min is (0, 0)) — the same index arithmetic
+            // `layer_alpha_at`/`layer_composited_pixel` use for this same mask.
+            let index = (y as u32 * doc_width + x as u32) as usize;
+            if let Some(&m) = mask.get(index) {
+                px[3] = ((px[3] as u32 * m as u32) / 255) as u8;
+            }
         }
+        px
     }
 
     /// Whether there is enough ink here to belong to the artwork, on the same threshold picking

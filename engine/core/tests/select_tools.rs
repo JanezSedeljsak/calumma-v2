@@ -370,3 +370,139 @@ fn colour_range_stays_scoped_to_the_ink_while_the_wand_does_not() {
         "the wand reached the canvas edge ({wand:?}) and the range did not ({range:?})"
     );
 }
+
+/// Ellipse gets the same treatment as Rect: the geometry hugs the layer's ink rather than
+/// selecting the transparent corners of its own bounding box.
+#[test]
+fn ellipse_marquee_intersects_with_layer_ink() {
+    let mut doc = board();
+    let layer = doc.active_layer;
+    paint_square(&mut doc, layer); // opaque 60..139 square
+    doc.tool = Tool::SelectEllipse;
+    // A circle inscribed in this box clips every corner of the painted square while its
+    // centre stays well inside both shapes — the case a plain bounding-box intersect gets
+    // wrong.
+    drag_rect(&mut doc, (50.0, 50.0), (150.0, 150.0));
+    let sel = doc.selection.as_ref().expect("a selection");
+    assert!(matches!(sel.shape, SelectionShape::Mask(_)));
+    assert!(
+        sel.contains(100.5, 100.5),
+        "inside both the ellipse and the ink"
+    );
+    assert!(
+        !sel.contains(62.5, 62.5),
+        "ink sits here, but past the ellipse's own curved boundary"
+    );
+    assert!(
+        !sel.contains(10.5, 10.5),
+        "outside the ellipse's box entirely"
+    );
+}
+
+/// An ellipse on an empty layer is still just the geometry it drew — the same rule the rect
+/// and lasso tests already pin, stated for the third shape.
+#[test]
+fn an_ellipse_on_an_empty_layer_keeps_its_own_shape() {
+    let mut doc = board();
+    doc.tool = Tool::SelectEllipse;
+    drag_rect(&mut doc, (20.0, 20.0), (100.0, 100.0));
+    let sel = doc.selection.as_ref().expect("a selection");
+    assert!(matches!(sel.shape, SelectionShape::Ellipse { .. }));
+}
+
+/// None of the five select tools touch `History` — a selection is scoped state, not an edit to
+/// the document's content, and undoing a paint stroke must not also quietly change what is
+/// selected or vice versa.
+#[test]
+fn no_select_tool_pushes_an_undo_step() {
+    let mut doc = board();
+    let layer = doc.active_layer;
+    paint_square(&mut doc, layer);
+    assert!(
+        !doc.history.can_undo(),
+        "painting the fixture is not on the undo stack"
+    );
+
+    doc.tool = Tool::SelectRect;
+    drag_rect(&mut doc, (0.0, 0.0), (200.0, 200.0));
+    doc.tool = Tool::MagicWand;
+    click(&mut doc, 100.0, 100.0);
+    doc.tool = Tool::SelectColor;
+    doc.set_select_color([200, 30, 30, 255]);
+    click(&mut doc, 100.0, 100.0);
+    doc.invert_selection();
+    doc.select_all();
+    doc.deselect();
+
+    assert!(
+        !doc.history.can_undo(),
+        "a full lap of every select command left nothing to undo"
+    );
+}
+
+/// `invert_selection` commits any open text session first, the way every non-text command
+/// does — its canvas-selection behaviour must not be reached while the keyboard still belongs
+/// to a run.
+#[test]
+fn invert_selection_commits_an_open_text_session_first() {
+    let mut doc = board();
+    doc.tool = Tool::Text;
+    let (sx, sy) = doc.camera.to_screen(20.0, 20.0);
+    doc.pointer_down(sx, sy);
+    doc.pointer_up(sx, sy);
+    doc.text_insert("hi");
+    assert!(doc.text_editing());
+
+    doc.invert_selection();
+    assert!(!doc.text_editing(), "the session closed");
+    assert!(
+        doc.selection.is_some(),
+        "and the canvas selection was built"
+    );
+}
+
+/// A layer mask has to narrow what the wand can reach the same way it narrows what a click can
+/// grab — `select_sample`'s whole reason to exist is that agreement. Painting a square and
+/// masking most of it out leaves a small window the wand can select and a masked-out ring it
+/// cannot, on the same layer's own painted pixels.
+#[test]
+fn the_wand_respects_a_layer_mask() {
+    let mut doc = board();
+    let layer = doc.active_layer;
+    paint_square(&mut doc, layer); // 60..139
+    let mut mask = vec![0u8; (DOC * DOC) as usize];
+    for y in 90..110 {
+        for x in 90..110 {
+            mask[(y * DOC + x) as usize] = 255;
+        }
+    }
+    doc.layers[layer].set_mask(Some(mask));
+
+    doc.tool = Tool::MagicWand;
+    click(&mut doc, 100.0, 100.0);
+    let sel = doc.selection.as_ref().expect("a selection");
+    assert!(sel.contains(100.5, 100.5), "inside the unmasked window");
+    assert!(
+        !sel.contains(65.5, 65.5),
+        "painted, but masked out — must not read as ink"
+    );
+}
+
+/// Paper is unchanged by any of this: opaque white everywhere, same as before slice A, so the
+/// wand can still select the background of an otherwise empty document by clicking on it.
+#[test]
+fn select_tools_read_paper_as_solid_white() {
+    let mut doc = board();
+    let paper = (0..doc.layers.len())
+        .find(|&i| doc.layers[i].is_paper())
+        .expect("Paper");
+    doc.active_layer = paper;
+    doc.tool = Tool::MagicWand;
+    click(&mut doc, 10.0, 10.0);
+    let sel = doc.selection.as_ref().expect("a selection");
+    assert!(sel.contains(10.5, 10.5));
+    assert!(
+        sel.contains((DOC as f32) - 1.0, (DOC as f32) - 1.0),
+        "paper covers edge to edge"
+    );
+}

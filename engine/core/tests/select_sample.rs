@@ -193,6 +193,140 @@ fn copying_a_selection_on_a_transformed_layer_follows_the_transform() {
     );
 }
 
+/// `content_bounds()` already narrows to where `alpha * mask > 0` for a masked layer — a
+/// dense multiplier over the whole document, `0` hiding a pixel and `255` leaving it as
+/// painted. The sample has to apply the same multiplier, or a pixel just inside that tighter
+/// scope would still read as fully opaque.
+fn masked_square(doc: &mut Document) -> DocRect {
+    fill(doc, DocRect::new(10, 10, 40, 40), RED);
+    let mut mask = vec![0u8; (DOC * DOC) as usize];
+    let hole = DocRect::new(20, 20, 30, 30);
+    for y in hole.min_y..=hole.max_y {
+        for x in hole.min_x..=hole.max_x {
+            mask[(y as u32 * DOC + x as u32) as usize] = 255;
+        }
+    }
+    let layer = doc.active_layer;
+    doc.layers[layer].set_mask(Some(mask));
+    hole
+}
+
+#[test]
+fn a_layer_mask_narrows_the_scope_to_where_it_is_visible() {
+    let mut doc = board();
+    let hole = masked_square(&mut doc);
+    let scope = sample_of(&doc).scope;
+    // `content_bounds()` reports the far edge exclusively, so the integer box it becomes
+    // reaches one past the hole's last masked-in pixel — the same convention the plain
+    // ink-bounds test above this one already pins.
+    assert_eq!((scope.min_x, scope.min_y), (hole.min_x, hole.min_y));
+    assert_eq!((scope.max_x, scope.max_y), (hole.max_x + 1, hole.max_y + 1));
+}
+
+#[test]
+fn a_layer_mask_hides_pixels_the_scope_no_longer_reaches() {
+    let mut doc = board();
+    masked_square(&mut doc);
+    let sample = sample_of(&doc);
+    assert!(
+        sample.opaque_enough(25, 25),
+        "inside the hole, fully unmasked"
+    );
+    assert_eq!(
+        sample.pixel(5, 5),
+        [0, 0, 0, 0],
+        "outside the mask's scope entirely"
+    );
+}
+
+/// A mask is not only on or off — a partial value scales alpha the same way
+/// `apply_mask`/`layer_alpha_at` do, and the sample has to agree with that formula exactly,
+/// not just with its two extremes.
+#[test]
+fn a_partial_mask_value_scales_the_sampled_alpha() {
+    let mut doc = board();
+    fill(&mut doc, DocRect::new(10, 10, 40, 40), RED);
+    let mut mask = vec![0u8; (DOC * DOC) as usize];
+    mask[(20 * DOC + 20) as usize] = 128;
+    let layer = doc.active_layer;
+    doc.layers[layer].set_mask(Some(mask));
+
+    let sample = sample_of(&doc);
+    let px = sample.pixel(20, 20);
+    assert_eq!(px[3], (255u32 * 128 / 255) as u8, "alpha * mask / 255");
+    assert_eq!(
+        [px[0], px[1], px[2]],
+        [RED[0], RED[1], RED[2]],
+        "colour untouched"
+    );
+}
+
+/// Opacity is deliberately left out of the sample — Photoshop's wand reads a layer's own pixel
+/// data, not its opacity-scaled result — so a layer faded to near-nothing still sees its full
+/// alpha, unlike `layer_composited_pixel`'s render-time answer.
+#[test]
+fn layer_opacity_does_not_scale_the_sampled_alpha() {
+    let mut doc = board();
+    fill(&mut doc, DocRect::new(10, 10, 30, 30), RED);
+    let layer = doc.active_layer;
+    doc.layers[layer].opacity = 0.05;
+    let sample = sample_of(&doc);
+    assert_eq!(sample.pixel(20, 20)[3], 255, "opacity did not touch it");
+}
+
+/// The consistency `select_sample`'s own doc comment promises: what a marquee or a wand keeps
+/// and what a click can grab are the same answer, on the same layer, at the same pixel — and
+/// a layer mask is where that agreement is easiest to lose, because the scope narrows but a
+/// naive sample would not.
+#[test]
+fn masking_agrees_with_pick_about_the_same_pixel() {
+    let mut doc = board();
+    let hole = masked_square(&mut doc);
+    let layer = doc.active_layer;
+    let inside = (hole.min_x as f32 + 2.5, hole.min_y as f32 + 2.5);
+    let outside = (12.5, 12.5); // painted, but masked to zero
+
+    assert_eq!(
+        doc.layer_at(inside.0, inside.1),
+        Some(layer),
+        "a click inside the hole grabs this layer"
+    );
+    assert_ne!(
+        doc.layer_at(outside.0, outside.1),
+        Some(layer),
+        "a click on the masked-out ink does not — Paper answers instead"
+    );
+
+    let sample = sample_of(&doc);
+    assert!(sample.opaque_enough(inside.0 as i32, inside.1 as i32));
+    assert!(!sample.opaque_enough(outside.0 as i32, outside.1 as i32));
+}
+
+/// Copy reads through the same sample the selection was built from, so a masked-out corner
+/// of a `⌘A` rectangle must not smuggle its way into the copied pixels just because the
+/// selection's own geometry does not know about masks.
+#[test]
+fn copying_a_selection_excludes_a_layers_masked_out_pixels() {
+    let mut doc = board();
+    fill(&mut doc, DocRect::new(0, 0, 40, 40), RED);
+    let mut mask = vec![0u8; (DOC * DOC) as usize];
+    for y in 10..20 {
+        for x in 10..20 {
+            mask[(y * DOC + x) as usize] = 255;
+        }
+    }
+    doc.layers[doc.active_layer].set_mask(Some(mask));
+    doc.select_all();
+
+    let (w, h, buf) = doc.selection_rgba().expect("copied pixels");
+    let opaque = buf.chunks_exact(4).filter(|px| px[3] > 0).count();
+    assert!(opaque > 0, "the unmasked window copied something");
+    assert!(
+        opaque < (w as usize) * (h as usize),
+        "but not the masked-out remainder of the square"
+    );
+}
+
 #[test]
 fn a_repeated_point_is_dropped_and_the_corners_are_kept() {
     let square = vec![

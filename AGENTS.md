@@ -409,8 +409,13 @@ pub enum LayerContent {
   painted box, and re-deriving them per pixel turned a masked layer's cached-bounds mutex into
   a lock per pixel across every rayon row. `selection_rgba` reads it too, because a copy that
   did not would disagree with the selection it was made from on exactly the layers this
-  existed for. Two consequences to respect: select tools are never blocked by layer *kind*
-  (only by lock), and `Tool::samples_layer_pixels` is the line between the tools that
+  existed for. The sample also applies the layer's **mask** (same `alpha * mask / 255` as
+  `layer_alpha_at`/`layer_composited_pixel`) but never its **opacity** — the first keeps
+  `opaque_enough` agreeing with `LAYER_PICK_MIN_ALPHA`-based picking about the same pixel,
+  which `content_bounds()`'s own masked-bounds scoping already assumes; the second is
+  deliberate, matching Photoshop's wand reading a layer's own pixel data rather than its
+  opacity-scaled result. Two consequences to respect: select tools are never blocked by layer
+  *kind* (only by lock), and `Tool::samples_layer_pixels` is the line between the tools that
   **describe** a region — rect, ellipse, lasso, which work on an empty layer — and the two
   that **read** one, which do not.
 - **A shape carries a fill and a stroke independently** (`engine/core/src/shape.rs`).
