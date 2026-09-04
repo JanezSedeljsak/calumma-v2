@@ -734,3 +734,63 @@ fn resizing_an_item_bumps_the_revision_so_the_board_rebuilds() {
     assert!(doc.update_vector_item_drag(corner.0 + 10.0, corner.1 + 10.0));
     assert_ne!(doc.vector_revision(), before);
 }
+
+/// `record_vector_history` used to price every vector undo entry at a flat 128 bytes no
+/// matter how many points a `VectorPath` actually held, so a long freehand path's undo stack
+/// could hold real megabytes while `History::memory_used` believed each step cost 128B. A
+/// drag records the item's state *before* the drag (`commit_vector_drag_history`), so the
+/// point count — and so the byte cost — is exactly the path's own.
+#[test]
+fn vector_undo_cost_scales_with_the_paths_point_count() {
+    let drag_one = |points: Vec<(f32, f32)>| -> usize {
+        let mut doc = doc_with_viewport();
+        let start = points[0];
+        let layer = vector_layer(&mut doc, path_item(points));
+        doc.set_active_layer(layer);
+        doc.enter_transform();
+        assert!(doc.begin_vector_item_drag(start.0, start.1));
+        doc.update_vector_item_drag(start.0 + 10.0, start.1);
+        doc.end_vector_item_drag();
+        doc.history.memory_used()
+    };
+
+    let short = drag_one(vec![(10.0, 10.0), (20.0, 10.0)]);
+    let long = drag_one((0..2000).map(|i| (i as f32 * 0.01, 10.0)).collect());
+
+    assert!(short > 0, "a real cost, not zero");
+    assert!(
+        long > short * 100,
+        "a 2000-point path ({long}B) should cost far more than a 2-point one ({short}B), \
+         not the same flat estimate"
+    );
+}
+
+/// A vector layer's `content_bounds()` caches the O(n) point scan `VectorPath` bounds cost,
+/// keyed on a cheap fingerprint of the points rather than re-deriving it — this only holds
+/// because `set_translated`/`set_scaled` rebuild every point from an affine map applied
+/// uniformly (`AGENTS.md`'s "Basic vector editing only"). The point of the test: the cache
+/// must never answer with the *previous* bounds after a move.
+#[test]
+fn vector_content_bounds_cache_tracks_a_drag_not_just_the_first_call() {
+    let mut doc = doc_with_viewport();
+    let layer = vector_layer(
+        &mut doc,
+        path_item(vec![(10.0, 10.0), (20.0, 10.0), (20.0, 20.0)]),
+    );
+    doc.set_active_layer(layer);
+    doc.enter_transform();
+
+    let before = doc.layers[layer].content_bounds().unwrap();
+    // Prime the cache with the pre-drag bounds before anything moves.
+    assert_eq!(doc.layers[layer].content_bounds().unwrap(), before);
+
+    assert!(doc.begin_vector_item_drag(15.0, 10.0));
+    doc.update_vector_item_drag(115.0, 10.0);
+    doc.end_vector_item_drag();
+
+    let after = doc.layers[layer].content_bounds().unwrap();
+    assert!(
+        (after.0 - (before.0 + 100.0)).abs() < 1e-3,
+        "moved 100px right: before={before:?} after={after:?}"
+    );
+}

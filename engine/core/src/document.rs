@@ -391,6 +391,12 @@ pub struct Document {
     pub(crate) transform_drag: Option<TransformDrag>,
     pub(crate) layer_selection: Vec<usize>,
     stroke_before: TileSnapshot,
+    /// The active selection, snapshotted once when a live-committing stroke (blur, clone,
+    /// heal) begins rather than re-cloned on every pointer event. `SelectionMask.bits` is a
+    /// raw, un-`Arc`'d buffer sized to the document, so cloning it per pointer-move — as every
+    /// other event on a dragged stroke does — turned a full-canvas lasso or wand selection into
+    /// a fresh multi-megabyte copy every frame of the drag.
+    stroke_selection: Option<Selection>,
     /// How far each pixel the blur brush passes over travels toward its blurred neighbourhood.
     /// A document-level knob like `brush_size`, not a shell one — see `blur.rs`.
     pub blur_strength: f32,
@@ -657,6 +663,7 @@ impl Document {
             transform_drag: None,
             layer_selection: Vec::new(),
             stroke_before: TileSnapshot::default(),
+            stroke_selection: None,
             blur_strength: BLUR_STRENGTH_DEFAULT,
             clone_aligned: CLONE_ALIGNED_DEFAULT,
             clone_source: None,
@@ -1565,6 +1572,7 @@ impl Document {
         self.stroke_generation = self.stroke_generation.wrapping_add(1);
         self.stroke_straight_anchor = None;
         self.stroke_before.clear();
+        self.stroke_selection = self.selection.clone();
         self.live_stamp_progress = 0;
         self.live_stamp_painted = false;
         // Unaligned means every stroke starts fresh off the anchor: dropping the offset here
@@ -1639,10 +1647,18 @@ impl Document {
         if !matches!(self.tool, Tool::Clone | Tool::Heal) {
             return None;
         }
+        // The same guards `brush_ring` runs before promising a stamp: a source crosshair the
+        // engine would then refuse to paint from is worse than no crosshair at all.
+        if self.transform_active || self.tool_blocked(self.tool) {
+            return None;
+        }
         let source = self.clone_source?;
         match source.offset {
             Some(offset) => {
                 let hover = self.pointer_hover?;
+                if !self.brush_reaches(hover) {
+                    return None;
+                }
                 Some((hover.0 + offset.0, hover.1 + offset.1))
             }
             None => Some(source.anchor),
@@ -1785,15 +1801,19 @@ impl Document {
         let Some((stamps, _)) = self.live_stamp_batch(radius) else {
             return false;
         };
-        let selection = self.selection.clone();
         let mut painted_now = false;
         if let Some(tiles) = self
             .layers
             .get_mut(self.active_layer)
             .and_then(|l| l.tiles_mut())
         {
-            let touched =
-                crate::blur::blur_stamps(tiles, &stamps, radius, strength, selection.as_ref());
+            let touched = crate::blur::blur_stamps(
+                tiles,
+                &stamps,
+                radius,
+                strength,
+                self.stroke_selection.as_ref(),
+            );
             painted_now = touched > 0;
             self.live_stamp_painted |= painted_now;
         }
@@ -1827,15 +1847,19 @@ impl Document {
         let Some(offset) = self.clone_offset(is_first, stamps[0]) else {
             return false;
         };
-        let selection = self.selection.clone();
         let mut painted_now = false;
         if let Some(tiles) = self
             .layers
             .get_mut(self.active_layer)
             .and_then(|l| l.tiles_mut())
         {
-            let touched =
-                crate::clone::clone_stamps(tiles, &stamps, radius, offset, selection.as_ref());
+            let touched = crate::clone::clone_stamps(
+                tiles,
+                &stamps,
+                radius,
+                offset,
+                self.stroke_selection.as_ref(),
+            );
             painted_now = touched > 0;
             self.live_stamp_painted |= painted_now;
         }
@@ -1855,15 +1879,19 @@ impl Document {
         let Some(offset) = self.clone_offset(is_first, stamps[0]) else {
             return false;
         };
-        let selection = self.selection.clone();
         let mut painted_now = false;
         if let Some(tiles) = self
             .layers
             .get_mut(self.active_layer)
             .and_then(|l| l.tiles_mut())
         {
-            let touched =
-                crate::heal::heal_stamps(tiles, &stamps, radius, offset, selection.as_ref());
+            let touched = crate::heal::heal_stamps(
+                tiles,
+                &stamps,
+                radius,
+                offset,
+                self.stroke_selection.as_ref(),
+            );
             painted_now = touched > 0;
             self.live_stamp_painted |= painted_now;
         }

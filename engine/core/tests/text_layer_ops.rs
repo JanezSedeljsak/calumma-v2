@@ -212,6 +212,41 @@ fn merging_onto_a_text_layer_keeps_the_merged_pixels() {
     assert!(ink(&doc, destination) <= merged_total);
 }
 
+/// Merging onto a text *base* rasterizes it first (`flatten_layer_down` calls
+/// `rasterize_text_layer` on the destination before it merges), and that rasterize is its own
+/// `record_stack_history` snapshot ahead of the merge's own — so getting the run back after a
+/// merge onto text takes two undos, not one. Whichever it takes, the run has to actually come
+/// back, not just pixels that happen to look the same.
+#[test]
+fn undoing_a_merge_onto_a_text_layer_restores_its_run() {
+    let mut doc = board();
+    let base = typed(&mut doc, "base");
+    let base_ink = ink(&doc, base);
+
+    doc.add_layer("Paint");
+    let above = doc.layers.len() - 1;
+    assert_eq!(above, base + 1, "pushed straight on top of the text layer");
+    doc.tool = Tool::Pen;
+    drag(&mut doc, (300.0, 300.0), (400.0, 400.0));
+    assert!(ink(&doc, above) > 0);
+
+    assert!(doc.merge_layer_down(above));
+    assert!(
+        !doc.layers[base].is_text(),
+        "the destination is rasterized to take the merge"
+    );
+
+    doc.undo();
+    doc.undo();
+    assert!(doc.layers[base].is_text(), "the run comes all the way back");
+    assert_eq!(doc.layers[base].run().unwrap().text, "base");
+    assert_eq!(
+        ink(&doc, base),
+        base_ink,
+        "and rasterizes back to the same pixels it started with"
+    );
+}
+
 #[test]
 fn duplicating_a_text_layer_gives_two_editable_runs() {
     let mut doc = board();

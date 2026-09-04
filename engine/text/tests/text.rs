@@ -89,6 +89,34 @@ fn hit_testing_round_trips_through_the_caret() {
     assert_eq!(index, 6);
 }
 
+/// Hebrew, right-to-left. `leading_edge`/`trailing_edge` (layout.rs) branch on
+/// `glyph.level.is_rtl()` specifically so the caret and hit-testing agree with the reading
+/// direction rather than with byte order — nothing exercised that branch before this.
+const HEBREW: &str = "שלום עולם";
+
+#[test]
+fn rtl_caret_runs_right_to_left() {
+    let r = run(HEBREW);
+    let start = caret_rect(&r, 0);
+    let end = caret_rect(&r, HEBREW.len());
+    assert!(
+        end.x < start.x,
+        "an RTL run's caret should move left as the logical index advances, not right: \
+         start={start:?} end={end:?}"
+    );
+}
+
+#[test]
+fn rtl_hit_testing_round_trips_through_the_caret() {
+    let r = run(HEBREW);
+    let mid = HEBREW.char_indices().nth(2).map(|(i, _)| i).unwrap();
+    let caret = caret_rect(&r, mid);
+    // The mirror of the LTR probe above: advancing into the *next* glyph in reading order
+    // moves left on screen for RTL text, not right.
+    let index = index_at_point(&r, caret.x - 1.0, caret.y + caret.height * 0.5);
+    assert_eq!(index, mid);
+}
+
 #[test]
 fn caret_steps_respect_char_boundaries() {
     let r = run("ačb");

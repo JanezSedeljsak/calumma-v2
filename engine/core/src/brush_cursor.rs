@@ -55,7 +55,7 @@ impl Document {
     /// layer's own **extent**, not the paper: a pasted image reaches past the document, and the
     /// part hanging off it takes paint like the rest of it. Mapped through the layer's transform
     /// for the same reason the commit is — the extent is measured in the layer's grid.
-    fn brush_reaches(&self, doc_point: (f32, f32)) -> bool {
+    pub(crate) fn brush_reaches(&self, doc_point: (f32, f32)) -> bool {
         // A vector stroke commits into a layer of its own and has no tile grid to fall off, so
         // there is no extent to be outside of.
         if self.effective_vector_mode() {

@@ -28,6 +28,11 @@ fn drag(doc: &mut Document, from: (f32, f32), to: (f32, f32)) {
     doc.pointer_up(ex, ey);
 }
 
+fn hover(doc: &mut Document, x: f32, y: f32) {
+    let (sx, sy) = doc.camera.to_screen(x, y);
+    doc.set_pointer_hover(sx, sy);
+}
+
 #[test]
 fn clone_copies_from_the_fixed_source_offset() {
     let mut doc = edged_board();
@@ -195,4 +200,121 @@ fn clone_clips_to_the_active_selection() {
         [255, 255, 255, 255],
         "outside it, untouched"
     );
+}
+
+/// `clone_source_cursor` is the board furniture's own answer to "where does this stroke read
+/// from" — every branch is tested here directly rather than only inferred from committed
+/// pixels, so a regression in the crosshair logic itself would actually fail something.
+mod source_cursor {
+    use super::*;
+
+    #[test]
+    fn no_crosshair_off_the_clone_and_heal_tools() {
+        let mut doc = edged_board();
+        doc.set_clone_anchor(40.0, 40.0);
+        hover(&mut doc, 40.0, 40.0);
+
+        for tool in [Tool::Pen, Tool::Eraser, Tool::Blur] {
+            doc.tool = tool;
+            assert_eq!(doc.clone_source_cursor(), None, "{tool:?}");
+        }
+        for tool in [Tool::Clone, Tool::Heal] {
+            doc.tool = tool;
+            assert!(doc.clone_source_cursor().is_some(), "{tool:?}");
+        }
+    }
+
+    #[test]
+    fn no_crosshair_until_a_source_is_set() {
+        let mut doc = edged_board();
+        doc.tool = Tool::Clone;
+        hover(&mut doc, 40.0, 40.0);
+
+        assert_eq!(doc.clone_source_cursor(), None);
+    }
+
+    /// Before a stroke has fixed an offset, the crosshair sits on the anchor itself — it has
+    /// nothing else to go on yet, and it should not chase the pointer around in the meantime.
+    #[test]
+    fn the_crosshair_sits_on_the_anchor_before_a_stroke_starts() {
+        let mut doc = edged_board();
+        doc.tool = Tool::Clone;
+        doc.set_clone_anchor(40.0, 60.0);
+        hover(&mut doc, 200.0, 5.0);
+
+        assert_eq!(doc.clone_source_cursor(), Some((40.0, 60.0)));
+    }
+
+    /// Once a stroke has fixed the offset, the crosshair tracks the pointer at that fixed
+    /// remove — this is the whole point of the furniture, showing where the *next* stamp
+    /// would read from rather than where the last one did.
+    #[test]
+    fn the_crosshair_tracks_the_pointer_once_a_stroke_fixes_the_offset() {
+        let mut doc = edged_board();
+        doc.tool = Tool::Clone;
+        doc.brush_size = 16.0;
+        doc.set_clone_anchor(20.0, 20.0);
+
+        drag(&mut doc, (100.0, 20.0), (100.0, 20.0));
+        hover(&mut doc, 150.0, 60.0);
+
+        // offset fixed at (20 - 100, 20 - 20) = (-80, 0)
+        assert_eq!(doc.clone_source_cursor(), Some((70.0, 60.0)));
+    }
+
+    /// The same three guards `brush_ring` runs before promising a stamp: a source crosshair
+    /// the engine would then refuse to paint from is worse than no crosshair at all.
+    #[test]
+    fn a_layer_that_refuses_paint_hides_the_crosshair_too() {
+        let mut doc = edged_board();
+        doc.tool = Tool::Clone;
+        doc.set_clone_anchor(40.0, 40.0);
+        hover(&mut doc, 40.0, 40.0);
+        assert!(doc.clone_source_cursor().is_some());
+
+        doc.set_layer_locked(doc.active_layer, true);
+        assert_eq!(doc.clone_source_cursor(), None, "locked");
+
+        doc.set_layer_locked(doc.active_layer, false);
+        assert!(
+            doc.clone_source_cursor().is_some(),
+            "unlocking gives it back"
+        );
+    }
+
+    #[test]
+    fn transform_owns_the_pointer_so_the_crosshair_stands_down() {
+        let mut doc = edged_board();
+        doc.tool = Tool::Clone;
+        doc.set_clone_anchor(40.0, 40.0);
+        hover(&mut doc, 40.0, 40.0);
+        assert!(doc.enter_transform());
+
+        assert_eq!(doc.clone_source_cursor(), None);
+
+        doc.exit_transform();
+        assert!(doc.clone_source_cursor().is_some());
+    }
+
+    /// Once the offset is tracking the pointer, the crosshair stops exactly where the brush
+    /// ring does — off the end of the layer there is nothing for either promise to land on.
+    #[test]
+    fn no_crosshair_off_the_end_of_the_layer_once_tracking() {
+        let mut doc = edged_board();
+        doc.tool = Tool::Clone;
+        doc.brush_size = 16.0;
+        doc.set_clone_anchor(20.0, 20.0);
+        drag(&mut doc, (100.0, 20.0), (100.0, 20.0));
+
+        hover(&mut doc, 120.0, 20.0);
+        assert!(doc.clone_source_cursor().is_some(), "on the paper");
+
+        let (w, h) = (doc.width as f32, doc.height as f32);
+        hover(&mut doc, w + 40.0, h / 2.0);
+        assert_eq!(
+            doc.clone_source_cursor(),
+            None,
+            "past the right edge there is not"
+        );
+    }
 }

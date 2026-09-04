@@ -13,6 +13,32 @@ use uuid::Uuid;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 
 type MaskedBoundsCache = Arc<Mutex<Option<(DocRect, Option<DocRect>)>>>;
+type VectorBoundsCache = Arc<Mutex<Option<(VectorBoundsKey, Option<(f32, f32, f32, f32)>)>>>;
+
+/// A cheap stand-in for "have this path's points changed" that costs nothing to compute,
+/// unlike the O(n) scan `VectorItem::geometry_bounds` runs for a `VectorPath`. Sound only
+/// because `AGENTS.md`'s "Basic vector editing only" holds: `set_translated`/`set_scaled` are
+/// the sole ways an existing item's points change, and both rebuild every point from an affine
+/// map applied uniformly — so first and last necessarily move whenever any of them do. A future
+/// per-node edit would break that assumption and this key with it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct VectorBoundsKey {
+    len: usize,
+    first: (u32, u32),
+    last: (u32, u32),
+}
+
+impl VectorBoundsKey {
+    fn of(points: &[(f32, f32)]) -> Option<Self> {
+        let (fx, fy) = *points.first()?;
+        let (lx, ly) = *points.last()?;
+        Some(Self {
+            len: points.len(),
+            first: (fx.to_bits(), fy.to_bits()),
+            last: (lx.to_bits(), ly.to_bits()),
+        })
+    }
+}
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, IntoPrimitive, TryFromPrimitive)]
 #[repr(u32)]
@@ -129,9 +155,14 @@ pub struct Layer {
     pub locked: bool,
     mask: Option<Vec<u8>>,
     masked_bounds: MaskedBoundsCache,
+    vector_bounds: VectorBoundsCache,
 }
 
 fn fresh_masked_bounds_cache() -> MaskedBoundsCache {
+    Arc::new(Mutex::new(None))
+}
+
+fn fresh_vector_bounds_cache() -> VectorBoundsCache {
     Arc::new(Mutex::new(None))
 }
 
@@ -215,6 +246,7 @@ impl Layer {
             locked: false,
             mask: None,
             masked_bounds: fresh_masked_bounds_cache(),
+            vector_bounds: fresh_vector_bounds_cache(),
         }
     }
 
@@ -231,6 +263,7 @@ impl Layer {
             locked: false,
             mask: None,
             masked_bounds: fresh_masked_bounds_cache(),
+            vector_bounds: fresh_vector_bounds_cache(),
         }
     }
 
@@ -256,6 +289,7 @@ impl Layer {
             locked: false,
             mask: None,
             masked_bounds: fresh_masked_bounds_cache(),
+            vector_bounds: fresh_vector_bounds_cache(),
         };
         crate::text_layer::resync(&mut layer);
         layer
@@ -476,7 +510,21 @@ impl Layer {
                     r.max_y as f32 + 1.0,
                 ))
             }
-            LayerContent::Vector(item) => item.bounds(),
+            LayerContent::Vector(item) => match item {
+                VectorItem::Path(path) => {
+                    let key = VectorBoundsKey::of(&path.points)?;
+                    let mut cache = self.vector_bounds.lock();
+                    if let Some((cached_key, answer)) = *cache {
+                        if cached_key == key {
+                            return answer;
+                        }
+                    }
+                    let answer = item.bounds();
+                    *cache = Some((key, answer));
+                    answer
+                }
+                VectorItem::Shape(_) => item.bounds(),
+            },
         }
     }
 }

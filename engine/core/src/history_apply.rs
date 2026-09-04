@@ -97,7 +97,7 @@ impl Document {
     }
 
     pub(crate) fn record_vector_history(&mut self, layer_id: String, item: Option<VectorItem>) {
-        let bytes = 128;
+        let bytes = vector_item_bytes(item.as_ref());
         self.history.push_vector(
             VectorDiff { layer_id, item },
             Some(self.active_layer),
@@ -108,6 +108,21 @@ impl Document {
 
 fn prop_diff_bytes(prop: &LayerPropDiff) -> usize {
     64 + prop.adjustments.map(|_| 64).unwrap_or(0)
+}
+
+/// A `VectorShape` is fixed-size; a `VectorPath`'s point vector is the one unbounded part of
+/// a `VectorItem`, and a long freehand stroke can hold thousands of them. Mirrors
+/// `prop_diff_bytes`/`record_transforms_history`'s flat estimates elsewhere in this file: real
+/// enough to keep `History::memory_used` honest against `HISTORY_MEMORY_BUDGET_BYTES`, not a
+/// byte-exact count.
+fn vector_item_bytes(item: Option<&VectorItem>) -> usize {
+    const BASE: usize = 64;
+    match item {
+        Some(VectorItem::Path(path)) => {
+            BASE + path.points.len() * std::mem::size_of::<(f32, f32)>()
+        }
+        Some(VectorItem::Shape(_)) | None => BASE,
+    }
 }
 
 fn normalized_transform(
