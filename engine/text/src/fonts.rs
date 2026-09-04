@@ -1,3 +1,4 @@
+use crate::buffer::ShapeCache;
 use cosmic_text::fontdb::{Family, Style, Weight};
 use cosmic_text::{FontSystem, SwashCache};
 use std::sync::{Mutex, MutexGuard, OnceLock};
@@ -9,6 +10,8 @@ use std::sync::{Mutex, MutexGuard, OnceLock};
 pub struct TextEngine {
     pub font_system: FontSystem,
     pub swash_cache: SwashCache,
+    /// The last run shaped, and the buffer that came of it — see `buffer::ensure_shaped`.
+    pub(crate) shape_cache: ShapeCache,
 }
 
 fn engine() -> &'static Mutex<TextEngine> {
@@ -17,6 +20,7 @@ fn engine() -> &'static Mutex<TextEngine> {
         Mutex::new(TextEngine {
             font_system: FontSystem::new(),
             swash_cache: SwashCache::new(),
+            shape_cache: None,
         })
     })
 }

@@ -1,4 +1,4 @@
-use crate::buffer::build_buffer;
+use crate::buffer::ensure_shaped;
 use crate::fonts::with_engine;
 use crate::limits::TEXT_RASTER_MAX_SIDE;
 use crate::run::TextRun;
@@ -89,7 +89,7 @@ pub fn rasterize(run: &TextRun) -> Option<TextRaster> {
     }
     let color = Color::rgba(run.color[0], run.color[1], run.color[2], run.color[3]);
     with_engine(|engine| {
-        let mut buffer = build_buffer(engine, run);
+        let buffer = ensure_shaped(&mut engine.shape_cache, &mut engine.font_system, run);
 
         let mut bounds = Bounds::empty();
         buffer.draw(
