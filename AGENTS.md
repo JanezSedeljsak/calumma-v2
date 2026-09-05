@@ -53,8 +53,8 @@ bind groups — is shipped; see `docs/ENGINE.md` § Bind groups.
 
 - **Pure RGBA8 only.** Tiles are 256×256×4 bytes, straight 8-bit RGBA — `TILE_BYTES` is
   262144 (256 KiB) and stays that. No CMYK, no 16-bit, no 32-bit HDR, no ICC / display-P3 /
-  color-profile conversion in the engine. Color in is color stored. Convert at the
-  shell boundary on import if an OS decoder hands you something else, then forget it.
+  color-profile conversion in the engine. Color in is color stored. Import decode lives in
+  `engine/io` (`decode_encoded`); profiles are dropped, 8-bit RGBA is kept as-is.
 - **Flat stack only.** The stack is a `Vec<Layer>`. No groups, no folders, no clipping
   trees, no non-destructive **adjustment layers** (a layer that reads the backdrop).
   Per-layer opacity, blend mode, mask, transform, and the existing `Layer.adjustments`
@@ -165,9 +165,10 @@ have to be read together.
   Same view (`NewProjectView`) serves the separate, smaller **New Project** window opened
   by the editor `+` / `⌘N`; it reflows to one column below `Tokens.Window.wideLayoutWidth`.
 - Artwork import: drop / `⌘V` / click on the Paste Artwork island creates a project sized to
-  the image with the pixels in the first paint layer. Decode is ImageIO in the shell; the
-  engine takes **premultiplied** RGBA over FFI and unpremultiplies in Rust
-  (`calm_project_create_from_image`). Cap is `limits::IMPORT_MAX_SIDE`.
+  the image with the pixels in the first paint layer. The shell passes **file bytes**;
+  `engine/io` decodes them (`calm_project_create_from_encoded`) and fits to
+  `limits::IMPORT_MAX_SIDE`. The older `calm_project_create_from_image` path still accepts
+  premultiplied RGBA for tests.
 - Pasting into an *open* project is a different path (`engine/core/src/paste.rs`): an image
   bigger than the paper is placed at **native size, centred, and the layer overflows**. It is
   never cropped (that was the bug) and the canvas is never resized. `TileGrid` carries an
@@ -520,13 +521,10 @@ CLI paths/binaries live in `cli/constants.py`.
 Compose `CalmText`, `CalmField`, `CalmRow`, `calmSurface()`, `CalmChip`, etc. Theme colors
 via `@Environment(\.themeColors)`; copy via `@Environment(\.l10n)`.
 
-1. `CalmIsland(bordered: true)` (default — canvas, Paste Artwork, the zoom pill) is a raised
-   `surface` card with a thin `Tokens.Light/Dark.islandBorder` stroke. `bordered: false`
-   (tools, layers) drops both and sits on `color.bg` instead, flush with the window rather
-   than a floating tile. Text/number inputs, buttons, and list rows carry a stronger
-   `controlBorder` (focused inputs: `controlFocusBorder`) via `calmSurface(bordered:focused:)`.
-   Everywhere else — chips, swatches, the tool grid, sliders — separate surfaces by
-   background contrast only.
+1. Islands (`CalmIsland`) carry a thin `Tokens.Light/Dark.islandBorder` stroke. Text/number
+   inputs, buttons, and list rows carry a stronger `controlBorder` (focused inputs:
+   `controlFocusBorder`) via `calmSurface(bordered:focused:)`. Everywhere else — chips,
+   swatches, the tool grid, sliders — separate surfaces by background contrast only.
 2. Controls use `Tokens.Radius.sm` / `md`. Islands use `Tokens.Radius.island` (rounded) and
    sit apart with a minimal gap and window margin (`Tokens.Space.xs`), not flush.
 3. Custom Canvas/`AppIcon` drawings only — no icon packs / SF Symbols as product icons.
@@ -749,8 +747,11 @@ GenerateTexture model manager, SuggestShape,
 Vectorize (`vtracer`), **authoring a layer mask** (`layer.mask` composites, persists and
 undoes, but Remove Background is its only writer — no mask painting, invert, toggle, apply or
 thumbnail; cancelled 2026-08-26 with the same call that made clipping masks merge-on-apply),
-layered PSD import (import is flattened composite only;
-PSD, SVG *and PDF export* are layered and shipped — see `docs/FLOW.md`), picking a layer by clicking it outside
+layered PSD import wired into the app's import flow (`calumma-io` now has a real layered decoder —
+`decode_psd`/`DecodedPsd`/`DecodedLayer` in `io/src/psd.rs`, separate name/visibility/opacity/blend-mode/RGBA
+per layer, PackBits + raw channel data, `luni` Unicode names — but it isn't hooked up to FFI or
+`ArtworkImport.swift` yet; `decode_encoded`'s flattened-composite PSD import, via `raster_psd.rs`, is what the
+app actually uses today), picking a layer by clicking it outside
 transform mode as a *modifier* (the Move tool on the tools island is the path; Option-click and ⌘-click are
 both already Pan) — add
 only as considered features, not by restoring old app code.

@@ -24,6 +24,10 @@ rayon = "1.12"
 parking_lot = "0.12.5"
 num_enum = "0.7"
 png = "0.17"
+image = { version = "0.25.9", default-features = false }
+resvg = "0.48.1"
+heif-rs = "26.7.0"
+avif-decode = { version = "1.0.2", default-features = false }
 flate2 = "1.1"
 rustc-hash = "2.1"
 zstd = "0.13"

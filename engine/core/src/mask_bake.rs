@@ -213,4 +213,63 @@ mod tests {
             visible_doc_bounds_for_mask(layer.tiles().unwrap(), &mask, DOC, DOC, Some(t)).unwrap();
         assert_eq!(bounds, (52.0, 32.0, 72.0, 52.0));
     }
+
+    /// Pins the one thing `preserve_doc_bounds`'s rotation/scale branch exists to get right:
+    /// the *top-left corner* — where its offset correction anchors — lands exactly on
+    /// `visible_doc_bounds_for_mask`'s tight, per-pixel pre-bake measurement.
+    ///
+    /// The bottom-right corner deliberately is not compared the same way: `layer_bounds` is
+    /// `transform.transformed_aabb(content_bounds())`, an axis-aligned box drawn in *local*
+    /// space and then rotated, while `visible_doc_bounds_for_mask` unions surviving pixels
+    /// directly in *document* space. Under a rotation the two answer different questions — a
+    /// rotated local rectangle's AABB is strictly looser than the tight union of the pixels
+    /// inside it — so the far corner is only required to have grown, matching the near corner
+    /// having stayed put, rather than to agree on a number the code was never trying to match.
+    #[test]
+    fn preserve_doc_bounds_anchors_the_top_left_corner_under_rotation_and_scale() {
+        const DOC: u32 = 200;
+        let mut doc = Document::new("p".into(), "t", DOC, DOC);
+        doc.layers[1]
+            .tiles_mut()
+            .unwrap()
+            .paint_rect(DocRect::new(10, 10, 90, 90), |_, _, _| {
+                Some([255, 0, 0, 255])
+            });
+        let t = LayerTransform {
+            offset_x: 20.0,
+            offset_y: 5.0,
+            scale_x: 1.5,
+            scale_y: 1.5,
+            rotation: 0.3,
+        };
+        doc.layers[1].transform = Some(t);
+        assert!(!t.is_identity());
+
+        let mut mask = vec![255u8; (DOC as usize) * (DOC as usize)];
+        for y in 0..DOC {
+            for x in 0..DOC {
+                if !(40..60).contains(&x) || !(40..60).contains(&y) {
+                    mask[(y * DOC + x) as usize] = 0;
+                }
+            }
+        }
+        let expected =
+            visible_doc_bounds_for_mask(doc.layers[1].tiles().unwrap(), &mask, DOC, DOC, Some(t))
+                .expect("the rotated/scaled subject is still on the canvas");
+
+        assert!(doc.apply_remove_background_mask(1, mask));
+        let after = doc.layer_bounds(1).expect("cropped rect, transformed");
+        let close = |a: f32, b: f32| (a - b).abs() < 0.01;
+        assert!(
+            close(after.0, expected.0) && close(after.1, expected.1),
+            "the near corner must land exactly where the pre-bake measurement put it: \
+             after={after:?} expected={expected:?}"
+        );
+        assert!(
+            after.2 >= expected.2 && after.3 >= expected.3,
+            "the far corner of a local AABB rotated into document space can only be as tight \
+             as or looser than the per-pixel union, never tighter: after={after:?} \
+             expected={expected:?}"
+        );
+    }
 }

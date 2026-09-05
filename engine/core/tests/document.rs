@@ -493,6 +493,169 @@ fn resize_clamps_to_canvas_limits() {
     assert_eq!(doc.height, crate::limits::MAX_CANVAS_SIDE);
 }
 
+#[test]
+fn apply_canvas_shift_at_origin_zero_is_exactly_resize() {
+    let mut a = Document::new("p".into(), "t", 64, 64);
+    let mut b = Document::new("p".into(), "t", 64, 64);
+    for doc in [&mut a, &mut b] {
+        doc.layers[doc.active_layer]
+            .tiles_mut()
+            .unwrap()
+            .set_pixel(10, 10, [1, 2, 3, 255]);
+    }
+    a.resize(128, 96);
+    b.apply_canvas_shift(0, 0, 128, 96);
+    assert_eq!((a.width, a.height), (b.width, b.height));
+    assert_eq!(a.composite_rgba(), b.composite_rgba());
+}
+
+#[test]
+fn apply_canvas_shift_moves_content_by_transform_not_by_touching_tiles() {
+    let mut doc = Document::new("p".into(), "t", 64, 64);
+    let active = doc.active_layer;
+    doc.layers[active]
+        .tiles_mut()
+        .unwrap()
+        .set_pixel(40, 40, [9, 8, 7, 255]);
+
+    doc.apply_canvas_shift(20, 5, 64, 64);
+
+    // Tile storage is untouched — the pixel is still where it was painted, in local space.
+    assert_eq!(pixel(&doc, active, 40, 40), [9, 8, 7, 255]);
+    // It shows up at its new document position: local (40,40) minus the (20,5) origin shift.
+    let (w, _h, rgba) = doc.composite_rgba();
+    let at = |x: i32, y: i32| {
+        let i = ((y as usize) * (w as usize) + (x as usize)) * 4;
+        [rgba[i], rgba[i + 1], rgba[i + 2], rgba[i + 3]]
+    };
+    assert_eq!(at(20, 35), [9, 8, 7, 255]);
+    // The document position the pixel used to occupy is not the same pixel any more.
+    assert_ne!(at(40, 40), [9, 8, 7, 255]);
+}
+
+#[test]
+fn apply_canvas_shift_never_deletes_content_the_new_window_cropped_away() {
+    let mut doc = Document::new("p".into(), "t", 64, 64);
+    let active = doc.active_layer;
+    doc.layers[active]
+        .tiles_mut()
+        .unwrap()
+        .set_pixel(5, 5, [4, 5, 6, 255]);
+
+    // Crop the top-left corner away...
+    doc.apply_canvas_shift(20, 5, 64, 64);
+    let (_w, _h, rgba) = doc.composite_rgba();
+    assert!(
+        !rgba.chunks_exact(4).any(|px| px == [4, 5, 6, 255]),
+        "the cropped-away pixel must not be visible"
+    );
+    // ...and expanding back by the exact inverse restores it, because the tile was never
+    // touched — only reinterpreted through the layer's transform.
+    doc.apply_canvas_shift(-20, -5, 64, 64);
+    assert_eq!(pixel(&doc, active, 5, 5), [4, 5, 6, 255]);
+    let (w, _h, rgba) = doc.composite_rgba();
+    let i = ((5usize) * (w as usize) + 5) * 4;
+    assert_eq!(&rgba[i..i + 4], &[4, 5, 6, 255]);
+}
+
+#[test]
+fn apply_canvas_shift_keeps_a_mask_aligned_with_its_shifted_content() {
+    let mut doc = Document::new("p".into(), "t", 64, 64);
+    let active = doc.active_layer;
+    doc.layers[active].tiles_mut().unwrap().fill_uniform(
+        calumma_core::tile::DocRect::from_size(64, 64),
+        [1, 1, 1, 255],
+    );
+    let mut mask = vec![255u8; 64 * 64];
+    mask[10 * 64 + 30] = 0; // fully masked out at local (30, 10)
+    doc.layers[active].set_mask(Some(mask));
+
+    doc.apply_canvas_shift(20, 5, 64, 64);
+
+    // The masked-out point moved with the content: local (30,10) is now at (10,5).
+    let mask = doc.layers[active].mask().unwrap();
+    assert_eq!(mask[5 * 64 + 10], 0);
+    assert_eq!(mask[10 * 64 + 30], 255, "that slot is unmasked space now");
+}
+
+#[test]
+fn apply_canvas_shift_fills_only_the_newly_exposed_paper_band() {
+    let mut doc = Document::new("p".into(), "t", 64, 64);
+    doc.layers[0]
+        .tiles_mut()
+        .unwrap()
+        .set_pixel(0, 0, [10, 20, 30, 255]);
+
+    // Expand ten pixels to the left; nothing else changes size.
+    doc.apply_canvas_shift(-10, 0, 74, 64);
+
+    let paper = doc.layers[0].tiles().unwrap();
+    // The pixel that was at local (0,0) is untouched, not overwritten by the paper fill.
+    assert_eq!(paper.get_pixel(0, 0), [10, 20, 30, 255]);
+    // The freshly exposed strip (local x in [-10, 0)) is paper white.
+    assert_eq!(paper.get_pixel(-5, 32), [255, 255, 255, 255]);
+}
+
+#[test]
+fn straightening_rotates_every_painted_layer_about_the_canvas_center() {
+    let mut doc = Document::new("p".into(), "t", 200, 200);
+    doc.resize_viewport(200.0, 200.0, 1.0);
+    doc.fit_to_view();
+    let active = doc.active_layer;
+    doc.layers[active].tiles_mut().unwrap().fill_uniform(
+        calumma_core::tile::DocRect::new(90, 10, 109, 29),
+        [7, 7, 7, 255],
+    );
+    doc.set_tool(Tool::Crop);
+    doc.straighten_active = true;
+
+    let (sx0, sy0) = doc.camera.to_screen(20.0, 20.0);
+    let (sx1, sy1) = doc.camera.to_screen(120.0, 44.0); // ~13.5 degree tilt
+    doc.pointer_down(sx0, sy0);
+    doc.pointer_move(sx1, sy1);
+    doc.pointer_up(sx1, sy1);
+
+    assert!(!doc.straighten_active);
+    let t = doc.layers[active]
+        .transform
+        .expect("straighten leaves a live transform");
+    assert!(
+        t.rotation.abs() > 0.01,
+        "the layer must have picked up a rotation"
+    );
+    // The tile pixels themselves are untouched — straighten composes the transform, it does
+    // not resample tile content.
+    assert_eq!(pixel(&doc, active, 95, 15), [7, 7, 7, 255]);
+}
+
+#[test]
+fn a_tiny_straighten_drag_leaves_every_transform_alone() {
+    let mut doc = Document::new("p".into(), "t", 100, 100);
+    doc.resize_viewport(100.0, 100.0, 1.0);
+    doc.fit_to_view();
+    doc.set_tool(Tool::Crop);
+    doc.straighten_active = true;
+    let (sx, sy) = doc.camera.to_screen(50.0, 50.0);
+    doc.pointer_down(sx, sy);
+    doc.pointer_up(sx, sy);
+    assert!(doc.layers.iter().all(|l| l.transform.is_none()));
+}
+
+#[test]
+fn apply_canvas_shift_leaves_non_paper_layers_transparent_in_the_newly_exposed_area() {
+    let mut doc = Document::new("p".into(), "t", 64, 64);
+    let active = doc.active_layer;
+    doc.layers[active].tiles_mut().unwrap().fill_uniform(
+        calumma_core::tile::DocRect::from_size(64, 64),
+        [1, 2, 3, 255],
+    );
+
+    doc.apply_canvas_shift(-10, 0, 74, 64);
+
+    let layer = doc.layers[active].tiles().unwrap();
+    assert_eq!(layer.get_pixel(-5, 32), [0, 0, 0, 0]);
+}
+
 fn paint_transform_target(doc: &mut Document) {
     let idx = doc.active_layer;
     doc.layers[idx]

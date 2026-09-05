@@ -770,3 +770,51 @@ fn the_ring_closes_back_onto_its_starting_point() {
         assert!((first_y - last_y).abs() < 1e-3, "{first_y} vs {last_y}");
     }
 }
+
+fn crop_board() -> Document {
+    let mut doc = Document::new("t".to_string(), "Crop", 200, 100);
+    doc.resize_viewport(200.0, 100.0, 1.0);
+    doc.fit_to_view();
+    doc.set_tool(Tool::Crop);
+    doc
+}
+
+/// Nothing to draw once the tool has not been entered — no rect, no lines, no crash on the
+/// `None` path.
+#[test]
+fn no_crop_rect_means_no_overlay() {
+    let mut doc = Document::new("t".to_string(), "Crop", 64, 64);
+    doc.tool = Tool::Crop; // set directly, bypassing enter_crop
+    assert!(crop_overlay_instances(&doc).is_empty());
+}
+
+/// The rect's outline is 4 segments and every one of the 8 handles draws two discs (a border
+/// then a fill), so a rect with guides off is exactly 4 + 16 instances.
+#[test]
+fn the_bare_rect_is_four_outline_segments_and_eight_two_disc_handles() {
+    let doc = crop_board();
+    let instances = crop_overlay_instances(&doc);
+    assert_eq!(instances.len(), 4 + 8 * 2);
+}
+
+/// Turning a guide style on adds exactly its line count on top of the fixed rect+handle chrome.
+#[test]
+fn overlay_guide_lines_add_to_the_fixed_rect_chrome() {
+    let mut doc = crop_board();
+    doc.crop_overlay_style = calumma_core::CropOverlayStyle::RuleOfThirds;
+    let instances = crop_overlay_instances(&doc);
+    assert_eq!(instances.len(), doc.crop_overlay_lines().len() + 4 + 8 * 2);
+}
+
+/// While a straighten line is being dragged, it is the *only* thing drawn — the crop rect is
+/// still there underneath (nothing has been committed yet) but stays hidden until release.
+#[test]
+fn a_straighten_drag_draws_only_the_reference_line() {
+    let mut doc = crop_board();
+    doc.straighten_active = true;
+    doc.begin_straighten(10.0, 10.0);
+    doc.update_straighten(90.0, 40.0);
+    let instances = crop_overlay_instances(&doc);
+    assert_eq!(instances.len(), 1);
+    assert_eq!(instances[0].segment, [10.0, 10.0, 90.0, 40.0]);
+}

@@ -161,3 +161,57 @@ fn heal_refuses_a_text_layer() {
         "a text layer's cached glyph tiles were left alone"
     );
 }
+
+/// `heal_stamps` directly, below the tool machinery — the three guards a document-level test
+/// can only reach indirectly: a non-positive radius, an empty stamp list, and stamps that miss
+/// the grid entirely once the healing offset is applied.
+#[test]
+fn heal_stamps_guards_against_degenerate_input() {
+    use calumma_core::heal::heal_stamps;
+
+    let mut grid = TileGrid::new(64, 64);
+    grid.fill_uniform(DocRect::new(0, 0, 63, 63), [40, 60, 220, 255]);
+
+    assert_eq!(
+        heal_stamps(&mut grid, &[(30.0, 30.0)], 0.0, (5, 5), None),
+        0,
+        "a non-positive radius heals nothing"
+    );
+    assert_eq!(
+        heal_stamps(&mut grid, &[], 10.0, (5, 5), None),
+        0,
+        "no stamps, nothing to heal"
+    );
+    assert_eq!(
+        heal_stamps(&mut grid, &[(-500.0, -500.0)], 10.0, (5, 5), None),
+        0,
+        "stamps entirely off the grid have nothing to intersect"
+    );
+}
+
+/// An active selection excludes part of the stamp the same way it does for the blur and clone
+/// brushes — only the pixels inside it come back changed.
+#[test]
+fn heal_stamps_respects_an_active_selection() {
+    use calumma_core::heal::heal_stamps;
+    use calumma_core::selection::{Selection, SelectionShape};
+
+    let mut grid = TileGrid::new(64, 64);
+    grid.fill_uniform(DocRect::new(0, 0, 63, 63), [40, 60, 220, 255]);
+    grid.fill_uniform(DocRect::new(28, 28, 35, 35), [220, 40, 40, 255]);
+
+    // Only the left half of the blemish is selected.
+    let selection = Selection {
+        shape: SelectionShape::Rect {
+            start: (0.0, 0.0),
+            end: (32.0, 64.0),
+        },
+    };
+    let touched = heal_stamps(&mut grid, &[(31.0, 31.0)], 6.0, (-20, 0), Some(&selection));
+    assert!(touched > 0, "the selected half should have healed");
+    assert_eq!(
+        grid.get_pixel(34, 31),
+        [220, 40, 40, 255],
+        "outside the selection the blemish survives untouched"
+    );
+}

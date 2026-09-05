@@ -23,7 +23,7 @@ struct ToolsPanel: View {
     }
 
     var body: some View {
-        CalmIsland(padding: Tokens.Space.xs, bordered: false) {
+        CalmIsland(padding: Tokens.Space.xs) {
             GeometryReader { proxy in
                 ScrollView(.vertical) {
                     VStack(spacing: Tokens.Space.sm) {
@@ -70,6 +70,7 @@ struct ToolsPanel: View {
             toolButton(.bucket) { AppIcon.bucket(color: iconColor(.bucket)) }
             toolButton(.eyedropper) { AppIcon.eyedropper(color: iconColor(.eyedropper)) }
             toolButton(.text) { AppIcon.text(color: iconColor(.text)) }
+            toolButton(.crop) { AppIcon.crop(color: iconColor(.crop)) }
         }
     }
 
@@ -86,6 +87,7 @@ struct ToolsPanel: View {
         case .eyedropper: return l10n.toolEyedropper
         case .text: return l10n.toolText
         case .move: return l10n.toolMove
+        case .crop: return l10n.toolCrop
         default: return l10n.toolPen
         }
     }

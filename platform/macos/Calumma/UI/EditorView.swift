@@ -378,7 +378,7 @@ struct EditorView: View {
     private static let rowIconSide: CGFloat = 18
 
     private var layersIsland: some View {
-        CalmIsland(padding: Tokens.Space.sm, bordered: false) {
+        CalmIsland(padding: Tokens.Space.sm) {
             VStack(alignment: .leading, spacing: Tokens.Space.sm) {
                 HStack {
                     CalmText.label(l10n.layers)

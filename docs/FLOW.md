@@ -81,9 +81,9 @@ first paint layer (`Layer 1`) above Paper, then opens it in the Editor.
 Formats: **PNG, JPG/JPEG, AVIF, WEBP, PSD, HEIC/HEIF, SVG** (PSD imports the flattened
 composite; SVG is rasterized on import, not kept as vector data). Clipboard paste
 additionally accepts TIFF, because that is the form most macOS apps put images on the
-pasteboard in. Decoding is ImageIO in the shell; anything larger than `IMPORT_MAX_SIDE`
-(engine constant, 4096 px) is downscaled at decode time so a huge photo cannot blow up the
-tile grid.
+pasteboard in. Decoding is in the engine (`engine/io`); the shell only hands over file
+bytes. Anything larger than `IMPORT_MAX_SIDE` (4096 px) is downscaled at decode time so a
+huge photo cannot blow up the tile grid.
 
 ### New Project modal
 
@@ -316,14 +316,14 @@ gain — it tracks the cursor one-for-one by definition.
 | Store | OS-native app-data dir + `Calumma/calumma.sqlite` (macOS: `~/Library/Application Support/…`) |
 | Autosave / explicit save | Engine dirty flag + `⌘S`; tab switch and close save first |
 | One board per project | Bounded document size chosen at create time |
-| Export image | **Shipped** — PNG / JPEG / WebP / AVIF / HEIC / PSD / SVG / PDF via File → Export, plus per-layer **Export…** in the layer card. PSD, SVG and PDF are layered (PSD: real per-layer opacity/blend mode/pixels, hand-written encoder since ImageIO can only read PSD. SVG: vector layers stay geometry, painted layers embed a cropped PNG. PDF: vector layers become real PDF paths, opacity and blend mode ride an `/ExtGState`, transparency an `/SMask`). |
+| Export image | **Shipped** — PNG / JPEG / WebP / AVIF / HEIC / PSD / SVG / PDF via File → Export, plus per-layer **Export…** in the layer card. Raster encode is engine-side. PSD, SVG and PDF are layered (PSD: real per-layer opacity/blend mode/pixels. SVG: vector layers stay geometry, painted layers embed a cropped PNG. PDF: vector layers become real PDF paths, opacity and blend mode ride an `/ExtGState`, transparency an `/SMask`). |
 | Import image / PSD | **Shipped** — new project from PNG / JPG / AVIF / WEBP / PSD / HEIC / SVG (SVG rasterized on import) |
 | Clipboard paste artwork | **Shipped** — `⌘V`, drag-and-drop, or click on the island (creates a new project) |
 | Import into an existing board | **Shipped** — drag-and-drop onto the canvas island, or `⌘V`, both add the image as a new layer (see Selection below) |
 
 Composite flatten (`Document::composite_rgba`) and single-layer extraction (`Document::layer_rgba`)
-live in `engine/core`; the actual PNG/JPEG/WebP/AVIF **encode** happens in the shell via
-`ImageIO`/`CGImageDestination` (`ImageEncode.swift`), mirroring how decode already works.
+live in `engine/core`; PNG/JPEG/WebP/AVIF/HEIC encode and decode live in `engine/io`
+(`calm_engine_export_image` / `decode_encoded`). The shell only picks a file and writes bytes.
 
 ---
 
@@ -839,7 +839,7 @@ Only the *storage* grew, and only for that layer:
   so it wraps the whole image, including the parts off the paper, which is what you grab to move
   it back.
 
-Size is bounded by the decoder, not by this: the shell caps an incoming image at
+Size is bounded by the decoder, not by this: `decode_encoded` fits an incoming image to
 `limits::IMPORT_MAX_SIDE` (4096) on the way in, so the widest a layer can overflow to is one
 4096² image, and an image that **fits** is untouched by any of this — it still lands at the
 selection's origin the way it always has.
@@ -851,10 +851,11 @@ native menu bar, alongside Settings under the app menu — `CalummaApp.swift`'s 
 a toolbar button anymore). The raster formats flatten the full layer stack
 (`Document::composite_rgba`, respecting
 visibility, masks, opacity, blend mode, and adjustments) and opens a native save panel.
+Raster encode is engine-side (`calm_engine_export_image`): PNG and WebP lossless, JPEG / AVIF
+/ HEIC lossy at `LOSSY_EXPORT_QUALITY`.
 
 **PSD and SVG are layered** rather than flattened. Each raster layer becomes a real PSD layer
-with its own opacity and blend-mode signature (`engine/io/src/psd.rs`, hand-written since
-ImageIO can only *read* PSD, not write it; RAW/uncompressed channel data, not PackBits RLE); a
+with its own opacity and blend-mode signature (`engine/io/src/psd.rs`; RAW/uncompressed channel data, not PackBits RLE); a
 vector layer reaches the PSD rasterized, because this writer emits raster channels only and
 losing the artwork would be worse. Every layer name is written twice — the legacy 8-bit Pascal
 string every reader understands, and the `'luni'` additional-layer-info block real Photoshop
@@ -960,6 +961,7 @@ panel toggles are shell knobs.
 | `G` | Fill (bucket) | Yes (Ps Paint Bucket, shared with Gradient) |
 | `I` | Eyedropper (live sample under the cursor into the active primary/secondary swatch; loupe shows color + hex; a circle shows the sample area) | Yes |
 | `V` | Move tool — click a layer's pixels or a vector item to drag it; Transform off, that is all it does. Transform on (options toggle or `⌘T`) adds scale/rotate handles and selecting a layer's pixels makes it active. Empty space is a no-op. The key only changes which tool is in hand: it never touches the transform state, so `V` while transform is on leaves it on. | Yes (Ps `V` is Move) |
+| `K` | Crop — drag any of the rect's 8 handles to shrink or expand the canvas from that edge or corner (not just bottom-right); the options bar carries the aspect-ratio lock, the composition-guide overlay (Rule of Thirds / Grid / Diagonal / Golden Ratio) and Straighten (drag a reference line to level the canvas — a live rotation on every layer's transform, not a pixel bake, so it stays undoable as one step). `Return` commits the rect and stays on Crop with a fresh full-canvas rect; `Esc` cancels back to Move. Cropped-away pixels are never deleted — same non-destructive resize the layers panel's canvas-size fields already do, just from a draggable rect instead of two numbers | Yes (Ps Crop is `C`, already Clone Stamp here) |
 | `⌘T` | Select Move and toggle transform mode on the active layer (scale/rotate/move); click another layer's pixels to retarget, click empty space, `Return` or `Esc` to exit | Yes (Ps Free Transform) |
 | `Return` | Exit transform mode, leaving the selection and the layer's transform alone. Does nothing outside transform, and types a newline while a text layer is open | Yes (Ps commits Free Transform on Return) |
 | `⌥⌘G` | Clip to Below on the active layer — see Layers | Yes (Ps Create Clipping Mask, though ours merges rather than clipping live) |

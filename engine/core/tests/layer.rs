@@ -96,6 +96,61 @@ fn resize_mask_crops_when_shrinking_and_is_a_no_op_without_a_mask() {
     assert!(bare.mask().is_none());
 }
 
+#[test]
+fn shift_mask_at_origin_zero_matches_resize_mask() {
+    let mut a = Layer::new("a", 4, 4);
+    let mut b = Layer::new("b", 4, 4);
+    for layer in [&mut a, &mut b] {
+        layer.set_mask(Some((0..16).map(|i| i as u8).collect()));
+    }
+    a.resize_mask(4, 4, 6, 6);
+    b.shift_mask(0, 0, 4, 4, 6, 6);
+    assert_eq!(a.mask(), b.mask());
+}
+
+/// A positive origin slides the read window right/down: `(x, y)` in the new mask reads
+/// `(x + origin_x, y + origin_y)` from the old one.
+#[test]
+fn shift_mask_reads_the_old_mask_at_an_offset() {
+    let mut layer = Layer::new("m", 4, 4);
+    layer.set_mask(Some((0..16).map(|i| i as u8).collect()));
+    layer.shift_mask(1, 1, 4, 4, 4, 4);
+    let mask = layer.mask().unwrap();
+    // (0,0) in the new mask is (1,1) in the old one, value 5.
+    assert_eq!(mask[0], 5);
+    // The last row/column has nothing to read from past the old mask's edge.
+    assert_eq!(mask[4 * 4 - 1], 255);
+}
+
+/// A negative origin slides the read window left/up, off the old mask's edge entirely for
+/// part of the new one — the classic "expand past the top-left corner" crop.
+#[test]
+fn shift_mask_pads_the_region_the_negative_origin_moved_off_the_old_mask() {
+    let mut layer = Layer::new("m", 4, 4);
+    layer.set_mask(Some((0..16).map(|i| i as u8).collect()));
+    layer.shift_mask(-2, 0, 4, 4, 6, 4);
+    let mask = layer.mask().unwrap();
+    assert_eq!(mask.len(), 24);
+    // Columns 0..2 of every row have nothing behind them.
+    for y in 0..4usize {
+        assert_eq!(mask[y * 6], 255);
+        assert_eq!(mask[y * 6 + 1], 255);
+    }
+    // Column 2 onward reads the old mask from its own column 0.
+    assert_eq!(mask[2], 0);
+    assert_eq!(mask[6 + 2], 4);
+}
+
+/// A shift so large the old and new masks share no pixels at all is a plain fully-opaque
+/// mask, not a panic on an inverted or empty copy range.
+#[test]
+fn shift_mask_with_no_overlap_at_all_is_fully_opaque() {
+    let mut layer = Layer::new("m", 4, 4);
+    layer.set_mask(Some(vec![0u8; 16]));
+    layer.shift_mask(100, 100, 4, 4, 4, 4);
+    assert_eq!(layer.mask().unwrap(), &[255u8; 16][..]);
+}
+
 /// The box is tight to the pixels, not to the tiles that hold them. Two dots 590 pixels apart
 /// live in different tiles; the box is the 591-pixel span between them, not the 1024-pixel
 /// union of their four 256-pixel cells.

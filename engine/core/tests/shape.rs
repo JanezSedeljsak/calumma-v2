@@ -251,7 +251,8 @@ fn an_unknown_wire_value_is_not_a_tool() {
     assert_eq!(Tool::from_u32(999), None);
     assert_eq!(Tool::from_u32(18), Some(Tool::SelectColor));
     assert_eq!(Tool::from_u32(20), Some(Tool::Heal));
-    assert_eq!(Tool::from_u32(21), None);
+    assert_eq!(Tool::from_u32(21), Some(Tool::Crop));
+    assert_eq!(Tool::from_u32(22), None);
     assert_eq!(Tool::from_u32(0), Some(Tool::Pen));
 }
 

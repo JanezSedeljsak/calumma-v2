@@ -386,6 +386,13 @@ final class BoardMTKView: MTKView {
         if painting {
             coordinator.engine.setShift(event.modifierFlags.contains(.shift))
             coordinator.engine.pointerUp(x: Float(point.x), y: Float(point.y))
+            // The engine disarms straighten on its own once the drag that used it releases —
+            // the toolbar toggle mirrors that back so it does not read as still armed.
+            MainActor.assumeIsolated {
+                if app?.tool == .crop, app?.straightening == true {
+                    app?.straightening = false
+                }
+            }
         }
         painting = false
         panning = false

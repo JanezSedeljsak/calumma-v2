@@ -77,6 +77,60 @@ fn align_top_skips_paper_and_needs_two_layers() {
 }
 
 #[test]
+fn align_right_bottom_and_center_v_move_the_far_edge_or_the_middle() {
+    let mut doc = doc_with_viewport();
+    doc.add_layer("Layer 2");
+    // Deliberately different heights: aligning bottoms must not incidentally also align
+    // centers (same height + same bottom would make that a no-op), so each of the three
+    // calls below has something real left to do.
+    paint(&mut doc, 1, DocRect::new(20, 20, 40, 50), [255, 0, 0, 255]);
+    paint(
+        &mut doc,
+        2,
+        DocRect::new(100, 60, 120, 80),
+        [0, 255, 0, 255],
+    );
+
+    assert!(doc.align_layers(&[1, 2], AlignEdge::Right));
+    assert!((layer_aabb(&doc, 1).2 - layer_aabb(&doc, 2).2).abs() < 0.01);
+
+    assert!(doc.align_layers(&[1, 2], AlignEdge::Bottom));
+    assert!((layer_aabb(&doc, 1).3 - layer_aabb(&doc, 2).3).abs() < 0.01);
+
+    assert!(doc.align_layers(&[1, 2], AlignEdge::CenterV));
+    let mid = |b: (f32, f32, f32, f32)| (b.1 + b.3) * 0.5;
+    assert!((mid(layer_aabb(&doc, 1)) - mid(layer_aabb(&doc, 2))).abs() < 0.01);
+}
+
+/// A selection where nothing has content bounds — every layer picked is either Paper or an
+/// unpainted layer — has no union box to align against at all.
+#[test]
+fn aligning_layers_with_no_content_bounds_is_refused() {
+    let mut doc = doc_with_viewport();
+    doc.add_layer("Empty");
+    assert!(!doc.align_layers(&[0, 1], AlignEdge::Left));
+}
+
+/// One selected layer never got painted; the pass aligns the ones that have a box and simply
+/// skips the one that doesn't, rather than failing the whole operation.
+#[test]
+fn aligning_skips_a_layer_with_no_content_bounds_but_still_aligns_the_rest() {
+    let mut doc = doc_with_viewport();
+    doc.add_layer("Painted A");
+    paint(&mut doc, 1, DocRect::new(20, 20, 40, 40), [255, 0, 0, 255]);
+    doc.add_layer("Empty");
+    doc.add_layer("Painted B");
+    paint(
+        &mut doc,
+        3,
+        DocRect::new(100, 60, 120, 80),
+        [0, 255, 0, 255],
+    );
+    assert!(doc.align_layers(&[1, 2, 3], AlignEdge::Left));
+    assert!((layer_aabb(&doc, 1).0 - layer_aabb(&doc, 3).0).abs() < 0.01);
+}
+
+#[test]
 fn distribute_horizontally_equalizes_gaps_and_pins_the_extremes() {
     let mut doc = doc_with_viewport();
     doc.add_layer("Layer 2");

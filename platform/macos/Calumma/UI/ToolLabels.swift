@@ -40,6 +40,7 @@ extension CalmTool {
         case .text: return l10n.toolText
         case .move: return l10n.toolMove
         case .transform: return l10n.toolTransform
+        case .crop: return l10n.toolCrop
         }
     }
 }
@@ -69,6 +70,7 @@ extension CalmTool {
         "m": .selectRect,
         "w": .magicWand,
         "v": .move,
+        "k": .crop,
     ]
 
     private static let keyByTool: [CalmTool: String] = Dictionary(

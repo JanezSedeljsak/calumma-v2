@@ -25,6 +25,7 @@ pub enum Tool {
     SelectColor = 18,
     Clone = 19,
     Heal = 20,
+    Crop = 21,
 }
 
 impl Tool {
@@ -387,7 +388,8 @@ impl Shape {
             | Tool::MagicWand
             | Tool::SelectColor
             | Tool::Clone
-            | Tool::Heal => f32::MAX,
+            | Tool::Heal
+            | Tool::Crop => f32::MAX,
             Tool::Line => sd_segment(p, self.start, self.end),
             Tool::Arrow => self.arrow_distance(p),
             Tool::Rect => sd_box(p, self.center(), self.half_extent()),

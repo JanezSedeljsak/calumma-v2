@@ -29,6 +29,10 @@ enum AppIcon {
         SvgIcon(name: "eraser", color: color)
     }
 
+    static func crop(color: Color) -> some View {
+        SvgIcon(name: "crop", color: color)
+    }
+
     static func blur(color: Color) -> some View {
         SvgIcon(name: "blur", color: color)
     }

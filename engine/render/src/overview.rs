@@ -491,7 +491,7 @@ mod tests {
     use crate::test_gpu::{gpu, read_texture_2d, Gpu};
     use calumma_core::tile::DocRect;
     use calumma_core::vector::VectorShape;
-    use calumma_core::{DeviceTier, MemoryPressureLevel, Shape, Tool};
+    use calumma_core::{Adjustments, DeviceTier, LayerTransform, MemoryPressureLevel, Shape, Tool};
 
     fn pass(gpu: &Gpu) -> OverviewPass {
         OverviewPass::new(
@@ -907,6 +907,133 @@ mod tests {
             panic!("vector layer");
         };
         shape.color = [220, 30, 30, 255];
+        sync(&mut overview, &mut d, gpu);
+        assert_eq!(overview.allocations, 1);
+        gpu_matches_flatten(&overview, &d, gpu);
+    }
+
+    #[test]
+    fn a_paint_on_the_coarse_level_is_waiting_on_the_fine_one_after_zoom_in() {
+        let Some(gpu) = gpu() else { return };
+        let mut overview = pass(gpu);
+        let mut d = doc(2048, 2048);
+        overview.should_use(OVERVIEW_ENTER_TILE_THRESHOLD, false);
+        d.camera.zoom = 1.0;
+        d.camera.dpr = 1.0;
+        sync(&mut overview, &mut d, gpu);
+        d.camera.zoom = 0.1;
+        sync(&mut overview, &mut d, gpu);
+        assert_eq!(overview.allocations, 2);
+
+        paint(&mut d, DocRect::new(16, 16, 80, 80), [20, 180, 80, 255]);
+        sync(&mut overview, &mut d, gpu);
+        gpu_matches_flatten(&overview, &d, gpu);
+
+        d.camera.zoom = 1.0;
+        sync(&mut overview, &mut d, gpu);
+        assert_eq!(overview.tex_width, 2048);
+        assert_eq!(overview.allocations, 2);
+        gpu_matches_flatten(&overview, &d, gpu);
+    }
+
+    #[test]
+    fn a_higher_dpr_picks_a_finer_level_at_the_same_zoom() {
+        let Some(gpu) = gpu() else { return };
+        let mut overview = pass(gpu);
+        let mut d = doc(2048, 2048);
+        overview.should_use(OVERVIEW_ENTER_TILE_THRESHOLD, false);
+        d.camera.zoom = 0.3;
+        d.camera.dpr = 1.0;
+        sync(&mut overview, &mut d, gpu);
+        let at_one = overview.tex_width;
+
+        d.camera.dpr = 2.0;
+        sync(&mut overview, &mut d, gpu);
+        assert!(
+            overview.tex_width >= at_one,
+            "dpr 2 must not pick a coarser flatten ({at_one} -> {})",
+            overview.tex_width
+        );
+        gpu_matches_flatten(&overview, &d, gpu);
+    }
+
+    #[test]
+    fn critical_pressure_caps_the_finest_level_at_1024() {
+        let Some(gpu) = gpu() else { return };
+        let mut overview = pass(gpu);
+        let mut d = doc(4096, 4096);
+        overview.should_use(OVERVIEW_ENTER_TILE_THRESHOLD, false);
+        d.camera.zoom = 1.0;
+        let mut critical = GpuBudget::new(DeviceTier::Standard);
+        critical.report_pressure(MemoryPressureLevel::Critical);
+        overview.sync(&mut d, &gpu.device, &gpu.queue, &critical);
+        assert_eq!(overview.tex_width, 1024);
+        gpu_matches_flatten(&overview, &d, gpu);
+    }
+
+    #[test]
+    fn moving_a_layer_rewrites_the_flatten_to_match_the_cpu() {
+        let Some(gpu) = gpu() else { return };
+        let mut overview = pass(gpu);
+        let mut d = doc(256, 256);
+        overview.should_use(OVERVIEW_ENTER_TILE_THRESHOLD, false);
+        paint(&mut d, DocRect::new(8, 8, 48, 48), [200, 30, 40, 255]);
+        sync(&mut overview, &mut d, gpu);
+
+        d.layers[1].transform = Some(LayerTransform {
+            offset_x: 40.0,
+            offset_y: 20.0,
+            ..LayerTransform::default()
+        });
+        sync(&mut overview, &mut d, gpu);
+        assert_eq!(overview.allocations, 1);
+        gpu_matches_flatten(&overview, &d, gpu);
+    }
+
+    #[test]
+    fn an_adjustment_rewrites_the_flatten_to_match_the_cpu() {
+        let Some(gpu) = gpu() else { return };
+        let mut overview = pass(gpu);
+        let mut d = doc(128, 128);
+        overview.should_use(OVERVIEW_ENTER_TILE_THRESHOLD, false);
+        paint(&mut d, DocRect::new(8, 8, 60, 60), [40, 80, 200, 255]);
+        sync(&mut overview, &mut d, gpu);
+
+        d.layers[1].adjustments = Some(Adjustments {
+            brightness: 0.35,
+            ..Adjustments::default()
+        });
+        sync(&mut overview, &mut d, gpu);
+        assert_eq!(overview.allocations, 1);
+        gpu_matches_flatten(&overview, &d, gpu);
+    }
+
+    #[test]
+    fn painting_two_chunks_keeps_the_gpu_in_lockstep_with_the_cpu() {
+        let Some(gpu) = gpu() else { return };
+        let mut overview = pass(gpu);
+        let mut d = doc(2048, 512);
+        overview.should_use(OVERVIEW_ENTER_TILE_THRESHOLD, false);
+        d.camera.zoom = 1.0;
+        sync(&mut overview, &mut d, gpu);
+        paint(&mut d, DocRect::new(10, 10, 40, 40), [255, 0, 0, 255]);
+        paint(&mut d, DocRect::new(1200, 10, 1240, 40), [0, 0, 255, 255]);
+        sync(&mut overview, &mut d, gpu);
+        assert_eq!(overview.allocations, 1);
+        gpu_matches_flatten(&overview, &d, gpu);
+    }
+
+    #[test]
+    fn prewarm_then_an_active_sync_at_the_same_camera_does_not_allocate_again() {
+        let Some(gpu) = gpu() else { return };
+        let mut overview = pass(gpu);
+        let mut d = doc(256, 256);
+        d.camera.zoom = 1.0;
+        overview.request_prewarm();
+        overview.prewarm(&mut d, &gpu.device, &gpu.queue, &budget());
+        assert_eq!(overview.allocations, 1);
+
+        overview.should_use(OVERVIEW_ENTER_TILE_THRESHOLD, false);
         sync(&mut overview, &mut d, gpu);
         assert_eq!(overview.allocations, 1);
         gpu_matches_flatten(&overview, &d, gpu);

@@ -1,13 +1,10 @@
 import AppKit
-import ImageIO
 import SwiftUI
 import UniformTypeIdentifiers
 
 struct ArtworkImage {
     let name: String
-    let width: Int
-    let height: Int
-    let premultipliedRGBA: Data
+    let encoded: Data
 }
 
 enum ArtworkImport {
@@ -34,14 +31,22 @@ enum ArtworkImport {
     }
 
     static func decode(url: URL) -> ArtworkImage? {
-        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
+        guard supports(url), let encoded = try? Data(contentsOf: url), !encoded.isEmpty else {
+            return nil
+        }
         let name = url.deletingPathExtension().lastPathComponent
-        return decode(source: source, name: name, allowing: contentTypes)
+        return ArtworkImage(
+            name: name.isEmpty ? L10nStore.catalog.untitled : name,
+            encoded: encoded
+        )
     }
 
     static func decode(data: Data, name: String) -> ArtworkImage? {
-        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
-        return decode(source: source, name: name, allowing: pasteTypes)
+        guard !data.isEmpty else { return nil }
+        return ArtworkImage(
+            name: name.isEmpty ? L10nStore.catalog.untitled : name,
+            encoded: data
+        )
     }
 
     static func chooseFile(prompt: String, message: String) -> URL? {
@@ -144,62 +149,5 @@ enum ArtworkImport {
             return true
         }
         return false
-    }
-
-    private static func decode(
-        source: CGImageSource,
-        name: String,
-        allowing: [UTType]
-    ) -> ArtworkImage? {
-        guard let uti = CGImageSourceGetType(source) as String?,
-              let kind = UTType(uti),
-              allowing.contains(where: kind.conforms(to:))
-        else {
-            return nil
-        }
-        let options: [CFString: Any] = [
-            kCGImageSourceCreateThumbnailFromImageAlways: true,
-            kCGImageSourceCreateThumbnailWithTransform: true,
-            kCGImageSourceThumbnailMaxPixelSize: Engine.importMaxSide,
-            kCGImageSourceShouldCacheImmediately: true,
-        ]
-        guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
-        else {
-            return nil
-        }
-        return rasterize(image, name: name)
-    }
-
-    private static func rasterize(_ image: CGImage, name: String) -> ArtworkImage? {
-        let width = image.width
-        let height = image.height
-        guard width > 0, height > 0, width <= Engine.importMaxSide, height <= Engine.importMaxSide
-        else {
-            return nil
-        }
-        var bytes = [UInt8](repeating: 0, count: width * height * 4)
-        guard let space = CGColorSpace(name: CGColorSpace.sRGB) else { return nil }
-        let drew: Bool = bytes.withUnsafeMutableBytes { raw in
-            guard let context = CGContext(
-                data: raw.baseAddress,
-                width: width,
-                height: height,
-                bitsPerComponent: 8,
-                bytesPerRow: width * 4,
-                space: space,
-                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-            ) else {
-                return false
-            }
-            context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
-            return true
-        }
-        guard drew else { return nil }
-        return ArtworkImage(
-            name: name.isEmpty ? L10nStore.catalog.untitled : name,
-            width: width,
-            height: height,
-            premultipliedRGBA: Data(bytes)
-        )
     }
 }

@@ -49,7 +49,14 @@ impl Document {
     ) -> PasteOutcome {
         let (ox, oy) = self.paste_origin(width, height, 0);
         let before = self.snapshot_stack();
-        let outcome = self.paste_image_as_layer_at_inner(name, rgba, width, height, ox, oy, true);
+        let name = name.into();
+        let image = PasteImage {
+            name: &name,
+            rgba,
+            width,
+            height,
+        };
+        let outcome = self.paste_image_as_layer_at_inner(&image, (ox, oy));
         if outcome == PasteOutcome::Failed {
             self.restore_stack(before);
             return PasteOutcome::Failed;
@@ -74,15 +81,13 @@ impl Document {
             } else {
                 image.name.to_string()
             };
-            let one = self.paste_image_as_layer_at_inner(
-                layer_name,
-                image.rgba,
-                image.width,
-                image.height,
-                ox,
-                oy,
-                true,
-            );
+            let named = PasteImage {
+                name: &layer_name,
+                rgba: image.rgba,
+                width: image.width,
+                height: image.height,
+            };
+            let one = self.paste_image_as_layer_at_inner(&named, (ox, oy));
             if one != PasteOutcome::Failed {
                 pasted += 1;
                 outcome = merge_paste_outcome(outcome, one);
@@ -110,15 +115,13 @@ impl Document {
                 } else {
                     image.name.to_string()
                 };
-                self.paste_image_as_layer_at_inner(
-                    layer_name,
-                    image.rgba,
-                    image.width,
-                    image.height,
-                    d,
-                    d,
-                    true,
-                ) != PasteOutcome::Failed
+                let named = PasteImage {
+                    name: &layer_name,
+                    rgba: image.rgba,
+                    width: image.width,
+                    height: image.height,
+                };
+                self.paste_image_as_layer_at_inner(&named, (d, d)) != PasteOutcome::Failed
             };
             if ok {
                 placed += 1;
@@ -129,21 +132,16 @@ impl Document {
 
     fn paste_image_as_layer_at_inner(
         &mut self,
-        name: impl Into<String>,
-        rgba: &[u8],
-        width: u32,
-        height: u32,
-        ox: i32,
-        oy: i32,
-        new_layer: bool,
+        image: &PasteImage<'_>,
+        origin: (i32, i32),
     ) -> PasteOutcome {
+        let (width, height, rgba) = (image.width, image.height, image.rgba);
         let expected = (width as usize) * (height as usize) * 4;
         if width == 0 || height == 0 || rgba.len() < expected {
             return PasteOutcome::Failed;
         }
-        if new_layer {
-            self.push_layer(name);
-        }
+        self.push_layer(image.name);
+        let (ox, oy) = origin;
         let placed = DocRect::new(ox, oy, ox + width as i32 - 1, oy + height as i32 - 1);
         let touched = match self.active_mut().and_then(|l| l.tiles_mut()) {
             Some(tiles) => {
@@ -153,16 +151,13 @@ impl Document {
             None => 0,
         };
         if touched == 0 {
-            if new_layer {
-                self.layers.pop();
-                if !self.layers.is_empty() {
-                    self.active_layer = self.layers.len() - 1;
-                }
+            self.layers.pop();
+            if !self.layers.is_empty() {
+                self.active_layer = self.layers.len() - 1;
             }
             return PasteOutcome::Failed;
         }
-        let fits = width <= self.width && height <= self.height;
-        if fits {
+        if width <= self.width && height <= self.height {
             PasteOutcome::Native
         } else {
             PasteOutcome::Overflowing

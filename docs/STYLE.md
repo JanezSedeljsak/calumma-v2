@@ -13,16 +13,9 @@ bits use `{0}`, `{1}`, … filled by `l10n.formatKey(...)`. Visual tokens stay i
 
 ## Rules
 
-1. **Bordered islands and two kinds of control carry a thin border.** `CalmIsland(bordered:
-   true)` (the default — canvas, Paste Artwork, the zoom pill) is a raised `color.surface`
-   card stroked with `color.islandBorder`, a subtle, low-alpha tint of the theme's edge
-   color, not a hard line. `CalmIsland(bordered: false)` (tools, layers) instead sits flush
-   on `color.bg` — the app's own background — with no stroke and no card fill, so the panel
-   reads as part of the window chrome rather than a floating tile. Reach for `bordered:
-   false` only for a panel that runs the full window height and touches its own screen edge,
-   the way tools and layers do; a panel that floats free of the edge (the zoom pill, Paste
-   Artwork) still needs the card to read as a discrete object rather than debris on the
-   canvas.
+1. **Islands and two kinds of control carry a thin border.** Every `CalmIsland` (tools,
+   canvas, layers, Paste Artwork, the zoom pill) is stroked with `color.islandBorder` —
+   a subtle, low-alpha tint of the theme's edge color, not a hard line.
 
    **Text/number inputs, buttons, and list rows** also carry a border, at
    `color.controlBorder`: a separate, stronger token, because `islandBorder` is tuned
@@ -46,13 +39,11 @@ bits use `{0}`, `{1}`, … filled by `l10n.formatKey(...)`. Visual tokens stay i
    rule. It separates *stacked sections of one island*, which contrast alone cannot do —
    it is not an outline around a control.
 2. **Corner radius.** Controls use `radius.sm` / `radius.md`. Islands use `radius.island`
-   (rounded, not square, even when `bordered: false` leaves the corner invisible against a
-   matching background — a still-visible drop shadow or hover state should not reveal a
-   square panel underneath a rounded one). Tools, canvas, and layers sit apart with a
-   minimal gap (`space.xs`) and a minimal margin from the window edge (`space.xs`) on every
-   side — the titlebar already separates the islands from the chrome above, so a full margin
-   there reads as a dead band. They no longer butt flush
-   against each other. Prefer one radius family; do not mix pill and sharp.
+   (rounded, not square). Tools, canvas, and layers sit apart with a minimal gap
+   (`space.xs`) and a minimal margin from the window edge (`space.xs`) on every side — the
+   titlebar already separates the islands from the chrome above, so a full margin there
+   reads as a dead band. They no longer butt flush against each other. Prefer one radius
+   family; do not mix pill and sharp.
 3. **Custom SVG icons only.** Ship icons from `design/icons/`. No icon packs.
    SF Symbols are not the product icon set (system chrome may still use them).
 4. **Light and dark.** Every color has a light and dark value in tokens. The
@@ -145,12 +136,9 @@ Transform grips are white discs with a **thin grey ring** under them: a white gr
 paper is not a grip. The ring is a slightly larger disc drawn first rather than a stroked
 outline — the overlay pass has no stroked circle, and two discs is the same primitive twice.
 
-Tools, canvas, and layers sit full-height, side by side, separated by a minimal gap
-(`space.xs`) with a matching margin from the window edge on every side — no longer flush.
-Only **canvas** is the rounded, bordered `surface` card (rule 1); tools and layers are
-`CalmIsland(bordered: false)` — no card, no stroke, just `color.bg` — so they read as part
-of the window rather than two more tiles flanking the board. The **zoom pill** floats
-bottom-trailing *inside* the canvas island: `−`, log
+Tools, canvas, and layers are three **rounded, bordered islands**, full-height, separated
+by a minimal gap (`space.xs`) with a matching margin from the window edge on every side — no
+longer flush. The **zoom pill** floats bottom-trailing *inside* the canvas island: `−`, log
 slider, `+`, percentage, a fit-to-view icon (tooltip, no label). Layer list rows stay
 compact; hovering a row shows a thumbnail popover. Board hover outline remains a dashed
 WGSL stroke, not a Swift overlay.

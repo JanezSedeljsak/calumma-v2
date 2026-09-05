@@ -60,15 +60,16 @@ impl Document {
 
     /// The single source of truth for tool availability.
     ///
-    /// Three tools are never blocked, each for its own reason. The eyedropper reads the
+    /// Four tools are never blocked, each for its own reason. The eyedropper reads the
     /// composite and writes only the colour swatch. Move picks its own target out of the stack
-    /// rather than acting on the active layer. A pen or shape in vector mode commits into a
-    /// layer that does not exist yet.
+    /// rather than acting on the active layer. Crop acts on the whole document, not the active
+    /// layer. A pen or shape in vector mode commits into a layer that does not exist yet.
     pub fn tool_block(&self, tool: Tool) -> ToolBlock {
         let Some(layer) = self.layers.get(self.active_layer) else {
             return ToolBlock::NoContent;
         };
-        if matches!(tool, Tool::Eyedropper | Tool::Move) || self.draws_new_vector(tool) {
+        if matches!(tool, Tool::Eyedropper | Tool::Move | Tool::Crop) || self.draws_new_vector(tool)
+        {
             return ToolBlock::None;
         }
         // Select tools are never blocked by layer *kind* — selecting the red shape on a vector

@@ -5,6 +5,7 @@ pub mod camera;
 pub mod clone;
 pub mod color;
 pub mod coverage;
+pub mod crop_edit;
 pub mod device_tier;
 pub mod document;
 pub mod fill;
@@ -63,6 +64,7 @@ pub use calumma_text::{
 pub use camera::Camera;
 pub use color::{format_hex_rgb, pack_rgb, pack_rgba, parse_hex_rgb, unpack_rgb, unpack_rgba};
 pub use coverage::CoverageGrid;
+pub use crop_edit::CropOverlayStyle;
 pub use device_tier::{DeviceTier, GpuBudget, GpuKind};
 pub use document::{stamp_spacing, stroke_stamps, Document, StrokePoint, TransformHandles};
 pub use filters::{AdjustmentKind, Adjustments};

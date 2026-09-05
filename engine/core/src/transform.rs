@@ -95,6 +95,36 @@ impl LayerTransform {
         (dx * cos - dy * sin, dx * sin + dy * cos)
     }
 
+    /// Composes an additional whole-canvas rotation of `theta` about `canvas_center` *after*
+    /// this transform, in document space — what Straighten needs: level the photo by rotating
+    /// every layer the same way, expressed back in this struct's own pivot/rotation/scale terms
+    /// so `forward`/`inverse` need not change to draw it.
+    ///
+    /// Exact when `scale_x == scale_y` (uniform scale, the overwhelmingly common case — most
+    /// layers are never non-uniformly scaled): a uniform scale commutes with rotation, so the
+    /// composed rotate-then-scale collapses back into this struct's scale-then-rotate
+    /// parametrization with no residual shear. For a non-uniformly scaled layer this is the
+    /// closest same-shaped approximation — an exact fix would need a general 2×2 matrix, which
+    /// nothing else here needs.
+    pub fn composed_with_rotation(
+        &self,
+        canvas_center: (f32, f32),
+        pivot: (f32, f32),
+        theta: f32,
+    ) -> Self {
+        let (sin, cos) = (-theta).sin_cos();
+        let base = (pivot.0 - canvas_center.0, pivot.1 - canvas_center.1);
+        let rel = (base.0 + self.offset_x, base.1 + self.offset_y);
+        let rotated = (rel.0 * cos - rel.1 * sin, rel.0 * sin + rel.1 * cos);
+        Self {
+            offset_x: rotated.0 - base.0,
+            offset_y: rotated.1 - base.1,
+            scale_x: self.scale_x,
+            scale_y: self.scale_y,
+            rotation: self.rotation - theta,
+        }
+    }
+
     pub fn transformed_corners(
         &self,
         pivot: (f32, f32),

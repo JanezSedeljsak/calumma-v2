@@ -350,6 +350,84 @@ pub fn box_overlay_instances(
     out
 }
 
+const CROP_OUTLINE_COLOR: [f32; 4] = [1.0, 1.0, 1.0, 0.9];
+const CROP_OUTLINE_WIDTH_PX: f32 = 1.0;
+const CROP_HANDLE_COLOR: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
+const CROP_HANDLE_RADIUS_PX: f32 = 4.0;
+const CROP_HANDLE_BORDER_COLOR: [f32; 4] = [0.0, 0.0, 0.0, 0.6];
+const CROP_HANDLE_BORDER_PX: f32 = 1.0;
+const CROP_GUIDE_COLOR: [f32; 4] = [1.0, 1.0, 1.0, 0.5];
+const CROP_GUIDE_WIDTH_PX: f32 = 0.5;
+const STRAIGHTEN_LINE_COLOR: [f32; 4] = [1.0, 0.85, 0.2, 0.95];
+const STRAIGHTEN_LINE_WIDTH_PX: f32 = 1.0;
+
+/// The Crop tool's chrome: while a straighten line is being dragged that is the only thing
+/// drawn (the crop rect underneath it hasn't moved yet — `commit_straighten` runs on release);
+/// otherwise it's the composition guides (under the rect, so its outline draws over them),
+/// the rect's outline, and a grip at each of its 8 handles, in the same
+/// border-disc-then-fill-disc order `box_overlay_instances` uses for Transform's grips.
+pub fn crop_overlay_instances(doc: &Document) -> Vec<StrokeInstance> {
+    if let Some((p0, p1)) = doc.straighten_overlay_line() {
+        return vec![StrokeInstance {
+            segment: [p0.0, p0.1, p1.0, p1.1],
+            color: STRAIGHTEN_LINE_COLOR,
+            brush: brush_params(STRAIGHTEN_LINE_WIDTH_PX, &BrushProfile::HARD),
+        }];
+    }
+    let Some((x0, y0, x1, y1)) = doc.crop_overlay_rect() else {
+        return Vec::new();
+    };
+    let guides = doc.crop_overlay_lines();
+    let mut out = Vec::with_capacity(guides.len() + 4 + 8 * 2);
+    for (a, b) in guides {
+        out.push(StrokeInstance {
+            segment: [a.0, a.1, b.0, b.1],
+            color: CROP_GUIDE_COLOR,
+            brush: brush_params(CROP_GUIDE_WIDTH_PX, &BrushProfile::HARD),
+        });
+    }
+    let corners = [(x0, y0), (x1, y0), (x1, y1), (x0, y1)];
+    for i in 0..4 {
+        out.push(StrokeInstance {
+            segment: [
+                corners[i].0,
+                corners[i].1,
+                corners[(i + 1) % 4].0,
+                corners[(i + 1) % 4].1,
+            ],
+            color: CROP_OUTLINE_COLOR,
+            brush: brush_params(CROP_OUTLINE_WIDTH_PX, &BrushProfile::HARD),
+        });
+    }
+    let (mx, my) = ((x0 + x1) * 0.5, (y0 + y1) * 0.5);
+    let handles = [
+        corners[0],
+        (mx, y0),
+        corners[1],
+        (x1, my),
+        corners[2],
+        (mx, y1),
+        corners[3],
+        (x0, my),
+    ];
+    for p in handles {
+        out.push(StrokeInstance {
+            segment: [p.0, p.1, p.0, p.1],
+            color: CROP_HANDLE_BORDER_COLOR,
+            brush: brush_params(
+                CROP_HANDLE_RADIUS_PX + CROP_HANDLE_BORDER_PX,
+                &BrushProfile::HARD,
+            ),
+        });
+        out.push(StrokeInstance {
+            segment: [p.0, p.1, p.0, p.1],
+            color: CROP_HANDLE_COLOR,
+            brush: brush_params(CROP_HANDLE_RADIUS_PX, &BrushProfile::HARD),
+        });
+    }
+    out
+}
+
 /// Which half of the blink the caret is in at `elapsed`.
 ///
 /// Split out of `text_overlay_instances` because the renderer's frame loop reads it too: a caret

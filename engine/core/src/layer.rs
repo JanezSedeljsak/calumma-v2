@@ -360,6 +360,49 @@ impl Layer {
         self.set_mask(Some(next));
     }
 
+    /// `resize_mask`'s general form: the new mask's `(x, y)` reads the old one's
+    /// `(x + origin_x, y + origin_y)` rather than assuming the two share a top-left corner.
+    /// `resize_mask(ow, oh, nw, nh)` is exactly `shift_mask(0, 0, ow, oh, nw, nh)` — used to
+    /// keep a mask aligned with content a canvas crop/expand has shifted via `layer.transform`,
+    /// since the mask itself is a plain document-space buffer with no transform of its own
+    /// (`layer_composited_pixel` indexes it by raw `(doc_x, doc_y)`).
+    pub fn shift_mask(
+        &mut self,
+        origin_x: i32,
+        origin_y: i32,
+        old_width: u32,
+        old_height: u32,
+        new_width: u32,
+        new_height: u32,
+    ) {
+        let Some(old) = &self.mask else {
+            return;
+        };
+        let mut next = vec![255u8; (new_width as usize) * (new_height as usize)];
+        // The overlap is one contiguous run of columns, the same in every row — `dst_x0` is
+        // where `-origin_x` first lands inside `[0, new_width)`, `dst_x1` where the old width
+        // runs out — so each row is one `copy_from_slice` rather than a per-pixel scan, and
+        // rows are independent, so they run across every core the same way `copy_layer_into_
+        // rgba`'s row loop does.
+        let dst_x0 = (-origin_x).clamp(0, new_width as i32) as usize;
+        let dst_x1 = (old_width as i32 - origin_x).clamp(0, new_width as i32) as usize;
+        if dst_x0 < dst_x1 {
+            let copy_w = dst_x1 - dst_x0;
+            let src_x0 = dst_x0 as i32 + origin_x;
+            next.par_chunks_mut(new_width as usize)
+                .enumerate()
+                .for_each(|(y, row)| {
+                    let sy = y as i32 + origin_y;
+                    if sy < 0 || sy as u32 >= old_height {
+                        return;
+                    }
+                    let src_start = (sy as usize) * (old_width as usize) + src_x0 as usize;
+                    row[dst_x0..dst_x1].copy_from_slice(&old[src_start..src_start + copy_w]);
+                });
+        }
+        self.set_mask(Some(next));
+    }
+
     pub fn dirty_tiles(&self, channel: DirtyChannel) -> Option<&TileSet> {
         self.tiles().map(|t| t.dirty_tiles(channel))
     }

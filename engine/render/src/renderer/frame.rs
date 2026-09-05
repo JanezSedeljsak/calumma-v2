@@ -697,6 +697,8 @@ impl Renderer {
                     doc,
                     self.started.elapsed().as_secs_f32(),
                 ));
+            } else if doc.tool == Tool::Crop {
+                screen_instances.extend(crop_overlay_instances(doc));
             } else if doc.previews_brush_stroke() {
                 brush_active = true;
                 let profile = doc.active_brush_profile();

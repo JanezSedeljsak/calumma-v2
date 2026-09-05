@@ -1,6 +1,7 @@
 use crate::brush::{Brush, BrushProfile};
 use crate::camera::Camera;
 use crate::coverage::CoverageGrid;
+use crate::crop_edit::{CropDrag, CropOverlayStyle};
 use crate::filters::AdjustmentLut;
 use crate::guide::{Guide, GuideDrag};
 use crate::history::{History, TileSnapshot};
@@ -271,6 +272,26 @@ pub(crate) fn apply_layer_effects(rgba: &mut [u8], layer: &Layer, lut: Option<&A
     });
 }
 
+/// The up-to-4 rectangles covering `outer \ inner` — top, bottom, left and right bands, in that
+/// order, `None` for a band that is empty. `inner` must already be a sub-rect of `outer` (or
+/// absent, in which case the whole of `outer` is exposed). Used to paint Paper's fill onto only
+/// the region a canvas shift newly exposed, leaving whatever survived from the old canvas alone.
+fn exposed_bands(outer: DocRect, inner: Option<DocRect>) -> [Option<DocRect>; 4] {
+    let Some(inner) = inner else {
+        return [Some(outer), None, None, None];
+    };
+    [
+        (inner.min_y > outer.min_y)
+            .then(|| DocRect::new(outer.min_x, outer.min_y, outer.max_x, inner.min_y - 1)),
+        (inner.max_y < outer.max_y)
+            .then(|| DocRect::new(outer.min_x, inner.max_y + 1, outer.max_x, outer.max_y)),
+        (inner.min_x > outer.min_x)
+            .then(|| DocRect::new(outer.min_x, inner.min_y, inner.min_x - 1, inner.max_y)),
+        (inner.max_x < outer.max_x)
+            .then(|| DocRect::new(inner.max_x + 1, inner.min_y, outer.max_x, inner.max_y)),
+    ]
+}
+
 fn tiles_covering(rect: DocRect, out: &mut TileSet) {
     let (tx0, ty0, tx1, ty1) = rect.tile_span();
     for ty in ty0..=ty1 {
@@ -430,6 +451,25 @@ pub struct Document {
     /// touched nothing — blur strength at zero, or dragged across empty space — must not leave
     /// an undo entry behind, and the snapshot alone cannot tell the difference.
     live_stamp_painted: bool,
+    /// The crop/expand rectangle being dragged, in document space, or `None` when `Tool::Crop`
+    /// is not active. Set to the full canvas on entry (`enter_crop`) and cleared on exit or
+    /// commit — see `crop_edit.rs`.
+    pub(crate) crop_rect: Option<(f32, f32, f32, f32)>,
+    pub(crate) crop_drag: Option<CropDrag>,
+    /// `width / height` the crop rect is locked to, or `None` for a free-form drag. A shell
+    /// knob, like `vector_mode` — the user's choice, not state the engine derives.
+    pub crop_aspect_lock: Option<f32>,
+    /// Which composition guide the crop overlay draws while dragging. A shell knob.
+    pub crop_overlay_style: CropOverlayStyle,
+    /// The reference line straighten is levelling, in document space (`(p0, p1)`), or `None`
+    /// between straightens. Lives alongside the crop rect rather than gating on its own tool —
+    /// straighten is a one-shot gesture available while `Tool::Crop` is active, not a mode of
+    /// its own.
+    pub(crate) straighten_line: Option<((f32, f32), (f32, f32))>,
+    /// Arms the next `Tool::Crop` drag as a straighten line instead of a crop-rect drag. A
+    /// shell knob, set just before the user drags the reference line and cleared again once
+    /// they release it (`end_straighten`).
+    pub straighten_active: bool,
 }
 
 /// Where the clone stamp / healing brush reads from. `offset` is `anchor − first destination
@@ -674,6 +714,12 @@ impl Document {
             eraser_hardness: ERASER_HARDNESS_DEFAULT,
             live_stamp_progress: 0,
             live_stamp_painted: false,
+            crop_rect: None,
+            crop_drag: None,
+            crop_aspect_lock: None,
+            crop_overlay_style: CropOverlayStyle::Off,
+            straighten_line: None,
+            straighten_active: false,
         }
     }
 
@@ -1402,6 +1448,74 @@ impl Document {
         self.fit_to_view();
     }
 
+    /// `resize`'s general form: the new canvas window need not share the old one's top-left
+    /// corner. `apply_canvas_shift(0, 0, w, h)` is exactly `resize(w, h)` — delegated to
+    /// directly, so the existing top-left-anchored path (the layers-panel footer resize UI) is
+    /// untouched byte-for-byte.
+    ///
+    /// A nonzero origin never resamples a pixel: every layer's content moves by shifting
+    /// `layer.transform.offset`, which composes with any existing transform exactly (a pure
+    /// post-hoc translation cancels the pivot term in `LayerTransform::forward` regardless of
+    /// rotation/scale), so tile data is never touched and nothing painted is ever lost — the
+    /// same non-destructive guarantee `resize` already has, generalized to any edge or corner.
+    /// `Layer::mask`, unlike tile content, is a plain document-space buffer with no transform of
+    /// its own (`layer_composited_pixel` reads it by raw `(doc_x, doc_y)`), so it is shifted as
+    /// an actual — but lossless, pixel-exact — buffer copy via `Layer::shift_mask`.
+    pub fn apply_canvas_shift(
+        &mut self,
+        origin_x: i32,
+        origin_y: i32,
+        new_width: u32,
+        new_height: u32,
+    ) {
+        if origin_x == 0 && origin_y == 0 {
+            self.resize(new_width, new_height);
+            return;
+        }
+        let new_width = new_width.clamp(MIN_CANVAS_SIDE, MAX_CANVAS_SIDE);
+        let new_height = new_height.clamp(MIN_CANVAS_SIDE, MAX_CANVAS_SIDE);
+        let (old_width, old_height) = (self.width, self.height);
+        self.commit_text();
+        self.record_stack_history();
+        // The old canvas window, and the new one, both expressed in the *current* (pre-shift)
+        // local coordinate space every layer's tiles already live in — nothing has moved yet at
+        // this point, so this is also every layer's own local space, paper included.
+        let old_local = DocRect::from_size(old_width, old_height);
+        let new_window = DocRect::new(
+            origin_x,
+            origin_y,
+            origin_x + new_width as i32 - 1,
+            origin_y + new_height as i32 - 1,
+        );
+        for layer in &mut self.layers {
+            layer.shift_mask(
+                origin_x, origin_y, old_width, old_height, new_width, new_height,
+            );
+            let t = layer.transform.get_or_insert_with(LayerTransform::default);
+            t.offset_x -= origin_x as f32;
+            t.offset_y -= origin_y as f32;
+            let is_paper = layer.is_paper();
+            let Some(tiles) = layer.tiles_mut() else {
+                continue;
+            };
+            tiles.set_size(new_width, new_height);
+            // `set_size` only ever unions the extent with `[0, new_width) x [0, new_height)`,
+            // which is the wrong place once this layer carries an offset — the local window a
+            // future paint or fill needs room for is `new_window`, not the document's own frame.
+            tiles.grow_extent(new_window);
+            if !is_paper {
+                continue;
+            }
+            let surviving = new_window.intersect(old_local);
+            for band in exposed_bands(new_window, surviving).into_iter().flatten() {
+                tiles.fill_uniform(band, PAPER_WHITE);
+            }
+        }
+        self.width = new_width;
+        self.height = new_height;
+        self.fit_to_view();
+    }
+
     pub fn resize_viewport(&mut self, width: f32, height: f32, dpr: f32) {
         self.camera.viewport_width = width.max(1.0);
         self.camera.viewport_height = height.max(1.0);
@@ -1419,6 +1533,14 @@ impl Document {
         self.pointer_hover = Some((dx, dy));
         if self.transform_active {
             self.transform_pointer_down(dx, dy);
+            return;
+        }
+        if self.tool == Tool::Crop {
+            if self.straighten_active {
+                self.begin_straighten(dx, dy);
+            } else {
+                self.begin_crop_drag(dx, dy);
+            }
             return;
         }
         if self.tool == Tool::Move {
@@ -1512,6 +1634,14 @@ impl Document {
             }
             return true;
         }
+        if self.tool == Tool::Crop {
+            if self.straighten_active {
+                self.update_straighten(dx, dy);
+            } else {
+                self.update_crop_drag(dx, dy);
+            }
+            return true;
+        }
         if self.tool == Tool::Move {
             // A guide is redrawn from scratch every frame, so moving one invalidates no cache —
             // it is the cheapest kind of overlay frame there is.
@@ -1542,6 +1672,14 @@ impl Document {
         if self.transform_active {
             self.commit_vector_drag_history();
             self.commit_transform_drag_history();
+            return;
+        }
+        if self.tool == Tool::Crop {
+            if self.straighten_active {
+                self.end_straighten();
+            } else {
+                self.end_crop_drag();
+            }
             return;
         }
         if self.tool == Tool::Move {

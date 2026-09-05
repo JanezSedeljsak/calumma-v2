@@ -6,7 +6,8 @@ use calumma_core::limits::{
 };
 use calumma_core::{
     pack_rgba, project_color, unpack_rgba, unpremultiply_rgba, AdjustmentKind, Adjustments,
-    BlendMode, BoardColors, Brush, Document, MemoryPressureLevel, Tool, PROJECT_COLORS,
+    BlendMode, BoardColors, Brush, CropOverlayStyle, Document, MemoryPressureLevel, Tool,
+    PROJECT_COLORS,
 };
 use calumma_io::{encode_pdf, encode_psd, encode_svg, ProjectListItem, ProjectStore};
 use calumma_ops::{
@@ -1378,6 +1379,91 @@ pub unsafe extern "C" fn calm_engine_exit_transform(engine: *mut CalmEngine) -> 
                 r.invalidate();
             }
         }
+        Ok(())
+    })
+}
+
+/// `width / height` the crop rect is locked to. Entering, dragging and exiting Crop all ride
+/// the existing `calm_engine_set_tool` / `calm_engine_pointer_*` calls — `Tool::Crop` dispatches
+/// through the same generic pointer handlers every other tool does — so this and the handful of
+/// FFI functions below are only the shell knobs `Tool::Crop`'s options bar needs: the aspect
+/// lock, the overlay style, arming a straighten drag, and the two ways out (commit or cancel).
+#[no_mangle]
+pub unsafe extern "C" fn calm_engine_set_crop_aspect_lock(
+    engine: *mut CalmEngine,
+    ratio: f32,
+) -> CalmStatus {
+    with_inner(engine, |inner| {
+        if let Some(doc) = &mut inner.doc {
+            doc.crop_aspect_lock = ratio.is_finite().then_some(ratio).filter(|r| *r > 0.0);
+            if let Some(r) = &mut inner.renderer {
+                r.invalidate_overlay();
+            }
+        }
+        Ok(())
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn calm_engine_clear_crop_aspect_lock(engine: *mut CalmEngine) -> CalmStatus {
+    with_inner(engine, |inner| {
+        if let Some(doc) = &mut inner.doc {
+            doc.crop_aspect_lock = None;
+            if let Some(r) = &mut inner.renderer {
+                r.invalidate_overlay();
+            }
+        }
+        Ok(())
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn calm_engine_set_crop_overlay_style(
+    engine: *mut CalmEngine,
+    style: u32,
+) -> CalmStatus {
+    with_inner(engine, |inner| {
+        let style = CropOverlayStyle::from_u32(style)
+            .with_context(|| format!("unknown crop overlay style id {style}"))?;
+        if let Some(doc) = &mut inner.doc {
+            doc.crop_overlay_style = style;
+            if let Some(r) = &mut inner.renderer {
+                r.invalidate_overlay();
+            }
+        }
+        Ok(())
+    })
+}
+
+/// Arms (or disarms) the next `Tool::Crop` drag as a straighten line instead of a crop-rect
+/// drag. The shell flips this on when the user presses the Straighten button and it comes back
+/// off on its own once the drag releases (`Document::end_straighten`).
+#[no_mangle]
+pub unsafe extern "C" fn calm_engine_set_straighten_active(
+    engine: *mut CalmEngine,
+    active: u8,
+) -> CalmStatus {
+    with_inner(engine, |inner| {
+        if let Some(doc) = &mut inner.doc {
+            doc.straighten_active = active != 0;
+        }
+        Ok(())
+    })
+}
+
+/// Applies the crop rect: resizes the canvas and leaves `Tool::Crop` still active with a fresh
+/// full-canvas rect, mirroring how committing a shape or a fill leaves its tool selected.
+/// There is no dedicated "cancel" entry point next to this one — leaving Crop without applying
+/// anything is exactly what `calm_engine_set_tool` already does for any other tool, since
+/// `Document::set_tool` calls `exit_crop` on its way out.
+#[no_mangle]
+pub unsafe extern "C" fn calm_engine_commit_crop(engine: *mut CalmEngine) -> CalmStatus {
+    with_inner(engine, |inner| {
+        if let Some(doc) = &mut inner.doc {
+            doc.commit_crop();
+            inner.dirty_save = true;
+        }
+        inner.invalidate_renderer();
         Ok(())
     })
 }

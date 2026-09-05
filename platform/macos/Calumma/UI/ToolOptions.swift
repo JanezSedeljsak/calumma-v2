@@ -14,6 +14,7 @@ struct ToolOptions: View {
             pickerOptions
             sliderOptions
             toggleOptions
+            cropOptions
         }
     }
 
@@ -182,6 +183,48 @@ struct ToolOptions: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .help(block.reason(l10n) ?? l10n.transformModeHint)
+        }
+    }
+
+    /// `Tool::Crop`'s own options: the aspect-ratio lock (a single picker, "Free" among the
+    /// presets rather than a separate lock checkbox — there is nothing for a checkbox to
+    /// disagree with a ratio about), the composition-guide overlay, Straighten, and the two
+    /// ways out of a drag in progress.
+    @ViewBuilder
+    private var cropOptions: some View {
+        if app.tool == .crop {
+            VStack(alignment: .leading, spacing: Tokens.Space.sm) {
+                VStack(alignment: .leading, spacing: Tokens.Space.xs) {
+                    CalmText.label(l10n.cropAspectRatio)
+                    Picker(l10n.cropAspectRatio, selection: $app.cropAspectLock) {
+                        Text(l10n.cropAspectFree).tag(Float?.none)
+                        Text("1:1").tag(Float?(1.0))
+                        Text("4:3").tag(Float?(4.0 / 3.0))
+                        Text("3:2").tag(Float?(3.0 / 2.0))
+                        Text("16:9").tag(Float?(16.0 / 9.0))
+                        Text("5:4").tag(Float?(5.0 / 4.0))
+                    }
+                    .pickerStyle(.menu)
+                    .labelsHidden()
+                }
+                VStack(alignment: .leading, spacing: Tokens.Space.xs) {
+                    CalmText.label(l10n.cropOverlay)
+                    Picker(l10n.cropOverlay, selection: $app.cropOverlayStyle) {
+                        Text(l10n.cropOverlayOff).tag(CalmCropOverlayStyle.off)
+                        Text(l10n.cropOverlayRuleOfThirds).tag(CalmCropOverlayStyle.ruleOfThirds)
+                        Text(l10n.cropOverlayGrid).tag(CalmCropOverlayStyle.grid)
+                        Text(l10n.cropOverlayDiagonal).tag(CalmCropOverlayStyle.diagonal)
+                        Text(l10n.cropOverlayGoldenRatio).tag(CalmCropOverlayStyle.goldenRatio)
+                    }
+                    .pickerStyle(.menu)
+                    .labelsHidden()
+                }
+                paintToggle(l10n.cropStraighten, isOn: $app.straightening)
+                HStack(spacing: Tokens.Space.xs) {
+                    CalmPlainButton(title: l10n.cropCancel, fill: true) { app.cancelCrop() }
+                    CalmAccentButton(title: l10n.cropCommit) { app.commitCrop() }
+                }
+            }
         }
     }
 

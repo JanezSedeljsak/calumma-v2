@@ -260,3 +260,38 @@ fn the_bases_own_opacity_survives_the_clip() {
     assert!((doc.layers[base].opacity - 0.5).abs() < 1e-6);
     assert_eq!(pixel(&doc, base, 12, 12), [255, 0, 0, 255]);
 }
+
+/// Merging a layer that is not the active one has to move `active_layer` along with whatever
+/// shifted underneath it — two distinct cases depending on where the active layer sat relative
+/// to the one that just disappeared, neither the "I merged the layer I was on" case every
+/// other test in this file exercises.
+///
+/// `Document::new` seeds two layers on its own (Paper, then a default "Layer 1"), so the stack
+/// after adding A/B/C/D is Paper(0), Layer 1(1), A(2), B(3), C(4), D(5) — and merging into
+/// Paper is refused, so every merge below targets a slot above it.
+#[test]
+fn merging_an_inactive_layer_carries_the_active_index_with_the_shift() {
+    let mut doc = Document::new("p".into(), "t", SIDE, SIDE);
+    for name in ["A", "B", "C", "D"] {
+        doc.add_layer(name);
+    }
+    doc.set_active_layer(4);
+    assert_eq!(doc.layers[4].name, "C");
+
+    // Merging B(3) down into A(2) leaves active_layer strictly above the removed slot — it
+    // must simply follow the shift down by one, landing back on C.
+    assert!(doc.merge_layer_down(3));
+    assert_eq!(doc.layers.len(), 5, "Paper, Layer 1, A+B, C, D");
+    assert_eq!(doc.active_layer, 3);
+    assert_eq!(doc.layers[doc.active_layer].name, "C");
+
+    // Now active is on the top layer (D) and a layer beneath it merges away. `active_layer`
+    // was already sitting at the old top-most index, which the `>= new length` branch catches
+    // before the plain "was above it" branch would — same shift, different reason.
+    doc.set_active_layer(doc.layers.len() - 1);
+    assert_eq!(doc.layers[doc.active_layer].name, "D");
+    assert!(doc.merge_layer_down(2));
+    assert_eq!(doc.layers.len(), 4, "Paper, Layer 1+A+B, C, D");
+    assert_eq!(doc.active_layer, doc.layers.len() - 1);
+    assert_eq!(doc.layers[doc.active_layer].name, "D");
+}

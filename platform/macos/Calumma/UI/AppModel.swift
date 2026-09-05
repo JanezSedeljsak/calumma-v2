@@ -63,6 +63,16 @@ final class AppModel: ObservableObject {
     @Published var fill = false
     @Published var stroke = true
     @Published var vectorMode = false
+    /// `nil` is a free-form crop drag; a ratio locks `Tool::Crop`'s rect to it.
+    @Published var cropAspectLock: Float? {
+        didSet { engine.setCropAspectLock(cropAspectLock) }
+    }
+    @Published var cropOverlayStyle: CalmCropOverlayStyle = .off {
+        didSet { engine.setCropOverlayStyle(cropOverlayStyle) }
+    }
+    @Published var straightening = false {
+        didSet { engine.setStraightenActive(straightening) }
+    }
     @Published var layersOpen = true
     @Published var spacePan = false
 
@@ -315,12 +325,11 @@ final class AppModel: ObservableObject {
     }
 
     func exportComposite(as format: ExportFormat) {
-        guard let image = engine.compositeCGImage() else { return }
+        guard let data = engine.exportImage(format: format) else { return }
         let panel = NSSavePanel()
         panel.allowedContentTypes = [format.utType]
         panel.nameFieldStringValue = "\(activeProjectName).\(format.fileExtension)"
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        guard let data = ImageEncode.data(image, format: format) else { return }
         try? data.write(to: url)
     }
 
@@ -355,8 +364,7 @@ final class AppModel: ObservableObject {
             return
         }
         guard let format = ExportFormat(fileExtension: url.pathExtension),
-              let image = engine.layerCGImage(index: index),
-              let data = ImageEncode.data(image, format: format)
+              let data = engine.exportLayerImage(index: index, format: format)
         else {
             return
         }
@@ -591,6 +599,18 @@ final class AppModel: ObservableObject {
     func setAccent(projectId: String, color: Color) {
         engine.setAccent(projectId: projectId, color: color)
         refreshOpenProject(projectId)
+    }
+
+    /// Applies the crop rect and stays on `Tool::Crop` with a fresh full-canvas rect, the same
+    /// way committing a shape leaves its tool selected.
+    func commitCrop() {
+        engine.commitCrop()
+    }
+
+    /// Leaves Crop for the tool most people reach for next, without applying anything.
+    func cancelCrop() {
+        straightening = false
+        selectTool(.move)
     }
 
     func selectTool(_ next: CalmTool) {

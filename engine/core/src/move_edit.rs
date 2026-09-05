@@ -14,6 +14,11 @@ impl Document {
         if next != Tool::Move {
             self.exit_transform();
         }
+        if next == Tool::Crop {
+            self.enter_crop();
+        } else if self.tool == Tool::Crop {
+            self.exit_crop();
+        }
         if next.is_shape() {
             self.last_shape_tool = next;
         }

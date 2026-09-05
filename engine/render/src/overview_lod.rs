@@ -185,7 +185,7 @@ mod tests {
     use calumma_core::limits::OVERVIEW_FINEST_SIDE;
     use calumma_core::tile::DocRect;
     use calumma_core::vector::VectorShape;
-    use calumma_core::{BlendMode, Shape, Tool};
+    use calumma_core::{Adjustments, BlendMode, LayerTransform, Shape, Tool};
 
     fn doc(width: u32, height: u32) -> Document {
         Document::new("p".into(), "t", width, height)
@@ -329,5 +329,95 @@ mod tests {
         };
         shape.color = [220, 30, 30, 255];
         assert_ne!(stack_stamp(&d), before);
+    }
+
+    #[test]
+    fn a_thicker_stroke_or_a_fill_flag_moves_the_stamp() {
+        let mut d = doc(64, 64);
+        d.add_vector_layer(
+            "V",
+            VectorItem::Shape(VectorShape {
+                shape: Shape {
+                    tool: Tool::Rect,
+                    start: (8.0, 8.0),
+                    end: (40.0, 40.0),
+                    half_width: 1.0,
+                    fill: true,
+                    stroke: false,
+                },
+                color: [0, 90, 220, 255],
+                stroke_color: [0, 90, 220, 255],
+            }),
+        );
+        let before = stack_stamp(&d);
+        {
+            let Some(VectorItem::Shape(shape)) = d.layers.last_mut().unwrap().content.item_mut()
+            else {
+                panic!("vector layer");
+            };
+            shape.shape.half_width = 4.0;
+        }
+        assert_ne!(stack_stamp(&d), before);
+        let after_width = stack_stamp(&d);
+        {
+            let Some(VectorItem::Shape(shape)) = d.layers.last_mut().unwrap().content.item_mut()
+            else {
+                panic!("vector layer");
+            };
+            shape.shape.stroke = true;
+        }
+        assert_ne!(stack_stamp(&d), after_width);
+    }
+
+    #[test]
+    fn a_transform_or_adjustment_moves_the_stamp() {
+        let mut d = doc(64, 64);
+        let before = stack_stamp(&d);
+        d.layers[1].transform = Some(LayerTransform {
+            offset_x: 12.0,
+            ..LayerTransform::default()
+        });
+        assert_ne!(stack_stamp(&d), before);
+        d.layers[1].transform = None;
+        assert_eq!(stack_stamp(&d), before);
+        d.layers[1].adjustments = Some(Adjustments {
+            brightness: 0.2,
+            ..Adjustments::default()
+        });
+        assert_ne!(stack_stamp(&d), before);
+    }
+
+    #[test]
+    fn attaching_a_mask_moves_the_stamp() {
+        let mut d = doc(8, 8);
+        let before = stack_stamp(&d);
+        d.layers[1].set_mask(Some(vec![255u8; 8 * 8]));
+        assert_ne!(stack_stamp(&d), before);
+        let mut mask = vec![255u8; 8 * 8];
+        mask[0] = 0;
+        d.layers[1].set_mask(Some(mask));
+        let with_hole = stack_stamp(&d);
+        d.layers[1].set_mask(Some(vec![255u8; 8 * 8]));
+        assert_ne!(stack_stamp(&d), with_hole);
+    }
+
+    #[test]
+    fn the_next_chunk_on_the_texture_starts_after_the_origin_chunk() {
+        let origin = chunk_tex_rect(0, 0, 4096, 4096, 1024, 1024).unwrap();
+        let next = chunk_tex_rect(1, 0, 4096, 4096, 1024, 1024).unwrap();
+        assert!(next.0 > 0);
+        assert!(next.0 < origin.0 + origin.2);
+        assert_eq!(next.1, origin.1);
+        assert!(next.0 + next.2 <= 1024);
+    }
+
+    #[test]
+    fn needed_side_grows_with_dpr() {
+        let mut d = doc(2048, 1024);
+        d.camera.zoom = 0.25;
+        d.camera.dpr = 1.0;
+        let one = needed_side(&d);
+        d.camera.dpr = 2.0;
+        assert_eq!(needed_side(&d), one * 2);
     }
 }

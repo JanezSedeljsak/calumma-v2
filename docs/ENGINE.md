@@ -626,10 +626,14 @@ Adding a field means bumping the version and writing the migration in the same c
 ### Export
 
 - **PNG / JPEG / WebP / AVIF / HEIC** — `Document::composite_rgba` flattens the visible stack
-  respecting masks, opacity, blend modes and adjustments, and hands raw RGBA over FFI; the
-  shell encodes it through ImageIO. `io/src/png.rs` is the engine's own PNG codec, used where
-  the engine needs bytes itself: clipboard copy, project thumbnails, and the rasters embedded
-  inside an SVG export.
+  respecting masks, opacity, blend modes and adjustments; `io` encodes the bytes
+  (`raster.rs`, `calm_engine_export_image`). PNG and WebP are lossless; JPEG / AVIF / HEIC
+  use `LOSSY_EXPORT_QUALITY`. HEIC rides `heif-rs` (statically linked libheif / x265 /
+  libde265). AVIF encode is `ravif`; AVIF decode is `avif-decode` (statically linked
+  libaom) — libheif's HEVC build cannot read AV1. `io/src/png.rs` remains the PNG helper for
+  clipboard copy, project thumbnails, and rasters embedded in SVG export.
+- Import of those formats (plus TIFF, SVG rasterize, PSD flattened composite) is
+  `decode_encoded` — the shell never decodes pixels.
 - **PSD** (`io/src/psd.rs`) — layered.
 - **SVG** (`io/src/svg.rs` + `core/src/vector_svg.rs`) — layered, and a vector item emits the
   matching SVG *primitive* (`<rect>`, `<ellipse>`, `<path>`) rather than a flattened polyline,

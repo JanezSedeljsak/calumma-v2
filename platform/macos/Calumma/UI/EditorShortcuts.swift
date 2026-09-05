@@ -78,8 +78,19 @@ extension AppModel {
             engine.exitTransform()
             return true
         }
+        // Crop's own Return/Esc split, the same shape as Transform's above: Return applies the
+        // rect, Esc walks away from it — both leave `Tool::Crop` selected with a fresh
+        // full-canvas rect (commit) or back on `.move` (cancel), never mid-drag.
+        if returnKeyCodes.contains(event.keyCode), tool == .crop {
+            commitCrop()
+            return true
+        }
         if event.keyCode == 53 {
-            engine.deselect()
+            if tool == .crop {
+                cancelCrop()
+            } else {
+                engine.deselect()
+            }
             return true
         }
         if flags.contains(.command), flags.contains(.shift), chars.lowercased() == "i" {

@@ -242,6 +242,12 @@ CalmStatus calm_engine_toggle_transform(CalmEngine *engine);
 CalmStatus calm_engine_enter_transform(CalmEngine *engine);
 CalmStatus calm_engine_exit_transform(CalmEngine *engine);
 
+CalmStatus calm_engine_set_crop_aspect_lock(CalmEngine *engine, float ratio);
+CalmStatus calm_engine_clear_crop_aspect_lock(CalmEngine *engine);
+CalmStatus calm_engine_set_crop_overlay_style(CalmEngine *engine, uint32_t style);
+CalmStatus calm_engine_set_straighten_active(CalmEngine *engine, uint8_t active);
+CalmStatus calm_engine_commit_crop(CalmEngine *engine);
+
 CalmStatus calm_engine_undo(CalmEngine *engine);
 CalmStatus calm_engine_redo(CalmEngine *engine);
 CalmStatus calm_engine_add_layer(CalmEngine *engine);
@@ -318,6 +324,36 @@ uint64_t calm_engine_layer_preview_revision(CalmEngine *engine, uint32_t index);
 CalmStatus calm_engine_layer_bounds(CalmEngine *engine, uint32_t index, CalmLayerBounds *out);
 CalmStatus calm_engine_set_layer_bounds(CalmEngine *engine, uint32_t index, float x, float y, float width, float height);
 CalmStatus calm_engine_composite_rgba(CalmEngine *engine, uint8_t **out_rgba, uint32_t *out_w, uint32_t *out_h);
+
+typedef enum CalmImageFormat {
+    CalmImageFormatPng = 0,
+    CalmImageFormatJpeg = 1,
+    CalmImageFormatWebp = 2,
+    CalmImageFormatAvif = 3,
+    CalmImageFormatHeic = 4,
+} CalmImageFormat;
+
+CalmStatus calm_image_decode(const uint8_t *bytes, size_t len, uint8_t **out_rgba, size_t *out_len,
+                             uint32_t *out_w, uint32_t *out_h);
+CalmStatus calm_engine_export_image(CalmEngine *engine, uint32_t format, uint8_t **out_bytes,
+                                    size_t *out_len);
+CalmStatus calm_engine_export_layer_image(CalmEngine *engine, uint32_t layer_index, uint32_t format,
+                                          uint8_t **out_bytes, size_t *out_len);
+
+typedef struct CalmEncodedImage {
+    const char *name;
+    const uint8_t *bytes;
+    size_t len;
+} CalmEncodedImage;
+
+char *calm_project_create_from_encoded(CalmEngine *engine, const char *name, const uint8_t *bytes,
+                                       size_t len);
+char *calm_project_create_from_encoded_images(CalmEngine *engine, const char *name,
+                                              const CalmEncodedImage *images, size_t count);
+CalmStatus calm_engine_paste_encoded(CalmEngine *engine, const uint8_t *bytes, size_t len,
+                                     uint32_t *out_outcome);
+CalmStatus calm_engine_paste_encoded_images(CalmEngine *engine, const CalmEncodedImage *images,
+                                            size_t count, uint32_t *out_count, uint32_t *out_outcome);
 CalmStatus calm_engine_export_psd(CalmEngine *engine, uint8_t **out_bytes, size_t *out_len);
 CalmStatus calm_engine_export_pdf(CalmEngine *engine, float dpi, uint8_t **out_bytes,
                                   size_t *out_len);

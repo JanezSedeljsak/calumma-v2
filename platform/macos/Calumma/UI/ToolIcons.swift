@@ -29,6 +29,7 @@ extension CalmTool {
         case .selectRect, .selectEllipse, .selectLasso: return "select-rect"
         case .magicWand: return "magic-wand"
         case .selectColor: return "select-color"
+        case .crop: return "crop"
         }
     }
 

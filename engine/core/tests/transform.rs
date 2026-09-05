@@ -210,3 +210,71 @@ fn a_flat_box_still_produces_a_finite_scale() {
 fn bounds_center_is_the_midpoint_even_for_a_negative_box() {
     approx(bounds_center((-30.0, -10.0, -10.0, 10.0)), (-20.0, 0.0));
 }
+
+/// The whole point of `composed_with_rotation`: for a layer with an *identity* transform, the
+/// composed transform's `forward` must draw exactly the same picture as rotating the point
+/// straight through, by hand, about the canvas center — the definition Straighten is built on.
+#[test]
+fn composed_with_rotation_matches_a_direct_rotation_about_the_canvas_center_from_identity() {
+    let canvas_center = (100.0, 60.0);
+    let pivot = (40.0, 40.0);
+    let theta = 0.4;
+    let t = LayerTransform::default().composed_with_rotation(canvas_center, pivot, theta);
+
+    for local in [(40.0, 40.0), (10.0, 90.0), (70.0, 5.0), (100.0, 60.0)] {
+        let got = t.forward(pivot, local);
+        let (sin, cos) = (-theta).sin_cos();
+        let rel = (local.0 - canvas_center.0, local.1 - canvas_center.1);
+        let want = (
+            canvas_center.0 + rel.0 * cos - rel.1 * sin,
+            canvas_center.1 + rel.0 * sin + rel.1 * cos,
+        );
+        approx(got, want);
+    }
+}
+
+/// The general case: a layer that already has its own offset/rotation/scale (uniform, so the
+/// composition is exact) must, after composing, land every point exactly where rotating the
+/// *already-transformed* result about the canvas center by hand would put it — i.e.
+/// `composed.forward(pivot, p) == rotate(t.forward(pivot, p))`, which is the actual algebraic
+/// identity the closed form is derived from.
+#[test]
+fn composed_with_rotation_matches_rotating_the_pre_transformed_point_when_scale_is_uniform() {
+    let canvas_center = (50.0, 50.0);
+    let pivot = (20.0, 30.0);
+    let t = LayerTransform {
+        offset_x: 8.0,
+        offset_y: -5.0,
+        scale_x: 1.4,
+        scale_y: 1.4,
+        rotation: 0.9,
+    };
+    for theta in [0.0, 0.2, -0.5, PI / 2.0, 2.7] {
+        let composed = t.composed_with_rotation(canvas_center, pivot, theta);
+        for local in [(20.0, 30.0), (0.0, 0.0), (35.0, -12.0), (80.0, 64.0)] {
+            let pre = t.forward(pivot, local);
+            let (sin, cos) = (-theta).sin_cos();
+            let rel = (pre.0 - canvas_center.0, pre.1 - canvas_center.1);
+            let want = (
+                canvas_center.0 + rel.0 * cos - rel.1 * sin,
+                canvas_center.1 + rel.0 * sin + rel.1 * cos,
+            );
+            approx(composed.forward(pivot, local), want);
+        }
+    }
+}
+
+/// Straighten's whole reason for existing: composing the angle that levels a tilted line, then
+/// forwarding a point on that line, must land it exactly horizontal (or vertical — either
+/// reference the user could have dragged).
+#[test]
+fn composing_the_angle_that_levels_a_line_actually_levels_it() {
+    let canvas_center = (0.0, 0.0);
+    let pivot = (0.0, 0.0);
+    let p0: (f32, f32) = (10.0, 10.0);
+    let p1: (f32, f32) = (110.0, 34.0);
+    let theta = (p1.1 - p0.1).atan2(p1.0 - p0.0);
+    let t = LayerTransform::default().composed_with_rotation(canvas_center, pivot, theta);
+    let (q0, q1) = (t.forward(pivot, p0), t.forward(pivot, p1));
+    assert!((q1.1 - q0.1).abs() < 1e-3, "{q0:?} -> {q1:?} is not level");
+}

@@ -212,6 +212,18 @@ struct L10nCatalog: Equatable {
     var toolTransform: String { self["toolTransform"] }
     var toolText: String { self["toolText"] }
     var toolMove: String { self["toolMove"] }
+    var toolCrop: String { self["toolCrop"] }
+    var cropAspectRatio: String { self["cropAspectRatio"] }
+    var cropAspectFree: String { self["cropAspectFree"] }
+    var cropOverlay: String { self["cropOverlay"] }
+    var cropOverlayOff: String { self["cropOverlayOff"] }
+    var cropOverlayRuleOfThirds: String { self["cropOverlayRuleOfThirds"] }
+    var cropOverlayGrid: String { self["cropOverlayGrid"] }
+    var cropOverlayDiagonal: String { self["cropOverlayDiagonal"] }
+    var cropOverlayGoldenRatio: String { self["cropOverlayGoldenRatio"] }
+    var cropStraighten: String { self["cropStraighten"] }
+    var cropCancel: String { self["cropCancel"] }
+    var cropCommit: String { self["cropCommit"] }
     var textFont: String { self["textFont"] }
     var textSize: String { self["textSize"] }
     var textAlignLeft: String { self["textAlignLeft"] }

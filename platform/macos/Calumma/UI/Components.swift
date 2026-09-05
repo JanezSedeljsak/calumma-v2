@@ -106,29 +106,22 @@ private struct MutedText: View {
     }
 }
 
-/// `bordered` panels (canvas, Paste Artwork, the zoom pill) are the `surface` card STYLE.md
-/// rule 1 describes: a raised card stroked with `islandBorder`. `bordered: false` (tools,
-/// layers) instead sits flush on `color.bg` — the app's own background, not a card — with no
-/// stroke, so the panel reads as part of the window chrome rather than a floating tile.
 struct CalmIsland<Content: View>: View {
     @Environment(\.themeColors) private var colors
     var padding: CGFloat = Tokens.Space.md
-    var bordered: Bool = true
     @ViewBuilder let content: () -> Content
 
     var body: some View {
         content()
             .padding(padding)
             .background(
-                bordered ? colors.surface : colors.bg,
+                colors.surface,
                 in: RoundedRectangle(cornerRadius: Tokens.Radius.island, style: .continuous)
             )
-            .overlay {
-                if bordered {
-                    RoundedRectangle(cornerRadius: Tokens.Radius.island, style: .continuous)
-                        .strokeBorder(colors.islandBorder, lineWidth: 1)
-                }
-            }
+            .overlay(
+                RoundedRectangle(cornerRadius: Tokens.Radius.island, style: .continuous)
+                    .strokeBorder(colors.islandBorder, lineWidth: 1)
+            )
     }
 }
 

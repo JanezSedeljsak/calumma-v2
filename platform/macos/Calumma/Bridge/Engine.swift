@@ -75,6 +75,7 @@ enum CalmTool: UInt32 {
     case selectColor = 18
     case clone = 19
     case heal = 20
+    case crop = 21
 
     var isShape: Bool { calm_tool_is_shape(rawValue) != 0 }
     var isSelection: Bool { calm_tool_is_selection(rawValue) != 0 }
@@ -88,6 +89,16 @@ enum CalmTool: UInt32 {
     var takesBrush: Bool { calm_tool_takes_brush(rawValue) != 0 }
     var takesEraserHardness: Bool { calm_tool_takes_eraser_hardness(rawValue) != 0 }
     var takesCloneAligned: Bool { calm_tool_takes_clone_aligned(rawValue) != 0 }
+}
+
+/// Mirrors `calumma_core::CropOverlayStyle` — the composition guide the crop overlay draws
+/// while dragging.
+enum CalmCropOverlayStyle: UInt32, CaseIterable {
+    case off = 0
+    case ruleOfThirds = 1
+    case grid = 2
+    case diagonal = 3
+    case goldenRatio = 4
 }
 
 struct ProjectInfo: Identifiable, Hashable {
@@ -806,6 +817,41 @@ final class Engine: ObservableObject, @unchecked Sendable {
         syncState()
     }
 
+    /// `nil` clears the lock (a free-form drag); entering and dragging Crop itself ride the
+    /// same `setTool`/pointer calls every other tool already uses — this and the handful of
+    /// wrappers below are only the options-bar knobs `Tool::Crop` adds.
+    func setCropAspectLock(_ ratio: Float?) {
+        guard let ptr else { return }
+        if let ratio {
+            _ = calm_engine_set_crop_aspect_lock(ptr, ratio)
+        } else {
+            _ = calm_engine_clear_crop_aspect_lock(ptr)
+        }
+    }
+
+    func setCropOverlayStyle(_ style: CalmCropOverlayStyle) {
+        guard let ptr else { return }
+        _ = calm_engine_set_crop_overlay_style(ptr, style.rawValue)
+        render()
+    }
+
+    /// Arms the next crop drag as a straighten line rather than a rect resize. Comes back off
+    /// on its own once that drag releases, so the shell only ever turns it *on*.
+    func setStraightenActive(_ active: Bool) {
+        guard let ptr else { return }
+        _ = calm_engine_set_straighten_active(ptr, active ? 1 : 0)
+    }
+
+    /// There is no matching `cancelCrop` — leaving Crop without applying anything is just
+    /// `AppModel.selectTool` switching to whatever tool comes next, the same as leaving any
+    /// other tool.
+    func commitCrop() {
+        guard let ptr else { return }
+        _ = calm_engine_commit_crop(ptr)
+        render()
+        syncState()
+    }
+
     func undo() {
         guard let ptr else { return }
         _ = calm_engine_undo(ptr)
@@ -1010,17 +1056,10 @@ final class Engine: ObservableObject, @unchecked Sendable {
         guard let ptr, !artworks.isEmpty else { return nil }
         if artworks.count == 1 {
             let artwork = artworks[0]
-            let created: String? = artwork.premultipliedRGBA.withUnsafeBytes { raw in
+            let created: String? = artwork.encoded.withUnsafeBytes { raw in
                 guard let base = raw.bindMemory(to: UInt8.self).baseAddress else { return nil }
                 let idPtr = name.withCString {
-                    calm_project_create_from_image(
-                        ptr,
-                        $0,
-                        UInt32(artwork.width),
-                        UInt32(artwork.height),
-                        base,
-                        raw.count
-                    )
+                    calm_project_create_from_encoded(ptr, $0, base, raw.count)
                 }
                 guard let idPtr else { return nil }
                 let id = String(cString: idPtr)
@@ -1033,9 +1072,10 @@ final class Engine: ObservableObject, @unchecked Sendable {
             refreshRecents()
             return created
         }
-        let created = withPasteImages(artworks) { images, count in
+        let created = withEncodedImages(artworks) { images, count in
             name.withCString { namePtr in
-                guard let idPtr = calm_project_create_from_images(ptr, namePtr, images, count) else {
+                guard let idPtr = calm_project_create_from_encoded_images(ptr, namePtr, images, count)
+                else {
                     return nil as String?
                 }
                 let id = String(cString: idPtr)
@@ -1471,32 +1511,6 @@ final class Engine: ObservableObject, @unchecked Sendable {
         return NSImage(cgImage: cgImage, size: NSSize(width: Int(width), height: Int(height)))
     }
 
-    private static func cgImage(
-        rgbaPtr: UnsafeMutablePointer<UInt8>?,
-        width: UInt32,
-        height: UInt32,
-        status: CalmStatus
-    ) -> CGImage? {
-        guard status == CalmStatusOk, let rgbaPtr, width > 0, height > 0 else { return nil }
-        let byteCount = Int(width * height * 4)
-        let data = Data(bytes: rgbaPtr, count: byteCount)
-        calm_buffer_free(rgbaPtr, byteCount)
-        guard let provider = CGDataProvider(data: data as CFData) else { return nil }
-        return CGImage(
-            width: Int(width),
-            height: Int(height),
-            bitsPerComponent: 8,
-            bitsPerPixel: 32,
-            bytesPerRow: Int(width) * 4,
-            space: CGColorSpaceCreateDeviceRGB(),
-            bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.last.rawValue),
-            provider: provider,
-            decode: nil,
-            shouldInterpolate: true,
-            intent: .defaultIntent
-        )
-    }
-
     func exportPSD() -> Data? {
         guard let ptr else { return nil }
         var bytesPtr: UnsafeMutablePointer<UInt8>?
@@ -1522,31 +1536,31 @@ final class Engine: ObservableObject, @unchecked Sendable {
         return data
     }
 
-    func compositeCGImage() -> CGImage? {
+    func exportImage(format: ExportFormat) -> Data? {
         guard let ptr else { return nil }
-        var rgbaPtr: UnsafeMutablePointer<UInt8>?
-        var width: UInt32 = 0
-        var height: UInt32 = 0
-        let status = calm_engine_composite_rgba(ptr, &rgbaPtr, &width, &height)
-        return Self.cgImage(rgbaPtr: rgbaPtr, width: width, height: height, status: status)
+        var bytesPtr: UnsafeMutablePointer<UInt8>?
+        var len = 0
+        let status = calm_engine_export_image(ptr, format.ffiFormat, &bytesPtr, &len)
+        return Self.takeExport(status: status, bytesPtr: bytesPtr, len: len)
     }
 
-    func layerCGImage(index: Int) -> CGImage? {
+    func exportLayerImage(index: Int, format: ExportFormat) -> Data? {
         guard let ptr else { return nil }
-        var rgbaPtr: UnsafeMutablePointer<UInt8>?
-        var width: UInt32 = 0
-        var height: UInt32 = 0
-        let status = calm_engine_layer_rgba(ptr, UInt32(index), &rgbaPtr, &width, &height)
-        return Self.cgImage(rgbaPtr: rgbaPtr, width: width, height: height, status: status)
+        var bytesPtr: UnsafeMutablePointer<UInt8>?
+        var len = 0
+        let status = calm_engine_export_layer_image(ptr, UInt32(index), format.ffiFormat, &bytesPtr, &len)
+        return Self.takeExport(status: status, bytesPtr: bytesPtr, len: len)
     }
 
-    func selectionCGImage() -> CGImage? {
-        guard let ptr else { return nil }
-        var rgbaPtr: UnsafeMutablePointer<UInt8>?
-        var width: UInt32 = 0
-        var height: UInt32 = 0
-        let status = calm_engine_selection_rgba(ptr, &rgbaPtr, &width, &height)
-        return Self.cgImage(rgbaPtr: rgbaPtr, width: width, height: height, status: status)
+    private static func takeExport(
+        status: CalmStatus,
+        bytesPtr: UnsafeMutablePointer<UInt8>?,
+        len: Int
+    ) -> Data? {
+        guard status == CalmStatusOk, let bytesPtr, len > 0 else { return nil }
+        let data = Data(bytes: bytesPtr, count: len)
+        calm_buffer_free(bytesPtr, len)
+        return data
     }
 
     /// The whole document as one SVG. Layered on purpose: vector layers stay geometry, and
@@ -1644,16 +1658,10 @@ final class Engine: ObservableObject, @unchecked Sendable {
         render()
     }
 
-    /// Pastes at native size and reports whether it fit on the paper, so the caller can say so.
     @discardableResult
-    func pasteImage(premultipliedRGBA: Data, width: Int, height: Int) -> CalmPasteOutcome {
+    func pasteEncoded(_ data: Data) -> CalmPasteOutcome {
         let (count, outcome) = pasteImages([
-            ArtworkImage(
-                name: "",
-                width: width,
-                height: height,
-                premultipliedRGBA: premultipliedRGBA
-            ),
+            ArtworkImage(name: "", encoded: data),
         ])
         guard count > 0 else { return .failed }
         return outcome
@@ -1664,8 +1672,8 @@ final class Engine: ObservableObject, @unchecked Sendable {
         guard let ptr, !artworks.isEmpty else { return (0, .failed) }
         var pasted: UInt32 = 0
         var raw: UInt32 = 0
-        let status = withPasteImages(artworks) { images, count in
-            calm_engine_paste_images(ptr, images, count, &pasted, &raw)
+        let status = withEncodedImages(artworks) { images, count in
+            calm_engine_paste_encoded_images(ptr, images, count, &pasted, &raw)
         }
         syncState()
         refreshLayers()
@@ -1674,37 +1682,33 @@ final class Engine: ObservableObject, @unchecked Sendable {
         return (Int(pasted), CalmPasteOutcome(rawValue: raw) ?? .failed)
     }
 
-    private func withPasteImages<T>(
+    private func withEncodedImages<T>(
         _ artworks: [ArtworkImage],
-        _ body: (UnsafePointer<CalmPasteImage>, Int) -> T
+        _ body: (UnsafePointer<CalmEncodedImage>, Int) -> T
     ) -> T {
         var namePtrs: [UnsafeMutablePointer<CChar>?] = []
-        var rgbaPtrs: [UnsafeMutablePointer<UInt8>] = []
+        var bytePtrs: [UnsafeMutablePointer<UInt8>] = []
         defer {
             for ptr in namePtrs {
                 if let ptr { free(ptr) }
             }
-            for ptr in rgbaPtrs {
+            for ptr in bytePtrs {
                 ptr.deallocate()
             }
         }
-        var payloads: [CalmPasteImage] = []
+        var payloads: [CalmEncodedImage] = []
         payloads.reserveCapacity(artworks.count)
         for artwork in artworks {
             let namePtr = strdup(artwork.name)
             namePtrs.append(namePtr)
-            let rgbaPtr = UnsafeMutablePointer<UInt8>.allocate(
-                capacity: artwork.premultipliedRGBA.count
-            )
-            artwork.premultipliedRGBA.copyBytes(to: rgbaPtr, count: artwork.premultipliedRGBA.count)
-            rgbaPtrs.append(rgbaPtr)
+            let bytePtr = UnsafeMutablePointer<UInt8>.allocate(capacity: artwork.encoded.count)
+            artwork.encoded.copyBytes(to: bytePtr, count: artwork.encoded.count)
+            bytePtrs.append(bytePtr)
             payloads.append(
-                CalmPasteImage(
+                CalmEncodedImage(
                     name: namePtr,
-                    premultiplied_rgba: UnsafePointer(rgbaPtr),
-                    len: artwork.premultipliedRGBA.count,
-                    width: UInt32(artwork.width),
-                    height: UInt32(artwork.height)
+                    bytes: UnsafePointer(bytePtr),
+                    len: artwork.encoded.count
                 )
             )
         }
