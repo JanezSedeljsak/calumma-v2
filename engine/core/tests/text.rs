@@ -127,6 +127,35 @@ fn a_whole_session_is_one_undo_step() {
 }
 
 #[test]
+fn caret_and_anchor_together_is_an_empty_range() {
+    assert!(TextRange {
+        caret: 3,
+        anchor: 3
+    }
+    .is_empty());
+    assert!(!TextRange {
+        caret: 3,
+        anchor: 5
+    }
+    .is_empty());
+}
+
+/// A drag can only move the caret while a press opened it — `text_pointer_up` (or never having
+/// pressed at all) leaves nothing for a stray `pointer_move` to do, and it must say so rather
+/// than acting on whatever selection state happens to be sitting there.
+#[test]
+fn moving_the_pointer_with_no_press_open_does_not_touch_the_session() {
+    let mut doc = board();
+    click(&mut doc, 100.0, 100.0);
+    doc.text_insert("hello");
+    doc.text_pointer_up();
+    let caret_before = doc.text_caret();
+
+    assert!(!doc.text_pointer_move(300.0, 300.0));
+    assert_eq!(doc.text_caret(), caret_before, "no press means no motion");
+}
+
+#[test]
 fn re_entering_keeps_the_text_and_starts_a_fresh_step() {
     let mut doc = board();
     click(&mut doc, 100.0, 100.0);

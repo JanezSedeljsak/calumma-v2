@@ -285,6 +285,7 @@ fn clear_dirty_tile_only_clears_that_tile_on_that_channel() {
     assert!(!grid.dirty_tiles(DirtyChannel::Render).contains(&a));
     assert!(grid.dirty_tiles(DirtyChannel::Render).contains(&b));
     assert!(grid.dirty_tiles(DirtyChannel::Store).contains(&a));
+    assert!(grid.dirty_tiles(DirtyChannel::Overview).contains(&a));
 }
 
 #[test]

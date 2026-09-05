@@ -165,116 +165,17 @@ impl ProjectStore {
                 PRIMARY KEY (project_id, layer_id, tx, ty),
                 FOREIGN KEY (project_id, layer_id) REFERENCES layers(project_id, layer_id) ON DELETE CASCADE
             );
+            CREATE TABLE IF NOT EXISTS open_project_tabs (
+                position INTEGER PRIMARY KEY,
+                project_id TEXT NOT NULL UNIQUE,
+                FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+            );
             ",
         )?;
-        let store = Self {
+        Ok(Self {
             conn,
             path: path.as_ref().to_path_buf(),
-        };
-        store.migrate()?;
-        Ok(store)
-    }
-
-    fn migrate(&self) -> Result<(), StoreError> {
-        self.migrate_projects()?;
-        self.migrate_layers()?;
-        self.migrate_open_project_tabs()
-    }
-
-    fn migrate_projects(&self) -> Result<(), StoreError> {
-        let mut stmt = self.conn.prepare("PRAGMA table_info(projects)")?;
-        let columns = stmt.query_map([], |row| row.get::<_, String>(1))?;
-        let mut has_accent = false;
-        let mut has_guides = false;
-        for column in columns {
-            match column?.as_str() {
-                "accent" => has_accent = true,
-                "guides" => has_guides = true,
-                _ => {}
-            }
-        }
-        if !has_accent {
-            self.conn
-                .execute("ALTER TABLE projects ADD COLUMN accent INTEGER", [])?;
-        }
-        if !has_guides {
-            self.conn
-                .execute("ALTER TABLE projects ADD COLUMN guides BLOB", [])?;
-        }
-        Ok(())
-    }
-
-    fn migrate_layers(&self) -> Result<(), StoreError> {
-        let mut stmt = self.conn.prepare("PRAGMA table_info(layers)")?;
-        let mut has_mask = false;
-        let mut has_kind = false;
-        let mut has_vector = false;
-        let mut has_opacity = false;
-        let mut has_blend_mode = false;
-        let mut has_adjustments = false;
-        let mut has_text = false;
-        let mut has_transform = false;
-        let mut has_locked = false;
-        let columns = stmt.query_map([], |row| row.get::<_, String>(1))?;
-        for column in columns {
-            match column?.as_str() {
-                "mask" => has_mask = true,
-                "content_kind" => has_kind = true,
-                "vector_data" => has_vector = true,
-                "opacity" => has_opacity = true,
-                "blend_mode" => has_blend_mode = true,
-                "adjustments" => has_adjustments = true,
-                "text_data" => has_text = true,
-                "transform" => has_transform = true,
-                "locked" => has_locked = true,
-                _ => {}
-            }
-        }
-        if !has_mask {
-            self.conn
-                .execute("ALTER TABLE layers ADD COLUMN mask BLOB", [])?;
-        }
-        if !has_kind {
-            self.conn.execute(
-                "ALTER TABLE layers ADD COLUMN content_kind INTEGER NOT NULL DEFAULT 0",
-                [],
-            )?;
-        }
-        if !has_vector {
-            self.conn
-                .execute("ALTER TABLE layers ADD COLUMN vector_data BLOB", [])?;
-        }
-        if !has_opacity {
-            self.conn.execute(
-                "ALTER TABLE layers ADD COLUMN opacity REAL NOT NULL DEFAULT 1.0",
-                [],
-            )?;
-        }
-        if !has_blend_mode {
-            self.conn.execute(
-                "ALTER TABLE layers ADD COLUMN blend_mode INTEGER NOT NULL DEFAULT 0",
-                [],
-            )?;
-        }
-        if !has_adjustments {
-            self.conn
-                .execute("ALTER TABLE layers ADD COLUMN adjustments BLOB", [])?;
-        }
-        if !has_text {
-            self.conn
-                .execute("ALTER TABLE layers ADD COLUMN text_data BLOB", [])?;
-        }
-        if !has_transform {
-            self.conn
-                .execute("ALTER TABLE layers ADD COLUMN transform BLOB", [])?;
-        }
-        if !has_locked {
-            self.conn.execute(
-                "ALTER TABLE layers ADD COLUMN locked INTEGER NOT NULL DEFAULT 0",
-                [],
-            )?;
-        }
-        Ok(())
+        })
     }
 
     pub fn path(&self) -> &Path {
@@ -349,26 +250,6 @@ impl ProjectStore {
             }
         }
         tx.commit()?;
-        Ok(())
-    }
-
-    /// The tab bar. The `DROP`s clear out the tables a removed feature left behind: projects
-    /// used to be grouped into workspaces and the titlebar tabs switched *those*, so an
-    /// install from before that change is still carrying three tables nothing reads. They go
-    /// on the next open rather than lingering as orphans nobody can explain.
-    fn migrate_open_project_tabs(&self) -> Result<(), StoreError> {
-        self.conn.execute_batch(
-            "
-            CREATE TABLE IF NOT EXISTS open_project_tabs (
-                position INTEGER PRIMARY KEY,
-                project_id TEXT NOT NULL UNIQUE,
-                FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
-            );
-            DROP TABLE IF EXISTS workspace_projects;
-            DROP TABLE IF EXISTS open_workspace_tabs;
-            DROP TABLE IF EXISTS workspaces;
-            ",
-        )?;
         Ok(())
     }
 

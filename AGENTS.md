@@ -190,10 +190,8 @@ have to be read together.
 - **Workspaces are gone**, code, schema and all. Projects used to be grouped into them, with
   the titlebar tabs switching *workspaces* and an extend overlay to manage them; the feature
   was cut back to one tab per project and the `calm_workspace_*` FFI, its `Engine` wrappers,
-  `WorkspaceInfo`, and every `ProjectStore` workspace method went with it. The three SQLite
-  tables go too, on the next open: `migrate_open_project_tabs` carries `DROP TABLE IF EXISTS`
-  for them so an older database is cleaned rather than left holding orphan tables. Nothing
-  about the feature survives — do not reintroduce it.
+  `WorkspaceInfo`, and every `ProjectStore` workspace method went with it. Nothing about the
+  feature survives — do not reintroduce it.
 - One board per project; bounded paper (not infinite canvas). The two ends of the zoom range
   are set independently and share no constant: the floor fills ~20% of the viewport
   (`MIN_ZOOM_FILL`), and the ceiling is whatever puts `MIN_VISIBLE_DOC_SIDE` (16) doc pixels
@@ -323,7 +321,7 @@ pub enum LayerContent {
   (`apply_adjustments`, mirroring `AdjustmentLut::apply` in Rust), the same way `vs_tile` already
   read the row's transform. Blend mode alone stays a *pipeline* choice rather than a row field —
   it needs the destination framebuffer, which per-pixel LUT work never does — see `board.wgsl`'s
-  `fs_tile` premultiply + the three `tile_pipeline_*` blend states in `renderer.rs`. A mask is
+  `fs_tile` premultiply + the three `tile_pipeline_*` blend states in `renderer/pipeline.rs`. A mask is
   the one survivor of the old CPU bake: it is a dense per-document buffer, not a per-layer row,
   so it still multiplies alpha at upload time (`compose::composited_tile_payload`) on whatever
   tiles actually painted. Flatten, export and picking keep the **CPU-at-flatten** path

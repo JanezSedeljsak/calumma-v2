@@ -71,7 +71,10 @@ fn viewport_scroll_and_end_camera_motion_flow_through_the_bridge() {
         assert_eq!(vw, SIDE as f32);
 
         assert_eq!(calm_engine_pan_scroll(e, 0.0, -10.0, 1), CalmStatus::Ok);
-        assert_eq!(calm_engine_zoom_scroll(e, 200.0, 200.0, 1.0, 1), CalmStatus::Ok);
+        assert_eq!(
+            calm_engine_zoom_scroll(e, 200.0, 200.0, 1.0, 1),
+            CalmStatus::Ok
+        );
         assert_eq!(calm_engine_render(e), CalmStatus::Ok);
         assert_eq!(calm_engine_end_camera_motion(e), CalmStatus::Ok);
         assert_eq!(calm_engine_set_clone_aligned(e, 0), CalmStatus::Ok);
@@ -83,7 +86,16 @@ fn viewport_scroll_and_end_camera_motion_flow_through_the_bridge() {
 #[test]
 fn fit_and_zoom_helpers_reject_null_outputs() {
     assert_eq!(
-        unsafe { calm_fit_size(800.0, 600.0, SIDE as f32, SIDE as f32, ptr::null_mut(), &mut 0f32) },
+        unsafe {
+            calm_fit_size(
+                800.0,
+                600.0,
+                SIDE as f32,
+                SIDE as f32,
+                ptr::null_mut(),
+                &mut 0f32,
+            )
+        },
         CalmStatus::Null
     );
     assert_eq!(
@@ -100,5 +112,8 @@ fn fit_and_zoom_helpers_reject_null_outputs() {
         },
         CalmStatus::Null
     );
-    assert_eq!(unsafe { calm_desk_metrics(ptr::null_mut()) }, CalmStatus::Null);
+    assert_eq!(
+        unsafe { calm_desk_metrics(ptr::null_mut()) },
+        CalmStatus::Null
+    );
 }

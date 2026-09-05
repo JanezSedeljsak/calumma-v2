@@ -4,7 +4,10 @@
 //! this is the inbound side: the shell forwards a level, never a tile count or byte budget, and
 //! core owns what each level costs the atlas.
 
-use crate::limits::{GPU_TILE_RETENTION_MARGIN_TILES, TILE_ATLAS_MAX_CAPACITY};
+use crate::limits::{
+    GPU_TILE_RETENTION_MARGIN_TILES, OVERVIEW_FINEST_SIDE, OVERVIEW_MAX_SIDE,
+    TILE_ATLAS_MAX_CAPACITY,
+};
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 
 /// Mirrors the three levels the OS itself reports (`DISPATCH_SOURCE_TYPE_MEMORYPRESSURE` on
@@ -47,6 +50,14 @@ impl MemoryPressureLevel {
             Self::Normal => TILE_ATLAS_MAX_CAPACITY,
             Self::Warn => (TILE_ATLAS_MAX_CAPACITY / 2).max(1),
             Self::Critical => (TILE_ATLAS_MAX_CAPACITY / 4).max(1),
+        }
+    }
+
+    pub fn overview_finest_side(self) -> u32 {
+        match self {
+            Self::Normal => OVERVIEW_FINEST_SIDE,
+            Self::Warn => OVERVIEW_MAX_SIDE,
+            Self::Critical => (OVERVIEW_MAX_SIDE / 2).max(1),
         }
     }
 }

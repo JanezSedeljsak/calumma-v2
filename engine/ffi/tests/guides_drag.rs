@@ -25,8 +25,14 @@ fn dragged_guide_reports_axis_position_and_screen_point() {
     let (_dir, e) = engine();
     unsafe {
         assert_eq!(calm_engine_add_guide(e, 0, 80.0), CalmStatus::Ok);
-        assert_eq!(calm_engine_guide_drag_from_ruler(e, 0, 200.0, -8.0), CalmStatus::Ok);
-        assert_eq!(calm_engine_guide_drag_update(e, 200.0, 120.0), CalmStatus::Ok);
+        assert_eq!(
+            calm_engine_guide_drag_from_ruler(e, 0, 200.0, -8.0),
+            CalmStatus::Ok
+        );
+        assert_eq!(
+            calm_engine_guide_drag_update(e, 200.0, 120.0),
+            CalmStatus::Ok
+        );
 
         let mut axis = 0u8;
         let mut position = 0f32;
@@ -52,7 +58,10 @@ fn dragged_guide_reports_axis_position_and_screen_point() {
 fn dragged_guide_rejects_null_outputs() {
     let (_dir, e) = engine();
     unsafe {
-        assert_eq!(calm_engine_guide_drag_from_ruler(e, 1, -8.0, 200.0), CalmStatus::Ok);
+        assert_eq!(
+            calm_engine_guide_drag_from_ruler(e, 1, -8.0, 200.0),
+            CalmStatus::Ok
+        );
         assert_eq!(
             calm_engine_dragged_guide(e, std::ptr::null_mut(), &mut 0f32, &mut 0f32),
             0

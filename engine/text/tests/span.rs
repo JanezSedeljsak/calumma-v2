@@ -225,6 +225,125 @@ fn applying_a_style_over_an_empty_range_leaves_the_run_alone() {
     assert!(r.spans.is_empty());
 }
 
+/// `bold`/`color` are the two fields every other test in this file reaches for; `family` and
+/// `italic` and `size` get exactly the same overlay treatment in `SpanStyle::overlay` and the
+/// same per-field handling in `TextRun::style_at`/`clear_span_overrides`, but nothing here had
+/// exercised them on their own before this.
+#[test]
+fn family_italic_and_size_overlay_independently_of_bold_and_colour() {
+    let mut r = run("hello world");
+    r.apply_style(
+        0,
+        11,
+        &SpanStyle {
+            family: Some("Menlo".to_string()),
+            italic: Some(true),
+            size: Some(20.0),
+            ..SpanStyle::default()
+        },
+    );
+    let style = r.style_at(5);
+    assert_eq!(style.family, "Menlo");
+    assert!(style.italic);
+    assert_eq!(style.size, 20.0);
+    assert!(
+        !style.bold,
+        "bold was never stated, so the run's own answer stands"
+    );
+}
+
+#[test]
+fn clearing_family_and_italic_overrides_leaves_size_untouched() {
+    let mut r = run("hello world");
+    r.apply_style(
+        0,
+        5,
+        &SpanStyle {
+            family: Some("Menlo".to_string()),
+            italic: Some(true),
+            size: Some(20.0),
+            ..SpanStyle::default()
+        },
+    );
+    r.clear_span_overrides(&SpanStyle {
+        family: Some(String::new()),
+        italic: Some(false),
+        ..SpanStyle::default()
+    });
+    let style = r.style_at(2);
+    assert_eq!(style.family, r.family, "family override is gone");
+    assert_eq!(style.italic, r.italic, "italic override is gone");
+    assert_eq!(style.size, 20.0, "size was never asked to clear");
+}
+
+/// `SpanStyle::clamped` (run through `normalize` on every mutation) repairs the two fields a
+/// caller could hand it garbage for: a non-finite size falls back to the same default a run's
+/// own `size` field falls back to, and a family that is only whitespace is dropped rather than
+/// kept as a span nobody could ever match against a real font name.
+#[test]
+fn a_non_finite_span_size_falls_back_to_the_text_default() {
+    let mut r = run("hello world");
+    r.apply_style(
+        0,
+        5,
+        &SpanStyle {
+            size: Some(f32::NAN),
+            ..SpanStyle::default()
+        },
+    );
+    assert_eq!(r.spans[0].style.size, Some(48.0));
+}
+
+#[test]
+fn a_whitespace_only_span_family_leaves_no_span_behind() {
+    let mut r = run("hello world");
+    r.apply_style(
+        0,
+        5,
+        &SpanStyle {
+            family: Some("   ".to_string()),
+            ..SpanStyle::default()
+        },
+    );
+    assert!(
+        r.spans.is_empty(),
+        "a family that trims to nothing states nothing, so the span it would have been is gone"
+    );
+}
+
+/// Two spans with a gap between them, then one style applied across all of it: the parts under
+/// the existing spans merge with them, and the gap — covered by neither — becomes a brand new
+/// span carrying only what was just applied. `span::apply`'s gap-filling path, never exercised
+/// by an overlapping-pair test where the range covers every byte in between.
+#[test]
+fn applying_a_style_across_a_gap_between_two_spans_fills_the_gap_with_a_fresh_span() {
+    let mut r = run("abcdefghij");
+    r.apply_style(0, 2, &bold());
+    r.apply_style(5, 7, &bold());
+    r.apply_style(0, 7, &red());
+
+    assert_eq!(
+        r.spans.len(),
+        3,
+        "left span, gap span, right span: {:?}",
+        r.spans
+    );
+    let gap = &r.spans[1];
+    assert_eq!((gap.start, gap.end), (2, 5));
+    assert!(!gap.style.bold.unwrap_or(false), "the gap was never bold");
+    assert_eq!(gap.style.color, Some([255, 0, 0, 255]));
+    assert_eq!(
+        r.spans[0].style.color,
+        Some([255, 0, 0, 255]),
+        "left span picked up the colour too"
+    );
+    assert_eq!(
+        r.spans[2].style.color,
+        Some([255, 0, 0, 255]),
+        "right span picked up the colour too"
+    );
+}
+
 /// A run that carries spans and a run that does not have to shape identically where the spans
 /// say nothing new — otherwise adding one would move the text that is not in it.
 #[test]

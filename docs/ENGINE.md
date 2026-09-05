@@ -495,11 +495,15 @@ pixels from two frames ago.
 `shift_plan` and `exposed_rects` are pure rect arithmetic and are unit-tested with no GPU
 device at all (`render/tests/framebuffer.rs`) — the reason that math lives in its own module.
 
-**The overview path** (`render/src/overview.rs`) is the other content strategy, for when the
-board is zoomed far out: past `OVERVIEW_ENTER_TILE_THRESHOLD` (48) visible tiles, tile sync is
-skipped entirely and the document is CPU-flattened once into a ≤2048 px texture; pan and zoom
-then cost a uniform write. Hysteresis exits at 24. It is disabled while a gesture is live,
-since the proxy cannot show what is being drawn.
+**The overview path** (`render/src/overview.rs`, policy in `overview_lod.rs`) is the other
+content strategy, for when the board is zoomed far out: past `OVERVIEW_ENTER_TILE_THRESHOLD`
+(48) visible tiles, tile sync is skipped and the paper is one textured quad. The texture is a
+level from a 4-step pyramid, finest cap from `GpuBudget::overview_finest_side()` (4096 at rest
+on a standard device, 2048 low-tier / Warn, 1024 Critical), coarsest 256. Pan is a uniform
+write; zoom picks a different level. A paint re-flattens only the 1024-doc-px chunks it
+touched (`DirtyChannel::Overview`); a stack change rebuilds the displayed level. Hysteresis
+exits at 24. It is disabled while a gesture is live, since the proxy cannot show what is being
+drawn. See `docs/RENDERING.md` § Overview path.
 
 Known gap, honestly stated in `RENDERING.md`: content is composited into `PanCache` from
 transparent and blended over the desk afterwards. That is identical for Normal layers, but a
@@ -594,10 +598,8 @@ open_project_tabs(position, project_id)
 ```
 
 **`open_project_tabs` is the tab bar**, one row per open project, `position` ordering them.
-It replaced three `workspace*` tables — projects used to be grouped into workspaces and the
-tabs switched *those* — and `migrate_open_project_tabs` now `DROP TABLE IF EXISTS`es all
-three, so a database from before the change is cleaned on its next open instead of keeping
-tables nothing in the codebase explains.
+It replaced three `workspace*` tables from when projects were grouped into workspaces and the
+titlebar tabs switched *those* — see "Workspaces are gone" in `AGENTS.md`.
 
 **Tiles are rows, not a blob.** That is what makes a save incremental: only tiles whose
 `Store` dirty bit is set are written, so painting one corner of an 8K document writes a
@@ -605,8 +607,12 @@ handful of rows rather than the document. On load, `tile::uniform_color` re-dete
 tiles and re-shares one `Arc` across them, so a reopened project has the same copy-on-write
 economy a fresh one does.
 
-Schema evolution is additive `PRAGMA table_info` migrations in `migrate()` — new columns get
-added to existing databases at open.
+`ProjectStore::open` creates the schema above in one `CREATE TABLE IF NOT EXISTS` batch — the
+single, always-current source of truth for what's on disk, no separate migration layer behind
+it. (Pre-2026-09 builds ran additive `PRAGMA table_info` + `ALTER TABLE` migrations here to
+carry an existing installed base forward a column at a time; dropped once there was no real
+installed base yet to stay compatible with — see the deleted `docs/plans/05-single-db-schema-
+script.md`.) Blob-format evolution is a separate, still-live mechanism — see Blobs below.
 
 ### Blobs
 

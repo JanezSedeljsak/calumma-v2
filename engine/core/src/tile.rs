@@ -279,11 +279,13 @@ pub enum DirtyChannel {
     Render,
     Store,
     Preview,
+    Overview,
 }
 
 impl DirtyChannel {
-    pub const COUNT: usize = 3;
-    pub const ALL: [DirtyChannel; Self::COUNT] = [Self::Render, Self::Store, Self::Preview];
+    pub const COUNT: usize = 4;
+    pub const ALL: [DirtyChannel; Self::COUNT] =
+        [Self::Render, Self::Store, Self::Preview, Self::Overview];
 
     #[inline]
     fn slot(self) -> usize {
@@ -291,6 +293,7 @@ impl DirtyChannel {
             Self::Render => 0,
             Self::Store => 1,
             Self::Preview => 2,
+            Self::Overview => 3,
         }
     }
 }

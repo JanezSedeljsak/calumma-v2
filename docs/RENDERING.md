@@ -42,18 +42,24 @@ Autosave no longer lives on this path — see "Autosave" below.
 | `Content` | `invalidate()` — paint, layer edit, theme, document load | Tiles, vectors, or overlays may have changed |
 
 `invalidate_camera()` also enters **motion mode** (see below). Content invalidation clears
-cached tile-draw counts and marks the overview texture dirty.
+cached tile-draw counts. Tile writes already mark `DirtyChannel::Overview`; a stack change
+(visibility, opacity, blend, mask, transform, adjustments, vector bounds) is detected on the
+next overview sync via a stamp, not by flattening the whole document from `invalidate()`.
 
 ### Tile `DirtyChannel` (document)
 
-Per-tile dirty sets on each `TileGrid`:
+Per-tile dirty sets on each `TileGrid`. `mark_dirty` inserts the coord into **every** channel
+so a write is never silent on one of them:
 
 | Channel | Cleared when | Purpose |
 | --- | --- | --- |
 | `Render` | GPU upload in `sync_tiles` **succeeded** | Tile needs (re)composite + atlas upload |
 | `Store` | SQLite save | Tile bytes changed on disk |
+| `Preview` | Layer-thumbnail rebuild | Cached preview pixels are stale |
+| `Overview` | After `OverviewPass` flattens the chunks that tile belongs to | Pyramid levels re-flatten only those 1024-doc-px chunks |
 
-Mask/adjustment/opacity changes mark tiles render-dirty without mutating tile bytes.
+Mask/adjustment/opacity changes mark tiles render-dirty without mutating tile bytes. They
+rebuild the overview through the stack stamp, not through this channel.
 
 `Render` is cleared per tile only for uploads that actually reached the atlas. When the atlas
 is at `TILE_ATLAS_MAX_CAPACITY` and every live tile is on screen, there is nothing to evict and
@@ -251,57 +257,44 @@ GPU-resident even when off-screen, so small pans do not re-upload.
 
 ### Overview path (zoomed out)
 
-When visible tile count ≥ **48** (exit at **24**), skip tile sync entirely:
+When visible tile count ≥ **48** (exit at **24**), skip tile sync entirely and draw one
+textured quad inside the paper scissor. Disabled while live-editing (stroke, shape preview,
+text caret).
 
-1. **`composite_overview`** — CPU flatten of the document to ≤ 2048 px RGBA (on open
-   prewarm + on content dirty).
-2. **One textured quad** inside the paper scissor — pan/zoom = uniform updates only.
+The quad samples a **pyramid**, not a single flatten. `OverviewPass` (`engine/render/src/
+overview.rs`, level policy in `overview_lod.rs`) keeps up to `OVERVIEW_LEVELS` (4) GPU textures
+at half-scale steps. The finest cap comes from `GpuBudget::overview_finest_side()` — 4096 on a
+standard device at rest (`OVERVIEW_FINEST_SIDE`), 2048 on a low-tier GPU or under Warn pressure
+(`OVERVIEW_MAX_SIDE`), 1024 under Critical. The coarsest floor is `OVERVIEW_COARSEST_SIDE`
+(256). Which level is displayed is the coarsest whose `max_side` still covers
+`doc_long * zoom * dpr`. Flattening is `Document::composite_overview_rect` in core, so a
+chunked write and a full rebuild share one sampler.
 
-Disabled while live-editing (stroke, shape preview, text caret).
+Edits do not re-flatten the document. Tile writes mark `DirtyChannel::Overview` (independent of
+`Render`, so zooming back into tiles still uploads). Those tiles map onto 1024-doc-px chunks
+(`OVERVIEW_CHUNK_TILES` = 4) and only those rectangles are composited into the displayed
+level — and remembered on the others until they are shown. A stack change (visibility, opacity,
+blend, mask, transform, adjustments, vector bounds) mismatches a stamp and rebuilds the
+displayed level in full. Memory pressure ≥ Warn drops the textures that are not on screen.
 
-**This is the renderer's weakest part, measured 2026-08-25.** It is a *single-level* LOD, and
-the threshold that selects it counts draws **summed across layers**, so which document you are
-looking at decides how blurry the board is:
+The enter/exit gate is still a **sum across layers**. That is leftover from the single-level
+path, measured 2026-08-25, and is why a 10-layer 8K document can stay on the overview out to
+the zoom cap even though the pyramid would now have a sharp enough level. Making the threshold
+per-layer is the remaining cheap knob (todo #01); it is not required for the pyramid to pick
+the right resolution once the path is on.
 
-| Document (1600×1000 @2x) | Overview holds until | The 2048px flatten is then magnified |
+Historical single-level numbers, kept so the magnification trap is not rediscovered:
+
+| Document (1600×1000 @2x) | Overview holds until | A 2048px flatten was then magnified |
 | --- | --- | --- |
 | 8192px, 1 painted layer | 1.57x zoom | 12.6x |
 | 8192px, 3 painted layers | 3.16x zoom | 25.3x |
 | 8192px, 10 painted layers | never, out to the 64x hard cap | — |
 | 4096px, 1 painted layer | 1.57x zoom | 6.3x |
 
-The hysteresis is the trap: it enters at ≥48 but only leaves at ≤24, and ten painted layers
-never reliably get under 24. Zoom out once on such a document and every pixel from then on
-comes from a 2048px flatten of an 8K canvas. (Sparse layers count fewer tiles and do exit —
-this needs layers painted across the whole canvas, i.e. a photo stack.)
-
-A caveat on the 10-layer row: at extreme zoom the count depends on whether the visible rect
-straddles a tile boundary (4 tiles per layer if it does, 1 if it does not), and these runs
-centre the camera on the document centre, which on an 8K canvas *is* a boundary. The honest
-statement is not "never" but "does not reliably exit at any zoom" — at 4x a 10-layer document
-sits at roughly 20–30 draws, hovering either side of the threshold, so whether the board is
-sharp depends on where it happens to be scrolled.
-
-
-Regen is why the thresholds are set that way. One `composite_overview` on an 8K document costs
-~10 ms at 1 layer, ~32 ms at 5, ~86 ms at 10, and any content change pays it **in full** — the
-path has one resolution and no partial invalidation. (It no longer also allocates: `upload`
-re-composites into the texture it already has whenever the size is unchanged, and only a
-*document* resize builds a new texture and bind group. That is a cleanup, not a fix for the
-above.) Disabling it during a live preview is what
-avoids that, and it is also what drops a fit-to-view stroke back onto ~10,000 tile instances.
-
-Both problems are the same missing feature: **levels, and chunked invalidation**. A pyramid
-picks an LOD from the zoom, so neither the trap nor 25x magnification stays expressible, and an
-edit re-flattens the chunks it touched at the levels on screen rather than 67 megapixels of
-document. Two cheap fixes stand in front of it and are not thrown away by it — make the exit
-threshold per-layer rather than summed, and raise `OVERVIEW_MAX_SIDE` for large documents.
-
-This is written down here rather than in a plan on purpose. The display-cache plan that used to
-own it (todo #7) was cancelled on 2026-08-25: it was written against a renderer that no longer
-exists, and its central move — replace the tile instance path with a chunk atlas — is pointless
-now that the tile path is bounded at 48 draws behind a single bind group. The measurements
-above are what survived it.
+The display-cache plan that used to own a different fix (todo #7) was cancelled on 2026-08-25:
+it was written against a renderer that no longer exists, and replacing the tile path with a
+chunk atlas is pointless now that that path is bounded at 48 draws behind one bind group.
 
 ---
 
@@ -427,10 +420,12 @@ After Tier A **and** shipped Tier B1/B2 (below):
 
 ## Optimization roadmap
 
-Tier B1 (framebuffer scroll-blit) and B2 (autosave off the render thread) are **shipped**. The
-rest of Tier B, and Tiers C/D, remain open. The display-cache plan that used to carry the
-roadmap beyond them (todo #7) was cancelled on 2026-08-25 — see the Overview path section for
-what came out of it and what is actually left.
+Tier B1, B1b, B2 and C5 are **shipped**; B3 and C4 were investigated 2026-09-04 and not
+implemented (see their table rows — B3 needs real new infrastructure for a cost already
+measured as cheap, C4's remaining wakeup is already near-free inside the model this row's own
+alternative would have to tear down). B5 and C3 remain open, both low-priority. The
+display-cache plan that used to carry the roadmap beyond them (todo #7) was cancelled on
+2026-08-25 — see the Overview path section for what came out of it and what is actually left.
 
 **Where the headroom actually is, as of 2026-08-25.** The per-frame *draw* path is close to
 done and the remaining items on it are small:
@@ -447,9 +442,11 @@ done and the remaining items on it are small:
 - What is left on the CPU per frame is small and known: the `visible_needs_gpu_upload` walk
   (C1, 3–34 µs), the desk fullscreen triangle (B3/D), and uniform writes.
 
-**Everything that is actually slow or actually looks bad is now in `OverviewPass`** — see the
-Overview path section above for the numbers. That is where the next work belongs, and it is a
-fidelity problem before it is a performance one.
+The overview path's single-level 2048px flatten — the fidelity problem measured 2026-08-25 —
+is gone; see Overview path for the pyramid. The enter/exit gate now reads the busiest single
+layer rather than summing tiles across the stack (`Renderer::busiest_layer_tile_count`,
+shipped 2026-09-04 as todo #01) — a document with many sparse layers no longer gets stuck on
+the overview at a zoom the pyramid could draw sharply.
 
 ---
 
@@ -460,8 +457,8 @@ fidelity problem before it is a performance one.
 | B1 | **Framebuffer scroll / ping-pong blit** on camera-only pan: copy previous frame with offset, redraw only exposed strips | Biggest Figma-like win; pan becomes ~2 blits + edge repair | No — additive | **Shipped** — `PanCache`, see above |
 | B1b | **Reuse the `PanCache` reference on an overlay-only frame** — no shift, no redraw, the board pass samples it directly | Brush strokes, shape drags and the caret stop recompositing the visible stack per frame | No — additive | **Shipped** — `reference_matches` / `reuse_reference` |
 | B2 | **Move autosave off render path** — background thread or timer, never inside `calm_engine_render` | Removes mutex + SQLite from frame budget | No | **Shipped** — `engine/ffi/src/autosave.rs` |
-| B3 | **Skip desk clear on camera-only** — `LoadOp::Load` + blit previous color attachment, or persistent desk texture | Saves full-screen fill | No | Open |
-| B4 | ~~**Lower overview enter to ~32**~~ — **withdrawn 2026-08-25.** The measured problem is the opposite one: the overview is entered *too eagerly and left too late*, and the "slight quality trade at mid zoom" is up to 25x magnification. Raise `OVERVIEW_MAX_SIDE` and make the exit threshold per-layer instead | — | — | Withdrawn |
+| B3 | **Skip desk clear on camera-only** — `LoadOp::Load` + blit previous color attachment, or persistent desk texture | Saves full-screen fill | No | **Investigated 2026-09-04, not implemented.** `desk_pattern` (the lattice) is a pure function of *screen* position — genuinely cacheable, no shift-and-patch needed unlike `PanCache`'s content. But `fs_paper`'s paper-border ring reads `(screen - pan) / zoom`, so it moves every pan frame; a correct version needs the lattice baked once into a persistent texture plus the border redrawn on top each frame, not a one-line `LoadOp` swap. That's real new infrastructure (a texture, resize/theme invalidation, a second pipeline) to save a cost already measured as "one texel fetch and two `mix`es per pixel" (see below) — not confirmed worth it without a frame-time trace, which nothing here can take |
+| B4 | ~~**Lower overview enter to ~32**~~ — **withdrawn 2026-08-25**, then **superseded 2026-09-04** by the overview pyramid (#02) and the per-layer gate (#01) — see Overview path below | — | — | Superseded |
 | B5 | **R8 or RGB10A2 desk** if banding acceptable | Less memory bandwidth on fill | Minor visual | Open |
 
 ## Tier C — medium
@@ -471,8 +468,8 @@ fidelity problem before it is a performance one.
 | C1 | ~~**Separate tile path entirely during motion**~~ — **shipped**, plan 29. The `visible_needs_gpu_upload` walk (3 µs at 1 layer, 34 µs at 10) is memoized across the frames where its answer cannot have moved; see Motion mode above | — | — |
 | C2 | ~~**GPU compositing for adjustments** instead of CPU bake per dirty tile~~ — **shipped 2026-09-02** as plan `23`. LUT + opacity moved onto the `LayerData` table (see `docs/ENGINE.md` § Bind groups); `fs_tile`/`fs_solid_tile` evaluate them per pixel via `apply_adjustments` | Slider drag on large docs | CPU path for export/flatten/pick stays (`AdjustmentLut`) |
 | C3 | **Layer flatten cache** — one GPU texture per layer at rest, patch on edit | Fewer instances when many layers. Note the instance count is already bounded at 48 by the overview threshold, so this is only worth it *inside* a pyramid rebuild, not for the live tile path | Memory ↑ |
-| C4 | **Display link driven render** — `isPaused = true`, draw only when dirty | No idle 120 Hz wakeups | Requires explicit `setNeedsDisplay` wiring. **Largely obviated** by plan 29's `calm_engine_frame_hint` (see Frame pacing), which drops idle to 10 fps and the caret from 120 full board passes a second to 2, without the wiring. What is left here is the last wakeup per interval |
-| C5 | **Read zoom pill from atomics** — `flushPendingState` only when chrome visible | Less Swift publish per frame | No |
+| C4 | **Display link driven render** — `isPaused = true`, draw only when dirty | No idle 120 Hz wakeups | Requires explicit `setNeedsDisplay` wiring. **Largely obviated** by plan 29's `calm_engine_frame_hint` (see Frame pacing), which drops idle to 10 fps and the caret from 120 full board passes a second to 2, without the wiring. **Investigated 2026-09-04, not implemented**: the remaining idle wakeup is already a cheap early-out (`render()`'s `Clean && no live preview` check) inside the standard `MTKView.preferredFramesPerSecond` polling model; removing it entirely needs exactly the `isPaused`/manual-`setNeedsDisplay` rearchitecture this row already argued against — wiring a redraw trigger into every state-mutating path for a wakeup that already does almost nothing |
+| C5 | **Read zoom pill from atomics** — `flushPendingState` only when chrome visible | Less Swift publish per frame | No | **Shipped 2026-09-04** — `BoardCanvas.Coordinator.draw(in:)` skips `flushPendingState()` (and so the FFI round trip + `@Published state` republish) when `view.window?.occlusionState` says the window isn't visible; `engine.render()` still runs so the frame-hint throttle keeps working. Scoped to *window* visibility, not the zoom pill specifically — `state` backs more than the pill (layer count, active layer, tool gate), so gating on the pill's own SwiftUI visibility would have starved those too |
 
 ## Tier D — simplify / throw out
 
@@ -504,8 +501,8 @@ Figma's smoothness comes from a **different contract**:
 Calumma is closer to a **pixel editor** (sparse tiles, undo, masks, adjustments). Matching
 Figma on pan is achievable — and largely done; matching Figma on *everything* without a
 scene-graph rewrite is not. The pragmatic target: **pan/zoom feels like Figma; edit fidelity
-stays like Krita**. The gap that remains is not pan, it is level-of-detail: a multi-level
-pyramid in place of the single 2048px overview flatten (see Overview path).
+stays like Krita**. Zoomed-out LOD is a pyramid now (see Overview path); what remains on that
+path is the still-summed enter/exit gate, not a missing level.
 
 ---
 
@@ -513,10 +510,11 @@ pyramid in place of the single 2048px overview flatten (see Overview path).
 
 | Path | Role |
 | --- | --- |
-| `engine/render/src/renderer.rs` | Frame loop, dirty flags, sync, draw lists |
+| `engine/render/src/renderer.rs` + `renderer/` | `Renderer` struct in `renderer.rs`; its `impl` split by concern across `renderer/pipeline.rs` (device/pipeline setup, blend states), `renderer/camera_motion.rs` (motion mode, visible/retained span), `renderer/cache.rs` (tile/layer cache, mip heuristics), `renderer/invalidation.rs` (dirty flags, buffer capacity), `renderer/frame.rs` (`sync_tiles`, draw-list build, `render()` itself) — same split-`impl` pattern as `viewport.rs`/`Camera` |
 | `engine/render/src/framebuffer.rs` | `PanCache` — scroll-blit reference/working textures, shift + exposed-rect math |
 | `engine/render/src/desk.rs` | Baked desk lattice — one period, two coverage channels |
-| `engine/render/src/overview.rs` | Overview texture LOD |
+| `engine/render/src/overview.rs` | Overview pyramid GPU pass — per-level textures, chunk uploads |
+| `engine/render/src/overview_lod.rs` | Level sides, pick, 1024-px chunks, stack stamp |
 | `engine/render/src/tile_atlas.rs` | Shared GPU tile array |
 | `engine/render/src/shaders/board.wgsl` | Desk, tiles, overview, solid quad, vectors, `PanCache` blit/clear |
 | `engine/render/src/compose.rs` | CPU tile bake (mask only, since C2), mips, overlay instances |

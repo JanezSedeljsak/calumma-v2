@@ -268,3 +268,23 @@ fn a_mixed_document_reads_the_same_through_the_overview_and_the_flatten() {
         "and the shape really is the color it was drawn in"
     );
 }
+
+#[test]
+fn a_region_flatten_matches_the_same_window_of_the_full_overview() {
+    let (tw, th, full) = doc(64, 48).composite_overview(32);
+    let x = tw / 4;
+    let y = th / 4;
+    let w = (tw / 2).max(1);
+    let h = (th / 2).max(1);
+    let region = doc(64, 48).composite_overview_rect(32, x, y, w, h);
+    assert_eq!(region.len(), (w as usize) * (h as usize) * 4);
+    for ly in 0..h {
+        for lx in 0..w {
+            assert_eq!(
+                pixel(&region, w, lx, ly),
+                pixel(&full, tw, x + lx, y + ly),
+                "at local ({lx}, {ly})"
+            );
+        }
+    }
+}

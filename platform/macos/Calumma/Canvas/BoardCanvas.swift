@@ -108,7 +108,14 @@ struct BoardCanvas: NSViewRepresentable {
             if !attached {
                 attachIfNeeded(view: view)
             }
-            engine.flushPendingState()
+            // The display link keeps calling `draw` at the current frame-hint rate even while
+            // the window is minimized or fully behind another one — nothing on screen reads
+            // `engine.state` then, so publishing it (an FFI round trip plus a SwiftUI diff of
+            // whatever observes it: the zoom pill, rulers, layer count) is pure waste until the
+            // window is visible again, at which point the next real change re-dirties it.
+            if view.window?.occlusionState.contains(.visible) != false {
+                engine.flushPendingState()
+            }
             engine.render()
             (view as? BoardMTKView)?.applyFrameRate(engine.frameHint())
         }

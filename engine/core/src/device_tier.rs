@@ -13,7 +13,8 @@
 
 use crate::limits::{
     DOWNLEVEL_TEXTURE_ARRAY_LAYERS, FRAME_HINT_DISPLAY_MAX, FRAME_HINT_LOW_TIER_FPS,
-    GPU_TILE_RETENTION_MARGIN_TILES, TILE_ATLAS_MAX_CAPACITY,
+    GPU_TILE_RETENTION_MARGIN_TILES, OVERVIEW_FINEST_SIDE, OVERVIEW_MAX_SIDE,
+    TILE_ATLAS_MAX_CAPACITY,
 };
 use crate::memory_pressure::{MemoryPressureLevel, PressureState, PressureTransition};
 
@@ -87,6 +88,13 @@ impl DeviceTier {
     pub fn prefers_small_allocations(self) -> bool {
         self == Self::Low
     }
+
+    pub fn overview_finest_side(self) -> u32 {
+        match self {
+            Self::Standard => OVERVIEW_FINEST_SIDE,
+            Self::Low => OVERVIEW_MAX_SIDE,
+        }
+    }
 }
 
 /// The renderer's single source of truth for anything both axes want. Holds the fixed tier and
@@ -134,6 +142,12 @@ impl GpuBudget {
     pub fn frame_hint_ceiling(&self) -> u32 {
         self.tier.frame_hint_ceiling()
     }
+
+    pub fn overview_finest_side(&self) -> u32 {
+        self.tier
+            .overview_finest_side()
+            .min(self.pressure.effective().overview_finest_side())
+    }
 }
 
 #[cfg(test)]
@@ -180,6 +194,7 @@ mod tests {
         );
         assert_eq!(budget.atlas_max_capacity(), TILE_ATLAS_MAX_CAPACITY);
         assert_eq!(budget.frame_hint_ceiling(), FRAME_HINT_DISPLAY_MAX);
+        assert_eq!(budget.overview_finest_side(), OVERVIEW_FINEST_SIDE);
     }
 
     /// Neither axis may set a knob behind the other's back, so the answer is the stricter one
@@ -206,6 +221,12 @@ mod tests {
                     tier.atlas_max_capacity().min(level.atlas_max_capacity()),
                     "{tier:?} / {level:?}"
                 );
+                assert_eq!(
+                    budget.overview_finest_side(),
+                    tier.overview_finest_side()
+                        .min(level.overview_finest_side()),
+                    "{tier:?} / {level:?}"
+                );
             }
         }
     }
@@ -220,6 +241,7 @@ mod tests {
         assert!(budget.retention_margin_tiles() < GPU_TILE_RETENTION_MARGIN_TILES);
         assert!(budget.atlas_max_capacity() < TILE_ATLAS_MAX_CAPACITY);
         assert_eq!(budget.frame_hint_ceiling(), FRAME_HINT_LOW_TIER_FPS);
+        assert_eq!(budget.overview_finest_side(), OVERVIEW_MAX_SIDE);
     }
 
     /// Taking the min must not swallow the hysteresis `PressureState` owns: escalation still

@@ -2481,19 +2481,46 @@ impl Document {
     }
 
     pub fn composite_overview(&self, max_side: u32) -> (u32, u32, Vec<u8>) {
+        let (tw, th) = Self::overview_dimensions(self.width, self.height, max_side);
+        let rgba = self.composite_overview_rect(max_side, 0, 0, tw, th);
+        (tw, th, rgba)
+    }
+
+    pub fn overview_dimensions(width: u32, height: u32, max_side: u32) -> (u32, u32) {
         let max_side = max_side.max(1);
-        let dw = self.width.max(1);
-        let dh = self.height.max(1);
+        let dw = width.max(1);
+        let dh = height.max(1);
         let scale = (max_side as f32 / dw as f32)
             .min(max_side as f32 / dh as f32)
             .min(1.0);
         let tw = ((dw as f32) * scale).round().max(1.0) as u32;
         let th = ((dh as f32) * scale).round().max(1.0) as u32;
-        let mut rgba = vec![0u8; (tw as usize) * (th as usize) * 4];
+        (tw, th)
+    }
+
+    pub fn composite_overview_rect(
+        &self,
+        max_side: u32,
+        x: u32,
+        y: u32,
+        w: u32,
+        h: u32,
+    ) -> Vec<u8> {
+        let (tw, th) = Self::overview_dimensions(self.width, self.height, max_side);
+        let x = x.min(tw);
+        let y = y.min(th);
+        let w = w.min(tw.saturating_sub(x));
+        let h = h.min(th.saturating_sub(y));
+        if w == 0 || h == 0 {
+            return Vec::new();
+        }
+        let dw = self.width.max(1);
+        let dh = self.height.max(1);
+        let mut rgba = vec![0u8; (w as usize) * (h as usize) * 4];
         let contributing = self.contributing_layers();
         rgba.par_chunks_mut(4).enumerate().for_each(|(index, px)| {
-            let tx = (index as u32) % tw;
-            let ty = (index as u32) / tw;
+            let tx = x + (index as u32) % w;
+            let ty = y + (index as u32) / w;
             let doc_x = if tw <= 1 {
                 0.0
             } else {
@@ -2506,7 +2533,7 @@ impl Document {
             };
             px.copy_from_slice(&self.composite_pixel_of(&contributing, doc_x, doc_y));
         });
-        (tw, th, rgba)
+        rgba
     }
 
     pub fn pick_color(&mut self, doc_x: f32, doc_y: f32) -> Option<[u8; 4]> {

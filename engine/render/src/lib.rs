@@ -2,6 +2,7 @@ pub mod compose;
 mod desk;
 pub mod framebuffer;
 mod overview;
+mod overview_lod;
 mod renderer;
 mod stroke_coverage;
 #[cfg(test)]
