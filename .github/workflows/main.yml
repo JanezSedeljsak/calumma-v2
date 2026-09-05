@@ -85,7 +85,7 @@ jobs:
         with:
           components: clippy, rustfmt
       - name: native codec build deps
-        run: sudo apt-get update && sudo apt-get install -y libclang-dev cmake ninja-build
+        run: sudo apt-get update && sudo apt-get install -y libclang-dev cmake ninja-build nasm
       # Formatting reads source and compiles nothing, so this covers the whole workspace —
       # `calumma-ffi` included, even though clippy below cannot reach it here.
       - name: fmt
