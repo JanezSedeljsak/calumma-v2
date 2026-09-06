@@ -1002,6 +1002,112 @@ fn platform_ops_cover_unavailable_failed_and_mask_paths() {
     assert!(!unsafe { calm_engine_op_available(engine.ptr, 999) });
 }
 
+extern "C" fn fake_op_run_empty_mask(
+    _kind: CalmOpKind,
+    _input: *const CalmOpInput,
+    out: *mut CalmOpOutput,
+) -> c_int {
+    unsafe {
+        *out = CalmOpOutput {
+            kind: CalmOpOutputKind::Mask,
+            data: ptr::null_mut(),
+            len: 0,
+            w: 0,
+            h: 0,
+        };
+    }
+    0
+}
+
+extern "C" fn fake_op_run_empty_raster(
+    _kind: CalmOpKind,
+    _input: *const CalmOpInput,
+    out: *mut CalmOpOutput,
+) -> c_int {
+    unsafe {
+        *out = CalmOpOutput {
+            kind: CalmOpOutputKind::Raster,
+            data: ptr::null_mut(),
+            len: 0,
+            w: 0,
+            h: 0,
+        };
+    }
+    0
+}
+
+/// `PlatformOp::available` refusing outright when the shell installed no `available` fn at
+/// all — distinct from `fake_op_unavailable`, which installs a real fn that just answers
+/// `false`. And the two "the platform said success but handed back nothing usable" shapes:
+/// a mask or a raster whose `data` is null, which the C side could produce by mistake without
+/// `run` itself reporting failure.
+#[test]
+fn platform_ops_refuse_a_missing_available_fn_and_empty_success_payloads() {
+    let engine = TestEngine::new();
+    engine.create_project("OpsEdge", 4, 4);
+    let active = engine.state().active_layer;
+
+    let no_available = CalmPlatformOps {
+        available: None,
+        run: Some(fake_op_run),
+        free_output: Some(fake_op_free),
+    };
+    assert_eq!(
+        unsafe { calm_engine_install_platform_ops(engine.ptr, &no_available) },
+        CalmStatus::Ok
+    );
+    assert!(
+        !unsafe { calm_engine_op_available(engine.ptr, 0) },
+        "no available fn means never available, not a crash"
+    );
+
+    let empty_mask = CalmPlatformOps {
+        available: Some(fake_op_available),
+        run: Some(fake_op_run_empty_mask),
+        free_output: Some(fake_op_free),
+    };
+    assert_eq!(
+        unsafe { calm_engine_install_platform_ops(engine.ptr, &empty_mask) },
+        CalmStatus::Ok
+    );
+    assert_eq!(
+        unsafe { calm_engine_run_op(engine.ptr, 0, active) },
+        CalmStatus::Error,
+        "a null-data mask is not a usable result"
+    );
+
+    let empty_raster = CalmPlatformOps {
+        available: Some(fake_op_available),
+        run: Some(fake_op_run_empty_raster),
+        free_output: Some(fake_op_free),
+    };
+    assert_eq!(
+        unsafe { calm_engine_install_platform_ops(engine.ptr, &empty_raster) },
+        CalmStatus::Ok
+    );
+    assert_eq!(
+        unsafe { calm_engine_run_op(engine.ptr, 0, active) },
+        CalmStatus::Error,
+        "a null-data raster is not a usable result either"
+    );
+
+    // No `free_output` at all: the platform op still runs to completion rather than crashing
+    // trying to call through a null function pointer to release what it handed back.
+    let no_free = CalmPlatformOps {
+        available: Some(fake_op_available),
+        run: Some(fake_op_run),
+        free_output: None,
+    };
+    assert_eq!(
+        unsafe { calm_engine_install_platform_ops(engine.ptr, &no_free) },
+        CalmStatus::Ok
+    );
+    assert_eq!(
+        unsafe { calm_engine_run_op(engine.ptr, 0, active) },
+        CalmStatus::Ok
+    );
+}
+
 #[test]
 fn create_from_image_rejects_bad_lengths_and_null_pixels() {
     let engine = TestEngine::new();
