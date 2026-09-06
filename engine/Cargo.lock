@@ -62,7 +62,7 @@ version = "0.2.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "045795fa770d3b7ec2a98d96d8a4a3a81402d1e7bb71a70968f0d799729deda0"
 dependencies = [
- "avif-parse 1.4.0",
+ "avif-parse",
  "imgref",
  "libaom-sys",
  "log",
@@ -159,39 +159,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "avif-decode"
-version = "1.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "37c6db6ccb30227ea05e601a546b34528132a6d493abf576d356c6f8c7351a24"
-dependencies = [
- "aom-decode",
- "avif-parse 2.1.0",
- "imgref",
- "owning_ref",
- "quick-error 2.0.1",
- "rgb",
- "yuv",
-]
-
-[[package]]
 name = "avif-parse"
 version = "1.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3f85ce2a7cd14ac0a30dc29a115de22466aeb8a029410f9f1e4f283443c959d1"
-dependencies = [
- "arrayvec",
- "bitreader",
- "byteorder",
- "fallible_collections",
- "leb128",
- "log",
-]
-
-[[package]]
-name = "avif-parse"
-version = "2.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "048e72663e14be27bfd8a9e01e8a0bf27610511ffd5f74c7955f4e4847ce2530"
 dependencies = [
  "arrayvec",
  "bitreader",
@@ -396,7 +367,7 @@ dependencies = [
 name = "calumma-io"
 version = "0.10.1"
 dependencies = [
- "avif-decode",
+ "aom-decode",
  "calumma-core",
  "dirs",
  "flate2",
@@ -1539,15 +1510,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8c7c9e0d9b23589f26070720bac724174bfec1083e82f7854cdd0267518343c0"
 dependencies = [
  "num-traits",
-]
-
-[[package]]
-name = "owning_ref"
-version = "0.4.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6ff55baddef9e4ad00f88b6c743a2a8062d4c6ade126c2a528644b8e444d52ce"
-dependencies = [
- "stable_deref_trait",
 ]
 
 [[package]]

@@ -629,7 +629,7 @@ Adding a field means bumping the version and writing the migration in the same c
   respecting masks, opacity, blend modes and adjustments; `io` encodes the bytes
   (`raster.rs`, `calm_engine_export_image`). PNG and WebP are lossless; JPEG / AVIF / HEIC
   use `LOSSY_EXPORT_QUALITY`. HEIC rides `heif-rs` (statically linked libheif / x265 /
-  libde265). AVIF encode is `ravif`; AVIF decode is `avif-decode` (statically linked
+  libde265). AVIF encode is `ravif`; AVIF decode is `aom-decode` (statically linked
   libaom) — libheif's HEVC build cannot read AV1. A first `calumma-io` build needs
   cmake, nasm (or yasm; libaom's x86_64 backend refuses to configure without an assembler),
   and libclang (`heif-rs` bindgen). `io/src/png.rs` remains the PNG helper for

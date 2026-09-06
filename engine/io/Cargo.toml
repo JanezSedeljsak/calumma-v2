@@ -17,7 +17,7 @@ rustc-hash = { workspace = true }
 image = { workspace = true, features = ["jpeg", "png", "webp", "tiff", "avif", "rayon"] }
 resvg = { workspace = true }
 heif-rs = { workspace = true }
-avif-decode = { workspace = true }
+aom-decode = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

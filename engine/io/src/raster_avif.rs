@@ -1,18 +1,27 @@
-use avif_decode::{Decoder, Image};
+use aom_decode::avif::{Avif, Image};
+use aom_decode::Config;
 
 pub fn decode(bytes: &[u8]) -> Option<(u32, u32, Vec<u8>)> {
-    let image = Decoder::from_avif(bytes).ok()?.to_image().ok()?;
-    Some(to_rgba8(image))
+    let mut avif = Avif::decode(
+        bytes,
+        &Config {
+            threads: std::thread::available_parallelism()
+                .map(|n| n.get().min(32))
+                .unwrap_or(4),
+        },
+    )
+    .ok()?;
+    Some(to_rgba8(avif.convert().ok()?))
 }
 
 fn to_rgba8(image: Image) -> (u32, u32, Vec<u8>) {
     match image {
-        Image::Rgba8(buf) => pack(
+        Image::RGBA8(buf) => pack(
             buf.width(),
             buf.height(),
             buf.pixels().map(|px| [px.r, px.g, px.b, px.a]),
         ),
-        Image::Rgb8(buf) => pack(
+        Image::RGB8(buf) => pack(
             buf.width(),
             buf.height(),
             buf.pixels().map(|px| [px.r, px.g, px.b, 255]),
@@ -20,18 +29,15 @@ fn to_rgba8(image: Image) -> (u32, u32, Vec<u8>) {
         Image::Gray8(buf) => pack(
             buf.width(),
             buf.height(),
-            buf.pixels().map(|px| {
-                let v = px.value();
-                [v, v, v, 255]
-            }),
+            buf.pixels().map(|v| [v, v, v, 255]),
         ),
-        Image::Rgba16(buf) => pack(
+        Image::RGBA16(buf) => pack(
             buf.width(),
             buf.height(),
             buf.pixels()
                 .map(|px| [drop8(px.r), drop8(px.g), drop8(px.b), drop8(px.a)]),
         ),
-        Image::Rgb16(buf) => pack(
+        Image::RGB16(buf) => pack(
             buf.width(),
             buf.height(),
             buf.pixels()
@@ -40,8 +46,8 @@ fn to_rgba8(image: Image) -> (u32, u32, Vec<u8>) {
         Image::Gray16(buf) => pack(
             buf.width(),
             buf.height(),
-            buf.pixels().map(|px| {
-                let v = drop8(px.value());
+            buf.pixels().map(|v| {
+                let v = drop8(v);
                 [v, v, v, 255]
             }),
         ),
