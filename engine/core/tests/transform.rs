@@ -231,7 +231,10 @@ fn repivoted_keeps_forward_identical_from_a_different_pivot() {
     assert_eq!(repivoted.scale_y, t.scale_y);
     assert_eq!(repivoted.rotation, t.rotation);
     for local in [(0.0, 0.0), (40.0, 20.0), (100.0, -30.0), (-15.0, 60.0)] {
-        approx(t.forward(old_pivot, local), repivoted.forward(new_pivot, local));
+        approx(
+            t.forward(old_pivot, local),
+            repivoted.forward(new_pivot, local),
+        );
     }
 }
 

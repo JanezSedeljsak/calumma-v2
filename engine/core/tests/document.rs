@@ -695,10 +695,10 @@ fn undoing_an_erase_that_repivoted_restores_both_the_pixels_and_the_transform() 
     doc.resize_viewport(200.0, 200.0, 1.0);
     doc.fit_to_view();
     let active = doc.active_layer;
-    doc.layers[active]
-        .tiles_mut()
-        .unwrap()
-        .fill_uniform(calumma_core::tile::DocRect::new(20, 20, 39, 39), [200, 30, 30, 255]);
+    doc.layers[active].tiles_mut().unwrap().fill_uniform(
+        calumma_core::tile::DocRect::new(20, 20, 39, 39),
+        [200, 30, 30, 255],
+    );
     doc.layers[active].tiles_mut().unwrap().fill_uniform(
         calumma_core::tile::DocRect::new(150, 150, 169, 169),
         [30, 200, 30, 255],

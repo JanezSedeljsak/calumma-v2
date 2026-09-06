@@ -2225,10 +2225,13 @@ impl Document {
 
         let before = std::mem::take(&mut self.stroke_before);
         match repivoted_from {
-            Some(old_t) => self
+            Some(old_t) => {
+                self.history
+                    .push_layer_tiles_and_transform(layer_id, before, old_t, Some(active))
+            }
+            None => self
                 .history
-                .push_layer_tiles_and_transform(layer_id, before, old_t, Some(active)),
-            None => self.history.push_layer_tiles(layer_id, before, Some(active)),
+                .push_layer_tiles(layer_id, before, Some(active)),
         }
     }
 
