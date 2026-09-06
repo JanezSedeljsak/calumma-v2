@@ -167,7 +167,13 @@ are not openable, they are open.
   white-filled raster layer — paintable/eraseable like any other layer, not a background
   decoration. The list shows the topmost (frontmost) layer first, matching stack order.
   Hover shows a thumbnail popover; each row also carries a persistent thumbnail.
-- **AI:** tools-island icon menu; Remove Background when Vision is available.
+- **Smart Tools:** tools-island icon menu (renamed from "AI" — most of what lives here now is
+  deterministic core Rust, not a model). Four entries: Remove Background (macOS Vision) when
+  available, Cut Out Subject (graph cut, `engine/core/src/smarttools/grabcut.rs`), Upscale (Lanczos-3,
+  `engine/core/src/smarttools/resample.rs`) and Content-Aware Narrow (seam carving,
+  `engine/core/src/smarttools/seam_carving.rs`). The last three are `Backend::Core`: always available, no
+  platform dependency, no trained weights. The two matting tools bake into the active layer's
+  mask; the two resizing tools add their result as a new layer instead of replacing the source.
 - **Zoom:** a pill pinned **bottom-trailing inside the canvas island** — `−`, slider, `+`,
   percentage, Fit. The two ends are independent: zoom out until the paper fills ~20% of the
   viewport, and in until ~16 doc px span the short viewport side (or 64×, whichever comes
@@ -684,13 +690,49 @@ live in `engine/core`; PNG/JPEG/WebP/AVIF/HEIC encode and decode live in `engine
   region, and Move is the tool that picks. That is Photoshop's split rather than Figma's, and
   overloading marquee-click to also pick would make an empty-space click ambiguous when it
   currently starts a region drag.
-- **Remove Background:** AI menu on the tools island → macOS Vision via `calm_engine_run_op` when available.
-  Shell never mutates the stack after the op. Details: `AGENTS.md` → AI ops.
-  It needs **a raster layer** — the engine's `Layer::is_raster()`, which is deliberately false
-  for a text layer as well as a vector one — and says so in a toast rather than running Vision
-  over a text layer's tile cache or a vector layer that has no pixels at all. The menu item
-  stays pressable and explains itself, which is the same shape as the tool-block notice; it is
-  not greyed out, because the reason is worth reading once rather than guessing at.
+- **Remove Background:** Smart Tools menu on the tools island → macOS Vision via
+  `calm_engine_run_op` when available. Shell never mutates the stack after the op. Details:
+  `AGENTS.md` → AI ops. It needs **a raster layer** — the engine's `Layer::is_raster()`, which
+  is deliberately false for a text layer as well as a vector one — and says so in a toast
+  rather than running Vision over a text layer's tile cache or a vector layer that has no
+  pixels at all. The menu item stays pressable and explains itself, which is the same shape as
+  the tool-block notice; it is not greyed out, because the reason is worth reading once rather
+  than guessing at.
+- **Upscale:** Smart Tools menu → Lanczos-3 resampling (`engine/core/src/smarttools/resample.rs`), 2× the
+  active layer's own size, via `calm_engine_upscale_layer`. Deterministic core Rust —
+  `OpKind::Upscale` is `Backend::Core` and always available, unlike Remove Background's Vision
+  dependency — so the menu item is never greyed out for platform reasons, only while another
+  Smart Tool is already running or the active layer is not raster. Adds the result as a new
+  layer on top of the stack rather than replacing the source, the same `OpOutput::Raster` path
+  a future generative op would use, so the original is always still there to compare against or
+  discard.
+- **Cut Out Subject:** Smart Tools menu → GrabCut-style graph cut (`engine/core/src/smarttools/grabcut.rs`
+  over `engine/core/src/smarttools/maxflow.rs`), via `calm_engine_smart_matte`. Two k-means-fit colour
+  GMMs, a contrast-sensitive 8-connected grid graph, and a min cut. Runs at a capped work resolution
+  (512 px long edge): the work image is box-downsampled so colour models are not fed Lanczos
+  ringing, and the matte is bilinearly upsampled back. That is what keeps an exact min
+  cut interactive on a large layer. Writes `layer.mask` through the same path Vision's Remove
+  Background uses, so it is undoable the same way. It is a **separate** `OpKind` from Remove
+  Background rather than a core fallback for it: the registry resolves platform ahead of core,
+  so a core op sharing that kind would be permanently shadowed by Vision and never run.
+  - **Draw around the subject first.** Any selection — lasso, marquee, ellipse, wand — becomes
+    the seed: everything outside it is *definite* background, everything inside stays free, so
+    background caught inside a rough loop is still cut away. This is GrabCut's own interaction
+    model and it is worth much more than guessing, most visibly on a subject that runs off the
+    frame edge, which the automatic seeding cannot help but condemn. The engine rasterizes the
+    selection through `Selection::to_mask` and hands it over as `OpParams::seed_region`; the
+    menu item renames itself when a selection is live so the difference is not invisible.
+  - With **nothing selected** it falls back to automatic seeding — a border ring is background,
+    anything already transparent joins it — so the one-click path still works. A region drawn
+    around the whole canvas leaves no background to model and falls back the same way.
+- **Content-Aware Narrow:** Smart Tools menu → seam carving
+  (`engine/core/src/smarttools/seam_carving.rs`), 10% off the active layer's width, via
+  `calm_engine_seam_carve_layer`. Sobel energy over luminance *and* alpha (so a layer's
+  silhouette counts as an edge, not as free space), forward-energy DP so each removal prices
+  the edges it would create, and one seam removed or inserted at a time with energy updated
+  only around the seam. Width and height carve independently — the second axis is the first one
+  transposed. Costs `O(seams × w × h)`, so it is the Smart Tool most likely to take a visible
+  moment; like Upscale it lands as a new layer.
 
 ## Selection
 

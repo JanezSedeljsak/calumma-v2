@@ -11,6 +11,9 @@ pub enum CalmOpKind {
     GenerateTexture = 1,
     Vectorize = 2,
     SuggestShape = 3,
+    Upscale = 4,
+    SeamCarve = 5,
+    SmartMatte = 6,
 }
 
 impl CalmOpKind {
@@ -24,6 +27,9 @@ impl CalmOpKind {
             Self::GenerateTexture => OpKind::GenerateTexture,
             Self::Vectorize => OpKind::Vectorize,
             Self::SuggestShape => OpKind::SuggestShape,
+            Self::Upscale => OpKind::Upscale,
+            Self::SeamCarve => OpKind::SeamCarve,
+            Self::SmartMatte => OpKind::SmartMatte,
         }
     }
 }
@@ -93,11 +99,15 @@ impl Op for PlatformOp {
         let Some(available) = self.ops.available else {
             return false;
         };
+        // The three Smart Tools that are `Backend::Core` only — Upscale, SeamCarve, SmartMatte
+        // — have no C-side representation and are never wrapped in a `PlatformOp` in practice;
+        // this arm exists only so the match stays exhaustive as `OpKind` grows.
         let kind = match self.kind {
             OpKind::RemoveBackground => CalmOpKind::RemoveBackground,
             OpKind::GenerateTexture => CalmOpKind::GenerateTexture,
             OpKind::Vectorize => CalmOpKind::Vectorize,
             OpKind::SuggestShape => CalmOpKind::SuggestShape,
+            OpKind::Upscale | OpKind::SeamCarve | OpKind::SmartMatte => return false,
         };
         catch_unwind(AssertUnwindSafe(|| unsafe { available(kind) })).unwrap_or(false)
     }
@@ -111,6 +121,9 @@ impl Op for PlatformOp {
             OpKind::GenerateTexture => CalmOpKind::GenerateTexture,
             OpKind::Vectorize => CalmOpKind::Vectorize,
             OpKind::SuggestShape => CalmOpKind::SuggestShape,
+            OpKind::Upscale | OpKind::SeamCarve | OpKind::SmartMatte => {
+                return Err(OpError::Unavailable)
+            }
         };
         let (rgba, w, h) = match input {
             OpInput::Raster { rgba, w, h } => (rgba, w, h),

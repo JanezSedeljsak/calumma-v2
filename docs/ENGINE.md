@@ -673,7 +673,7 @@ budget for no benefit.
 
 ## 7. `ffi` — the boundary
 
-The only crate Swift links, via `platform/macos/Calumma/Bridge/Calumma.h`.
+The only crate Swift links, via the shared `platform/shared/Calumma.hpp`.
 
 ### Rules
 
@@ -688,7 +688,7 @@ The only crate Swift links, via `platform/macos/Calumma/Bridge/Calumma.h`.
   `create_surface_unsafe`, the platform vtable. Keep it thin, keep the helpers centralised,
   and do not copy the patterns up into `core`/`render`/`ops`.
 - **The header and the Swift `Engine` wrapper are not cross-checked.** Adding an FFI function
-  means editing `Calumma.h` and `Engine.swift` in the same change, or the build links against
+  means editing `Calumma.hpp` and `Engine.swift` in the same change, or the build links against
   a symbol that is not there.
 
 ### What crosses the boundary

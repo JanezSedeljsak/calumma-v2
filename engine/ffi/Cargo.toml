@@ -18,7 +18,17 @@ bytemuck = { workspace = true, features = ["derive"] }
 parking_lot = { workspace = true }
 num_enum = { workspace = true }
 pollster = { workspace = true }
-wgpu = { workspace = true, default-features = false, features = ["metal", "wgsl"] }
+# Backends are per-target, same split as `calumma-render` — see the note there.
+wgpu = { workspace = true, default-features = false, features = ["wgsl"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+wgpu = { workspace = true, default-features = false, features = ["metal"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+wgpu = { workspace = true, default-features = false, features = ["dx12"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+wgpu = { workspace = true, default-features = false, features = ["vulkan"] }
 
 [dev-dependencies]
 tempfile = { workspace = true }

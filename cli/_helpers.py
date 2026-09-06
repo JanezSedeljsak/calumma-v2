@@ -43,6 +43,7 @@ from constants import (
     TOKEN_KEY_WINDOW,
     TOKEN_MODE_DARK,
     TOKEN_MODE_LIGHT,
+    TOKENS_CPP_OUT,
     TOKENS_PATH,
     TOKENS_SWIFT_OUT,
     XCODE_PROJECT,
@@ -52,6 +53,7 @@ FORBIDDEN_CORE_DEPS = re.compile(r"wgpu|objc2|metal|windows", re.IGNORECASE)
 
 __all__ = [
     "COLOR_KEYS",
+    "TOKENS_CPP_OUT",
     "ENGINE",
     "ENGINE_LOCK",
     "ENGINE_MANIFEST",

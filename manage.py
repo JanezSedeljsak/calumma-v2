@@ -55,6 +55,7 @@ from constants import (
     BIN_CARGO_DENY,
     BIN_CARGO_LLVM_COV,
     BIN_CARGO_OUTDATED,
+    BIN_CMAKE,
     BIN_OPEN,
     BIN_SWIFT_FORMAT,
     BIN_TAPLO,
@@ -75,20 +76,28 @@ from constants import (
     MSG_DENY_SKIP,
     MSG_INSTALL_LLVM_COV,
     MSG_NO_COVERAGE,
+    MSG_QT_NO_CMAKE,
     MSG_WROTE,
     PKG_FFI,
     PYTHON_PATHS,
+    QT,
+    QT_BUILD,
     ROOT,
     SCHEME_CALUMMA,
 )
+from gen_tokens_cpp import generate_tokens_cpp
 from gen_tokens_swift import generate_tokens_swift
 from package_macos import package_macos
 from version_check import check_version_bump
 
 
 def cmd_tokens(_: argparse.Namespace) -> int:
-    out = generate_tokens_swift()
-    print(f"{MSG_WROTE} {out}")
+    # One source, two shells. The Qt header is generated here rather than by its own command so
+    # a token edit cannot land in one shell and not the other.
+    cpp = generate_tokens_cpp()
+    swift = generate_tokens_swift()
+    print(f"{MSG_WROTE} {swift}")
+    print(f"{MSG_WROTE} {cpp}")
     return 0
 
 
@@ -141,6 +150,20 @@ def cmd_dev(_: argparse.Namespace) -> int:
     run(cargo_cmd("build", "--release", "-p", PKG_FFI))
     xcodegen_generate()
     run([BIN_OPEN, str(XCODE_PROJECT)])
+    return 0
+
+
+def cmd_qt_smoke(_: argparse.Namespace) -> int:
+    # The Qt shell's engine wrapper is deliberately free of Qt, so this builds and runs on any
+    # machine the engine builds on — including this one, where there is no Qt to make a window
+    # with. Debug rather than release: nothing here measures speed, and an LTO build to run a
+    # handful of FFI calls is a poor trade.
+    if not which(BIN_CMAKE):
+        print(MSG_QT_NO_CMAKE)
+        return 1
+    run([BIN_CMAKE, "-B", str(QT_BUILD), "-S", str(QT), "-DCALUMMA_CARGO_PROFILE=debug"])
+    run([BIN_CMAKE, "--build", str(QT_BUILD), "--target", "calumma_smoke"])
+    run([str(QT_BUILD / "calumma_smoke")])
     return 0
 
 
@@ -407,9 +430,9 @@ def build_parser() -> argparse.ArgumentParser:
         description="Calumma v2 task runner (tokens, engine, coverage, macOS).",
     )
     sub = parser.add_subparsers(dest="command", required=True)
-    sub.add_parser("tokens", help="regenerate Swift tokens from design/tokens.json").set_defaults(
-        func=cmd_tokens
-    )
+    sub.add_parser(
+        "tokens", help="regenerate Swift + C++ tokens from design/tokens.json"
+    ).set_defaults(func=cmd_tokens)
     sub.add_parser(
         "version", help="print engine/Cargo.toml's [workspace.package] version"
     ).set_defaults(func=cmd_version)
@@ -436,6 +459,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     package_parser.set_defaults(func=cmd_package)
     sub.add_parser("test", help="cargo test --workspace").set_defaults(func=cmd_test)
+    sub.add_parser(
+        "qt-smoke", help="build + run the Qt shell's engine wrapper checks (no Qt needed)"
+    ).set_defaults(func=cmd_qt_smoke)
     sub.add_parser("test-swift", help="xcodebuild test").set_defaults(func=cmd_test_swift)
     sub.add_parser("fmt", help="rustfmt + ruff (+ swift-format / taplo when present)").set_defaults(
         func=cmd_fmt

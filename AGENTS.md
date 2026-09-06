@@ -85,13 +85,15 @@ bind groups — is shipped; see `docs/ENGINE.md` § Bind groups.
 
 | Path | Role |
 | --- | --- |
-| `engine/core` | Document, sparse tiles, camera, viewport culling, history, shapes, palette, `LayerContent` — no GPU |
+| `engine/core` | Document, sparse tiles, camera, viewport culling, history, shapes, palette, `LayerContent`, Smart Tools (`src/smarttools`) — no GPU |
 | `engine/text` | System fonts, shaping, layout, caret/hit-test, selection geometry, style spans, glyph rasterizing (`cosmic-text`). Leaf crate; `core` depends on it |
 | `engine/render` | wgpu; surface created by the shell; applies layer masks at upload |
 | `engine/io` | SQLite projects + encode/decode |
 | `engine/ops` | `Op` / `OpRegistry` dispatch; apply results into the document |
 | `engine/ffi` | C ABI; **only** crate Swift links; platform op vtable |
+| `platform/shared` | `Calumma.hpp` — the one C ABI header both shells `#include`, plus the canonical wire-value enums (`CalmTool`, `CalmBlendMode`, …) neither shell hand-duplicates any more |
 | `platform/macos` | SwiftUI landing, tabs, editor chrome, Metal canvas, Vision ops, i18n loader |
+| `platform/qt` | Windows + Linux shell, C++20/Qt 6 over the same C ABI. Board only so far — see `docs/plans/01-qt-shell.md`. The engine wrapper holds no Qt and is checked by `./manage.py qt-smoke`; the GUI needs Qt and does not build on macOS |
 | `translations/` | Locale JSON (`en.json` today). Not code — edit strings here |
 | `design/` | Visual tokens only (`tokens.json`), SVG icons, `icon.png` (app icon master, `./manage.py icon`) |
 | `docs/` | All prose docs: `FLOW.md` (product flow), `STYLE.md` (design system), `ENGINE.md`, `RENDERING.md`, plus the gitignored `todo.md` + `plans/`. Only `README.md`, `AGENTS.md`, `CLAUDE.md` stay at the root |
@@ -105,7 +107,7 @@ text  ← std + cosmic-text (leaf)
 core  ← std + small utils + text
 render / io / ops  ← core
 ffi  ← core, render, io, ops
-Swift shell  ← ffi only (via Calumma.h)
+Swift shell  ← ffi only (via platform/shared/Calumma.hpp)
 ```
 
 `calumma-core` must stay free of wgpu / objc / metal / windows. Enforce with
@@ -116,18 +118,19 @@ Swift shell  ← ffi only (via Calumma.h)
 ## How to work in this repo
 
 1. **Change engine behaviour in Rust.** Add or extend `#[no_mangle]` FFI in `engine/ffi`,
-   update `platform/macos/Calumma/Bridge/Calumma.h` and the Swift `Engine` wrapper in the
+   update `platform/shared/Calumma.hpp` and the Swift `Engine` wrapper in the
    same change. They are not cross-checked automatically.
 2. **Change visuals in WGSL** (`engine/render/src/shaders/board.wgsl`) and mirror any SDF
    or tool discriminant in Rust (`engine/core/src/shape.rs`). Build validates shaders via
    naga in `build.rs`.
 3. **Change chrome in Swift** using shared components in `UI/Components.swift` and tokens
    from `Tokens.generated.swift`. Do not sprinkle one-off fonts/colors/padding.
-4. **After `design/tokens.json` edits:** `./manage.py tokens`.
+4. **After `design/tokens.json` edits:** `./manage.py tokens` — writes both
+   `Tokens.generated.swift` and `platform/qt/src/theme/Tokens.generated.hpp`.
 5. **After Rust engine edits that affect the app:** `./manage.py test` (and rebuild ffi /
    open Xcode via `./manage.py dev` when touching the shell).
 6. **No comments** in `.rs`, `.swift`, `.wgsl`. Name things clearly instead.
-7. **Do not edit generated** `Tokens.generated.swift` by hand.
+7. **Do not edit generated** `Tokens.generated.swift` / `Tokens.generated.hpp` by hand.
 8. **Keep files small and single-topic** (below).
 
 ---
@@ -660,9 +663,10 @@ Never branch on bare literals (`tool == 1u`). Use named consts matching Rust
 
 ```
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
-./manage.py tokens # design/tokens.json → Swift Tokens
+./manage.py tokens # design/tokens.json → Swift + C++ Tokens
 ./manage.py icon # design/icon.png → AppIcon.appiconset (Pillow)
 ./manage.py test # cargo test --workspace
+./manage.py qt-smoke # Qt shell's engine wrapper, driven headless (no Qt needed)
 ./manage.py coverage # llvm-cov + per-crate %% table in the log
 ./manage.py lint # clippy + ruff + purity
 ./manage.py check # fmt + lint + test

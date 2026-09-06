@@ -47,7 +47,7 @@ struct ToolsPanel: View {
 
                         CalmDivider()
 
-                        aiSection
+                        smartToolsSection
                     }
                     .frame(minHeight: proxy.size.height)
                     .calmScrollBars()
@@ -92,24 +92,45 @@ struct ToolsPanel: View {
         }
     }
 
-    private var aiIsBusy: Bool { app.engine.aiOpBusyLayer != nil }
+    private var smartToolsBusy: Bool { app.engine.smartToolBusyLayer != nil }
 
-    private var aiSection: some View {
+    private var smartMatteTitle: String {
+        if smartToolsBusy { return l10n.smartMatteWorking }
+        return app.engine.hasSelection ? l10n.smartMatteDrawn : l10n.smartMatte
+    }
+
+    /// Deterministic, no-trained-weights tools — Lanczos-3 upscaling, and (Vision aside) Remove
+    /// Background — grouped under one menu the way the AI-only version used to be one button.
+    private var smartToolsSection: some View {
         Menu {
-            Button(aiIsBusy ? l10n.removeBackgroundWorking : l10n.removeBackground) {
+            Button(smartToolsBusy ? l10n.removeBackgroundWorking : l10n.removeBackground) {
                 app.removeBackground()
             }
             .disabled(!app.engine.canRemoveBackground)
+            Button(smartToolsBusy ? l10n.upscaleWorking : l10n.upscale) {
+                app.upscale()
+            }
+            .disabled(!app.engine.canUpscale)
+            // The label follows the selection: drawing around the subject is what makes this
+            // cut against a real boundary rather than a guess, so the menu says which one it is
+            // about to do instead of leaving the difference invisible.
+            Button(smartMatteTitle) { app.smartMatte() }
+                .disabled(!app.engine.canSmartMatte)
+                .help(l10n.smartMatteHint)
+            Button(smartToolsBusy ? l10n.seamCarveWorking : l10n.seamCarve) {
+                app.seamCarve()
+            }
+            .disabled(!app.engine.canSeamCarve)
         } label: {
             HStack(spacing: Tokens.Space.xs) {
-                if aiIsBusy {
+                if smartToolsBusy {
                     ProgressView()
                         .controlSize(.small)
                         .frame(width: 16, height: 16)
                 } else {
                     AppIcon.ai(color: colors.textMuted)
                 }
-                CalmText.label(l10n.ai)
+                CalmText.label(l10n.smartTools)
             }
             .frame(maxWidth: .infinity)
             .frame(height: Tokens.Control.height)
@@ -117,7 +138,7 @@ struct ToolsPanel: View {
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
-        .calmTooltip(l10n.aiTools, edge: .trailing)
+        .calmTooltip(l10n.smartTools, edge: .trailing)
         .calmPointer()
     }
 

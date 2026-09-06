@@ -1,6 +1,6 @@
 use calumma_core::{unpremultiply_rgba, AdjustmentKind, BlendMode, Tool, IMPORT_MAX_SIDE};
 use calumma_ffi::*;
-use std::ffi::{CStr, CString};
+use std::ffi::{c_void, CStr, CString};
 use std::os::raw::c_int;
 use std::ptr;
 
@@ -792,6 +792,58 @@ fn attach_surface_rejects_null_layer_and_empty_size() {
         unsafe { calm_engine_attach_surface(ptr::null_mut(), 0x1 as *mut _, 64, 64, 1.0) },
         CalmStatus::Null
     );
+}
+
+/// The Qt shell's entry point refuses the same things through the struct, plus the two failures
+/// only it can have: no struct at all, and a `kind` outside the enum. Nothing here reaches a
+/// real surface — every case is rejected before the handles would be touched, which is what
+/// makes it safe to pass fake pointers.
+#[test]
+fn attach_native_surface_rejects_a_missing_description_and_an_unknown_kind() {
+    let engine = TestEngine::new();
+    engine.create_project("Surface", 32, 32);
+
+    let describe = |kind: u32, window: *mut c_void| CalmNativeSurface {
+        kind,
+        display: 0x1 as *mut c_void,
+        window,
+    };
+    let metal = describe(CalmSurfaceKind::MetalLayer as u32, 0x1 as *mut c_void);
+
+    assert_eq!(
+        unsafe { calm_engine_attach_native_surface(engine.ptr, ptr::null(), 64, 64, 1.0) },
+        CalmStatus::Error,
+        "no surface description"
+    );
+    assert_eq!(
+        unsafe { calm_engine_attach_native_surface(ptr::null_mut(), &metal, 64, 64, 1.0) },
+        CalmStatus::Null
+    );
+    assert_eq!(
+        unsafe {
+            let no_window = describe(CalmSurfaceKind::MetalLayer as u32, ptr::null_mut());
+            calm_engine_attach_native_surface(engine.ptr, &no_window, 64, 64, 1.0)
+        },
+        CalmStatus::Error,
+        "no window handle"
+    );
+    for (w, h) in [(0, 64), (64, 0)] {
+        assert_eq!(
+            unsafe { calm_engine_attach_native_surface(engine.ptr, &metal, w, h, 1.0) },
+            CalmStatus::Error,
+            "empty size {w}x{h}"
+        );
+    }
+    for kind in [4u32, u32::MAX] {
+        assert_eq!(
+            unsafe {
+                let unknown = describe(kind, 0x1 as *mut c_void);
+                calm_engine_attach_native_surface(engine.ptr, &unknown, 64, 64, 1.0)
+            },
+            CalmStatus::Error,
+            "kind {kind}"
+        );
+    }
 }
 
 #[test]

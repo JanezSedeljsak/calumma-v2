@@ -3,35 +3,33 @@ import Foundation
 import QuartzCore
 import SwiftUI
 
-/// What a paste actually did. The shell never works this out by comparing sizes — the engine
-/// decided, so the engine reports.
-enum CalmPasteOutcome: UInt32 {
-    case failed = 0
-    case native = 1
-    /// The image was bigger than the paper, so the layer holds more than the canvas shows.
-    case overflowing = 2
+// `CalmTool`, `CalmBlendMode`, `CalmAlignEdge`, `CalmDistributeAxis`, `CalmBrush`,
+// `CalmCropOverlayStyle` and `CalmPasteOutcome` all come from the shared
+// `platform/shared/Calumma.hpp` now, not a hand-duplicated Swift enum — the Qt shell imports the
+// same declarations. They are declared there as a fixed-underlying-type C enum tagged
+// `enum_extensibility(closed)` specifically so Swift's ClangImporter turns them into real,
+// exhaustively-switchable enums with `.caseName` members (verified empirically with a
+// standalone `swiftc -import-objc-header` probe covering every case of every one of these
+// before this was adopted — see docs/plans/01-qt-shell.md). What is below is only what a
+// C-imported type cannot bring with it: protocol conformances Swift cannot auto-synthesize for
+// a type it did not itself declare (`CaseIterable`'s `allCases` needs writing out by hand), and
+// `CalmTool`'s FFI-backed computed properties.
+
+extension CalmBlendMode: CaseIterable, Identifiable {
+    public static var allCases: [CalmBlendMode] { [.normal, .multiply, .screen] }
+    public var id: UInt32 { rawValue }
 }
 
-enum CalmBlendMode: UInt32, CaseIterable, Identifiable {
-    case normal = 0
-    case multiply = 1
-    case screen = 2
-
-    var id: UInt32 { rawValue }
+extension CalmBrush: CaseIterable {
+    public static var allCases: [CalmBrush] { [.pen, .marker, .crayon, .airbrush] }
 }
 
-enum CalmAlignEdge: UInt32 {
-    case left = 0
-    case centerH = 1
-    case right = 2
-    case top = 3
-    case centerV = 4
-    case bottom = 5
-}
-
-enum CalmDistributeAxis: UInt32 {
-    case horizontal = 0
-    case vertical = 1
+/// Mirrors `calumma_core::CropOverlayStyle` — the composition guide the crop overlay draws
+/// while dragging.
+extension CalmCropOverlayStyle: CaseIterable {
+    public static var allCases: [CalmCropOverlayStyle] {
+        [.off, .ruleOfThirds, .grid, .diagonal, .goldenRatio]
+    }
 }
 
 struct LayerAdjustments: Equatable {
@@ -46,37 +44,7 @@ struct LayerAdjustments: Equatable {
     }
 }
 
-enum CalmBrush: UInt32, CaseIterable {
-    case pen = 0
-    case marker = 1
-    case crayon = 2
-    case airbrush = 3
-}
-
-enum CalmTool: UInt32 {
-    case pen = 0
-    case line = 1
-    case rect = 2
-    case ellipse = 3
-    case arrow = 4
-    case eraser = 5
-    case selectRect = 6
-    case selectEllipse = 7
-    case selectLasso = 8
-    case bucket = 9
-    case transform = 10
-    case eyedropper = 11
-    case triangle = 12
-    case pentagon = 13
-    case text = 14
-    case move = 15
-    case blur = 16
-    case magicWand = 17
-    case selectColor = 18
-    case clone = 19
-    case heal = 20
-    case crop = 21
-
+extension CalmTool {
     var isShape: Bool { calm_tool_is_shape(rawValue) != 0 }
     var isSelection: Bool { calm_tool_is_selection(rawValue) != 0 }
     var takesFill: Bool { calm_tool_takes_fill(rawValue) != 0 }
@@ -89,16 +57,6 @@ enum CalmTool: UInt32 {
     var takesBrush: Bool { calm_tool_takes_brush(rawValue) != 0 }
     var takesEraserHardness: Bool { calm_tool_takes_eraser_hardness(rawValue) != 0 }
     var takesCloneAligned: Bool { calm_tool_takes_clone_aligned(rawValue) != 0 }
-}
-
-/// Mirrors `calumma_core::CropOverlayStyle` — the composition guide the crop overlay draws
-/// while dragging.
-enum CalmCropOverlayStyle: UInt32, CaseIterable {
-    case off = 0
-    case ruleOfThirds = 1
-    case grid = 2
-    case diagonal = 3
-    case goldenRatio = 4
 }
 
 struct ProjectInfo: Identifiable, Hashable {
@@ -240,9 +198,10 @@ final class Engine: ObservableObject, @unchecked Sendable {
     /// Full-size previews, for the hover card. Only one is ever on screen, so these are never
     /// the per-row cost that `layerThumbnails` is.
     @Published private(set) var layerPreviewCards: [NSImage?] = []
-    /// The layer an AI op is currently running against, so the layers panel can show it's
-    /// busy — `nil` the rest of the time, including right after the op finishes.
-    @Published private(set) var aiOpBusyLayer: Int?
+    /// The layer a Smart Tool (Remove Background, Upscale, …) is currently running against, so
+    /// the layers panel can show it's busy — `nil` the rest of the time, including right after
+    /// the op finishes.
+    @Published private(set) var smartToolBusyLayer: Int?
     /// How many guides the open document holds. Only a count, because that is all the chrome
     /// needs — the guides themselves are drawn by the board, never by SwiftUI. See
     /// `EngineGuides.swift`.
@@ -1720,7 +1679,7 @@ final class Engine: ObservableObject, @unchecked Sendable {
     var canRemoveBackground: Bool {
         guard let ptr else { return false }
         return calm_engine_op_available(ptr, UInt32(CalmOpKindRemoveBackground.rawValue))
-            && aiOpBusyLayer == nil
+            && smartToolBusyLayer == nil
     }
 
     /// Runs Vision's foreground-mask op on the active layer and reports what actually
@@ -1732,19 +1691,117 @@ final class Engine: ObservableObject, @unchecked Sendable {
     /// so this only reports which of the three outcomes occurred. The layer is marked busy
     /// for as long as Vision is actually running, so a slow request reads as "working," not
     /// "broken."
-    func removeBackground(onFinished: @escaping (AiOpResult) -> Void) {
-        guard let ptr, aiOpBusyLayer == nil else { return }
+    func removeBackground(onFinished: @escaping (SmartToolResult) -> Void) {
+        guard let ptr, smartToolBusyLayer == nil else { return }
         let layerIndex = Int(state.activeLayer)
         guard isLayerRaster(index: layerIndex) else {
             onFinished(.ineligibleLayer)
             return
         }
         let layer = state.activeLayer
-        aiOpBusyLayer = layerIndex
+        smartToolBusyLayer = layerIndex
         DispatchQueue.global(qos: .userInitiated).async {
             let status = calm_engine_run_op(ptr, UInt32(CalmOpKindRemoveBackground.rawValue), layer)
             DispatchQueue.main.async {
-                self.aiOpBusyLayer = nil
+                self.smartToolBusyLayer = nil
+                self.syncState()
+                self.refreshLayers()
+                self.render()
+                onFinished(status == CalmStatusOk ? .success : .failed)
+            }
+        }
+    }
+
+    var canUpscale: Bool {
+        guard let ptr else { return false }
+        return calm_engine_op_available(ptr, UInt32(CalmOpKindUpscale.rawValue))
+            && smartToolBusyLayer == nil
+    }
+
+    /// Lanczos-3 upscaling on the active layer, at `scale`× — deterministic core Rust, always
+    /// available, no Vision round trip. Still runs off the main thread and reports through the
+    /// same `SmartToolResult`/busy-layer shape `removeBackground` uses: a rayon-parallelized
+    /// resample of a large layer is fast, not instant, and the panel should read "working," not
+    /// freeze, for however long that takes.
+    func upscale(scale: Float, onFinished: @escaping (SmartToolResult) -> Void) {
+        guard let ptr, smartToolBusyLayer == nil else { return }
+        let layerIndex = Int(state.activeLayer)
+        guard isLayerRaster(index: layerIndex) else {
+            onFinished(.ineligibleLayer)
+            return
+        }
+        let layer = state.activeLayer
+        smartToolBusyLayer = layerIndex
+        DispatchQueue.global(qos: .userInitiated).async {
+            let status = calm_engine_upscale_layer(ptr, layer, scale)
+            DispatchQueue.main.async {
+                self.smartToolBusyLayer = nil
+                self.syncState()
+                self.refreshLayers()
+                self.render()
+                onFinished(status == CalmStatusOk ? .success : .failed)
+            }
+        }
+    }
+
+    var canSeamCarve: Bool {
+        guard let ptr else { return false }
+        return calm_engine_op_available(ptr, UInt32(CalmOpKindSeamCarve.rawValue))
+            && smartToolBusyLayer == nil
+    }
+
+    var canSmartMatte: Bool {
+        guard let ptr else { return false }
+        return calm_engine_op_available(ptr, UInt32(CalmOpKindSmartMatte.rawValue))
+            && smartToolBusyLayer == nil
+    }
+
+    /// Graph-cut background removal in core Rust — the deterministic counterpart to Vision's
+    /// `removeBackground`, and unlike it, available whether or not the platform vtable is
+    /// attached.
+    ///
+    /// Seeded by the active selection when there is one: loop the lasso (or any marquee) roughly
+    /// around the subject and everything outside it becomes definite background. With nothing
+    /// selected the engine falls back to its automatic seeding, so the one-click path still
+    /// works — drawing is an improvement on it, not a precondition.
+    func smartMatte(onFinished: @escaping (SmartToolResult) -> Void) {
+        guard let ptr, smartToolBusyLayer == nil else { return }
+        let layerIndex = Int(state.activeLayer)
+        guard isLayerRaster(index: layerIndex) else {
+            onFinished(.ineligibleLayer)
+            return
+        }
+        let layer = state.activeLayer
+        smartToolBusyLayer = layerIndex
+        DispatchQueue.global(qos: .userInitiated).async {
+            let status = calm_engine_smart_matte(ptr, layer)
+            DispatchQueue.main.async {
+                self.smartToolBusyLayer = nil
+                self.syncState()
+                self.refreshLayers()
+                self.render()
+                onFinished(status == CalmStatusOk ? .success : .failed)
+            }
+        }
+    }
+
+    /// Content-aware resize of the active layer to an exact size. Costs `O(seams × w × h)` —
+    /// every removed or inserted seam re-derives the energy map — so this is the Smart Tool
+    /// most likely to take a visible moment, and the one that most needs the busy state the
+    /// background dispatch here keeps honest.
+    func seamCarve(width: UInt32, height: UInt32, onFinished: @escaping (SmartToolResult) -> Void) {
+        guard let ptr, smartToolBusyLayer == nil else { return }
+        let layerIndex = Int(state.activeLayer)
+        guard isLayerRaster(index: layerIndex) else {
+            onFinished(.ineligibleLayer)
+            return
+        }
+        let layer = state.activeLayer
+        smartToolBusyLayer = layerIndex
+        DispatchQueue.global(qos: .userInitiated).async {
+            let status = calm_engine_seam_carve_layer(ptr, layer, width, height)
+            DispatchQueue.main.async {
+                self.smartToolBusyLayer = nil
                 self.syncState()
                 self.refreshLayers()
                 self.render()
@@ -1754,9 +1811,9 @@ final class Engine: ObservableObject, @unchecked Sendable {
     }
 }
 
-/// What a Platform AI op (Remove Background, today) actually did — `Engine` reports this
+/// What a Smart Tool (Remove Background, Upscale, …) actually did — `Engine` reports this
 /// instead of a pre-localized message, since it has no access to `l10n`.
-enum AiOpResult {
+enum SmartToolResult {
     case success
     case failed
     case ineligibleLayer

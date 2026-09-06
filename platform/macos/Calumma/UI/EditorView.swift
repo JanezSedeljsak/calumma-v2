@@ -21,7 +21,7 @@ struct EditorView: View {
     @State private var draggingRow: Int?
     @State private var selectedLayers: Set<Int> = []
     @State private var selectionAnchor: Int?
-    @State private var aiBlinkOn = false
+    @State private var smartToolBlinkOn = false
 
     var body: some View {
         editorLayout
@@ -55,13 +55,13 @@ struct EditorView: View {
             .onChange(of: app.engine.toolBlockNotice) { _, _ in
                 app.announceToolBlock()
             }
-            .onChange(of: app.engine.aiOpBusyLayer, initial: true) { _, busyLayer in
+            .onChange(of: app.engine.smartToolBusyLayer, initial: true) { _, busyLayer in
                 if busyLayer != nil {
                     withAnimation(.easeInOut(duration: 0.55).repeatForever(autoreverses: true)) {
-                        aiBlinkOn = true
+                        smartToolBlinkOn = true
                     }
                 } else {
-                    aiBlinkOn = false
+                    smartToolBlinkOn = false
                 }
             }
     }
@@ -858,7 +858,7 @@ struct EditorView: View {
 
     private func layerThumb(_ index: Int) -> some View {
         let shape = RoundedRectangle(cornerRadius: Tokens.Radius.sm, style: .continuous)
-        let busy = app.engine.aiOpBusyLayer == index
+        let busy = app.engine.smartToolBusyLayer == index
         return ZStack {
             shape.fill(colors.surfaceHover)
             if let image = app.engine.layerThumbnail(index: index) {
@@ -880,7 +880,7 @@ struct EditorView: View {
         .overlay(
             shape.strokeBorder(colors.accentTeal, lineWidth: busy ? 1.5 : 0)
         )
-        .opacity(busy && aiBlinkOn ? 0.35 : 1)
+        .opacity(busy && smartToolBlinkOn ? 0.35 : 1)
     }
 
     private func toolButton<Icon: View>(_ tool: CalmTool, @ViewBuilder icon: () -> Icon) -> some View {

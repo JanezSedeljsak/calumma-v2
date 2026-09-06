@@ -286,6 +286,58 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// Deterministic Lanczos-3 upscale on the active layer, at `scale`× (2× from the toolbar's
+    /// one-click entry). Lands as a new layer, same as every other image-producing Smart Tool —
+    /// nothing about the original is touched.
+    func upscale(scale: Float = 2.0) {
+        engine.upscale(scale: scale) { [weak self] result in
+            guard let self else { return }
+            switch result {
+            case .success:
+                showToast(l10n.upscaleSuccess, kind: .success)
+            case .failed:
+                showToast(l10n.upscaleFailed, kind: .error)
+            case .ineligibleLayer:
+                showToast(l10n.upscaleNeedsRaster, kind: .error)
+            }
+        }
+    }
+
+    /// Graph-cut background removal, the deterministic alternative to Vision's. Bakes into the
+    /// active layer's mask like Remove Background does, so ⌘Z takes it back.
+    func smartMatte() {
+        engine.smartMatte { [weak self] result in
+            guard let self else { return }
+            switch result {
+            case .success:
+                showToast(l10n.smartMatteSuccess, kind: .success)
+            case .failed:
+                showToast(l10n.smartMatteFailed, kind: .error)
+            case .ineligibleLayer:
+                showToast(l10n.smartMatteNeedsRaster, kind: .error)
+            }
+        }
+    }
+
+    /// Content-aware resize of the active layer by `fraction` of its current size on one axis —
+    /// the toolbar's one-click entry narrows by 10%, which is where seam carving reads as
+    /// "the subject stayed put and the empty space went" rather than as a plain squash.
+    func seamCarve(widthFraction: Double = 0.9, heightFraction: Double = 1.0) {
+        let width = UInt32(max(1.0, (Double(engine.state.width) * widthFraction).rounded()))
+        let height = UInt32(max(1.0, (Double(engine.state.height) * heightFraction).rounded()))
+        engine.seamCarve(width: width, height: height) { [weak self] result in
+            guard let self else { return }
+            switch result {
+            case .success:
+                showToast(l10n.seamCarveSuccess, kind: .success)
+            case .failed:
+                showToast(l10n.seamCarveFailed, kind: .error)
+            case .ineligibleLayer:
+                showToast(l10n.seamCarveNeedsRaster, kind: .error)
+            }
+        }
+    }
+
     /// The one place a refused press interrupts. The engine has already thrown away every
     /// repeat of the same (layer, tool) question, so this fires when there is genuinely
     /// something new to say and never on the second try.

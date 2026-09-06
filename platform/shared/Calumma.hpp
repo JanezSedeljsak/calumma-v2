@@ -1,5 +1,5 @@
-#ifndef CALUMMA_H
-#define CALUMMA_H
+#ifndef CALUMMA_HPP
+#define CALUMMA_HPP
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -17,11 +17,99 @@ typedef enum CalmStatus {
     CalmStatusNull = 2,
 } CalmStatus;
 
+// A fixed-underlying-type C enum tagged `enum_extensibility(closed)`, the same shape Apple's
+// own `NS_ENUM` expands to. Clang recognizes the attribute on any target (it is a Clang
+// extension, not an Apple SDK macro, so it works unchanged on Linux/Windows); everywhere else
+// it degrades to a plain fixed-width `enum`. The one thing it buys that a bare `enum : type`
+// does not: Swift's ClangImporter only turns a C enum into a real, exhaustively-switchable
+// `enum` (with prefix-stripped `.caseName` members, `RawRepresentable`) when the enum is
+// "closed" — without this it imports as an opaque struct of static constants instead, which is
+// how `CalmStatus`, `CalmOpKind` and friends above still work but cannot be `switch`ed on by
+// case name. Verified empirically (a standalone `swiftc -import-objc-header` probe, all seven
+// enums below, full case lists, exhaustive switches, `rawValue` round trips) before this was
+// adopted — see docs/plans/01-qt-shell.md.
+#if defined(__clang__)
+#define CALM_ENUM(_type, _name)                                                                 \
+    typedef enum __attribute__((enum_extensibility(closed))) _name : _type _name;                \
+    enum __attribute__((enum_extensibility(closed))) _name : _type
+#else
+#define CALM_ENUM(_type, _name)                                                                 \
+    typedef enum _name : _type _name;                                                            \
+    enum _name : _type
+#endif
+
+// The canonical wire-value vocabulary — one declaration each for what used to be duplicated by
+// hand in both shells (`CalmTool` etc. in `Engine.swift`, `shortcuts::Tool` in the Qt shell's
+// `Shortcuts.hpp`). Deliberately NOT the parameter type of the `calm_engine_*` functions below:
+// those stay plain `uint32_t` (ABI simplicity across Rust/Swift/C++, and zero call-site changes
+// on either shell — `someTool.rawValue` in Swift and a bare `uint32_t` in C++ both still work
+// exactly as before). These exist so both shells import *one* set of names and values instead of
+// each maintaining their own copy that could silently drift from the engine's.
+CALM_ENUM(uint32_t, CalmTool){
+    CalmToolPen = 0,          CalmToolLine = 1,        CalmToolRect = 2,
+    CalmToolEllipse = 3,      CalmToolArrow = 4,       CalmToolEraser = 5,
+    CalmToolSelectRect = 6,   CalmToolSelectEllipse = 7, CalmToolSelectLasso = 8,
+    CalmToolBucket = 9,       CalmToolTransform = 10,  CalmToolEyedropper = 11,
+    CalmToolTriangle = 12,    CalmToolPentagon = 13,   CalmToolText = 14,
+    CalmToolMove = 15,        CalmToolBlur = 16,       CalmToolMagicWand = 17,
+    CalmToolSelectColor = 18, CalmToolClone = 19,      CalmToolHeal = 20,
+    CalmToolCrop = 21,
+};
+
+CALM_ENUM(uint32_t, CalmBlendMode){
+    CalmBlendModeNormal = 0,
+    CalmBlendModeMultiply = 1,
+    CalmBlendModeScreen = 2,
+};
+
+CALM_ENUM(uint32_t, CalmAlignEdge){
+    CalmAlignEdgeLeft = 0,   CalmAlignEdgeCenterH = 1, CalmAlignEdgeRight = 2,
+    CalmAlignEdgeTop = 3,    CalmAlignEdgeCenterV = 4, CalmAlignEdgeBottom = 5,
+};
+
+CALM_ENUM(uint32_t, CalmDistributeAxis){
+    CalmDistributeAxisHorizontal = 0,
+    CalmDistributeAxisVertical = 1,
+};
+
+// Named `CalmBrush` (not `CalmBrushKind`) to match `Engine.swift`'s existing type exactly — the
+// point of this enum existing is for that Swift declaration to be deleted in favour of this one
+// with zero call-site renames, and a name mismatch would have defeated that.
+CALM_ENUM(uint32_t, CalmBrush){
+    CalmBrushPen = 0,
+    CalmBrushMarker = 1,
+    CalmBrushCrayon = 2,
+    CalmBrushAirbrush = 3,
+};
+
+// Mirrors `calumma_core::CropOverlayStyle` — the composition guide the crop overlay draws while
+// dragging.
+CALM_ENUM(uint32_t, CalmCropOverlayStyle){
+    CalmCropOverlayStyleOff = 0,
+    CalmCropOverlayStyleRuleOfThirds = 1,
+    CalmCropOverlayStyleGrid = 2,
+    CalmCropOverlayStyleDiagonal = 3,
+    CalmCropOverlayStyleGoldenRatio = 4,
+};
+
+// What a paste actually did. The shell never works this out by comparing sizes — the engine
+// decided, so the engine reports it via `out_outcome` on the paste functions below.
+CALM_ENUM(uint32_t, CalmPasteOutcome){
+    CalmPasteOutcomeFailed = 0,
+    CalmPasteOutcomeNative = 1,
+    CalmPasteOutcomeOverflowing = 2,
+};
+
 typedef enum CalmOpKind {
     CalmOpKindRemoveBackground = 0,
     CalmOpKindGenerateTexture = 1,
     CalmOpKindVectorize = 2,
     CalmOpKindSuggestShape = 3,
+    // Backend::Core Smart Tools — no platform vtable entry, but the same numeric ids
+    // `calm_engine_run_op` / `calm_engine_op_available` dispatch on.
+    CalmOpKindUpscale = 4,
+    CalmOpKindSeamCarve = 5,
+    CalmOpKindSmartMatte = 6,
 } CalmOpKind;
 
 typedef enum CalmOpOutputKind {
@@ -123,7 +211,27 @@ void calm_buffer_free(uint8_t *ptr, size_t len);
 CalmEngine *calm_engine_new(const char *db_path);
 void calm_engine_free(CalmEngine *engine);
 
+// A shell's window, in the terms its platform states it. macOS passes a CAMetalLayer and
+// nothing else; Win32 passes an HWND; X11 and Wayland each need a display *and* a window, which
+// is why one void * is no longer enough and this struct exists.
+typedef enum CalmSurfaceKind {
+    CalmSurfaceKindMetalLayer = 0,
+    CalmSurfaceKindWin32Hwnd = 1,
+    CalmSurfaceKindXlib = 2,
+    CalmSurfaceKindWayland = 3,
+} CalmSurfaceKind;
+
+typedef struct CalmNativeSurface {
+    CalmSurfaceKind kind;
+    // Unused for Metal and Win32. An X11 `Display *`, or a Wayland `wl_display *`.
+    void *display;
+    // A CAMetalLayer, an HWND, a Wayland `wl_surface *`, or — for X11 — an XID carried in the
+    // pointer's bits rather than an address, because that is what Xlib's `Window` is.
+    void *window;
+} CalmNativeSurface;
+
 CalmStatus calm_engine_attach_surface(CalmEngine *engine, void *metal_layer, uint32_t w, uint32_t h, float scale);
+CalmStatus calm_engine_attach_native_surface(CalmEngine *engine, const CalmNativeSurface *surface, uint32_t w, uint32_t h, float scale);
 CalmStatus calm_engine_resize(CalmEngine *engine, uint32_t w, uint32_t h, float scale);
 CalmStatus calm_engine_resize_document(CalmEngine *engine, uint32_t width, uint32_t height);
 CalmStatus calm_engine_render(CalmEngine *engine);
@@ -476,6 +584,12 @@ CalmStatus calm_project_thumbnail(CalmEngine *engine, const char *project_id, ui
 CalmStatus calm_engine_install_platform_ops(CalmEngine *engine, const CalmPlatformOps *ops);
 bool calm_engine_op_available(CalmEngine *engine, uint32_t kind);
 CalmStatus calm_engine_run_op(CalmEngine *engine, uint32_t kind, uint32_t layer_index);
+CalmStatus calm_engine_upscale_layer(CalmEngine *engine, uint32_t layer_index, float scale);
+// Graph-cut background removal, seeded by the active selection when there is one — draw around
+// the subject with any selection tool first for a cut against a real boundary.
+CalmStatus calm_engine_smart_matte(CalmEngine *engine, uint32_t layer_index);
+CalmStatus calm_engine_seam_carve_layer(CalmEngine *engine, uint32_t layer_index, uint32_t width,
+                                        uint32_t height);
 
 #ifdef __cplusplus
 }

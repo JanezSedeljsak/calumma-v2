@@ -1,5 +1,6 @@
 use crate::active_renderer::ActiveRenderer;
 use crate::platform::{parse_op_kind, CalmPlatformOps, PlatformOp};
+use crate::surface::{CalmNativeSurface, CalmSurfaceKind};
 use anyhow::{anyhow, bail, Context};
 use calumma_core::limits::{
     AUTOSAVE_INTERVAL_MS, BRUSH_SIZE_MAX, BRUSH_SIZE_MIN, FRAME_HINT_DISPLAY_MAX, IMPORT_MAX_SIDE,
@@ -11,7 +12,8 @@ use calumma_core::{
 };
 use calumma_io::{encode_pdf, encode_psd, encode_svg, ProjectListItem, ProjectStore};
 use calumma_ops::{
-    apply_output, layer_input, run_op_on_document, Backend, Op, OpParams, OpRegistry,
+    apply_output, layer_input, run_op_on_document, Backend, Op, OpParams, OpRegistry, SeamCarveOp,
+    SmartMatteOp, UpscaleOp,
 };
 use parking_lot::Mutex;
 use std::ffi::{c_char, c_void, CStr, CString};
@@ -130,7 +132,7 @@ impl Inner {
         };
         let store = ProjectStore::open(path).map_err(|e| e.to_string())?;
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::METAL,
+            backends: crate::surface::preferred_backends(),
             ..wgpu::InstanceDescriptor::new_without_display_handle()
         });
         Ok(Self {
@@ -141,7 +143,7 @@ impl Inner {
             last_save: Instant::now() - Duration::from_secs(60),
             dirty_save: false,
             autosave_thread: None,
-            registry: OpRegistry::new(),
+            registry: base_op_registry(),
             platform_ops: None,
             last_shape_tool: Tool::Rect,
             last_select_tool: Tool::SelectRect,
@@ -450,6 +452,9 @@ pub unsafe extern "C" fn calm_engine_free(engine: *mut CalmEngine) {
     }));
 }
 
+/// The macOS entry point, unchanged in signature and behaviour: a `CAMetalLayer` and nothing
+/// else. It is the [`CalmSurfaceKind::MetalLayer`] case of the native attach below, spelled the
+/// way the Swift shell has always called it.
 #[no_mangle]
 pub unsafe extern "C" fn calm_engine_attach_surface(
     engine: *mut CalmEngine,
@@ -458,9 +463,51 @@ pub unsafe extern "C" fn calm_engine_attach_surface(
     h: u32,
     scale: f32,
 ) -> CalmStatus {
+    let surface = CalmNativeSurface {
+        kind: CalmSurfaceKind::MetalLayer as u32,
+        display: ptr::null_mut(),
+        window: layer,
+    };
+    with_inner(engine, |inner| unsafe {
+        inner.attach(&surface, w, h, scale)
+    })
+}
+
+/// The same attach for shells whose window is not a Metal layer — Win32, X11, Wayland — where
+/// one `void *` cannot carry both handles the platform needs. Additive: no existing
+/// `calm_engine_*` function changed shape for it.
+///
+/// # Safety
+///
+/// `surface` must point at a live [`CalmNativeSurface`] whose handles outlive the attachment.
+#[no_mangle]
+pub unsafe extern "C" fn calm_engine_attach_native_surface(
+    engine: *mut CalmEngine,
+    surface: *const CalmNativeSurface,
+    w: u32,
+    h: u32,
+    scale: f32,
+) -> CalmStatus {
     with_inner(engine, |inner| {
-        if layer.is_null() || w == 0 || h == 0 {
-            bail!("attach needs a non-null layer and a non-empty size, got {w}x{h}");
+        let surface = unsafe { surface.as_ref() }.context("attach needs a surface description")?;
+        unsafe { inner.attach(surface, w, h, scale) }
+    })
+}
+
+impl Inner {
+    /// # Safety
+    ///
+    /// `surface`'s handles must be live and of the kind it claims — see
+    /// [`crate::surface::surface_target`].
+    unsafe fn attach(
+        &mut self,
+        surface: &CalmNativeSurface,
+        w: u32,
+        h: u32,
+        scale: f32,
+    ) -> anyhow::Result<()> {
+        if surface.window.is_null() || w == 0 || h == 0 {
+            bail!("attach needs a non-null window and a non-empty size, got {w}x{h}");
         }
         let (pw, ph) = {
             let dpr = scale.max(1.0);
@@ -471,28 +518,28 @@ pub unsafe extern "C" fn calm_engine_attach_surface(
         };
         #[cfg(test)]
         {
-            let _ = (layer, &inner.instance, pw, ph);
-            inner.renderer = Some(ActiveRenderer::Stub);
+            let _ = (surface, &self.instance, pw, ph);
+            self.renderer = Some(ActiveRenderer::Stub);
         }
         #[cfg(not(test))]
         {
+            let target = unsafe { crate::surface::surface_target(surface)? };
             let surface = unsafe {
-                inner
-                    .instance
-                    .create_surface_unsafe(wgpu::SurfaceTargetUnsafe::CoreAnimationLayer(layer))
-                    .context("creating a wgpu surface for the CoreAnimation layer")?
+                self.instance
+                    .create_surface_unsafe(target)
+                    .context("creating a wgpu surface for the shell's window")?
             };
-            let renderer = calumma_render::Renderer::from_surface(surface, &inner.instance, pw, ph)
-                .map_err(|e| anyhow!("creating the Metal renderer: {e}"))?;
-            inner.renderer = Some(ActiveRenderer::Gpu(renderer));
+            let renderer = calumma_render::Renderer::from_surface(surface, &self.instance, pw, ph)
+                .map_err(|e| anyhow!("creating the renderer: {e}"))?;
+            self.renderer = Some(ActiveRenderer::Gpu(renderer));
         }
-        inner.remember_viewport(w as f32, h as f32, scale);
-        if let Some(doc) = &mut inner.doc {
+        self.remember_viewport(w as f32, h as f32, scale);
+        if let Some(doc) = &mut self.doc {
             doc.resize_viewport(w as f32, h as f32, scale);
             doc.fit_to_view();
         }
         Ok(())
-    })
+    }
 }
 
 #[no_mangle]
@@ -2945,12 +2992,24 @@ pub unsafe extern "C" fn calm_engine_install_platform_ops(
     with_inner(engine, |inner| {
         let ops = unsafe { *ops };
         inner.platform_ops = Some(ops);
-        inner.registry = OpRegistry::new();
+        inner.registry = base_op_registry();
         inner
             .registry
             .register_platform(Box::new(PlatformOp::remove_background(ops)));
         Ok(())
     })
+}
+
+/// Every `Backend::Core` op, always registered: none of them needs a platform vtable, so
+/// there is no reason to wait for `calm_engine_set_platform_ops` the way the Vision-backed
+/// ones do. Called both at engine construction and whenever the registry is rebuilt there, so
+/// the two can never drift into registering a different set of core ops.
+fn base_op_registry() -> OpRegistry {
+    let mut registry = OpRegistry::new();
+    registry.register_core(Box::new(UpscaleOp));
+    registry.register_core(Box::new(SeamCarveOp));
+    registry.register_core(Box::new(SmartMatteOp));
+    registry
 }
 
 #[no_mangle]
@@ -3052,6 +3111,110 @@ pub unsafe extern "C" fn calm_engine_run_op(
         Ok(Ok(())) => CalmStatus::Ok,
         _ => CalmStatus::Error,
     }
+}
+
+/// The Upscale Smart Tool with its one real parameter — `calm_engine_run_op` always hands the
+/// op `OpParams::default()`, which for `Upscale` means a fixed 2× (see `UpscaleOp::run`), so a
+/// caller that wants a different factor needs this instead. Everything else about running it —
+/// resolving the registry, applying the resulting layer, invalidating the renderer — is exactly
+/// `calm_engine_run_op`'s `Backend::Core` arm, just with a real `OpParams`.
+#[no_mangle]
+pub unsafe extern "C" fn calm_engine_upscale_layer(
+    engine: *mut CalmEngine,
+    layer_index: u32,
+    scale: f32,
+) -> CalmStatus {
+    with_inner(engine, |inner| {
+        let doc = inner.doc.as_mut().context("no project is open")?;
+        let params = OpParams {
+            scale: Some(scale),
+            ..Default::default()
+        };
+        run_op_on_document(
+            &inner.registry,
+            doc,
+            layer_index as usize,
+            calumma_ops::OpKind::Upscale,
+            &params,
+        )
+        .context("running the upscale op")?;
+        inner.dirty_save = true;
+        if let Some(r) = &mut inner.renderer {
+            r.invalidate();
+        }
+        Ok(())
+    })
+}
+
+/// Graph-cut background removal on one layer, seeded by whatever the user drew.
+///
+/// "Drew" means the ordinary selection: lasso, marquee, ellipse or wand, whichever tool made
+/// it. Loop it roughly around the subject and everything outside becomes definite background;
+/// with nothing selected this falls back to the automatic border-ring seeding, so the one-click
+/// path still works. `calm_engine_run_op` reaches the same op but always with default params,
+/// which is to say always without the region — this is the entry point that reads it.
+#[no_mangle]
+pub unsafe extern "C" fn calm_engine_smart_matte(
+    engine: *mut CalmEngine,
+    layer_index: u32,
+) -> CalmStatus {
+    with_inner(engine, |inner| {
+        let doc = inner.doc.as_mut().context("no project is open")?;
+        let seed_region = doc
+            .selection
+            .as_ref()
+            .map(|sel| sel.to_mask(doc.width, doc.height));
+        let params = OpParams {
+            seed_region,
+            ..Default::default()
+        };
+        run_op_on_document(
+            &inner.registry,
+            doc,
+            layer_index as usize,
+            calumma_ops::OpKind::SmartMatte,
+            &params,
+        )
+        .context("running the smart matte op")?;
+        inner.dirty_save = true;
+        if let Some(r) = &mut inner.renderer {
+            r.invalidate();
+        }
+        Ok(())
+    })
+}
+
+/// Content-aware resize of one layer to an exact `(width, height)` — seam carving needs a
+/// target size rather than a factor (the whole point is that the two axes move independently
+/// of the content's own aspect), so it gets its own entry point for the same reason
+/// `calm_engine_upscale_layer` does: `calm_engine_run_op` can only pass default params.
+#[no_mangle]
+pub unsafe extern "C" fn calm_engine_seam_carve_layer(
+    engine: *mut CalmEngine,
+    layer_index: u32,
+    width: u32,
+    height: u32,
+) -> CalmStatus {
+    with_inner(engine, |inner| {
+        let doc = inner.doc.as_mut().context("no project is open")?;
+        let params = OpParams {
+            target_size: Some((width, height)),
+            ..Default::default()
+        };
+        run_op_on_document(
+            &inner.registry,
+            doc,
+            layer_index as usize,
+            calumma_ops::OpKind::SeamCarve,
+            &params,
+        )
+        .context("running the seam-carve op")?;
+        inner.dirty_save = true;
+        if let Some(r) = &mut inner.renderer {
+            r.invalidate();
+        }
+        Ok(())
+    })
 }
 
 #[cfg(test)]

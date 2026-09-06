@@ -123,14 +123,30 @@ struct L10nCatalog: Equatable {
     var toolBlockedEmpty: String { self["toolBlockedEmpty"] }
     var shapes: String { self["shapes"] }
     var zoom: String { self["zoom"] }
-    var ai: String { self["ai"] }
-    var aiTools: String { self["aiTools"] }
+    var smartTools: String { self["smartTools"] }
     var removeBackground: String { self["removeBackground"] }
     var cutBackground: String { self["cutBackground"] }
     var removeBackgroundSuccess: String { self["removeBackgroundSuccess"] }
     var removeBackgroundFailed: String { self["removeBackgroundFailed"] }
     var removeBackgroundNeedsRaster: String { self["removeBackgroundNeedsRaster"] }
     var removeBackgroundWorking: String { self["removeBackgroundWorking"] }
+    var upscale: String { self["upscale"] }
+    var upscaleWorking: String { self["upscaleWorking"] }
+    var upscaleSuccess: String { self["upscaleSuccess"] }
+    var upscaleFailed: String { self["upscaleFailed"] }
+    var upscaleNeedsRaster: String { self["upscaleNeedsRaster"] }
+    var seamCarve: String { self["seamCarve"] }
+    var seamCarveWorking: String { self["seamCarveWorking"] }
+    var seamCarveSuccess: String { self["seamCarveSuccess"] }
+    var seamCarveFailed: String { self["seamCarveFailed"] }
+    var seamCarveNeedsRaster: String { self["seamCarveNeedsRaster"] }
+    var smartMatte: String { self["smartMatte"] }
+    var smartMatteWorking: String { self["smartMatteWorking"] }
+    var smartMatteSuccess: String { self["smartMatteSuccess"] }
+    var smartMatteFailed: String { self["smartMatteFailed"] }
+    var smartMatteNeedsRaster: String { self["smartMatteNeedsRaster"] }
+    var smartMatteDrawn: String { self["smartMatteDrawn"] }
+    var smartMatteHint: String { self["smartMatteHint"] }
     var undo: String { self["undo"] }
     var redo: String { self["redo"] }
     var themeLight: String { self["themeLight"] }
