@@ -22,6 +22,10 @@ bool Engine::mergeLayerDown(uint32_t index) {
     return call([&](CalmEngine *e) { return calm_engine_merge_layer_down(e, index); });
 }
 
+bool Engine::layerCanMergeDown(uint32_t index) const {
+    return query([&](CalmEngine *e) { return calm_engine_layer_can_merge_down(e, index); }, 0) > 0;
+}
+
 bool Engine::clipLayerDown(uint32_t index) {
     return call([&](CalmEngine *e) { return calm_engine_clip_layer_down(e, index); });
 }

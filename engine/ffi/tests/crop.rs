@@ -1,8 +1,8 @@
 //! The Crop tool's own FFI surface: entering/dragging/committing rides the existing
 //! `calm_engine_set_tool` / `calm_engine_pointer_*` calls (`Tool::Crop` dispatches through the
 //! same generic pointer handlers every other tool does), so what is left to check here is only
-//! the handful of new functions — aspect lock, overlay style, straighten, commit and cancel —
-//! and that they behave with no project open. The geometry itself is covered in core.
+//! the handful of new functions — aspect lock, overlay style, commit and cancel — and that
+//! they behave with no project open. The geometry itself is covered in core.
 
 use calumma_core::Tool;
 use calumma_ffi::*;
@@ -186,28 +186,6 @@ fn every_overlay_style_id_is_accepted_and_nothing_else_is() {
 }
 
 #[test]
-fn straightening_leaves_the_crop_rect_alone_and_disarms_itself() {
-    let e = TestEngine::new(SIDE, SIDE);
-    unsafe {
-        assert_eq!(
-            calm_engine_set_tool(e.ptr, Tool::Crop as u32),
-            CalmStatus::Ok
-        );
-        assert_eq!(calm_engine_set_straighten_active(e.ptr, 1), CalmStatus::Ok);
-        let (sx0, sy0) = e.to_screen(20.0, 20.0);
-        let (sx1, sy1) = e.to_screen(120.0, 44.0);
-        assert_eq!(calm_engine_pointer_down(e.ptr, sx0, sy0), CalmStatus::Ok);
-        assert_eq!(calm_engine_pointer_move(e.ptr, sx1, sy1), CalmStatus::Ok);
-        assert_eq!(calm_engine_pointer_up(e.ptr, sx1, sy1), CalmStatus::Ok);
-        // Straighten rotates layer transforms live; the crop rect (and so the document size)
-        // is untouched until a separate commit_crop.
-        assert_eq!(calm_engine_commit_crop(e.ptr), CalmStatus::Ok);
-    }
-    let s = e.state();
-    assert_eq!((s.width, s.height), (SIDE, SIDE));
-}
-
-#[test]
 fn crop_calls_with_no_project_open_are_errors_not_panics() {
     let dir = tempfile::tempdir().unwrap();
     let path = CString::new(dir.path().join("empty.sqlite").to_str().unwrap()).unwrap();
@@ -217,7 +195,6 @@ fn crop_calls_with_no_project_open_are_errors_not_panics() {
         assert_eq!(calm_engine_set_crop_aspect_lock(e, 2.0), CalmStatus::Ok);
         assert_eq!(calm_engine_clear_crop_aspect_lock(e), CalmStatus::Ok);
         assert_eq!(calm_engine_set_crop_overlay_style(e, 1), CalmStatus::Ok);
-        assert_eq!(calm_engine_set_straighten_active(e, 1), CalmStatus::Ok);
         assert_eq!(calm_engine_commit_crop(e), CalmStatus::Ok);
         calm_engine_free(e);
     }

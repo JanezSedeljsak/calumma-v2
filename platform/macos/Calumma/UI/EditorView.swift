@@ -760,7 +760,7 @@ struct EditorView: View {
                     canMoveDown: index > 0
                         && !isPaper
                         && !(index == 1 && app.engine.isLayerPaper(index: 0)),
-                    canMergeDown: index > 0 && !app.engine.isLayerPaper(index: index - 1),
+                    canMergeDown: app.engine.canMergeLayerDown(index: index),
                     canClipDown: app.engine.canClipLayerDown(index: index),
                     canRename: renameable,
                     canDelete: !isPaper,

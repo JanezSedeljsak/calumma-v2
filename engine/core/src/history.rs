@@ -8,6 +8,7 @@ use crate::tile::{TileMap, TILE_BYTES};
 use crate::transform::LayerTransform;
 use crate::vector::VectorItem;
 use calumma_text::TextRun;
+use rustc_hash::FxHashSet;
 use std::sync::Arc;
 
 pub type TileSnapshot = TileMap<Option<HistoryTile>>;
@@ -102,22 +103,44 @@ pub fn snapshot_bytes(tiles: &TileSnapshot) -> usize {
         .sum()
 }
 
+/// Unique `Arc`s inside this snapshot, not `tile_count × TILE_BYTES`. Paper's shared fill is
+/// one charge even on a large board; the eviction ledger still counts that one copy, because
+/// at push every snapshot tile is still shared with the live document and a live-set dedupe
+/// would charge nothing.
 pub fn stack_snapshot_bytes(stack: &StackSnapshot) -> usize {
-    stack.layers.iter().map(layer_charge_bytes).sum()
+    let mut seen = FxHashSet::default();
+    stack_snapshot_held_bytes(stack, |tile| {
+        if seen.insert(Arc::as_ptr(tile) as usize) {
+            TILE_BYTES
+        } else {
+            0
+        }
+    })
 }
 
-fn layer_charge_bytes(layer: &Layer) -> usize {
+fn stack_snapshot_held_bytes(
+    stack: &StackSnapshot,
+    mut tile_bytes: impl FnMut(&Arc<Vec<u8>>) -> usize,
+) -> usize {
     let mut bytes = 0usize;
-    if let Some(tiles) = layer.tiles() {
-        bytes += tiles.len() * TILE_BYTES;
+    for layer in &stack.layers {
+        if let Some(tiles) = layer.tiles() {
+            for coord in tiles.coords() {
+                let Some(tile) = tiles.get(coord) else {
+                    continue;
+                };
+                bytes += tile_bytes(tile);
+            }
+        }
+        if let Some(mask) = layer.mask() {
+            bytes += mask.len();
+        }
+        if let Some(run) = layer.run() {
+            bytes += run.text.len();
+        }
+        bytes += 64;
     }
-    if let Some(mask) = layer.mask() {
-        bytes += mask.len();
-    }
-    if let Some(run) = layer.run() {
-        bytes += run.text.len();
-    }
-    bytes + 64
+    bytes
 }
 
 pub trait HistoryMutator {
@@ -182,7 +205,7 @@ impl History {
                 .sum::<usize>();
             total += command.runs.iter().map(|r| r.run.text.len()).sum::<usize>();
             if let Some(stack) = &command.stack {
-                total += stack_snapshot_bytes(stack);
+                total += stack_snapshot_held_bytes(stack, &mut tile_bytes);
             }
         }
         total
@@ -223,6 +246,38 @@ impl History {
             masks: Vec::new(),
             runs: Vec::new(),
             transforms: Vec::new(),
+            props: Vec::new(),
+            vectors: Vec::new(),
+            stack: None,
+            active_layer_index,
+            bytes,
+        });
+    }
+
+    /// A tile diff bundled with the transform it invalidated — an edit that retightened
+    /// `content_bounds()` enough to shift a layer's pivot repivots the live transform to keep
+    /// the picture from jumping (`LayerTransform::repivoted`), and that repivot has to undo in
+    /// the same step as the pixels or `⌘Z` would restore the old paint under the new pivot and
+    /// the layer would jump right back.
+    pub fn push_layer_tiles_and_transform(
+        &mut self,
+        layer_id: String,
+        tiles: TileSnapshot,
+        transform_before: LayerTransform,
+        active_layer_index: Option<usize>,
+    ) {
+        let bytes = snapshot_bytes(&tiles);
+        self.push(HistoryCommand {
+            diffs: vec![TileDiff {
+                layer_id: layer_id.clone(),
+                tiles,
+            }],
+            masks: Vec::new(),
+            runs: Vec::new(),
+            transforms: vec![TransformDiff {
+                layer_id,
+                transform: Some(transform_before),
+            }],
             props: Vec::new(),
             vectors: Vec::new(),
             stack: None,

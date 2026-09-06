@@ -24,6 +24,9 @@ impl Document {
     /// Composites layer `index` onto the one below it — honouring its mask, opacity,
     /// adjustments and blend mode — and removes it.
     pub fn merge_layer_down(&mut self, index: usize) -> bool {
+        if !self.can_merge_layer_down(index) {
+            return false;
+        }
         self.flatten_layer_down(index, false)
     }
 
@@ -42,13 +45,21 @@ impl Document {
         self.flatten_layer_down(index, true)
     }
 
-    /// What Merge Down asks, plus the one thing a clip cannot live with: a base carrying a
-    /// transform. The source is baked into document space while the base's tiles sit in its own
-    /// untransformed space, so the alpha the clip reads would be offset from the ink it is
-    /// supposed to be clipping to by exactly that transform. Merge Down has the same mismatch
-    /// and gets away with it because nothing there lines two layers up pixel for pixel; here it
-    /// is the whole point, so the action stands down and says to reset the transform first.
+    pub fn can_merge_layer_down(&self, index: usize) -> bool {
+        self.can_flatten_onto_below(index)
+    }
+
+    /// Same answer as [`Self::can_merge_layer_down`]. Clip and merge share the base-layer
+    /// rules — Paper, a vector with no tiles, a leftover transform — because they share the
+    /// bake; the clip flag is the only difference once those pass.
     pub fn can_clip_layer_down(&self, index: usize) -> bool {
+        self.can_flatten_onto_below(index)
+    }
+
+    /// Paper, a vector base, and a leftover transform all refuse. The source bakes into
+    /// document space while the base's tiles sit in its own, so a leftover transform would
+    /// then be applied a second time on the board.
+    fn can_flatten_onto_below(&self, index: usize) -> bool {
         if index == 0 || index >= self.layers.len() {
             return false;
         }
@@ -64,10 +75,7 @@ impl Document {
     }
 
     fn flatten_layer_down(&mut self, index: usize, clip: bool) -> bool {
-        if index == 0 || index >= self.layers.len() {
-            return false;
-        }
-        if self.layers[index - 1].is_paper() {
+        if !self.can_flatten_onto_below(index) {
             return false;
         }
         self.commit_text();

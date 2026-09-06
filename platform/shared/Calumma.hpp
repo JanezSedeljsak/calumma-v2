@@ -353,7 +353,6 @@ CalmStatus calm_engine_exit_transform(CalmEngine *engine);
 CalmStatus calm_engine_set_crop_aspect_lock(CalmEngine *engine, float ratio);
 CalmStatus calm_engine_clear_crop_aspect_lock(CalmEngine *engine);
 CalmStatus calm_engine_set_crop_overlay_style(CalmEngine *engine, uint32_t style);
-CalmStatus calm_engine_set_straighten_active(CalmEngine *engine, uint8_t active);
 CalmStatus calm_engine_commit_crop(CalmEngine *engine);
 
 CalmStatus calm_engine_undo(CalmEngine *engine);
@@ -375,6 +374,7 @@ CalmStatus calm_engine_set_layer_locked(CalmEngine *engine, uint32_t index, uint
 int calm_engine_layer_locked(CalmEngine *engine, uint32_t index);
 int calm_engine_layer_is_paper(CalmEngine *engine, uint32_t index);
 CalmStatus calm_engine_merge_layer_down(CalmEngine *engine, uint32_t index);
+int calm_engine_layer_can_merge_down(CalmEngine *engine, uint32_t index);
 CalmStatus calm_engine_clip_layer_down(CalmEngine *engine, uint32_t index);
 int calm_engine_layer_can_clip_down(CalmEngine *engine, uint32_t index);
 CalmStatus calm_engine_set_layer_opacity(CalmEngine *engine, uint32_t index, float opacity);

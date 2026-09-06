@@ -95,33 +95,31 @@ impl LayerTransform {
         (dx * cos - dy * sin, dx * sin + dy * cos)
     }
 
-    /// Composes an additional whole-canvas rotation of `theta` about `canvas_center` *after*
-    /// this transform, in document space — what Straighten needs: level the photo by rotating
-    /// every layer the same way, expressed back in this struct's own pivot/rotation/scale terms
-    /// so `forward`/`inverse` need not change to draw it.
+    /// Re-expresses this transform about `new_pivot` so `forward`/`inverse` draw the exact same
+    /// picture they did about `old_pivot` — rotation and scale are kept, only the offset moves
+    /// to absorb the difference. `content_bounds()` is what supplies a transformed layer's
+    /// pivot, and it retightens to whatever is left painted after any edit (an eraser stroke,
+    /// say); without this, the same pixels would render through the same rotation/scale but
+    /// about a different centre the moment the tight box changed, which reads as the layer
+    /// jumping even though nothing about it was dragged, scaled or rotated.
     ///
-    /// Exact when `scale_x == scale_y` (uniform scale, the overwhelmingly common case — most
-    /// layers are never non-uniformly scaled): a uniform scale commutes with rotation, so the
-    /// composed rotate-then-scale collapses back into this struct's scale-then-rotate
-    /// parametrization with no residual shear. For a non-uniformly scaled layer this is the
-    /// closest same-shaped approximation — an exact fix would need a general 2×2 matrix, which
-    /// nothing else here needs.
-    pub fn composed_with_rotation(
-        &self,
-        canvas_center: (f32, f32),
-        pivot: (f32, f32),
-        theta: f32,
-    ) -> Self {
-        let (sin, cos) = (-theta).sin_cos();
-        let base = (pivot.0 - canvas_center.0, pivot.1 - canvas_center.1);
-        let rel = (base.0 + self.offset_x, base.1 + self.offset_y);
-        let rotated = (rel.0 * cos - rel.1 * sin, rel.0 * sin + rel.1 * cos);
+    /// Exact for any scale, uniform or not: unlike composing an *extra* rotation (which only
+    /// commutes cleanly with a uniform scale), this keeps the same linear part and solves for
+    /// the one offset that cancels the pivot shift exactly.
+    pub fn repivoted(&self, old_pivot: (f32, f32), new_pivot: (f32, f32)) -> Self {
+        let d = (old_pivot.0 - new_pivot.0, old_pivot.1 - new_pivot.1);
+        let scaled = (d.0 * self.scale_x, d.1 * self.scale_y);
+        let (sin, cos) = self.rotation.sin_cos();
+        let rotated = (
+            scaled.0 * cos - scaled.1 * sin,
+            scaled.0 * sin + scaled.1 * cos,
+        );
         Self {
-            offset_x: rotated.0 - base.0,
-            offset_y: rotated.1 - base.1,
+            offset_x: self.offset_x + d.0 - rotated.0,
+            offset_y: self.offset_y + d.1 - rotated.1,
             scale_x: self.scale_x,
             scale_y: self.scale_y,
-            rotation: self.rotation - theta,
+            rotation: self.rotation,
         }
     }
 

@@ -1,9 +1,10 @@
-//! Clip to Layer Below across the boundary.
+//! Clip to Layer Below and Merge Down across the boundary.
 //!
-//! Core owns whether a clip is legal; what can only go wrong here is the two halves
-//! disagreeing — the shell greys the button out on `calm_engine_layer_can_clip_down` and the
-//! engine refuses the call on `Document::can_clip_layer_down`, so a case where the predicate
-//! says yes and the call says no would put a live button in front of a no-op.
+//! Core owns whether either action is legal; what can only go wrong here is the two halves
+//! disagreeing — the shell greys the button out on `calm_engine_layer_can_clip_down` /
+//! `calm_engine_layer_can_merge_down` and the engine refuses the call on the matching
+//! `Document` predicate, so a case where the predicate says yes and the call says no would
+//! put a live button in front of a no-op.
 
 use calumma_ffi::*;
 use std::ffi::CString;
@@ -40,6 +41,16 @@ fn clipping_removes_the_source_layer() {
 }
 
 #[test]
+fn merging_removes_the_source_layer() {
+    let (_dir, e) = engine_with_layers(2);
+    let before = layer_count(e);
+    let top = before - 1;
+    assert_eq!(calm_engine_layer_can_merge_down(e, top), 1);
+    assert_eq!(calm_engine_merge_layer_down(e, top), CalmStatus::Ok);
+    assert_eq!(layer_count(e), before - 1);
+}
+
+#[test]
 fn the_predicate_and_the_call_refuse_the_same_cases() {
     let (_dir, e) = engine_with_layers(1);
     for index in 0..layer_count(e) + 2 {
@@ -52,12 +63,34 @@ fn the_predicate_and_the_call_refuse_the_same_cases() {
     unsafe { calm_engine_free(e) };
 }
 
+#[test]
+fn the_merge_predicate_and_the_call_refuse_the_same_cases() {
+    let (_dir, e) = engine_with_layers(1);
+    for index in 0..layer_count(e) + 2 {
+        let allowed = calm_engine_layer_can_merge_down(e, index) == 1;
+        let (_dir2, twin) = engine_with_layers(1);
+        let ok = calm_engine_merge_layer_down(twin, index) == CalmStatus::Ok;
+        assert_eq!(allowed, ok, "at index {index}");
+        unsafe { calm_engine_free(twin) };
+    }
+    unsafe { calm_engine_free(e) };
+}
+
 /// Paper is index 0, so the layer directly above it can be merged nowhere and clipped nowhere.
 #[test]
 fn clipping_into_paper_is_refused_across_the_boundary() {
     let (_dir, e) = engine_with_layers(0);
     assert_eq!(calm_engine_layer_can_clip_down(e, 1), 0);
     assert_eq!(calm_engine_clip_layer_down(e, 1), CalmStatus::Error);
+    assert_eq!(layer_count(e), 2, "nothing was removed");
+    unsafe { calm_engine_free(e) };
+}
+
+#[test]
+fn merging_into_paper_is_refused_across_the_boundary() {
+    let (_dir, e) = engine_with_layers(0);
+    assert_eq!(calm_engine_layer_can_merge_down(e, 1), 0);
+    assert_eq!(calm_engine_merge_layer_down(e, 1), CalmStatus::Error);
     assert_eq!(layer_count(e), 2, "nothing was removed");
     unsafe { calm_engine_free(e) };
 }

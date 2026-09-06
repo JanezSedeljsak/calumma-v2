@@ -345,6 +345,10 @@ void AppController::mergeLayerRowDown(int row) {
     refreshState();
 }
 
+bool AppController::layerRowCanMergeDown(int row) const {
+    return m_engine.layerCanMergeDown(m_layers.engineIndex(row));
+}
+
 void AppController::setActiveLayerRow(int row) {
     m_engine.setActiveLayer(m_layers.engineIndex(row));
     refreshState();

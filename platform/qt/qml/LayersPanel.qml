@@ -116,7 +116,7 @@ CalmIsland {
             CalmToolButton {
                 iconName: "more"
                 tooltipText: l10n.t("mergeLayerDown")
-                enabled: controller.activeLayerRow < controller.layers.count - 1
+                enabled: controller.layerRowCanMergeDown(controller.activeLayerRow)
                 onClicked: controller.mergeLayerRowDown(controller.activeLayerRow)
             }
         }

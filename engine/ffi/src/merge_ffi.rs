@@ -28,9 +28,18 @@ pub extern "C" fn calm_engine_clip_layer_down(engine: *mut CalmEngine, index: u3
     })
 }
 
-/// Whether the action is offered at all. The extra rules over Merge Down — a raster base with
-/// no transform — are the engine's, so the shell greys the button out on the same answer the
-/// engine would refuse the call with.
+/// Whether Merge Down is offered at all. Same answer the engine would refuse the call with,
+/// so the shell greys the button out on it.
+#[no_mangle]
+pub extern "C" fn calm_engine_layer_can_merge_down(engine: *mut CalmEngine, index: u32) -> c_int {
+    read_doc(engine, 0, |doc| {
+        c_int::from(doc.can_merge_layer_down(index as usize))
+    })
+}
+
+/// Whether Clip to Layer Below is offered at all. The extra rules over a naive "not Paper"
+/// check — a raster base with no transform — are the engine's, so the shell greys the button
+/// out on the same answer the engine would refuse the call with.
 #[no_mangle]
 pub extern "C" fn calm_engine_layer_can_clip_down(engine: *mut CalmEngine, index: u32) -> c_int {
     read_doc(engine, 0, |doc| {

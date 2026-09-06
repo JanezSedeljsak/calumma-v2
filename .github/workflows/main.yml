@@ -59,6 +59,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "engine -> target"
       - name: pre-commit (fixers only, autofixes committed below)
         run: pre-commit run --all-files || true
       # `.pre-commit-config.yaml` is the single source of truth for what gets fixed here — add
@@ -84,6 +87,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "engine -> target"
       - name: native codec build deps
         run: sudo apt-get update && sudo apt-get install -y libclang-dev cmake ninja-build nasm
       # Formatting reads source and compiles nothing, so this covers the whole workspace —
@@ -190,6 +196,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: llvm-tools-preview
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "engine -> target"
       - name: software vulkan (lavapipe)
         run: sudo apt-get update && sudo apt-get install -y mesa-vulkan-drivers
       - name: test core
@@ -209,6 +218,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "engine -> target"
       - name: test core
         run: cargo test --manifest-path engine/Cargo.toml -p calumma-core --all-targets
 
@@ -226,6 +238,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, llvm-tools-preview
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "engine -> target"
       - name: install xcodegen
         run: command -v xcodegen || brew install xcodegen
       - name: cmake for libaom
@@ -275,6 +290,10 @@ jobs:
       needs.test-linux.result == 'success' &&
       needs.test-macos.result == 'success' &&
       (needs.test-windows.result == 'success' || needs.test-windows.result == 'skipped')
+    # No `./manage.py test` here — `test-macos` above already ran the whole workspace suite on
+    # this exact commit and this job is gated on it passing (`needs.test-macos.result ==
+    # 'success'`). `package_pipeline` never reads anything a test run produced, so re-running it
+    # was a second full compile-and-test cycle for no additional signal.
     runs-on: macos-26
     permissions:
       contents: write
@@ -286,10 +305,11 @@ jobs:
           cache: pip
       - run: python -m pip install -r requirements.txt
       - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "engine -> target"
       - name: install xcodegen
         run: command -v xcodegen || brew install xcodegen
-      - name: test
-        run: ./manage.py test
       - name: package
         id: package
         env:

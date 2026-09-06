@@ -490,15 +490,6 @@ pub struct Document {
     pub crop_aspect_lock: Option<f32>,
     /// Which composition guide the crop overlay draws while dragging. A shell knob.
     pub crop_overlay_style: CropOverlayStyle,
-    /// The reference line straighten is levelling, in document space (`(p0, p1)`), or `None`
-    /// between straightens. Lives alongside the crop rect rather than gating on its own tool —
-    /// straighten is a one-shot gesture available while `Tool::Crop` is active, not a mode of
-    /// its own.
-    pub(crate) straighten_line: Option<((f32, f32), (f32, f32))>,
-    /// Arms the next `Tool::Crop` drag as a straighten line instead of a crop-rect drag. A
-    /// shell knob, set just before the user drags the reference line and cleared again once
-    /// they release it (`end_straighten`).
-    pub straighten_active: bool,
 }
 
 /// Where the clone stamp / healing brush reads from. `offset` is `anchor − first destination
@@ -748,9 +739,7 @@ impl Document {
             crop_drag: None,
             crop_saved_camera: None,
             crop_aspect_lock: None,
-            crop_overlay_style: CropOverlayStyle::Off,
-            straighten_line: None,
-            straighten_active: false,
+            crop_overlay_style: CropOverlayStyle::RuleOfThirds,
         }
     }
 
@@ -1572,11 +1561,7 @@ impl Document {
             return;
         }
         if self.tool == Tool::Crop {
-            if self.straighten_active {
-                self.begin_straighten(dx, dy);
-            } else {
-                self.begin_crop_drag(dx, dy);
-            }
+            self.begin_crop_drag(dx, dy);
             return;
         }
         if self.tool == Tool::Move {
@@ -1671,11 +1656,7 @@ impl Document {
             return true;
         }
         if self.tool == Tool::Crop {
-            if self.straighten_active {
-                self.update_straighten(dx, dy);
-            } else {
-                self.update_crop_drag(dx, dy);
-            }
+            self.update_crop_drag(dx, dy);
             return true;
         }
         if self.tool == Tool::Move {
@@ -1712,11 +1693,7 @@ impl Document {
             return;
         }
         if self.tool == Tool::Crop {
-            if self.straighten_active {
-                self.end_straighten();
-            } else {
-                self.end_crop_drag();
-            }
+            self.end_crop_drag();
             return;
         }
         if self.tool == Tool::Move {
@@ -2161,6 +2138,12 @@ impl Document {
             return;
         };
         let layer_id = layer.id.clone();
+        // Captured before this stroke touches a pixel: if painting or erasing retightens
+        // `content_bounds()` enough to move a transformed layer's pivot, the pixels have to be
+        // repivoted about it below or the layer visibly jumps despite nothing having dragged,
+        // scaled or rotated it — see `LayerTransform::repivoted`.
+        let old_transform = layer.transform.filter(|t| !t.is_identity());
+        let old_bounds = layer.content_bounds();
         let radius = layer.doc_length_to_grid(self.effective_brush_size() * 0.5);
         let points: Vec<(f32, f32)> = points
             .iter()
@@ -2225,9 +2208,28 @@ impl Document {
             self.stroke_before.clear();
             return;
         }
+
+        let mut repivoted_from = None;
+        if let (Some(old_t), Some(old_bounds)) = (old_transform, old_bounds) {
+            if let Some(layer) = self.layers.get_mut(active) {
+                if let Some(new_bounds) = layer.content_bounds() {
+                    let old_pivot = bounds_center(old_bounds);
+                    let new_pivot = bounds_center(new_bounds);
+                    if old_pivot != new_pivot {
+                        layer.transform = Some(old_t.repivoted(old_pivot, new_pivot));
+                        repivoted_from = Some(old_t);
+                    }
+                }
+            }
+        }
+
         let before = std::mem::take(&mut self.stroke_before);
-        self.history
-            .push_layer_tiles(layer_id, before, Some(active));
+        match repivoted_from {
+            Some(old_t) => self
+                .history
+                .push_layer_tiles_and_transform(layer_id, before, old_t, Some(active)),
+            None => self.history.push_layer_tiles(layer_id, before, Some(active)),
+        }
     }
 
     fn commit_shape(&mut self, shape: Shape) {
@@ -2557,9 +2559,8 @@ impl Document {
         (w, h, out)
     }
 
-    /// One document pixel of the visible composite, as the eyedropper sees it. Vector layers
-    /// are not sampled — they have no tiles, and this is the twin of what the board shows
-    /// through the tile path.
+    /// One document pixel of the visible composite, as the eyedropper sees it — the same
+    /// stack walk flatten uses, so a vector layer answers `I` the way a painted one does.
     fn sampled_pixel(&self, doc_x: f32, doc_y: f32) -> Option<[u8; 4]> {
         let ix = doc_x.floor() as i32;
         let iy = doc_y.floor() as i32;
@@ -2568,7 +2569,7 @@ impl Document {
         }
         let mut acc = [0u8; 4];
         for layer in &self.layers {
-            if !layer.visible || layer.tiles().is_none() {
+            if !layer.visible {
                 continue;
             }
             let src = layer_composited_pixel(layer, doc_x, doc_y, self.width, self.height);
@@ -3137,7 +3138,6 @@ impl Document {
             || self.vector_drag.is_some()
             || self.guide_drag.is_some()
             || self.crop_drag.is_some()
-            || self.straighten_active
     }
 
     /// Whether an overlay is *animating* and so needs a frame per display refresh even though

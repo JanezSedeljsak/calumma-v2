@@ -597,51 +597,6 @@ fn apply_canvas_shift_fills_only_the_newly_exposed_paper_band() {
 }
 
 #[test]
-fn straightening_rotates_every_painted_layer_about_the_canvas_center() {
-    let mut doc = Document::new("p".into(), "t", 200, 200);
-    doc.resize_viewport(200.0, 200.0, 1.0);
-    doc.fit_to_view();
-    let active = doc.active_layer;
-    doc.layers[active].tiles_mut().unwrap().fill_uniform(
-        calumma_core::tile::DocRect::new(90, 10, 109, 29),
-        [7, 7, 7, 255],
-    );
-    doc.set_tool(Tool::Crop);
-    doc.straighten_active = true;
-
-    let (sx0, sy0) = doc.camera.to_screen(20.0, 20.0);
-    let (sx1, sy1) = doc.camera.to_screen(120.0, 44.0); // ~13.5 degree tilt
-    doc.pointer_down(sx0, sy0);
-    doc.pointer_move(sx1, sy1);
-    doc.pointer_up(sx1, sy1);
-
-    assert!(!doc.straighten_active);
-    let t = doc.layers[active]
-        .transform
-        .expect("straighten leaves a live transform");
-    assert!(
-        t.rotation.abs() > 0.01,
-        "the layer must have picked up a rotation"
-    );
-    // The tile pixels themselves are untouched — straighten composes the transform, it does
-    // not resample tile content.
-    assert_eq!(pixel(&doc, active, 95, 15), [7, 7, 7, 255]);
-}
-
-#[test]
-fn a_tiny_straighten_drag_leaves_every_transform_alone() {
-    let mut doc = Document::new("p".into(), "t", 100, 100);
-    doc.resize_viewport(100.0, 100.0, 1.0);
-    doc.fit_to_view();
-    doc.set_tool(Tool::Crop);
-    doc.straighten_active = true;
-    let (sx, sy) = doc.camera.to_screen(50.0, 50.0);
-    doc.pointer_down(sx, sy);
-    doc.pointer_up(sx, sy);
-    assert!(doc.layers.iter().all(|l| l.transform.is_none()));
-}
-
-#[test]
 fn apply_canvas_shift_leaves_non_paper_layers_transparent_in_the_newly_exposed_area() {
     let mut doc = Document::new("p".into(), "t", 64, 64);
     let active = doc.active_layer;
@@ -654,6 +609,129 @@ fn apply_canvas_shift_leaves_non_paper_layers_transparent_in_the_newly_exposed_a
 
     let layer = doc.layers[active].tiles().unwrap();
     assert_eq!(layer.get_pixel(-5, 32), [0, 0, 0, 0]);
+}
+
+fn find_pixel(w: u32, buf: &[u8], target: [u8; 4]) -> Option<(u32, u32)> {
+    buf.chunks_exact(4)
+        .position(|px| px == target)
+        .map(|i| (i as u32 % w, i as u32 / w))
+}
+
+/// The bug this guards: a rotated (or scaled) layer's pivot is the centre of its *current* tight
+/// content box, so erasing part of it retightens that box and — without compensation — swings
+/// whatever is left around the new centre even though nothing was dragged, scaled or rotated.
+/// `LayerTransform::repivoted` (wired into `commit_stroke`) keeps the surviving pixels exactly
+/// where they were rendering before the erase.
+#[test]
+fn erasing_part_of_a_rotated_layer_leaves_the_rest_exactly_where_it_was() {
+    let mut doc = Document::new("p".into(), "t", 200, 200);
+    doc.resize_viewport(200.0, 200.0, 1.0);
+    doc.fit_to_view();
+    let active = doc.active_layer;
+    let red = [200, 30, 30, 255];
+    let green = [30, 200, 30, 255];
+    doc.layers[active]
+        .tiles_mut()
+        .unwrap()
+        .fill_uniform(calumma_core::tile::DocRect::new(20, 20, 39, 39), red);
+    doc.layers[active]
+        .tiles_mut()
+        .unwrap()
+        .fill_uniform(calumma_core::tile::DocRect::new(150, 150, 169, 169), green);
+    doc.layers[active].transform = Some(LayerTransform {
+        offset_x: 0.0,
+        offset_y: 0.0,
+        scale_x: 1.0,
+        scale_y: 1.0,
+        rotation: 0.4,
+    });
+
+    let (w, _, before) = doc.composite_rgba();
+    let green_before = find_pixel(w, &before, green).expect("green painted before erase");
+
+    let old_bounds = doc.layers[active].content_bounds().unwrap();
+    let old_pivot = (
+        (old_bounds.0 + old_bounds.2) * 0.5,
+        (old_bounds.1 + old_bounds.3) * 0.5,
+    );
+    let t = doc.layers[active].transform.unwrap();
+    let click = t.forward(old_pivot, (29.5, 29.5));
+    let (sx, sy) = doc.camera.to_screen(click.0, click.1);
+    doc.tool = Tool::Eraser;
+    doc.brush_size = 100.0;
+    doc.pointer_down(sx, sy);
+    doc.pointer_up(sx, sy);
+
+    let new_bounds = doc.layers[active].content_bounds().unwrap();
+    assert_ne!(
+        old_bounds, new_bounds,
+        "the erase must actually retighten the box for this test to mean anything"
+    );
+    // The transform's rotation/scale survive untouched; only the offset absorbed the pivot
+    // shift.
+    let after_t = doc.layers[active].transform.unwrap();
+    assert_eq!(after_t.rotation, t.rotation);
+    assert_eq!(after_t.scale_x, t.scale_x);
+    assert_eq!(after_t.scale_y, t.scale_y);
+
+    let (w2, _, after) = doc.composite_rgba();
+    let green_after = find_pixel(w2, &after, green).expect("green survives the erase");
+    let dist = (((green_after.0 as f32 - green_before.0 as f32).powi(2)
+        + (green_after.1 as f32 - green_before.1 as f32).powi(2))
+    .sqrt())
+    .abs();
+    assert!(
+        dist < 1.5,
+        "surviving content moved from {green_before:?} to {green_after:?}"
+    );
+}
+
+/// The repivot has to undo in the same step as the pixels it was compensating for, or `⌘Z`
+/// would restore the erased-away paint under the *new* pivot and the layer would jump right
+/// back — see `History::push_layer_tiles_and_transform`.
+#[test]
+fn undoing_an_erase_that_repivoted_restores_both_the_pixels_and_the_transform() {
+    let mut doc = Document::new("p".into(), "t", 200, 200);
+    doc.resize_viewport(200.0, 200.0, 1.0);
+    doc.fit_to_view();
+    let active = doc.active_layer;
+    doc.layers[active]
+        .tiles_mut()
+        .unwrap()
+        .fill_uniform(calumma_core::tile::DocRect::new(20, 20, 39, 39), [200, 30, 30, 255]);
+    doc.layers[active].tiles_mut().unwrap().fill_uniform(
+        calumma_core::tile::DocRect::new(150, 150, 169, 169),
+        [30, 200, 30, 255],
+    );
+    let original_transform = LayerTransform {
+        offset_x: 0.0,
+        offset_y: 0.0,
+        scale_x: 1.0,
+        scale_y: 1.0,
+        rotation: 0.4,
+    };
+    doc.layers[active].transform = Some(original_transform);
+
+    let old_bounds = doc.layers[active].content_bounds().unwrap();
+    let old_pivot = (
+        (old_bounds.0 + old_bounds.2) * 0.5,
+        (old_bounds.1 + old_bounds.3) * 0.5,
+    );
+    let click = original_transform.forward(old_pivot, (29.5, 29.5));
+    let (sx, sy) = doc.camera.to_screen(click.0, click.1);
+    doc.tool = Tool::Eraser;
+    doc.brush_size = 100.0;
+    doc.pointer_down(sx, sy);
+    doc.pointer_up(sx, sy);
+
+    assert_ne!(doc.layers[active].transform.unwrap(), original_transform);
+    assert!(doc.undo());
+    assert_eq!(doc.layers[active].transform.unwrap(), original_transform);
+    assert_eq!(
+        doc.layers[active].content_bounds().unwrap(),
+        old_bounds,
+        "the erased-away paint is back too"
+    );
 }
 
 fn paint_transform_target(doc: &mut Document) {
@@ -1130,6 +1208,33 @@ fn sample_color_ignores_hidden_layers() {
         doc.sample_color(2.5, 2.5),
         Some([255, 255, 255, 255]),
         "the sample falls through to Paper"
+    );
+}
+
+#[test]
+fn sample_color_reads_a_vector_layer() {
+    let mut doc = Document::new("p".into(), "t", 64, 64);
+    doc.eyedropper_radius = 0;
+    doc.add_vector_layer(
+        "V",
+        VectorItem::Shape(VectorShape {
+            shape: Shape {
+                tool: Tool::Rect,
+                start: (8.0, 8.0),
+                end: (40.0, 40.0),
+                half_width: 1.0,
+                fill: true,
+                stroke: false,
+            },
+            color: [255, 0, 0, 255],
+            stroke_color: [255, 0, 0, 255],
+        }),
+    );
+    assert_eq!(doc.sample_color(24.5, 24.5), Some([255, 0, 0, 255]));
+    assert_eq!(
+        doc.sample_color(2.5, 2.5),
+        Some([255, 255, 255, 255]),
+        "outside the shape still reads Paper"
     );
 }
 

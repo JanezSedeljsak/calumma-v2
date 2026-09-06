@@ -358,22 +358,11 @@ const CROP_HANDLE_BORDER_COLOR: [f32; 4] = [0.0, 0.0, 0.0, 0.6];
 const CROP_HANDLE_BORDER_PX: f32 = 1.0;
 const CROP_GUIDE_COLOR: [f32; 4] = [1.0, 1.0, 1.0, 0.5];
 const CROP_GUIDE_WIDTH_PX: f32 = 0.5;
-const STRAIGHTEN_LINE_COLOR: [f32; 4] = [1.0, 0.85, 0.2, 0.95];
-const STRAIGHTEN_LINE_WIDTH_PX: f32 = 1.0;
 
-/// The Crop tool's chrome: while a straighten line is being dragged that is the only thing
-/// drawn (the crop rect underneath it hasn't moved yet — `commit_straighten` runs on release);
-/// otherwise it's the composition guides (under the rect, so its outline draws over them),
-/// the rect's outline, and a grip at each of its 8 handles, in the same
+/// The Crop tool's chrome: the composition guides (under the rect, so its outline draws over
+/// them), the rect's outline, and a grip at each of its 8 handles, in the same
 /// border-disc-then-fill-disc order `box_overlay_instances` uses for Transform's grips.
 pub fn crop_overlay_instances(doc: &Document) -> Vec<StrokeInstance> {
-    if let Some((p0, p1)) = doc.straighten_overlay_line() {
-        return vec![StrokeInstance {
-            segment: [p0.0, p0.1, p1.0, p1.1],
-            color: STRAIGHTEN_LINE_COLOR,
-            brush: brush_params(STRAIGHTEN_LINE_WIDTH_PX, &BrushProfile::HARD),
-        }];
-    }
     let Some((x0, y0, x1, y1)) = doc.crop_overlay_rect() else {
         return Vec::new();
     };

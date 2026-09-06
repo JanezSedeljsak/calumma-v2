@@ -211,3 +211,23 @@ fn only_a_mask_selection_costs_anything() {
     assert!(owned > 0);
     assert_eq!(document_memory(&doc).mask_bytes, plain + owned);
 }
+
+#[test]
+fn a_stack_snapshot_charges_shared_paper_once() {
+    let mut doc = doc();
+    assert_eq!(document_memory(&doc).tile_bytes, TILE_BYTES);
+    let before_used = doc.history.memory_used();
+    assert!(doc.duplicate_layer(1));
+    let charged = doc.history.memory_used() - before_used;
+    assert!(
+        charged < 4 * TILE_BYTES,
+        "paper's shared fill must not be charged once per tile, got {charged}"
+    );
+    assert!(charged >= TILE_BYTES);
+    let report = document_memory(&doc);
+    assert_eq!(report.tile_bytes, TILE_BYTES);
+    assert!(
+        report.history_bytes < TILE_BYTES,
+        "the snapshot still shares Paper with the live document"
+    );
+}

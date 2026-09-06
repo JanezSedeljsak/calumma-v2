@@ -9,7 +9,6 @@
 
 use crate::document::{point_dist, Document, HANDLE_HIT_RADIUS_PX};
 use crate::limits::CROP_ZOOM_PADDING;
-use crate::transform::bounds_center;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 
 /// Which composition guide the crop overlay draws over the rect while dragging. Pure display —
@@ -17,8 +16,8 @@ use num_enum::{IntoPrimitive, TryFromPrimitive};
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, IntoPrimitive, TryFromPrimitive)]
 #[repr(u32)]
 pub enum CropOverlayStyle {
-    #[default]
     Off = 0,
+    #[default]
     RuleOfThirds = 1,
     Grid = 2,
     Diagonal = 3,
@@ -71,8 +70,6 @@ impl Document {
     pub fn exit_crop(&mut self) {
         self.crop_rect = None;
         self.crop_drag = None;
-        self.straighten_line = None;
-        self.straighten_active = false;
         if let Some(camera) = self.crop_saved_camera.take() {
             self.camera = camera;
         }
@@ -88,8 +85,6 @@ impl Document {
     fn start_crop_session(&mut self) {
         self.crop_rect = Some((0.0, 0.0, self.width as f32, self.height as f32));
         self.crop_drag = None;
-        self.straighten_line = None;
-        self.straighten_active = false;
         let (w, h) = (self.width as f32, self.height as f32);
         let target_zoom = self.camera.fill_zoom(w, h, CROP_ZOOM_PADDING);
         if self.camera.zoom > target_zoom {
@@ -102,11 +97,6 @@ impl Document {
     /// The rect the render overlay draws, in document space.
     pub fn crop_overlay_rect(&self) -> Option<(f32, f32, f32, f32)> {
         self.crop_rect
-    }
-
-    /// The reference line straighten is levelling, while it is being dragged.
-    pub fn straighten_overlay_line(&self) -> Option<((f32, f32), (f32, f32))> {
-        self.straighten_line
     }
 
     /// The guide segments the overlay draws over the current rect for `crop_overlay_style`.
@@ -238,56 +228,6 @@ impl Document {
             }
         };
         self.crop_rect = Some(rect);
-    }
-
-    /// Starts a straighten drag: the reference line the user is dragging across a tilted
-    /// feature (a horizon, say), both ends at the press point until it moves.
-    pub fn begin_straighten(&mut self, doc_x: f32, doc_y: f32) {
-        self.straighten_line = Some(((doc_x, doc_y), (doc_x, doc_y)));
-    }
-
-    pub fn update_straighten(&mut self, doc_x: f32, doc_y: f32) {
-        if let Some((p0, _)) = self.straighten_line {
-            self.straighten_line = Some((p0, (doc_x, doc_y)));
-        }
-    }
-
-    /// Releasing the drag levels the line immediately — the canvas visibly rotates and the crop
-    /// rect stays exactly where it was, corners and all, for the user to trim inward before the
-    /// final `commit_crop`. Matches Photoshop's own two-step flow (straighten, then adjust the
-    /// crop) rather than trying to compute the largest rect the rotated canvas could still fill.
-    pub fn end_straighten(&mut self) {
-        self.commit_straighten();
-        self.straighten_active = false;
-    }
-
-    /// Rotates every layer, uniformly, about the canvas center by the angle that levels
-    /// `straighten_line` — see `LayerTransform::composed_with_rotation`. Left as a live
-    /// transform rather than baked into fresh tile pixels: the same non-destructive shape
-    /// `apply_canvas_shift` already uses, so undo is the ordinary transform-drag path and a
-    /// second straighten composes cleanly with the first instead of compounding resampling
-    /// error.
-    fn commit_straighten(&mut self) {
-        let Some((p0, p1)) = self.straighten_line.take() else {
-            return;
-        };
-        let theta = (p1.1 - p0.1).atan2(p1.0 - p0.0);
-        if !theta.is_finite() || theta.abs() < 1e-6 {
-            return;
-        }
-        self.record_stack_history();
-        let canvas_center = (self.width as f32 * 0.5, self.height as f32 * 0.5);
-        for layer in &mut self.layers {
-            let Some(bounds) = layer.content_bounds() else {
-                continue;
-            };
-            let pivot = bounds_center(bounds);
-            let t = layer.transform.unwrap_or_default();
-            layer.transform = Some(
-                t.composed_with_rotation(canvas_center, pivot, theta)
-                    .clamped(),
-            );
-        }
     }
 
     /// Applies the current rect: rounds it to whole pixels and hands off to
@@ -532,9 +472,10 @@ mod tests {
     }
 
     #[test]
-    fn overlay_lines_are_off_by_default_and_populate_per_style() {
+    fn overlay_lines_are_empty_when_off_and_populate_per_style() {
         let mut d = doc();
         d.enter_crop();
+        d.crop_overlay_style = CropOverlayStyle::Off;
         assert!(d.crop_overlay_lines().is_empty());
 
         d.crop_overlay_style = CropOverlayStyle::RuleOfThirds;
@@ -607,22 +548,6 @@ mod tests {
         d.update_crop_drag(100.0, -500.0);
         let (_, y0, _, y1) = d.crop_overlay_rect().unwrap();
         assert!((y1 - y0 - CROP_MIN_SIZE).abs() < 1e-4);
-    }
-
-    /// A layer with nothing painted on it has no bounds to pivot a rotation about, so
-    /// straightening has to skip it rather than fail the whole gesture.
-    #[test]
-    fn straightening_skips_a_layer_with_no_content() {
-        let mut d = doc();
-        d.add_layer("Empty");
-        d.begin_straighten(20.0, 20.0);
-        d.update_straighten(40.0, 30.0);
-        let before = d.layers[d.active_layer].transform;
-        d.end_straighten();
-        assert_eq!(
-            d.layers[d.active_layer].transform, before,
-            "an empty layer is left untouched rather than panicking"
-        );
     }
 
     #[test]
@@ -711,15 +636,6 @@ mod tests {
         // No drag was ever begun, so an update is a no-op.
         d.update_crop_drag(10.0, 10.0);
         assert_eq!(d.crop_overlay_rect(), Some((0.0, 0.0, 200.0, 100.0)));
-    }
-
-    #[test]
-    fn ending_straighten_with_no_line_dragged_does_nothing() {
-        let mut d = doc();
-        let before = d.layers[d.active_layer].transform;
-        d.end_straighten();
-        assert_eq!(d.straighten_overlay_line(), None);
-        assert_eq!(d.layers[d.active_layer].transform, before);
     }
 
     #[test]

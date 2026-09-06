@@ -67,11 +67,8 @@ final class AppModel: ObservableObject {
     @Published var cropAspectLock: Float? {
         didSet { engine.setCropAspectLock(cropAspectLock) }
     }
-    @Published var cropOverlayStyle: CalmCropOverlayStyle = .off {
+    @Published var cropOverlayStyle: CalmCropOverlayStyle = .ruleOfThirds {
         didSet { engine.setCropOverlayStyle(cropOverlayStyle) }
-    }
-    @Published var straightening = false {
-        didSet { engine.setStraightenActive(straightening) }
     }
     @Published var layersOpen = true
     @Published var spacePan = false
@@ -661,7 +658,6 @@ final class AppModel: ObservableObject {
 
     /// Leaves Crop for the tool most people reach for next, without applying anything.
     func cancelCrop() {
-        straightening = false
         selectTool(.move)
     }
 

@@ -794,13 +794,6 @@ final class Engine: ObservableObject, @unchecked Sendable {
         render()
     }
 
-    /// Arms the next crop drag as a straighten line rather than a rect resize. Comes back off
-    /// on its own once that drag releases, so the shell only ever turns it *on*.
-    func setStraightenActive(_ active: Bool) {
-        guard let ptr else { return }
-        _ = calm_engine_set_straighten_active(ptr, active ? 1 : 0)
-    }
-
     /// There is no matching `cancelCrop` — leaving Crop without applying anything is just
     /// `AppModel.selectTool` switching to whatever tool comes next, the same as leaving any
     /// other tool.
@@ -903,6 +896,11 @@ final class Engine: ObservableObject, @unchecked Sendable {
         render()
     }
 
+    func canMergeLayerDown(index: Int) -> Bool {
+        guard let ptr, index >= 0 else { return false }
+        return calm_engine_layer_can_merge_down(ptr, UInt32(index)) != 0
+    }
+
     /// Bakes the layer through the alpha of the one below it and merges the two. Destructive the
     /// moment it is pressed — there is no clipped state afterwards, which is the whole reason the
     /// renderer never has to know the word.
@@ -914,8 +912,8 @@ final class Engine: ObservableObject, @unchecked Sendable {
         render()
     }
 
-    /// Merge Down's rules plus a raster base carrying no transform, all answered by the engine so
-    /// the greyed-out button and the refused call can never disagree.
+    /// Same engine answer Merge Down uses, so the greyed-out button and the refused call can
+    /// never disagree.
     func canClipLayerDown(index: Int) -> Bool {
         guard let ptr, index >= 0 else { return false }
         return calm_engine_layer_can_clip_down(ptr, UInt32(index)) != 0

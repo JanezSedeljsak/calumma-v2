@@ -69,6 +69,7 @@ fn merge_layer_down_bakes_transform_into_destination_pixels() {
 fn merge_layer_into_paper_is_disallowed() {
     let mut doc = Document::new("p".into(), "t", 16, 16);
     let paint_index = doc.active_layer;
+    assert!(!doc.can_merge_layer_down(paint_index));
     assert!(!doc.merge_layer_down(paint_index));
 }
 
@@ -199,8 +200,27 @@ fn clipping_onto_a_transformed_base_is_refused() {
         ..LayerTransform::default()
     });
     assert!(!doc.can_clip_layer_down(top));
+    assert!(!doc.can_merge_layer_down(top));
     assert!(!doc.clip_layer_down(top));
     assert_eq!(doc.layers.len(), before, "nothing was merged");
+}
+
+#[test]
+fn merging_onto_a_transformed_base_is_refused() {
+    let (mut doc, top) = stacked(255, 255);
+    let before = doc.layers.len();
+    doc.layers[top - 1].transform = Some(LayerTransform {
+        offset_x: 9.0,
+        ..LayerTransform::default()
+    });
+    assert!(!doc.can_merge_layer_down(top));
+    assert!(!doc.merge_layer_down(top));
+    assert_eq!(doc.layers.len(), before, "nothing was merged");
+    assert_eq!(
+        pixel(&doc, top, 12, 12),
+        [255, 0, 0, 255],
+        "the source is untouched"
+    );
 }
 
 #[test]
@@ -211,9 +231,14 @@ fn an_identity_transform_on_the_base_still_clips() {
     assert!(doc.clip_layer_down(top));
 }
 
-/// `can_clip_layer_down` gates the clip path against a vector base, but `merge_layer_down`
-/// takes no such detour — it has to carry its own guard against a base with nothing to paint
-/// into.
+#[test]
+fn an_identity_transform_on_the_base_still_merges() {
+    let (mut doc, top) = stacked(255, 255);
+    doc.layers[top - 1].transform = Some(LayerTransform::default());
+    assert!(doc.can_merge_layer_down(top));
+    assert!(doc.merge_layer_down(top));
+}
+
 #[test]
 fn merging_into_a_vector_base_is_refused() {
     let mut doc = Document::new("p".into(), "t", SIDE, SIDE);
@@ -222,6 +247,7 @@ fn merging_into_a_vector_base_is_refused() {
     let top = doc.active_layer;
     let before = doc.layers.len();
     assert!(!doc.merge_layer_down(top));
+    assert!(!doc.can_merge_layer_down(top));
     assert_eq!(doc.layers.len(), before, "nothing was merged");
 }
 

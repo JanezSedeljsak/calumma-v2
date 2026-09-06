@@ -543,7 +543,9 @@ live in `engine/core`; PNG/JPEG/WebP/AVIF/HEIC encode and decode live in `engine
   the pointer as the popover opens. The rest of the card: **Rename**, **Copy** (PNG, or SVG if
   the layer is vector content), **Duplicate** (cheap, shares tile data via `Arc` until edited),
   **Merge Down** (composites onto the layer below respecting mask/opacity/blend
-  mode/adjustments, then removes the source — disabled when the layer below is Paper),
+  mode/adjustments, then removes the source — greyed out with no layer below,
+  with Paper below, with a vector layer below, or with a base carrying a
+  transform, the same cases Clip to Below refuses),
   **Clip to Below** (below), **Reset Transform**, an
   **Opacity** slider, a **Blend Mode** picker (Normal / Multiply / Screen — see `AGENTS.md` → Layers for
   why only these three), and five **Filter** sliders (brightness, contrast, vibrance,
@@ -1024,7 +1026,7 @@ panel toggles are shell knobs.
 | `G` | Fill (bucket) | Yes (Ps Paint Bucket, shared with Gradient) |
 | `I` | Eyedropper (live sample under the cursor into the active primary/secondary swatch; loupe shows color + hex; a circle shows the sample area) | Yes |
 | `V` | Move tool — click a layer's pixels or a vector item to drag it; Transform off, that is all it does. Transform on (options toggle or `⌘T`) adds scale/rotate handles and selecting a layer's pixels makes it active. Empty space is a no-op. The key only changes which tool is in hand: it never touches the transform state, so `V` while transform is on leaves it on. | Yes (Ps `V` is Move) |
-| `K` | Crop — drag any of the rect's 8 handles to shrink or expand the canvas from that edge or corner (not just bottom-right); the options bar carries the aspect-ratio lock, the composition-guide overlay (Rule of Thirds / Grid / Diagonal / Golden Ratio) and Straighten (drag a reference line to level the canvas — a live rotation on every layer's transform, not a pixel bake, so it stays undoable as one step). `Return` commits the rect and stays on Crop with a fresh full-canvas rect; `Esc` cancels back to Move. Cropped-away pixels are never deleted — same non-destructive resize the layers panel's canvas-size fields already do, just from a draggable rect instead of two numbers | Yes (Ps Crop is `C`, already Clone Stamp here) |
+| `K` | Crop — drag any of the rect's 8 handles to shrink or expand the canvas from that edge or corner (not just bottom-right); the options bar carries the aspect-ratio lock and the composition-guide overlay (Rule of Thirds / Grid / Diagonal / Golden Ratio, defaulting to Rule of Thirds). `Return` commits the rect and stays on Crop with a fresh full-canvas rect; `Esc` cancels back to Move. Cropped-away pixels are never deleted — same non-destructive resize the layers panel's canvas-size fields already do, just from a draggable rect instead of two numbers | Yes (Ps Crop is `C`, already Clone Stamp here) |
 | `⌘T` | Select Move and toggle transform mode on the active layer (scale/rotate/move); click another layer's pixels to retarget, click empty space, `Return` or `Esc` to exit | Yes (Ps Free Transform) |
 | `Return` | Exit transform mode, leaving the selection and the layer's transform alone. Does nothing outside transform, and types a newline while a text layer is open | Yes (Ps commits Free Transform on Return) |
 | `⌥⌘G` | Clip to Below on the active layer — see Layers | Yes (Ps Create Clipping Mask, though ours merges rather than clipping live) |

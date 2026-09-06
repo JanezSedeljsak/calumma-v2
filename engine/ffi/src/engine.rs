@@ -1434,7 +1434,7 @@ pub unsafe extern "C" fn calm_engine_exit_transform(engine: *mut CalmEngine) -> 
 /// the existing `calm_engine_set_tool` / `calm_engine_pointer_*` calls — `Tool::Crop` dispatches
 /// through the same generic pointer handlers every other tool does — so this and the handful of
 /// FFI functions below are only the shell knobs `Tool::Crop`'s options bar needs: the aspect
-/// lock, the overlay style, arming a straighten drag, and the two ways out (commit or cancel).
+/// lock, the overlay style, and the two ways out (commit or cancel).
 #[no_mangle]
 pub unsafe extern "C" fn calm_engine_set_crop_aspect_lock(
     engine: *mut CalmEngine,
@@ -1477,22 +1477,6 @@ pub unsafe extern "C" fn calm_engine_set_crop_overlay_style(
             if let Some(r) = &mut inner.renderer {
                 r.invalidate_overlay();
             }
-        }
-        Ok(())
-    })
-}
-
-/// Arms (or disarms) the next `Tool::Crop` drag as a straighten line instead of a crop-rect
-/// drag. The shell flips this on when the user presses the Straighten button and it comes back
-/// off on its own once the drag releases (`Document::end_straighten`).
-#[no_mangle]
-pub unsafe extern "C" fn calm_engine_set_straighten_active(
-    engine: *mut CalmEngine,
-    active: u8,
-) -> CalmStatus {
-    with_inner(engine, |inner| {
-        if let Some(doc) = &mut inner.doc {
-            doc.straighten_active = active != 0;
         }
         Ok(())
     })

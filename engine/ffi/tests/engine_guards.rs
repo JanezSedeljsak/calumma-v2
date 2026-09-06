@@ -109,6 +109,7 @@ fn every_status_entry_point_rejects_a_null_engine() {
         assert_eq!(calm_engine_duplicate_layer(e, 0), CalmStatus::Null);
         assert_eq!(calm_engine_merge_layer_down(e, 0), CalmStatus::Null);
         assert_eq!(calm_engine_clip_layer_down(e, 0), CalmStatus::Null);
+        assert_eq!(calm_engine_layer_can_merge_down(e, 0), 0);
         assert_eq!(calm_engine_layer_can_clip_down(e, 0), 0);
         assert_eq!(calm_engine_set_layer_opacity(e, 0, 1.0), CalmStatus::Null);
         assert_eq!(calm_engine_set_layer_blend_mode(e, 0, 0), CalmStatus::Null);
@@ -248,6 +249,7 @@ fn data_returning_entry_points_error_with_no_project_open() {
         assert_eq!(calm_engine_duplicate_layer(e, 0), CalmStatus::Error);
         assert_eq!(calm_engine_merge_layer_down(e, 0), CalmStatus::Error);
         assert_eq!(calm_engine_clip_layer_down(e, 0), CalmStatus::Error);
+        assert_eq!(calm_engine_layer_can_merge_down(e, 0), 0);
         assert_eq!(calm_engine_layer_can_clip_down(e, 0), 0);
         assert_eq!(calm_engine_set_layer_opacity(e, 0, 0.5), CalmStatus::Error);
         assert_eq!(calm_engine_set_layer_blend_mode(e, 0, 1), CalmStatus::Error);
@@ -304,6 +306,7 @@ fn out_of_range_layer_index_errors_on_the_accessor_family() {
         assert_eq!(calm_engine_duplicate_layer(e, huge), CalmStatus::Error);
         assert_eq!(calm_engine_merge_layer_down(e, huge), CalmStatus::Error);
         assert_eq!(calm_engine_clip_layer_down(e, huge), CalmStatus::Error);
+        assert_eq!(calm_engine_layer_can_merge_down(e, huge), 0);
         assert_eq!(calm_engine_layer_can_clip_down(e, huge), 0);
         assert_eq!(calm_engine_remove_layer(e, huge), CalmStatus::Error);
         assert!(calm_engine_layer_name(e, huge).is_null());

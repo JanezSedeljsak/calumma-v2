@@ -792,7 +792,8 @@ fn no_crop_rect_means_no_overlay() {
 /// then a fill), so a rect with guides off is exactly 4 + 16 instances.
 #[test]
 fn the_bare_rect_is_four_outline_segments_and_eight_two_disc_handles() {
-    let doc = crop_board();
+    let mut doc = crop_board();
+    doc.crop_overlay_style = calumma_core::CropOverlayStyle::Off;
     let instances = crop_overlay_instances(&doc);
     assert_eq!(instances.len(), 4 + 8 * 2);
 }
@@ -804,17 +805,4 @@ fn overlay_guide_lines_add_to_the_fixed_rect_chrome() {
     doc.crop_overlay_style = calumma_core::CropOverlayStyle::RuleOfThirds;
     let instances = crop_overlay_instances(&doc);
     assert_eq!(instances.len(), doc.crop_overlay_lines().len() + 4 + 8 * 2);
-}
-
-/// While a straighten line is being dragged, it is the *only* thing drawn — the crop rect is
-/// still there underneath (nothing has been committed yet) but stays hidden until release.
-#[test]
-fn a_straighten_drag_draws_only_the_reference_line() {
-    let mut doc = crop_board();
-    doc.straighten_active = true;
-    doc.begin_straighten(10.0, 10.0);
-    doc.update_straighten(90.0, 40.0);
-    let instances = crop_overlay_instances(&doc);
-    assert_eq!(instances.len(), 1);
-    assert_eq!(instances[0].segment, [10.0, 10.0, 90.0, 40.0]);
 }

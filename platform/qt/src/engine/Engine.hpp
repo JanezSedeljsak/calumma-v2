@@ -263,6 +263,7 @@ public:
     bool removeLayer(uint32_t index);
     bool duplicateLayer(uint32_t index);
     bool mergeLayerDown(uint32_t index);
+    bool layerCanMergeDown(uint32_t index) const;
     bool clipLayerDown(uint32_t index);
     bool layerCanClipDown(uint32_t index) const;
     bool moveLayerUp(uint32_t index);
@@ -303,7 +304,6 @@ public:
     bool setCropAspectLock(float ratio);
     bool clearCropAspectLock();
     bool setCropOverlayStyle(uint32_t style);
-    bool setStraightenActive(bool active);
     bool commitCrop();
 
     // --- EngineClipboard.cpp ---------------------------------------------------------------

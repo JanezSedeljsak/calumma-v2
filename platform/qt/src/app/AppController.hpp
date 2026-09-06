@@ -187,6 +187,7 @@ public:
     Q_INVOKABLE void removeLayerRow(int row);
     Q_INVOKABLE void duplicateLayerRow(int row);
     Q_INVOKABLE void mergeLayerRowDown(int row);
+    Q_INVOKABLE bool layerRowCanMergeDown(int row) const;
     Q_INVOKABLE void setActiveLayerRow(int row);
     Q_INVOKABLE void setLayerRowVisible(int row, bool visible);
     Q_INVOKABLE void setLayerRowLocked(int row, bool locked);

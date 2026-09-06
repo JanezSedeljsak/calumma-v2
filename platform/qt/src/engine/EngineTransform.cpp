@@ -30,11 +30,6 @@ bool Engine::setCropOverlayStyle(uint32_t style) {
     return call([&](CalmEngine *e) { return calm_engine_set_crop_overlay_style(e, style); });
 }
 
-bool Engine::setStraightenActive(bool active) {
-    return call(
-        [&](CalmEngine *e) { return calm_engine_set_straighten_active(e, active ? 1 : 0); });
-}
-
 bool Engine::commitCrop() {
     return call([](CalmEngine *e) { return calm_engine_commit_crop(e); });
 }

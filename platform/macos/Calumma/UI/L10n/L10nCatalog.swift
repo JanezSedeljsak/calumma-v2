@@ -237,7 +237,6 @@ struct L10nCatalog: Equatable {
     var cropOverlayGrid: String { self["cropOverlayGrid"] }
     var cropOverlayDiagonal: String { self["cropOverlayDiagonal"] }
     var cropOverlayGoldenRatio: String { self["cropOverlayGoldenRatio"] }
-    var cropStraighten: String { self["cropStraighten"] }
     var cropCancel: String { self["cropCancel"] }
     var cropCommit: String { self["cropCommit"] }
     var textFont: String { self["textFont"] }

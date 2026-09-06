@@ -188,8 +188,8 @@ struct ToolOptions: View {
 
     /// `Tool::Crop`'s own options: the aspect-ratio lock (a single picker, "Free" among the
     /// presets rather than a separate lock checkbox — there is nothing for a checkbox to
-    /// disagree with a ratio about), the composition-guide overlay, Straighten, and the two
-    /// ways out of a drag in progress.
+    /// disagree with a ratio about), the composition-guide overlay, and the two ways out of a
+    /// drag in progress.
     @ViewBuilder
     private var cropOptions: some View {
         if app.tool == .crop {
@@ -219,7 +219,6 @@ struct ToolOptions: View {
                     .pickerStyle(.menu)
                     .labelsHidden()
                 }
-                paintToggle(l10n.cropStraighten, isOn: $app.straightening)
                 // Stacked, not side by side — the options panel is narrow enough that two
                 // buttons sharing one row squeeze both labels past legibility.
                 VStack(spacing: Tokens.Space.xs) {

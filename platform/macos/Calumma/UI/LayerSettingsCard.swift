@@ -60,10 +60,8 @@ struct LayerSettingsCard: View {
                 actionButton(l10n.duplicateLayer) {
                     app.engine.duplicateLayer(index)
                 }
-                if canMergeDown {
-                    actionButton(l10n.mergeLayerDown) {
-                        app.engine.mergeLayerDown(index)
-                    }
+                actionButton(l10n.mergeLayerDown, enabled: canMergeDown) {
+                    app.engine.mergeLayerDown(index)
                 }
                 if canClipDown {
                     actionButton(l10n.clipLayerDown) {
