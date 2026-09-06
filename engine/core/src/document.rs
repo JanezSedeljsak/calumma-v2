@@ -322,6 +322,30 @@ fn stamps_bounds(stamps: &[StrokePoint], radius: f32) -> Option<DocRect> {
     ))
 }
 
+/// Same padded bounding box as `stamps_bounds`, over grid-space points already mapped through
+/// `doc_point_to_grid` — what a stroke needs `grow_extent` to cover on a moved or scaled layer,
+/// the way a paste already covers the image it drops off the paper.
+fn points_bounds(points: &[(f32, f32)], radius: f32) -> Option<DocRect> {
+    let pad = radius + STAMP_COVERAGE_PADDING;
+    let first = points.first()?;
+    let mut min_x = first.0;
+    let mut min_y = first.1;
+    let mut max_x = first.0;
+    let mut max_y = first.1;
+    for p in points {
+        min_x = min_x.min(p.0);
+        min_y = min_y.min(p.1);
+        max_x = max_x.max(p.0);
+        max_y = max_y.max(p.1);
+    }
+    Some(DocRect::from_floats(
+        min_x - pad,
+        min_y - pad,
+        max_x + pad,
+        max_y + pad,
+    ))
+}
+
 #[derive(Clone, Debug)]
 pub struct Document {
     pub id: String,
@@ -2142,6 +2166,24 @@ impl Document {
             .iter()
             .map(|p| layer.doc_point_to_grid((p.x, p.y)))
             .collect();
+        if layer.tiles().is_none() {
+            return;
+        }
+
+        // A moved or scaled layer can reach grid-space coordinates its storage has never held —
+        // the same situation an oversized paste puts a layer in on purpose. Grow the extent to
+        // meet the stroke first, or `CoverageGrid::add_segment` and `TileGrid::tile_in_bounds`
+        // clip it away below exactly as if it had been painted past the paper with nothing to
+        // catch it: the part of the layer the transform moved into new territory just never
+        // takes paint.
+        if let Some(reach) = points_bounds(&points, radius) {
+            if let Some(tiles) = self.layers.get_mut(active).and_then(|l| l.tiles_mut()) {
+                tiles.grow_extent(reach);
+            }
+        }
+        let Some(layer) = self.layers.get(active) else {
+            return;
+        };
         let Some(grid) = layer.tiles() else {
             return;
         };

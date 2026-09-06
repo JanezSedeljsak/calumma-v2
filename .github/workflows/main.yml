@@ -190,8 +190,14 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: llvm-tools-preview
+      - name: software vulkan (lavapipe)
+        run: sudo apt-get update && sudo apt-get install -y mesa-vulkan-drivers
       - name: test core
         run: cargo test --manifest-path engine/Cargo.toml -p calumma-core --all-targets
+      - name: test render
+        env:
+          WGPU_BACKEND: vulkan
+        run: cargo test --manifest-path engine/Cargo.toml -p calumma-render --all-targets
       - name: coverage core
         run: ./manage.py coverage --package calumma-core
 

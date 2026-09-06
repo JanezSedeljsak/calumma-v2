@@ -14,15 +14,41 @@ pub(crate) struct Gpu {
     pub(crate) shader: wgpu::ShaderModule,
 }
 
+pub(crate) fn headless_instance() -> wgpu::Instance {
+    wgpu::Instance::new(wgpu::InstanceDescriptor {
+        ..wgpu::InstanceDescriptor::new_without_display_handle()
+    })
+}
+
+/// Hardware first, then the software / fallback adapter (`force_fallback_adapter`). wgpu's
+/// Noop backend is refused: it creates resources but stores no texels, so a pixel readback
+/// would compare zeros against a real composite.
+pub(crate) fn request_test_adapter(instance: &wgpu::Instance) -> Option<wgpu::Adapter> {
+    let mut options = wgpu::RequestAdapterOptions {
+        power_preference: wgpu::PowerPreference::LowPower,
+        compatible_surface: None,
+        force_fallback_adapter: false,
+        ..Default::default()
+    };
+    let adapter = pollster::block_on(instance.request_adapter(&options))
+        .ok()
+        .or_else(|| {
+            options.force_fallback_adapter = true;
+            pollster::block_on(instance.request_adapter(&options)).ok()
+        })?;
+    if adapter.get_info().backend == wgpu::Backend::Noop {
+        return None;
+    }
+    Some(adapter)
+}
+
 /// `None` where no adapter can be had; callers return instead of failing, the same bargain
 /// `stroke_coverage`'s own harness makes.
 pub(crate) fn gpu() -> Option<&'static Gpu> {
     static GPU: OnceLock<Option<Gpu>> = OnceLock::new();
     GPU.get_or_init(|| {
-        let instance = wgpu::Instance::default();
-        let adapter =
-            pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
-                .ok()?;
+        let instance = headless_instance();
+        let adapter = request_test_adapter(&instance)?;
         let (device, queue) =
             pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).ok()?;
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {

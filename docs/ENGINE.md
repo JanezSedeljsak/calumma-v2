@@ -292,7 +292,15 @@ difference.
   `TileAtlas::capacity_bytes` accounts for it.
 - When the atlas is full, `allocate` returns `None` and `sync_tiles` evicts — always
   preferring a **prefetch-margin tile** (retained just outside the viewport) over anything
-  the viewport can actually see.
+  the viewport can actually see. The freed slot is only actually handed back to the atlas if
+  no other resident tile still points at it. Point 3 below is exactly why one can: an
+  unpainted Paper tile (or any solid `fill_uniform` fill) can have several `TileCoord`s share
+  one atlas slot behind the same `Arc`, so evicting the margin tile that happens to be one of
+  those coordinates must not free the slot out from under its still-visible siblings — that
+  used to corrupt a layer nobody was touching the moment the freed slot got reused for
+  whatever uploaded next, visible only once the atlas was actually under real pressure. A
+  victim that turns out to be shared just stops being tracked as resident instead; it costs a
+  redundant re-upload later if it's ever needed again, from the same still-live CPU bytes.
 
 ### 3.3 What gets uploaded, and when
 

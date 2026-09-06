@@ -67,6 +67,12 @@ the upload is dropped; clearing that tile's dirty bit anyway stranded it — `bu
 skips a tile with no atlas slot, and nothing would ever ask for it again — so the layer kept a
 permanent hole showing through as bare paper.
 
+Eviction itself only ever frees a slot no other resident tile still references — see
+`ENGINE.md` § 3.2 for why a slot behind one evicted margin tile can still be live for several
+others (a solid fill sharing one `Arc` across many `TileCoord`s). Freeing it regardless used to
+show up as some untouched layer's tiles glitching the moment the slot got reused, only under
+real atlas pressure.
+
 ### What counts as a live preview
 
 Two predicates, because "needs another frame" and "needs another *content* frame" are not the

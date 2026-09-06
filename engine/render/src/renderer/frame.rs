@@ -100,7 +100,7 @@ impl Renderer {
             .collect();
 
         // Tiles retained only as prefetch margin (in `live`, but not currently on screen) are
-        // the ones sacrificed first when the atlas is full — see the fallback inside the
+        // the ones sacrificed first when the atlas is full — see the eviction loop inside the
         // upload loop below.
         let mut evictable: Vec<TileKey> = self
             .tiles
@@ -159,16 +159,32 @@ impl Renderer {
             let array_layer = match self.atlas.allocate(&self.device, &self.queue, &shared) {
                 Some(slot) => slot,
                 None => {
-                    let victim = evictable
-                        .pop()
-                        .or_else(|| live.iter().copied().find(|key| !visible_keys.contains(key)));
-                    let Some(victim) = victim else {
-                        continue;
-                    };
-                    if let Some(freed) = self.tiles.remove(&victim) {
+                    // A solid fill (`TileGrid::fill_uniform`) and the `shared_gpu` reuse just
+                    // above both point several tile coordinates at one atlas slot. Freeing that
+                    // slot because *one* of those coordinates was picked as prefetch-margin
+                    // filler would corrupt every sibling still drawing from it the moment the
+                    // slot is handed to whatever gets uploaded next — visible as some other
+                    // layer's tiles glitching even though nothing on it was touched. Only a
+                    // slot no other resident tile still references may actually be freed; a
+                    // victim that turns out to be shared just stops being tracked as resident
+                    // and is picked up again as a plain re-upload if it is ever needed.
+                    let mut freed_slot = None;
+                    while let Some(victim) = evictable.pop() {
+                        let Some(freed) = self.tiles.remove(&victim) else {
+                            continue;
+                        };
+                        if self
+                            .tiles
+                            .values()
+                            .any(|t| t.array_layer == freed.array_layer)
+                        {
+                            continue;
+                        }
                         self.atlas.free(freed.array_layer);
+                        freed_slot = self.atlas.allocate(&self.device, &self.queue, &shared);
+                        break;
                     }
-                    let Some(slot) = self.atlas.allocate(&self.device, &self.queue, &shared) else {
+                    let Some(slot) = freed_slot else {
                         continue;
                     };
                     slot

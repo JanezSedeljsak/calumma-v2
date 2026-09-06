@@ -161,8 +161,10 @@ are not openable, they are open.
   island surface; in dark mode the desk is a step darker than the window background so the
   board field sits recessed against the raised side islands. The paper border inverts with the theme
   (dark ring on the light board, light ring on the dark board). Layer pixels, vectors,
-  previews, and handles are scissored to the paper — content may sit off the board, but
-  only the overlap with the whiteboard is drawn.
+  previews, and most chrome are scissored to the paper — content may sit off the board, but
+  only the overlap with the whiteboard is drawn. Guides, Crop's rect and the `⌘T` transform
+  box are the exceptions and draw right up to the viewport edge instead — see Guides below
+  and Transform (`⌘T`) under Layers and ops below.
 - **Layers:** add / select / visibility / delete; first layer is **Paper**, a normal
   white-filled raster layer — paintable/eraseable like any other layer, not a background
   decoration. The list shows the topmost (frontmost) layer first, matching stack order.
@@ -207,7 +209,7 @@ persist across launches.
 | Constrain a shape | Hold **Shift** while dragging **Rect** or **Ellipse** (and their marquee twins) for a square or circle. Corner-anchored, and the *longer* side wins, so the shape fills the drag. Press or release Shift mid-drag and the board snaps immediately — the clamp is derived from the raw drag on every frame, not baked in on the last mouse-move. Line, Arrow, Triangle and Pentagon are unconstrained (angle snap and regular-polygon lock are different clamps, not built). |
 | Pull a guide | Drag off the top ruler for a horizontal rule, off the left ruler for a vertical one; drag one with **Move** to reposition it, and release it back over a ruler to discard it. Hold **Shift** while dragging to land on a whole `GUIDE_SHIFT_STEP` (10 document pixels). Layers, shapes and scale handles snap to guides within `GUIDE_SNAP_PX`. |
 | Edit guides as a list | The **ruler button** where the two rulers cross opens the guides card — every guide with its edge and offset, typed rather than dragged, plus Add and Clear. |
-| Draw on a moved layer | The stroke is mapped **into the layer's own grid** before it is stamped (`Layer::doc_point_to_grid` / `doc_length_to_grid`). A layer holds its pixels in grid space and the renderer maps that grid into the document through the layer's transform, so a stroke stamped at the document coordinate would be carried somewhere else the instant the preview handed over — which is what made a stroke on a moved or scaled paste jump on pointer-up. Coverage is bounded by the grid's **extent**, not the paper, so a stroke on the part of a pasted image hanging off the canvas still lands. |
+| Draw on a moved layer | The stroke is mapped **into the layer's own grid** before it is stamped (`Layer::doc_point_to_grid` / `doc_length_to_grid`). A layer holds its pixels in grid space and the renderer maps that grid into the document through the layer's transform, so a stroke stamped at the document coordinate would be carried somewhere else the instant the preview handed over — which is what made a stroke on a moved or scaled paste jump on pointer-up. Coverage is bounded by the grid's **extent**, which `Document::commit_stroke` grows to meet the stroke first (the same `grow_extent` a paste's own overflow uses) — so a stroke aimed at wherever the layer currently shows nothing, most often the empty side of a paste dragged away from where it landed, still lands instead of `tile_in_bounds` silently dropping it. |
 | Live preview | GPU stroke/shape while dragging; CPU commit into sparse tiles on pointer-up. A shape previews its fill *and* its border in their own colors, because `board.wgsl`'s `shape_ink` composites the same two parts, in the same order, that the commit does. |
 | Pan | Scroll wheel / trackpad scroll; **middle-button drag**; Space-drag; or Option/⌘-drag |
 | Zoom | Pinch; ⌘ + scroll; Option + scroll; or ⌘`=` / ⌘`-` |
@@ -226,8 +228,10 @@ from the card. Three things about how they are drawn:
   right up to the ruler it came from, rather than stopping where the paper stops. A rule you
   could only see over paper cannot be lined up against a layer hanging off it — and one that
   stopped short never met the ruler, which is where the eye goes to read its position. It is
-  the only pass the renderer lifts the paper scissor around (`Renderer::render`); everything
-  else the board draws is clipped to the paper. Extent comes from
+  one of three passes the renderer lifts the paper scissor around — the other two are Crop's
+  rect/handles and the `⌘T` transform box, each for its own reason (see Transform (`⌘T`)
+  under Layers and ops below); everything else the board draws stays clipped to the paper.
+  Extent comes from
   `Camera::viewport_doc_bounds`, the unclamped twin of `visible_doc_rect`.
 - **The color is the guide's; the alpha is the board's.** `Guide::color` is RGB only, because
   how *solid* a rule is drawn is not a choice — it is how the board says which one is under the
@@ -620,14 +624,21 @@ live in `engine/core`; PNG/JPEG/WebP/AVIF/HEIC encode and decode live in `engine
   drawing a shape, where it constrains; drag the
   grip standing off the top edge to rotate — it is always square to that edge and a fixed
   screen distance clear of it, at any rotation, scale or flip, and the turn is taken about
-  the centre of the box as drawn; drag inside the box to move. Click outside the
+  the centre of the box as drawn; hold **Shift** while rotating to lock the angle to the
+  nearest 45° (0/45/90/135/…), the same key a corner drag reads, just the opposite effect —
+  a corner *frees* an axis under Shift, the rotate grip *constrains* to one; drag inside the
+  box to move. Click outside the
   handles, press `Return`, press `Esc`, or pick another tool to exit the mode — `Return`
   leaves everything else as it is, `Esc` drops the selection with it (`Document::deselect`),
   which is Photoshop's split between committing and cancelling a Free Transform. There is
   nothing to *cancel* here, though: the transform is a live `LayerTransform` either way, and
   undo is what takes it back. Fully live and
   non-destructive on the canvas; a "Reset Transform" action in the layer's `…` popover
-  clears it back to identity.
+  clears it back to identity. **The frame and its handles draw right up to the viewport
+  edge, not just over the paper** — scaling, rotating or dragging a layer far enough that its
+  box reaches past the canvas keeps every handle grabbable instead of clipping the ones that
+  crossed the boundary, the same edge-to-edge treatment Crop's rect and the guides already
+  get (see Board above).
 - **Click-to-pick a layer**, inside transform mode: clicking a layer's *painted pixels*
   on the board makes it the transform target, so you can walk a stack without going back
   to the layers panel, and the same press starts a move drag. Picking respects the layer's
@@ -858,8 +869,18 @@ chose for it.
 Only the *storage* grew, and only for that layer:
 
 - `TileGrid` carries an `extent` (what it may hold) alongside `width`/`height` (the document).
-  A fresh grid's extent **is** the document, so ordinary painting still cannot scribble past the
-  paper — `paint_rect` clips to the extent, and only a deliberate `grow_extent` opens it.
+  A fresh grid's extent **is** the document, so a first stroke on an untouched layer cannot
+  scribble past the paper — `paint_rect` clips to the extent.
+- **An ordinary stroke widens the extent too, the same way.** `Document::commit_stroke` calls
+  the identical `grow_extent` before painting, sized to the stroke it is about to lay down
+  rather than to an incoming image. This is what a moved or scaled layer needs: its
+  `content_bounds()` pivot means a stroke aimed at wherever the layer currently shows
+  *nothing* — most often the empty side of a paste dragged into position — can map to grid
+  coordinates the storage never held, the same situation an oversized paste's own footprint
+  puts a layer in on purpose. Before this, `CoverageGrid::add_segment` and
+  `TileGrid::tile_in_bounds` silently clipped that part of the stroke away: it committed with
+  no history entry and no error, on a layer that looked like it should obviously take paint
+  there.
 - **Masks stay document-sized.** They are authored against the canvas, so what overflows is
   simply unmasked.
 - **Export and the composite are the canvas**, so what hangs off contributes nothing —
@@ -1010,7 +1031,7 @@ panel toggles are shell knobs.
 | `⌃⌘F` | Enter / exit full screen (re-homed from the removed View menu) | macOS standard |
 | `F` | Toggle shape fill | — |
 | `S` | Toggle shape stroke — independent of fill, so a shape can carry both | — (Figma has both by default) |
-| `⇧` (held while dragging) | Constrain Rect / Ellipse to a square / circle; on a `⌘T` or vector-item corner, free the two axes instead; on a **guide**, round its position to a whole 10 | Yes (Ps shape constrain) |
+| `⇧` (held while dragging) | Constrain Rect / Ellipse to a square / circle; on a `⌘T` or vector-item corner, free the two axes instead; on a `⌘T` rotate grip, lock the angle to the nearest 45°; on a **guide**, round its position to a whole 10 | Yes (Ps shape constrain) |
 | `⇧V` | Toggle vector mode (shapes and the pen each commit as their own vector layer). It moved off bare `V` when Move took that key back, and is checked **before** the tool table — `charactersIgnoringModifiers` reports the same letter shifted or not | — (Ps has no equivalent; closest is Figma's vector tools) |
 | `←` `→` `↑` `↓` | Nudge the selected vector item, or the active layer when Move / `⌘T` is the current tool | Yes (Ps nudge) |
 | `⌫` / `⌦` | Delete the selected vector item (falls back to the old clear behaviour when none is selected) | Yes |

@@ -177,10 +177,16 @@ have to be read together.
   never cropped (that was the bug) and the canvas is never resized. `TileGrid` carries an
   `extent` — what it may hold — alongside `width`/`height`, which stay the **document**: masks
   are sized to the document, export walks it, `paper_scissor` clips to it. A fresh grid's
-  extent *is* the document, so painting still cannot go past the paper; only a deliberate
-  `grow_extent` opens it, and it only ever grows. `Document::resize`, the SQLite loader and
+  extent *is* the document, and only a deliberate `grow_extent` opens it wider — but that call
+  is no longer paste-exclusive: `Document::commit_stroke` makes the same call to meet wherever
+  a stroke actually lands, so a moved or scaled layer's transform mapping a stroke to grid
+  coordinates the storage never held (the common case: painting the now-empty side of a layer
+  dragged away from where it was pasted) widens the extent instead of `tile_in_bounds` quietly
+  dropping the stroke — which is what used to happen, with no error and no history entry. It
+  only ever grows, never shrinks itself back. `Document::resize`, the SQLite loader and
   `Renderer::sync_tiles` all have to respect it — see `docs/FLOW.md` → Pasting something bigger
-  than the canvas for why each one would otherwise lose the overflow.
+  than the canvas and → Draw on a moved layer for why each one would otherwise lose the
+  overflow.
 - Every project carries an **accent color** (`Document.accent`, `projects.accent` in SQLite).
   Core picks one from `palette::PROJECT_COLORS` at create time; the shell shows it on
   landing recents, project thumbs, and the dot on that project's titlebar tab. Rename /
@@ -635,8 +641,14 @@ Frame loop, dirty flags, and the pan/zoom performance strategy (GPU tile atlas, 
 LOD, motion mode) are documented in `docs/RENDERING.md`, not repeated here.
 
 - Viewport-sized Metal surface; paper positioned by camera matrix in WGSL.
-- Layer pixels, vectors, live previews, and handles are GPU-scissored to the paper
-  (`Camera::paper_scissor`); the desk and paper border stay unclipped.
+- Layer pixels, vectors, live previews, and most chrome are GPU-scissored to the paper
+  (`Camera::paper_scissor`); the desk and paper border stay unclipped. A guide (measured
+  against the view, not the paper), Crop's rect/handles, and the whole-layer transform box
+  (`⌘T`) are the deliberate exceptions and draw edge to edge instead — scaling, rotating or
+  moving a layer off the canvas, or dragging Crop's rect past an edge to expand it, has to
+  keep its handles reachable rather than clipping them away the moment they cross the paper
+  boundary. Every other piece of chrome (the hover outline, the text caret, a vector-item
+  frame) keeps clipping to the paper.
 - Swift owns the `MTKView` / CAMetalLayer; Rust borrows the layer pointer (no retain).
 - Layer hover = dashed outline in the shader, not a Swift overlay.
 - Board **chrome** — guides, transform and vector-item frames, the text session's box and

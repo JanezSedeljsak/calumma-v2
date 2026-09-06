@@ -97,14 +97,8 @@ impl Renderer {
 
     #[cfg(test)]
     pub fn new_headless(width: u32, height: u32) -> Option<Self> {
-        let instance = wgpu::Instance::default();
-        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-            power_preference: wgpu::PowerPreference::LowPower,
-            compatible_surface: None,
-            force_fallback_adapter: false,
-            ..Default::default()
-        }))
-        .ok()?;
+        let instance = crate::test_gpu::headless_instance();
+        let adapter = crate::test_gpu::request_test_adapter(&instance)?;
         let adapter_array_layers = adapter.limits().max_texture_array_layers;
         let atlas_max_capacity = adapter_array_layers.min(TILE_ATLAS_MAX_CAPACITY);
         let budget = GpuBudget::new(DeviceTier::classify(
@@ -129,7 +123,7 @@ impl Renderer {
         .ok()?;
         let format = wgpu::TextureFormat::Bgra8UnormSrgb;
         let config = wgpu::SurfaceConfiguration {
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
             format,
             color_space: wgpu::SurfaceColorSpace::default(),
             width: width.max(1),

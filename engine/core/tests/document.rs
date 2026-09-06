@@ -902,6 +902,33 @@ fn move_layer_up_and_down_reorders_the_stack() {
     assert!(!doc.move_layer_up(doc.layers.len() - 1));
 }
 
+/// A layer dragged into the bottom-right leaves its grid storage exactly where it was —
+/// only the transform moved. A stroke aimed at the now-empty top-left, which the layer's
+/// inverse transform maps to grid coordinates the storage never held, used to be dropped
+/// silently instead of growing the extent the way an oversized paste already does.
+#[test]
+fn stroke_paints_where_a_moved_layers_transform_reaches_off_its_original_storage() {
+    let mut doc = Document::new("p".into(), "t", 200, 200);
+    doc.resize_viewport(200.0, 200.0, 1.0);
+    doc.fit_to_view();
+    let idx = doc.active_layer;
+    doc.layers[idx]
+        .tiles_mut()
+        .unwrap()
+        .paint_rect(DocRect::new(0, 0, 49, 49), |_, _, _| {
+            Some([200, 30, 30, 255])
+        });
+    doc.layers[idx].transform = Some(LayerTransform {
+        offset_x: 150.0,
+        offset_y: 150.0,
+        ..LayerTransform::default()
+    });
+    let (sx, sy) = doc.camera.to_screen(10.0, 10.0);
+    doc.pointer_down(sx, sy);
+    doc.pointer_up(sx, sy);
+    assert_ne!(pixel(&doc, idx, -140, -140), [0, 0, 0, 0]);
+}
+
 #[test]
 fn composite_respects_layer_transform_offset() {
     let mut doc = Document::new("p".into(), "t", 64, 64);

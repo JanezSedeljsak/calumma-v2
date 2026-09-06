@@ -275,7 +275,7 @@ impl FrameOutput {
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: config.format,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
             view_formats: &[],
         })
     }
@@ -379,6 +379,8 @@ mod camera_motion;
 mod frame;
 mod invalidation;
 mod pipeline;
+#[cfg(test)]
+mod shader_parity;
 
 // Re-exported at the old path so `desk.rs`/`framebuffer.rs`/`stroke_coverage.rs` (siblings of
 // `renderer` in the crate, not descendants) don't have to know the pipeline split happened.
