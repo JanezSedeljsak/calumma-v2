@@ -951,17 +951,29 @@ impl Renderer {
                     pass.draw(0..6, overlay_range.clone());
                 }
 
-                if !screen_overlay_range.is_empty() {
-                    pass.set_pipeline(&self.overlay_pipeline);
-                    pass.set_bind_group(0, &self.preview_bg, &[]);
-                    pass.set_vertex_buffer(0, self.stroke_buf.slice(..));
-                    pass.draw(0..6, screen_overlay_range.clone());
-                }
-
                 if preview_shape.is_some() {
                     pass.set_pipeline(&self.shape_pipeline);
                     pass.set_bind_group(0, &self.preview_bg, &[]);
                     pass.draw(0..3, 0..1);
+                }
+            }
+
+            // Crop's rect is free to extend past the paper on any side — that is what
+            // expanding the canvas *is* — so, like the guide pass above, its chrome (rect
+            // outline, handles, composition guides) draws edge to edge instead of clipping
+            // at the very boundary the user is dragging it past. Drawn even with the paper
+            // scissor empty (paper fully off screen), same as guides. Every other
+            // screen-space overlay this pipeline also carries — the transform box, the hover
+            // outline, the text caret — keeps clipping to the paper.
+            if !screen_overlay_range.is_empty() {
+                let crop_scissor = (doc.tool == Tool::Crop)
+                    .then_some((0, 0, self.config.width, self.config.height));
+                if let Some((x, y, w, h)) = crop_scissor.or(scissor) {
+                    pass.set_scissor_rect(x, y, w, h);
+                    pass.set_pipeline(&self.overlay_pipeline);
+                    pass.set_bind_group(0, &self.preview_bg, &[]);
+                    pass.set_vertex_buffer(0, self.stroke_buf.slice(..));
+                    pass.draw(0..6, screen_overlay_range.clone());
                 }
             }
 
