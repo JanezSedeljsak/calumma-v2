@@ -91,6 +91,13 @@ pub const INK_OPACITY_DEFAULT: f32 = 1.0;
 pub const CLONE_ALIGNED_DEFAULT: bool = true;
 
 pub const FIT_PADDING: f32 = 0.99;
+/// How much of the viewport the paper fills while `Tool::Crop` is active. Well below
+/// `FIT_PADDING` on purpose: a crop rect has to be draggable *past* every edge of the canvas
+/// to expand it, which needs real desk on screen around the paper to drag into. Entering Crop
+/// only ever zooms *out* to reach this (never in — a user already zoomed out further keeps
+/// their view), and the zoom used just before entering is restored on exit or after a commit
+/// so leaving Crop doesn't leave the board at an unrelated zoom level.
+pub const CROP_ZOOM_PADDING: f32 = 0.6;
 /// How far the camera may drift from a fit and still read as fitted: a thousandth of the
 /// zoom, and a pixel of pan. The Fit control lights up while this holds, so the tolerance
 /// exists to absorb float round-trips through `zoom_unit`, not to be generous — a real

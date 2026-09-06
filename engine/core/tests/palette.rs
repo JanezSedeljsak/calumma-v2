@@ -42,3 +42,11 @@ fn desk_metrics_describe_a_grid_that_reads_as_squared_paper() {
     assert!(desk.cross_line_width > 0.0);
     assert!((0.0..1.0).contains(&DeskMetrics::LINE_ALPHA));
 }
+
+/// `Default` is a distinct code path from the `DEFAULT`/`fallback` associated items above —
+/// nothing exercises the trait impls themselves unless something asks for them by trait.
+#[test]
+fn default_impls_match_their_named_equivalents() {
+    assert_eq!(DeskMetrics::default(), DeskMetrics::DEFAULT);
+    assert_eq!(BoardColors::default(), BoardColors::fallback(true));
+}

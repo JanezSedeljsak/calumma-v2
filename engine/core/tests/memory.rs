@@ -1,5 +1,7 @@
 use calumma_core::memory::document_memory;
+use calumma_core::shape::{Shape as ShapeGeom, Tool};
 use calumma_core::tile::{DocRect, TileGrid, TILE_BYTES, TILE_SIZE};
+use calumma_core::vector::VectorShape;
 use calumma_core::*;
 
 const SIDE: u32 = TILE_SIZE * 8;
@@ -119,6 +121,31 @@ fn masks_and_vectors_are_counted_where_they_live() {
     let report = document_memory(&doc);
     assert_eq!(report.mask_bytes, (SIDE * SIDE) as usize);
     assert!(report.vector_bytes >= 100 * std::mem::size_of::<(f32, f32)>());
+}
+
+/// A shape item owns no heap allocation of its own, unlike a path's point list — `vector_bytes`
+/// has a dedicated zero-cost arm for it that a path-only test can never reach.
+#[test]
+fn a_shape_item_costs_only_its_own_size() {
+    let mut doc = doc();
+    doc.add_vector_layer(
+        "V",
+        VectorItem::Shape(VectorShape {
+            shape: ShapeGeom {
+                tool: Tool::Rect,
+                start: (0.0, 0.0),
+                end: (10.0, 10.0),
+                half_width: 1.0,
+                fill: true,
+                stroke: false,
+            },
+            color: [255, 0, 0, 255],
+            stroke_color: [255, 0, 0, 255],
+        }),
+    );
+
+    let report = document_memory(&doc);
+    assert_eq!(report.vector_bytes, std::mem::size_of::<VectorItem>());
 }
 
 /// A preview is a cache, so it only exists for a layer whose thumbnail something has actually

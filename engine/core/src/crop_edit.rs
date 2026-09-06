@@ -8,6 +8,7 @@
 //! are exactly what `apply_canvas_shift` was generalized to handle.
 
 use crate::document::{point_dist, Document, HANDLE_HIT_RADIUS_PX};
+use crate::limits::CROP_ZOOM_PADDING;
 use crate::transform::bounds_center;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 
@@ -58,20 +59,44 @@ const CROP_MIN_SIZE: f32 = 8.0;
 impl Document {
     /// Enters the Crop tool: the rect starts as the whole canvas, and any left-over drag or
     /// aspect lock from a previous crop is cleared. Aspect lock and overlay style are shell
-    /// knobs that persist across entries on purpose.
+    /// knobs that persist across entries on purpose. Also zooms the camera out enough to leave
+    /// room around the canvas to drag a handle past its edge — see `start_crop_session`.
     pub fn enter_crop(&mut self) {
-        self.crop_rect = Some((0.0, 0.0, self.width as f32, self.height as f32));
-        self.crop_drag = None;
-        self.straighten_line = None;
-        self.straighten_active = false;
+        self.crop_saved_camera = Some(self.camera);
+        self.start_crop_session();
     }
 
-    /// Leaves the Crop tool without applying anything.
+    /// Leaves the Crop tool without applying anything, restoring the camera `enter_crop` (or
+    /// the last `commit_crop`) saved before it zoomed out for drag room.
     pub fn exit_crop(&mut self) {
         self.crop_rect = None;
         self.crop_drag = None;
         self.straighten_line = None;
         self.straighten_active = false;
+        if let Some(camera) = self.crop_saved_camera.take() {
+            self.camera = camera;
+        }
+    }
+
+    /// Resets the crop rect to the current full canvas and, if the camera is zoomed in enough
+    /// that the canvas already fills most of the viewport, zooms out to `CROP_ZOOM_PADDING` so
+    /// there is real desk on screen around every edge — otherwise a corner or edge handle has
+    /// nowhere on screen to drag *to* in order to expand the canvas, since the paper already
+    /// fills almost the whole view at a normal fit. Only ever zooms out, never in, so a user
+    /// already showing more desk than that keeps their own view. Shared by `enter_crop` and
+    /// `commit_crop`, which re-arms a fresh crop session on the resized canvas.
+    fn start_crop_session(&mut self) {
+        self.crop_rect = Some((0.0, 0.0, self.width as f32, self.height as f32));
+        self.crop_drag = None;
+        self.straighten_line = None;
+        self.straighten_active = false;
+        let (w, h) = (self.width as f32, self.height as f32);
+        let target_zoom = self.camera.fill_zoom(w, h, CROP_ZOOM_PADDING);
+        if self.camera.zoom > target_zoom {
+            self.camera.zoom = target_zoom;
+            self.camera.center(w, h);
+            self.camera.clamp_to_board(w, h);
+        }
     }
 
     /// The rect the render overlay draws, in document space.
@@ -266,7 +291,10 @@ impl Document {
     }
 
     /// Applies the current rect: rounds it to whole pixels and hands off to
-    /// `apply_canvas_shift`, which is where the actual resize happens.
+    /// `apply_canvas_shift`, which is where the actual resize happens. Leaves `Tool::Crop`
+    /// armed with a fresh full-canvas rect on the resized document — including a fresh
+    /// zoomed-out camera baseline for `exit_crop` to fall back to — so committing reads like
+    /// committing a shape or a fill: the tool stays selected and ready to go again.
     pub fn commit_crop(&mut self) {
         let Some((x0, y0, x1, y1)) = self.crop_rect else {
             return;
@@ -276,9 +304,8 @@ impl Document {
         let new_width = (x1.round() as i32 - origin_x).max(1) as u32;
         let new_height = (y1.round() as i32 - origin_y).max(1) as u32;
         self.apply_canvas_shift(origin_x, origin_y, new_width, new_height);
-        self.crop_rect = None;
-        self.crop_drag = None;
-        self.straighten_line = None;
+        self.crop_saved_camera = Some(self.camera);
+        self.start_crop_session();
     }
 }
 
@@ -445,14 +472,63 @@ mod tests {
     }
 
     #[test]
-    fn commit_crop_applies_the_rounded_rect_and_clears_state() {
+    fn commit_crop_applies_the_rounded_rect_and_rearms_a_fresh_one() {
         let mut d = doc();
         d.enter_crop();
         assert!(d.begin_crop_drag(200.0, 100.0));
         d.update_crop_drag(150.4, 80.6);
         d.commit_crop();
         assert_eq!((d.width, d.height), (150, 81));
-        assert_eq!(d.crop_overlay_rect(), None);
+        // Mirrors committing a shape or a fill: the tool stays selected and ready to crop
+        // again, so the rect comes back rather than leaving the overlay with nothing to draw.
+        assert_eq!(d.crop_overlay_rect(), Some((0.0, 0.0, 150.0, 81.0)));
+    }
+
+    #[test]
+    fn entering_crop_zooms_out_to_leave_room_to_expand_past_the_edge() {
+        let mut d = doc();
+        let fit_zoom = d.camera.zoom;
+        d.enter_crop();
+        // At a normal fit the paper already fills almost the whole viewport (`FIT_PADDING`),
+        // leaving nowhere on screen to drag a handle *past* the canvas edge to expand it —
+        // Crop has to zoom out further than that to make expansion actually reachable.
+        assert!(d.camera.zoom < fit_zoom);
+    }
+
+    #[test]
+    fn entering_crop_never_zooms_in() {
+        let mut d = doc();
+        d.camera.zoom = 0.1; // already showing far more desk than Crop needs
+        let already_zoomed_out = d.camera.zoom;
+        d.enter_crop();
+        assert_eq!(d.camera.zoom, already_zoomed_out);
+    }
+
+    #[test]
+    fn exiting_crop_restores_the_camera_from_before_it_zoomed_out() {
+        let mut d = doc();
+        let camera_before = d.camera;
+        d.enter_crop();
+        assert_ne!(d.camera, camera_before);
+        d.exit_crop();
+        assert_eq!(d.camera, camera_before);
+    }
+
+    #[test]
+    fn committing_a_crop_rearms_the_camera_baseline_for_the_next_exit() {
+        let mut d = doc();
+        d.enter_crop();
+        assert!(d.begin_crop_drag(200.0, 100.0));
+        d.update_crop_drag(150.4, 80.6);
+        d.commit_crop();
+        // `commit_crop` re-arms a fresh crop session on the resized canvas, so it is zoomed
+        // out for drag room again immediately, same as `enter_crop` was.
+        assert!(!d.camera.is_fit(d.width as f32, d.height as f32));
+        d.exit_crop();
+        // Canceling that second session returns to a plain fit of the committed result — the
+        // baseline `commit_crop` saved before re-zooming — not to the view from before the
+        // very first crop.
+        assert!(d.camera.is_fit(d.width as f32, d.height as f32));
     }
 
     #[test]
@@ -472,6 +548,183 @@ mod tests {
 
         d.crop_overlay_style = CropOverlayStyle::GoldenRatio;
         assert_eq!(d.crop_overlay_lines().len(), 4);
+    }
+
+    #[test]
+    fn overlay_style_round_trips_through_its_wire_value() {
+        for style in [
+            CropOverlayStyle::Off,
+            CropOverlayStyle::RuleOfThirds,
+            CropOverlayStyle::Grid,
+            CropOverlayStyle::Diagonal,
+            CropOverlayStyle::GoldenRatio,
+        ] {
+            assert_eq!(CropOverlayStyle::from_u32(style as u32), Some(style));
+        }
+        assert_eq!(CropOverlayStyle::from_u32(99), None);
+    }
+
+    #[test]
+    fn ending_a_drag_releases_it_without_touching_the_rect() {
+        let mut d = doc();
+        d.enter_crop();
+        assert!(d.begin_crop_drag(200.0, 100.0));
+        d.end_crop_drag();
+        // With the drag released, further pointer movement is a no-op.
+        d.update_crop_drag(0.0, 0.0);
+        assert_eq!(d.crop_overlay_rect(), Some((0.0, 0.0, 200.0, 100.0)));
+    }
+
+    /// The corner-drag ratio lock picks whichever axis the pointer reached further on. The
+    /// existing corner test has x drive; this pins the other branch, where y reaches further
+    /// and the width is derived from the height instead.
+    #[test]
+    fn a_locked_corner_drag_can_have_the_vertical_axis_drive() {
+        let mut d = doc();
+        d.enter_crop();
+        d.crop_aspect_lock = Some(2.0);
+        assert!(d.begin_crop_drag(200.0, 100.0)); // bottom-right, anchored at (0,0)
+        // A 2:1 box reaching this far on y would need x=240, but x only reaches 210 — y drives.
+        d.update_crop_drag(210.0, 120.0);
+        let (x0, y0, x1, y1) = d.crop_overlay_rect().unwrap();
+        assert_eq!((x0, y0), (0.0, 0.0));
+        assert_eq!(y1, 120.0);
+        assert!((((x1 - x0) / (y1 - y0)) - 2.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn dragging_the_right_or_bottom_edge_through_the_opposite_edge_is_clamped() {
+        let mut d = doc();
+        d.enter_crop();
+        assert!(d.begin_crop_drag(200.0, 50.0)); // right edge
+        d.update_crop_drag(-500.0, 50.0);
+        let (x0, _, x1, _) = d.crop_overlay_rect().unwrap();
+        assert!((x1 - x0 - CROP_MIN_SIZE).abs() < 1e-4);
+
+        d.exit_crop();
+        d.enter_crop();
+        assert!(d.begin_crop_drag(100.0, 100.0)); // bottom edge
+        d.update_crop_drag(100.0, -500.0);
+        let (_, y0, _, y1) = d.crop_overlay_rect().unwrap();
+        assert!((y1 - y0 - CROP_MIN_SIZE).abs() < 1e-4);
+    }
+
+    /// A layer with nothing painted on it has no bounds to pivot a rotation about, so
+    /// straightening has to skip it rather than fail the whole gesture.
+    #[test]
+    fn straightening_skips_a_layer_with_no_content() {
+        let mut d = doc();
+        d.add_layer("Empty");
+        d.begin_straighten(20.0, 20.0);
+        d.update_straighten(40.0, 30.0);
+        let before = d.layers[d.active_layer].transform;
+        d.end_straighten();
+        assert_eq!(
+            d.layers[d.active_layer].transform, before,
+            "an empty layer is left untouched rather than panicking"
+        );
+    }
+
+    #[test]
+    fn overlay_lines_are_empty_before_a_crop_session_starts() {
+        let d = doc();
+        assert!(d.crop_overlay_lines().is_empty());
+    }
+
+    #[test]
+    fn dragging_the_top_right_and_bottom_left_corners_keeps_their_opposite_fixed() {
+        let mut d = doc();
+        d.enter_crop();
+        assert!(d.begin_crop_drag(200.0, 0.0)); // top-right
+        d.update_crop_drag(150.0, 40.0);
+        assert_eq!(d.crop_overlay_rect(), Some((0.0, 40.0, 150.0, 100.0)));
+
+        d.exit_crop();
+        d.enter_crop();
+        assert!(d.begin_crop_drag(0.0, 100.0)); // bottom-left, anchored at top-right (200, 0)
+        d.update_crop_drag(50.0, 60.0);
+        assert_eq!(d.crop_overlay_rect(), Some((50.0, 0.0, 200.0, 60.0)));
+    }
+
+    #[test]
+    fn dragging_the_left_edge_without_a_lock_moves_only_that_edge() {
+        let mut d = doc();
+        d.enter_crop();
+        assert!(d.begin_crop_drag(0.0, 50.0)); // left edge midpoint
+        d.update_crop_drag(30.0, 999.0); // y must not matter with no aspect lock
+        assert_eq!(d.crop_overlay_rect(), Some((30.0, 0.0, 200.0, 100.0)));
+    }
+
+    #[test]
+    fn dragging_the_top_and_bottom_edges_moves_only_that_edge() {
+        let mut d = doc();
+        d.enter_crop();
+        assert!(d.begin_crop_drag(100.0, 0.0)); // top edge midpoint
+        d.update_crop_drag(999.0, 20.0);
+        assert_eq!(d.crop_overlay_rect(), Some((0.0, 20.0, 200.0, 100.0)));
+
+        d.exit_crop();
+        d.enter_crop();
+        assert!(d.begin_crop_drag(100.0, 100.0)); // bottom edge midpoint
+        d.update_crop_drag(999.0, 70.0);
+        assert_eq!(d.crop_overlay_rect(), Some((0.0, 0.0, 200.0, 70.0)));
+    }
+
+    #[test]
+    fn dragging_a_horizontal_edge_with_a_locked_ratio_grows_the_other_axis_around_the_center() {
+        let mut d = doc();
+        d.enter_crop();
+        d.crop_aspect_lock = Some(2.0);
+        assert!(d.begin_crop_drag(100.0, 100.0)); // bottom edge midpoint
+        d.update_crop_drag(999.0, 130.0);
+        let (x0, y0, x1, y1) = d.crop_overlay_rect().unwrap();
+        assert_eq!((y0, y1), (0.0, 130.0));
+        let cx = (x0 + x1) * 0.5;
+        assert!((cx - 100.0).abs() < 1e-4, "the horizontal center must not move");
+        assert!((((x1 - x0) / (y1 - y0)) - 2.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn a_vertical_edge_also_cannot_drag_through_itself() {
+        let mut d = doc();
+        d.enter_crop();
+        assert!(d.begin_crop_drag(0.0, 50.0)); // left edge
+        d.update_crop_drag(500.0, 50.0);
+        let (x0, _, x1, _) = d.crop_overlay_rect().unwrap();
+        assert!(x1 - x0 >= CROP_MIN_SIZE - 1e-4);
+    }
+
+    #[test]
+    fn a_drag_with_no_handle_hit_or_no_session_does_nothing() {
+        let mut d = doc();
+        // No session yet: nothing to hit, nothing to drag.
+        assert!(!d.begin_crop_drag(100.0, 50.0));
+        d.update_crop_drag(10.0, 10.0);
+        assert_eq!(d.crop_overlay_rect(), None);
+
+        d.enter_crop();
+        // Inside the session, a point that hits no handle and is outside the rect too.
+        assert!(!d.begin_crop_drag(-50.0, -50.0));
+        // No drag was ever begun, so an update is a no-op.
+        d.update_crop_drag(10.0, 10.0);
+        assert_eq!(d.crop_overlay_rect(), Some((0.0, 0.0, 200.0, 100.0)));
+    }
+
+    #[test]
+    fn ending_straighten_with_no_line_dragged_does_nothing() {
+        let mut d = doc();
+        let before = d.layers[d.active_layer].transform;
+        d.end_straighten();
+        assert_eq!(d.straighten_overlay_line(), None);
+        assert_eq!(d.layers[d.active_layer].transform, before);
+    }
+
+    #[test]
+    fn committing_with_no_active_rect_does_nothing() {
+        let mut d = doc();
+        assert_eq!((d.width, d.height), (200, 100));
+        d.commit_crop();
+        assert_eq!((d.width, d.height), (200, 100));
     }
 
     #[test]

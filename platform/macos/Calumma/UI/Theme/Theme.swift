@@ -149,8 +149,16 @@ private struct CalmScrollBarConfigurator: NSViewRepresentable {
         configure(nsView)
     }
 
+    /// Re-setting `scrollerStyle` — even to the value it already holds — makes AppKit flash
+    /// the scroller in again, as if it had just appeared. `updateNSView` fires on every
+    /// SwiftUI re-render of the content this sits behind, which for a list bound to
+    /// frequently-changing state (layer thumbnails, opacity, selection) can be many times a
+    /// second — each one restarting the fade-out timer, so the indicator never gets to rest
+    /// long enough to actually fade. Skipping once it is already configured is what lets it
+    /// fade at all.
     private func configure(_ view: NSView) {
-        guard let scrollView = view.enclosingScrollView else { return }
+        guard let scrollView = view.enclosingScrollView, scrollView.scrollerStyle != .overlay
+        else { return }
         scrollView.scrollerStyle = .overlay
         scrollView.autohidesScrollers = true
     }

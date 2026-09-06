@@ -38,7 +38,7 @@ impl Default for Camera {
 }
 
 impl Camera {
-    fn fill_zoom(&self, doc_width: f32, doc_height: f32, fill: f32) -> f32 {
+    pub(crate) fn fill_zoom(&self, doc_width: f32, doc_height: f32, fill: f32) -> f32 {
         if doc_width <= 0.0
             || doc_height <= 0.0
             || self.viewport_width <= 0.0

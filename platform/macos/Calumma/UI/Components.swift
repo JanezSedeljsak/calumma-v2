@@ -242,6 +242,7 @@ private struct CalmButtonSurface: ViewModifier {
 struct CalmAccentButton: View {
     @Environment(\.themeColors) private var colors
     let title: String
+    var fill = false
     let action: () -> Void
 
     var body: some View {
@@ -249,7 +250,7 @@ struct CalmAccentButton: View {
             Text(title)
                 .font(.system(size: Tokens.TypeSize.body, weight: .bold))
                 .foregroundStyle(colors.accentTeal)
-                .modifier(CalmButtonSurface(padX: Tokens.Space.lg))
+                .modifier(CalmButtonSurface(padX: Tokens.Space.lg, fill: fill))
         }
         .buttonStyle(.plain)
         .calmPointer()

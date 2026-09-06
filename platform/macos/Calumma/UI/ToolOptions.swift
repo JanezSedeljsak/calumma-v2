@@ -220,9 +220,11 @@ struct ToolOptions: View {
                     .labelsHidden()
                 }
                 paintToggle(l10n.cropStraighten, isOn: $app.straightening)
-                HStack(spacing: Tokens.Space.xs) {
+                // Stacked, not side by side — the options panel is narrow enough that two
+                // buttons sharing one row squeeze both labels past legibility.
+                VStack(spacing: Tokens.Space.xs) {
+                    CalmAccentButton(title: l10n.cropCommit, fill: true) { app.commitCrop() }
                     CalmPlainButton(title: l10n.cropCancel, fill: true) { app.cancelCrop() }
-                    CalmAccentButton(title: l10n.cropCommit) { app.commitCrop() }
                 }
             }
         }

@@ -456,6 +456,11 @@ pub struct Document {
     /// commit — see `crop_edit.rs`.
     pub(crate) crop_rect: Option<(f32, f32, f32, f32)>,
     pub(crate) crop_drag: Option<CropDrag>,
+    /// The camera as it was just before the current Crop session zoomed out to make room for
+    /// dragging a handle past the canvas edge, or `None` outside Crop. Restored on exit (or
+    /// re-armed after a commit) so leaving Crop doesn't strand the board at that zoom — see
+    /// `crop_edit.rs`.
+    pub(crate) crop_saved_camera: Option<Camera>,
     /// `width / height` the crop rect is locked to, or `None` for a free-form drag. A shell
     /// knob, like `vector_mode` — the user's choice, not state the engine derives.
     pub crop_aspect_lock: Option<f32>,
@@ -716,6 +721,7 @@ impl Document {
             live_stamp_painted: false,
             crop_rect: None,
             crop_drag: None,
+            crop_saved_camera: None,
             crop_aspect_lock: None,
             crop_overlay_style: CropOverlayStyle::Off,
             straighten_line: None,

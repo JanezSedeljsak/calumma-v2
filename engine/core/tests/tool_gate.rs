@@ -283,3 +283,34 @@ fn rasterizing_a_layer_that_is_already_pixels_does_nothing() {
     assert!(!doc.layer_is_rasterizable(index));
     assert!(!doc.rasterize_layer(index));
 }
+
+/// Removing the last layer leaves the active index pointing at nothing — the one way
+/// `tool_block`'s own lookup can fail, distinct from `Transform`'s content-bounds `NoContent`.
+#[test]
+fn a_document_with_no_layers_blocks_every_tool_as_no_content() {
+    let mut doc = board();
+    while doc.remove_layer(0) {}
+    assert_eq!(doc.layers.len(), 0);
+    for tool in PAINT_TOOLS
+        .into_iter()
+        .chain(SELECT_TOOLS)
+        .chain(SHAPE_TOOLS)
+        .chain([Tool::Move, Tool::Transform, Tool::Eyedropper])
+    {
+        assert_eq!(doc.tool_block(tool), ToolBlock::NoContent, "{tool:?}");
+    }
+}
+
+#[test]
+fn tool_block_round_trips_through_its_wire_value() {
+    for block in [
+        ToolBlock::None,
+        ToolBlock::LayerLocked,
+        ToolBlock::TextLayer,
+        ToolBlock::VectorLayer,
+        ToolBlock::NoContent,
+    ] {
+        assert_eq!(ToolBlock::from_u32(block as u32), Some(block));
+    }
+    assert_eq!(ToolBlock::from_u32(99), None);
+}

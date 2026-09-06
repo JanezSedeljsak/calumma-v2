@@ -202,6 +202,68 @@ fn compaction_frees_budget_and_undo_still_restores_the_pixels() {
     assert_eq!(layer.tiles().unwrap().get_pixel(4, 4), first_pixel);
 }
 
+/// A pseudo-random, effectively incompressible fill — unlike `noisy_tile`'s cheap modular
+/// formula (which zstd finds plenty of structure in), this is the shape of data `compact`'s
+/// "compression didn't help" bailout (history_tile.rs's `frame.len() >= before`) actually needs.
+fn incompressible_tile() -> Arc<Vec<u8>> {
+    let mut state = 0x9E3779B97F4A7C15u64;
+    let mut px = vec![0u8; TILE_BYTES];
+    for chunk in px.chunks_mut(8) {
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        let bytes = state.to_le_bytes();
+        chunk.copy_from_slice(&bytes[..chunk.len()]);
+    }
+    Arc::new(px)
+}
+
+#[test]
+fn held_bytes_charges_each_variant_its_own_way() {
+    let pixels = noisy_tile();
+    let pixels_tile = HistoryTile::from_pixels(Arc::clone(&pixels));
+    assert_eq!(pixels_tile.held_bytes(|p| p.len()), TILE_BYTES);
+    assert_eq!(pixels_tile.held_bytes(|_| 0), 0);
+
+    let mut uniform_tile = HistoryTile::from_pixels(uniform_pixels([1, 2, 3, 255]));
+    uniform_tile.compact();
+    assert!(matches!(uniform_tile, HistoryTile::Uniform(_)));
+    assert_eq!(uniform_tile.held_bytes(|_| panic!("not Pixels")), 4);
+
+    let mut compressed_tile = HistoryTile::from_pixels(noisy_tile());
+    compressed_tile.compact();
+    assert!(matches!(compressed_tile, HistoryTile::Compressed(_)));
+    let held = compressed_tile.held_bytes(|_| panic!("not Pixels"));
+    assert_eq!(held, compressed_tile.budget_bytes());
+    assert!(held < TILE_BYTES);
+}
+
+/// `compact` on a tile that isn't `Pixels` any more is the everyday case in a real sweep: the
+/// same tile can come up cold across multiple sweeps after it has already collapsed once.
+#[test]
+fn compacting_an_already_compacted_tile_is_a_free_no_op() {
+    let mut uniform_tile = HistoryTile::from_pixels(uniform_pixels([5, 6, 7, 255]));
+    assert!(uniform_tile.compact() > 0);
+    assert_eq!(uniform_tile.compact(), 0);
+    assert!(matches!(uniform_tile, HistoryTile::Uniform([5, 6, 7, 255])));
+
+    let mut compressed_tile = HistoryTile::from_pixels(noisy_tile());
+    assert!(compressed_tile.compact() > 0);
+    assert_eq!(compressed_tile.compact(), 0);
+    assert!(matches!(compressed_tile, HistoryTile::Compressed(_)));
+}
+
+/// Not every drawn tile is worth compressing: truly incompressible pixels would come back out
+/// of zstd *larger* than the tile they replaced, so `compact` has to leave them as `Pixels`
+/// rather than "shrinking" them into a bigger allocation.
+#[test]
+fn incompressible_pixels_are_left_uncompacted() {
+    let mut tile = HistoryTile::from_pixels(incompressible_tile());
+    assert_eq!(tile.compact(), 0);
+    assert!(matches!(tile, HistoryTile::Pixels(_)));
+    assert_eq!(tile.budget_bytes(), TILE_BYTES);
+}
+
 #[test]
 fn a_sweep_never_touches_more_than_its_budget() {
     let mut layer = Layer::new("L1", 8192, 256);

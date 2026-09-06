@@ -72,6 +72,15 @@ fn merge_layer_into_paper_is_disallowed() {
     assert!(!doc.merge_layer_down(paint_index));
 }
 
+/// Layer 0 is always Paper, so there is nothing below it to merge into — the same bounds
+/// guard that also catches an index past the end of the stack.
+#[test]
+fn merging_the_bottom_layer_or_an_out_of_range_index_is_refused() {
+    let mut doc = Document::new("p".into(), "t", 16, 16);
+    assert!(!doc.merge_layer_down(0));
+    assert!(!doc.merge_layer_down(doc.layers.len()));
+}
+
 /// The source's mask used to be dropped on the way down — `apply_layer_effects` carries opacity
 /// and the LUT but never the mask, while `composite_rgba` and `layer_rgba` both apply it — so a
 /// masked layer merged as if it had never been masked.
@@ -202,6 +211,20 @@ fn an_identity_transform_on_the_base_still_clips() {
     assert!(doc.clip_layer_down(top));
 }
 
+/// `can_clip_layer_down` gates the clip path against a vector base, but `merge_layer_down`
+/// takes no such detour — it has to carry its own guard against a base with nothing to paint
+/// into.
+#[test]
+fn merging_into_a_vector_base_is_refused() {
+    let mut doc = Document::new("p".into(), "t", SIDE, SIDE);
+    doc.add_vector_layer("Shape", filled_rect(8.0, 23.0, [0, 0, 255, 255]));
+    doc.add_layer("Top");
+    let top = doc.active_layer;
+    let before = doc.layers.len();
+    assert!(!doc.merge_layer_down(top));
+    assert_eq!(doc.layers.len(), before, "nothing was merged");
+}
+
 #[test]
 fn clipping_onto_a_vector_base_is_refused() {
     let mut doc = Document::new("p".into(), "t", SIDE, SIDE);
@@ -294,4 +317,22 @@ fn merging_an_inactive_layer_carries_the_active_index_with_the_shift() {
     assert_eq!(doc.layers.len(), 4, "Paper, Layer 1+A+B, C, D");
     assert_eq!(doc.active_layer, doc.layers.len() - 1);
     assert_eq!(doc.layers[doc.active_layer].name, "D");
+}
+
+/// Merging the active layer itself is the common case, but only when it also happens to be the
+/// stack's top does that land on the `>= new length` branch. Here it sits strictly below the
+/// top, so `active_layer` neither shifts (nothing above it moved) nor falls out of range — it
+/// just follows the one slot it was itself folded into.
+#[test]
+fn merging_the_active_layer_when_it_is_not_the_top_lands_one_below() {
+    let mut doc = Document::new("p".into(), "t", SIDE, SIDE);
+    for name in ["A", "B"] {
+        doc.add_layer(name);
+    }
+    doc.set_active_layer(2);
+    assert_eq!(doc.layers[2].name, "A");
+
+    assert!(doc.merge_layer_down(2));
+    assert_eq!(doc.layers.len(), 3, "Paper, Layer 1+A, B");
+    assert_eq!(doc.active_layer, 1);
 }
