@@ -966,8 +966,12 @@ impl Renderer {
             // screen-space overlay this pipeline also carries — the transform box, the hover
             // outline, the text caret — keeps clipping to the paper.
             if !screen_overlay_range.is_empty() {
-                let crop_scissor = (doc.tool == Tool::Crop)
-                    .then_some((0, 0, self.config.width, self.config.height));
+                let crop_scissor = (doc.tool == Tool::Crop).then_some((
+                    0,
+                    0,
+                    self.config.width,
+                    self.config.height,
+                ));
                 if let Some((x, y, w, h)) = crop_scissor.or(scissor) {
                     pass.set_scissor_rect(x, y, w, h);
                     pass.set_pipeline(&self.overlay_pipeline);
