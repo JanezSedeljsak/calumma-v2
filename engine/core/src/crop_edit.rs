@@ -584,7 +584,7 @@ mod tests {
         d.enter_crop();
         d.crop_aspect_lock = Some(2.0);
         assert!(d.begin_crop_drag(200.0, 100.0)); // bottom-right, anchored at (0,0)
-        // A 2:1 box reaching this far on y would need x=240, but x only reaches 210 — y drives.
+                                                  // A 2:1 box reaching this far on y would need x=240, but x only reaches 210 — y drives.
         d.update_crop_drag(210.0, 120.0);
         let (x0, y0, x1, y1) = d.crop_overlay_rect().unwrap();
         assert_eq!((x0, y0), (0.0, 0.0));
@@ -680,7 +680,10 @@ mod tests {
         let (x0, y0, x1, y1) = d.crop_overlay_rect().unwrap();
         assert_eq!((y0, y1), (0.0, 130.0));
         let cx = (x0 + x1) * 0.5;
-        assert!((cx - 100.0).abs() < 1e-4, "the horizontal center must not move");
+        assert!(
+            (cx - 100.0).abs() < 1e-4,
+            "the horizontal center must not move"
+        );
         assert!((((x1 - x0) / (y1 - y0)) - 2.0).abs() < 1e-4);
     }
 
