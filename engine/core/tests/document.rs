@@ -738,6 +738,28 @@ fn transform_rotate_handle_updates_rotation() {
 }
 
 #[test]
+fn transform_rotate_handle_snaps_to_45_degrees_with_shift() {
+    let mut doc = Document::new("p".into(), "t", 200, 200);
+    doc.resize_viewport(200.0, 200.0, 1.0);
+    doc.fit_to_view();
+    paint_transform_target(&mut doc);
+    assert!(doc.enter_transform());
+    doc.shift_held = true;
+    let (_, _, rotate_handle) = doc.transform_handles().expect("handles");
+    let (sx, sy) = doc.camera.to_screen(rotate_handle.0, rotate_handle.1);
+    doc.pointer_down(sx, sy);
+    // A little past a quarter turn — shift should snap this down to exactly FRAC_PI_2.
+    let (sx2, sy2) = doc.camera.to_screen(185.0, 95.0);
+    doc.pointer_move(sx2, sy2);
+    let rotation = doc.layer_transform(doc.active_layer).rotation;
+    let nearest = (rotation / std::f32::consts::FRAC_PI_4).round() * std::f32::consts::FRAC_PI_4;
+    assert!(
+        (rotation - nearest).abs() < 1e-4,
+        "expected an exact 45-degree multiple, got {rotation}"
+    );
+}
+
+#[test]
 fn reset_layer_transform_clears_it() {
     let mut doc = Document::new("p".into(), "t", 200, 200);
     doc.resize_viewport(200.0, 200.0, 1.0);

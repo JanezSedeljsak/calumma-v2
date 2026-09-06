@@ -592,6 +592,7 @@ pub type TransformHandles = (usize, [(f32, f32); 4], (f32, f32));
 
 pub(crate) const HANDLE_HIT_RADIUS_PX: f32 = 10.0;
 const ROTATE_HANDLE_OFFSET_PX: f32 = 24.0;
+const ROTATE_SNAP_STEP: f32 = std::f32::consts::FRAC_PI_4;
 
 pub(crate) fn point_dist(a: (f32, f32), b: (f32, f32)) -> f32 {
     ((a.0 - b.0).powi(2) + (a.1 - b.1).powi(2)).sqrt()
@@ -1210,7 +1211,12 @@ impl Document {
                 let center = drag.center();
                 let start_angle = angle_from(center, drag.start_pointer);
                 let now_angle = angle_from(center, (doc_x, doc_y));
-                next.rotation = target.start_transform.rotation + (now_angle - start_angle);
+                let rotation = target.start_transform.rotation + (now_angle - start_angle);
+                next.rotation = if self.shift_held {
+                    (rotation / ROTATE_SNAP_STEP).round() * ROTATE_SNAP_STEP
+                } else {
+                    rotation
+                };
                 let next = next.clamped();
                 if let Some(layer) = self.layers.get_mut(target.layer_index) {
                     layer.transform = Some(next);
@@ -1675,6 +1681,7 @@ impl Document {
 
     pub fn pointer_up(&mut self, screen_x: f32, screen_y: f32) {
         let (dx, dy) = self.camera.to_doc(screen_x, screen_y);
+        self.pointer_hover = Some((dx, dy));
         if self.transform_active {
             self.commit_vector_drag_history();
             self.commit_transform_drag_history();
@@ -3087,6 +3094,8 @@ impl Document {
             || self.transform_drag.is_some()
             || self.vector_drag.is_some()
             || self.guide_drag.is_some()
+            || self.crop_drag.is_some()
+            || self.straighten_active
     }
 
     /// Whether an overlay is *animating* and so needs a frame per display refresh even though

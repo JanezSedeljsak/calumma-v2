@@ -252,12 +252,16 @@ final class BoardMTKView: MTKView {
     override func cursorUpdate(with event: NSEvent) {
         wake()
         pointerInside = true
+        updateHoveredGuide(with: event)
+        updateBrushCursor(with: event)
         refreshCursor()
     }
 
     override func mouseEntered(with event: NSEvent) {
         wake()
         pointerInside = true
+        updateHoveredGuide(with: event)
+        updateBrushCursor(with: event)
         refreshCursor()
     }
 
@@ -271,6 +275,13 @@ final class BoardMTKView: MTKView {
 
     override func mouseExited(with event: NSEvent) {
         wake()
+        // Rebuilding tracking areas — which `pointerUp` does, because committing a stroke
+        // refreshes layer thumbs and SwiftUI re-lays out the board — sends `mouseExited`
+        // without the pointer having left. The brush cursor is a blank image while the ring
+        // is up, so treating that as a real exit hides the ring and never puts a pointer back.
+        if pointerIsOverBoard() {
+            return
+        }
         pointerInside = false
         hoveredGuideAxis = nil
         boardCoordinator?.engine.clearPointerHover()
@@ -380,6 +391,7 @@ final class BoardMTKView: MTKView {
     }
 
     override func mouseUp(with event: NSEvent) {
+        wake()
         guard let coordinator = boardCoordinator else { return }
         let point = coordinator.screenPoint(in: self, event: event)
         let wasPanning = panning
@@ -400,7 +412,10 @@ final class BoardMTKView: MTKView {
         if wasPanning {
             coordinator.engine.endCameraMotion()
         }
-        refreshCursor()
+        // `pointerUp` publishes layer thumbs, which can rebuild tracking areas and fire a
+        // spurious exit before this returns. Re-read the pointer from the event so the ring
+        // (and the blank cursor that stands in for it) come back on the same up.
+        syncPointer(with: event)
     }
 
     override func otherMouseDown(with event: NSEvent) {
@@ -504,6 +519,31 @@ final class BoardMTKView: MTKView {
             return false
         }
         return flags.contains(.option) || flags.contains(.command)
+    }
+
+    /// Whether the pointer is over this view right now, independent of tracking-area enter/exit.
+    /// Tracking areas lie across a SwiftUI layout; the window's mouse location does not.
+    private func pointerIsOverBoard() -> Bool {
+        guard let window else { return false }
+        let local = convert(window.mouseLocationOutsideOfEventStream, from: nil)
+        return bounds.contains(local)
+    }
+
+    /// Puts hover, the ring, and the dressed cursor back in agreement with where the event
+    /// actually is — used after a press that may have rebuilt tracking areas underneath it.
+    private func syncPointer(with event: NSEvent) {
+        let local = convert(event.locationInWindow, from: nil)
+        pointerInside = bounds.contains(local)
+        if pointerInside {
+            updateHoveredGuide(with: event)
+            updateBrushCursor(with: event)
+            refreshCursor()
+        } else {
+            hoveredGuideAxis = nil
+            boardCoordinator?.engine.clearPointerHover()
+            MainActor.assumeIsolated { app?.clearEyedropperLoupe() }
+            NSCursor.arrow.set()
+        }
     }
 
     private func updateHoveredGuide(with event: NSEvent) {

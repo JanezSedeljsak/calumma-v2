@@ -958,20 +958,18 @@ impl Renderer {
                 }
             }
 
-            // Crop's rect is free to extend past the paper on any side — that is what
-            // expanding the canvas *is* — so, like the guide pass above, its chrome (rect
-            // outline, handles, composition guides) draws edge to edge instead of clipping
-            // at the very boundary the user is dragging it past. Drawn even with the paper
-            // scissor empty (paper fully off screen), same as guides. Every other
-            // screen-space overlay this pipeline also carries — the transform box, the hover
-            // outline, the text caret — keeps clipping to the paper.
+            // Crop's rect and the whole-layer transform box are both free to extend past the
+            // paper — that is what expanding the canvas and scaling/rotating a layer off it
+            // both are — so, like the guide pass above, their chrome (rect outline, handles,
+            // composition guides) draws edge to edge instead of clipping at the very boundary
+            // the user is dragging it past. Drawn even with the paper scissor empty (paper
+            // fully off screen), same as guides. Every other screen-space overlay this
+            // pipeline also carries — the hover outline, the text caret — keeps clipping to
+            // the paper.
             if !screen_overlay_range.is_empty() {
-                let crop_scissor = (doc.tool == Tool::Crop).then_some((
-                    0,
-                    0,
-                    self.config.width,
-                    self.config.height,
-                ));
+                let unclipped = doc.tool == Tool::Crop || doc.transform_handles().is_some();
+                let crop_scissor =
+                    unclipped.then_some((0, 0, self.config.width, self.config.height));
                 if let Some((x, y, w, h)) = crop_scissor.or(scissor) {
                     pass.set_scissor_rect(x, y, w, h);
                     pass.set_pipeline(&self.overlay_pipeline);

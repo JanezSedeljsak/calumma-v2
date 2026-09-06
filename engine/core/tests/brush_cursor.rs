@@ -181,6 +181,22 @@ fn the_ring_follows_the_pointer_through_a_stroke() {
     assert_eq!(doc.brush_ring().expect("ring").0 .0, 90.0);
 }
 
+/// The shell hides its own cursor for as long as there is a ring, so a ring that vanished the
+/// moment the stroke committed would leave the pointer gone on the board until the next move.
+#[test]
+fn the_ring_stays_after_the_stroke_ends() {
+    let mut doc = board();
+    let (sx, sy) = doc.camera.to_screen(30.0, 30.0);
+    doc.pointer_down(sx, sy);
+    let (mx, my) = doc.camera.to_screen(90.0, 30.0);
+    doc.pointer_move(mx, my);
+    doc.pointer_up(mx, my);
+
+    let ((cx, cy), _) = doc.brush_ring().expect("ring after stroke");
+    assert_eq!(cx, 90.0);
+    assert_eq!(cy, 30.0);
+}
+
 #[test]
 fn a_brush_with_no_size_has_no_ring_to_draw() {
     let mut doc = board();
