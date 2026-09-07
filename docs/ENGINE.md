@@ -1,10 +1,10 @@
 # ENGINE.md — how Calumma's engine is built
 
 The engine is everything Calumma knows how to *do*: the document, the pixels, the camera,
-history, persistence, and the board on screen. The macOS shell owns a window, a Metal layer,
-and a set of UI knobs; it owns no state and computes nothing. This file is the map of what
-lives where and, more usefully, **why each boundary is where it is** — the reasoning that is
-easy to lose once the code compiles.
+history, persistence, and the board on screen. The shell (`gui/`, a Rust + Slint desktop app)
+owns a window, a native surface, and a set of UI knobs; it owns no state and computes nothing.
+This file is the map of what lives where and, more usefully, **why each boundary is where it
+is** — the reasoning that is easy to lose once the code compiles.
 
 Read this alongside:
 
@@ -23,7 +23,7 @@ covers what the renderer **is**; `RENDERING.md` covers what it **does each frame
 
 ## 1. The shape of the engine
 
-Six crates, one workspace (`Cargo.toml`), strictly layered:
+Seven crates, one workspace (`Cargo.toml`), strictly layered:
 
 ```
                     ┌──────────────┐
@@ -40,7 +40,10 @@ Six crates, one workspace (`Cargo.toml`), strictly layered:
       └──────┬──────┘ └─────┬────┘ └───────┬──────┘
              └──────────┬───┴──────────────┘
                  ┌──────▼──────┐
-                 │ calumma-ffi │  the only crate Swift links
+                 │ calumma-ffi │  `Engine`/`Inner` (plain Rust; `calumma-app` re-exports)
+                 └──────┬──────┘
+                 ┌──────▼──────┐
+                 │ calumma-app │  re-exports Engine/NativeSurface as plain Rust — what gui/ links
                  └─────────────┘
 ```
 
@@ -56,13 +59,16 @@ accident, and the crate boundary is what makes that a compile error instead of a
   are a self-contained problem with one heavyweight dependency (`cosmic-text`). Keeping it a
   leaf means `core` can depend on it without `text` ever being able to depend back on a
   `Document`, and it keeps the font registry (which scans the system once at startup)
-  reachable from the engine rather than from AppKit. **The shell must never ask the OS for a
-  font list**, because it would be listing fonts the engine may not be able to shape.
+  reachable from the engine rather than from the OS's own font APIs. **The shell must never
+  ask the OS for a font list**, because it would be listing fonts the engine may not be able
+  to shape.
 - **`render`, `io` and `ops` are siblings.** None of them may see the others. The renderer
   cannot save; the store cannot draw; an AI op cannot do either. Everything they share, they
   share through `core`.
-- **`ffi` is the only crate with a C ABI**, the only one Swift links, and the only place
-  `unsafe` is routine. It is where the three siblings are finally allowed to meet.
+- **`ffi` hosts `Engine`/`Inner`** — where render, io and ops meet. Plain Rust API only
+  (`crate-type = ["rlib"]`); `calumma-app` re-exports `Engine`/`NativeSurface` straight
+  through, and `gui/` depends on that. `unsafe` is routine here for wgpu surface creation
+  and the platform op vtable, not for a C ABI.
 
 `default-members = ["core", "ffi"]`, so a bare `cargo build` in `engine/` builds the two
 crates that matter and pulls the rest in transitively.
@@ -77,9 +83,7 @@ backtraces still work without paying for full DWARF on every link.
 
 Release is `opt-level = 3, lto = "fat", codegen-units = 1, strip = "symbols"` — the pixel
 helpers are small functions called from million-iteration loops, and cross-crate inlining
-is the whole game. Release is deliberately **not** `panic = "abort"`: the FFI boundary
-catches unwinds, so a Rust panic can never reach Swift, and aborting would turn a
-recoverable engine error into an app crash.
+is the whole game.
 
 ---
 
@@ -165,7 +169,9 @@ Three properties carry most of the engine's scalability:
 
 `core::memory::document_memory` measures what the document actually owns, counting each
 allocation once **by address** so shared tiles are not double-counted. Reach for it before
-claiming a memory win; it is served over FFI and shown in Settings.
+claiming a memory win. `Engine::resident_memory_bytes` is the flat total that actually reaches
+`gui/`'s Settings modal today — nothing re-exposes `document_memory`'s per-category breakdown
+on `Engine` yet.
 
 ### Camera and coordinates
 
@@ -174,7 +180,7 @@ device sizing, and `paper_scissor` — the on-screen rect the paper occupies, in
 pixels, which is what every content draw is clipped to.
 
 **Painting APIs take screen coordinates and convert once, in the engine.** No pan/zoom
-arithmetic happens in Swift, ever. Zoom steps, the log zoom curve (`zoom_unit` /
+arithmetic happens in the shell, ever. Zoom steps, the log zoom curve (`zoom_unit` /
 `zoom_from_unit`), the fit padding, the min/max zoom rules and `is_fit` are all core
 functions the shell reads results from.
 
@@ -241,10 +247,13 @@ no changes anywhere else.
 
 This is the most intricate part of the engine, so it gets the most space. The contract:
 
-> Swift owns the `MTKView` and the `CAMetalLayer`. Rust *borrows* the layer pointer (no
-> retain), creates the wgpu surface from it, and owns everything else — pipelines, textures,
-> buffers, the frame's decisions. **Nothing drawn on the board is a SwiftUI view**: paper,
-> grid, strokes, handles, guides, marching ants and the layer hover outline are all WGSL.
+> On macOS, Rust owns the surface, not the shell framework: `gui/src/board/surface_macos.rs`
+> creates the `CAMetalLayer` itself (via `objc2`), as a child view inserted below Slint's own
+> window, and hands the pointer to `calumma-app`'s `NativeSurface::MetalLayer`. Rust owns
+> everything downstream of that — pipelines, textures, buffers, the frame's decisions. Windows
+> and Linux surface kinds are defined in the same place (`engine/ffi/src/surface.rs`) but not
+> yet wired into `gui/src/board`. **Nothing drawn on the board is a Slint element**:
+> paper, grid, strokes, handles, guides, marching ants and the layer hover outline are all WGSL.
 
 ### 3.1 Why the board is drawn the way it is
 
@@ -635,7 +644,7 @@ Adding a field means bumping the version and writing the migration in the same c
 
 - **PNG / JPEG / WebP / AVIF / HEIC** — `Document::composite_rgba` flattens the visible stack
   respecting masks, opacity, blend modes and adjustments; `io` encodes the bytes
-  (`raster.rs`, `calm_engine_export_image`). PNG and WebP are lossless; JPEG / AVIF / HEIC
+  (`raster.rs`, `Engine::export_raster`). PNG and WebP are lossless; JPEG / AVIF / HEIC
   use `LOSSY_EXPORT_QUALITY`. HEIC rides `heif-rs` (statically linked libheif / x265 /
   libde265). AVIF encode is `ravif`; AVIF decode is `aom-decode` (statically linked
   libaom) — libheif's HEVC build cannot read AV1. A first `calumma-io` build needs
@@ -681,43 +690,37 @@ budget for no benefit.
 
 ## 7. `ffi` — the boundary
 
-The only crate Swift links, via the shared `platform/shared/Calumma.hpp`.
+Hosts the real `Engine` struct (`engine/ffi/src/engine/app.rs`) and `Inner`
+(`engine/ffi/src/engine.rs`). `calumma-app` re-exports `Engine` as plain Rust, and `gui/`
+links that. The rules below describe `ffi` itself; `calumma-app` is a thin re-export over the
+same `Inner`.
 
 ### Rules
 
-- **`Inner` is behind a `parking_lot::Mutex`** and holds the document, the store, the
-  renderer, the op registry and the coalesced input state. Ops can therefore run off the main
-  thread.
-- **Every entry point goes through `with_inner`**, which null-checks the pointer, takes the
-  lock, and wraps the call in `catch_unwind`. A Rust panic becomes `CalmStatus::Error`; it
-  never unwinds into Swift. There is a read-only counterpart for getters that return a value
-  instead of a status.
-- **`unsafe` is expected here and nowhere else.** Null checks, `CStr`, `Box::from_raw`,
-  `create_surface_unsafe`, the platform vtable. Keep it thin, keep the helpers centralised,
-  and do not copy the patterns up into `core`/`render`/`ops`.
-- **The header and the Swift `Engine` wrapper are not cross-checked.** Adding an FFI function
-  means editing `Calumma.hpp` and `Engine.swift` in the same change, or the build links against
-  a symbol that is not there.
+- **`Inner` is behind a `parking_lot::Mutex`** (wrapped in `Arc` for the autosave thread) and
+  holds the document, the store, the renderer, the op registry and the coalesced input state.
+  Ops can therefore run off the main thread.
+- **`unsafe` is expected here and nowhere else.** `create_surface_unsafe`, the platform vtable.
+  Keep it thin, keep the helpers centralised, and do not copy the patterns up into
+  `core`/`render`/`ops`.
 
 ### What crosses the boundary
 
-- `CalmState` — one `#[repr(C)]` struct read once per frame: size, zoom, min/max zoom, pan,
-  active layer, layer count, undo/redo availability, accent, `zoom_unit`, last shape/select
-  tool, `is_fit`. Every derived value the chrome shows is computed in core and *reported*, not
-  recomputed in Swift.
-- Pixels in and out — premultiplied RGBA on the way in (unpremultiplied in Rust),
-  heap-allocated buffers on the way out with an explicit free function.
-- The platform op vtable (`platform.rs`) — three function pointers, each call wrapped in
-  `catch_unwind` so a Swift-side throw cannot cross back into Rust unwinding.
+- Shell methods on `Engine` — project lifecycle, pointer/camera input, layer ops, export,
+  smart tools. Every derived value the chrome shows is computed in core and *reported*, not
+  recomputed in the shell.
+- Pixels in and out — premultiplied RGBA on import paths, `Vec<u8>` on export.
+- The platform op vtable (`platform.rs`) — three function pointers for Vision-backed ops,
+  each call wrapped in `catch_unwind` so a platform-side throw cannot unwind into Rust.
 
 ### Two things that do not run on the frame
 
-- **Pan coalescing.** `calm_engine_pan` and the scroll entries do not render. They accumulate
-  deltas into `Inner` and mark the renderer camera-dirty; the next `MTKView` frame calls
+- **Pan coalescing.** `Engine::pan` and the scroll entries do not render. They accumulate
+  deltas into `Inner` and mark the renderer camera-dirty; the next frame calls
   `flush_pending_camera` and draws once. Input arrives faster than the display refreshes, and
   drawing per event is wasted work.
-- **Autosave.** `AutosaveThread` (`ffi/src/autosave.rs`) is spawned in `calm_engine_new` and
-  joined in `calm_engine_free` before the mutex drops. It wakes on a condvar every
+- **Autosave.** `AutosaveThread` (`ffi/src/autosave.rs`) is spawned in `Engine::new` and
+  joined in `Engine::drop` before the mutex is released. It wakes on a condvar every
   `AUTOSAVE_INTERVAL_MS` (800 ms) and takes the lock with **`try_lock`**, skipping on
   contention and forcing only after `AUTOSAVE_MAX_SKIPPED_TICKS` consecutive skips. Moving
   SQLite off the render path was only half the fix — a blocking lock on a background thread
@@ -738,14 +741,14 @@ nothing will ever evict them: `sync_tiles` only runs with a document open.
 
 1. `core` compiles without wgpu/objc/metal/SQL. (`./manage.py purity`)
 2. Coordinate math, clamping, camera, history, tile math and product constants live in Rust.
-   Swift renders what the engine reports.
+   The shell renders what the engine reports.
 3. `Shape::distance` in Rust and `shape_region`/`shape_ink` in WGSL describe the same shape.
 4. Masks, opacity, blend modes, adjustments and transforms are never baked into tile bytes.
 5. Sparse stays sparse; history does not deep-copy layers; GPU uploads stay dirty-region
    scoped.
 6. A tile's `Render` dirty bit is cleared only when its upload actually reached the atlas.
 7. Text tiles are a cache; the run is what is stored.
-8. Nothing unwinds across the FFI boundary.
+8. Nothing unwinds out of a platform-op vtable callback (`catch_unwind` in `platform.rs`).
 9. Every exit from a document goes through `close_document`.
 10. On-disk blob formats are versioned and decode their predecessors.
 
@@ -756,9 +759,10 @@ nothing will ever evict them: `sync_tiles` only runs with a document open.
 ```
 ./manage.py test      # cargo test --workspace
 ./manage.py lint      # clippy + ruff + purity
-./manage.py check     # fmt + lint + test
+./manage.py check     # fmt + lint + gui-check + test
 ./manage.py coverage  # llvm-cov, per-crate table
-./manage.py dev       # build ffi, xcodegen, open Xcode
+./manage.py dev       # build and run the GUI shell (gui/)
+./manage.py gui-check # compile-check the GUI shell, no window
 ```
 
 Tests live in `engine/<crate>/tests/<module>.rs` — one file per module under test, not in

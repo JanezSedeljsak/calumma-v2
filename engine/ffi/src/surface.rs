@@ -255,10 +255,9 @@ mod tests {
     }
 }
 
-/// `Calumma.hpp` is written by hand and nothing cross-checks it against this file, so the one
-/// thing that would corrupt every field silently — the two structs disagreeing on layout — is
-/// pinned here. The numbers are what a C compiler reports for `CalmNativeSurface`: a 4-byte
-/// enum, four bytes of padding, then two pointers.
+/// Native surface description for `Engine::attach`. Layout is pinned by a unit test in this
+/// module — a 4-byte enum, four bytes of padding, then two pointers — so shells cannot drift
+/// silently on field order or size.
 #[cfg(test)]
 mod layout {
     use super::CalmNativeSurface;
@@ -266,7 +265,7 @@ mod layout {
 
     #[test]
     #[cfg(target_pointer_width = "64")]
-    fn the_struct_matches_the_one_in_calumma_h() {
+    fn native_surface_layout_is_stable() {
         assert_eq!(size_of::<CalmNativeSurface>(), 24);
         assert_eq!(align_of::<CalmNativeSurface>(), 8);
         assert_eq!(offset_of!(CalmNativeSurface, kind), 0);

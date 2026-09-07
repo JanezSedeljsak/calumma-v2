@@ -1,0 +1,185 @@
+import { VerticalBox, LineEdit } from "std-widgets.slint";
+import { CalmModal } from "calm/CalmModal.slint";
+import { CalmPointer } from "calm/CalmPointer.slint";
+
+component ThemeChip inherits Rectangle {
+    in property <string> text;
+    in property <bool> selected;
+    in property <brush> surface;
+    in property <brush> hover;
+    in property <brush> chip-border;
+    in property <brush> text-color;
+    in property <brush> text-muted;
+
+    callback clicked();
+
+    height: 28px;
+    min-width: 72px;
+    border-radius: 4px;
+    background: touch.has-hover || selected ? hover : surface;
+    border-width: 1px;
+    border-color: chip-border;
+
+    touch := CalmPointer {
+        clicked => { root.clicked(); }
+    }
+
+    Text {
+        text: root.text;
+        color: selected ? text-color : text-muted;
+        font-weight: selected ? 600 : 400;
+        font-size: 12px;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+}
+
+component SelectRow inherits Rectangle {
+    in property <string> text;
+    in property <bool> selected;
+    in property <brush> surface;
+    in property <brush> hover;
+    in property <brush> row-border;
+    in property <brush> text-color;
+
+    callback clicked();
+
+    height: 32px;
+    border-radius: 4px;
+    background: touch.has-hover ? hover : surface;
+    border-width: 1px;
+    border-color: selected ? text-color : row-border;
+
+    touch := CalmPointer {
+        clicked => { root.clicked(); }
+    }
+
+    Text {
+        x: 8px;
+        text: root.text;
+        color: text-color;
+        font-size: 12px;
+        vertical-alignment: center;
+    }
+}
+
+export component SettingsModal inherits Rectangle {
+    in-out property <bool> open;
+    in property <brush> theme-bg;
+    in property <brush> theme-surface;
+    in property <brush> theme-surface-hover;
+    in property <brush> theme-text;
+    in property <brush> theme-text-muted;
+    in property <brush> theme-island-border;
+    in property <brush> theme-control-border;
+
+    in property <string> title-text;
+    in property <string> theme-label;
+    in property <string> theme-light-label;
+    in property <string> theme-dark-label;
+    in property <string> language-label;
+    in property <string> memory-label;
+    in property <string> memory-value;
+    in property <string> version-label;
+    in property <string> version-value;
+
+    in property <bool> theme-is-dark;
+    in property <bool> language-is-en;
+
+    callback dismissed();
+    callback set-theme-light();
+    callback set-theme-dark();
+    callback set-language-en();
+
+    width: 100%;
+    height: 100%;
+
+    CalmModal {
+        open <=> root.open;
+        scrim-color: root.theme-bg;
+        dismissed => { root.dismissed(); }
+
+        Rectangle {
+            width: 360px;
+            height: 380px;
+            background: theme-bg;
+            border-radius: 12px;
+            border-width: 1px;
+            border-color: theme-island-border;
+
+            VerticalBox {
+                padding: 24px;
+                spacing: 24px;
+
+                HorizontalLayout {
+                    Text {
+                        text: title-text;
+                        font-size: 15px;
+                        font-weight: 700;
+                        color: theme-text;
+                        horizontal-stretch: 1;
+                    }
+                    CalmPointer {
+                        Text { text: "×"; color: theme-text-muted; font-size: 18px; }
+                        clicked => {
+                            root.open = false;
+                            root.dismissed();
+                        }
+                    }
+                }
+
+                VerticalBox {
+                    spacing: 8px;
+                    Text { text: theme-label; font-size: 10px; font-weight: 600; color: theme-text; }
+                    HorizontalLayout {
+                        spacing: 8px;
+                        ThemeChip {
+                            text: theme-light-label;
+                            selected: !theme-is-dark;
+                            surface: theme-bg;
+                            hover: theme-surface-hover;
+                            chip-border: theme-control-border;
+                            text-color: theme-text;
+                            text-muted: theme-text-muted;
+                            clicked => { root.set-theme-light(); }
+                        }
+                        ThemeChip {
+                            text: theme-dark-label;
+                            selected: theme-is-dark;
+                            surface: theme-bg;
+                            hover: theme-surface-hover;
+                            chip-border: theme-control-border;
+                            text-color: theme-text;
+                            text-muted: theme-text-muted;
+                            clicked => { root.set-theme-dark(); }
+                        }
+                    }
+                }
+
+                VerticalBox {
+                    spacing: 8px;
+                    Text { text: language-label; font-size: 10px; font-weight: 600; color: theme-text; }
+                    SelectRow {
+                        text: "English";
+                        selected: language-is-en;
+                        surface: theme-surface;
+                        hover: theme-surface-hover;
+                        row-border: theme-island-border;
+                        text-color: theme-text;
+                        clicked => { root.set-language-en(); }
+                    }
+                }
+
+                HorizontalLayout {
+                    Text { text: memory-label; font-size: 10px; font-weight: 600; color: theme-text-muted; horizontal-stretch: 1; }
+                    Text { text: memory-value; font-size: 11px; color: theme-text-muted; font-family: "Menlo"; }
+                }
+
+                HorizontalLayout {
+                    Text { text: version-label; font-size: 10px; font-weight: 600; color: theme-text-muted; horizontal-stretch: 1; }
+                    Text { text: version-value; font-size: 11px; color: theme-text-muted; font-family: "Menlo"; }
+                }
+            }
+        }
+    }
+}

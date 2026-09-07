@@ -9,9 +9,9 @@ use std::time::Duration;
 struct EnginePtr(*const Mutex<Inner>);
 unsafe impl Send for EnginePtr {}
 
-/// Runs `Inner::autosave` on its own cadence instead of piggybacking on `calm_engine_render`,
+/// Runs `Inner::autosave` on its own cadence instead of piggybacking on `Engine::render`,
 /// so a slow SQLite write can never land inside a render-thread frame budget. The engine
-/// pointer outlives the thread by construction: `calm_engine_free` calls `stop` (which joins)
+/// pointer outlives the thread by construction: `Engine`'s `Drop` calls `stop` (which joins)
 /// before it drops the `Box<Mutex<Inner>>` the pointer was carved from.
 ///
 /// Moving the *call* off the render path was only half of it: both threads still contend for

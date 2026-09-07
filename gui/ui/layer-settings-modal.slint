@@ -1,0 +1,140 @@
+import { VerticalBox } from "std-widgets.slint";
+import { CalmModal } from "calm/CalmModal.slint";
+import { CalmPointer } from "calm/CalmPointer.slint";
+
+component ActionRow inherits Rectangle {
+    in property <string> label;
+    in property <brush> label-color;
+    in property <brush> surface;
+    in property <brush> surface-hover;
+    in property <brush> row-border;
+
+    callback activated();
+
+    height: 32px;
+    border-radius: 4px;
+    background: touch.has-hover ? surface-hover : surface;
+    border-width: 1px;
+    border-color: row-border;
+
+    touch := CalmPointer {
+        clicked => { root.activated(); }
+    }
+
+    Text {
+        text: label;
+        color: label-color;
+        font-size: 12px;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+}
+
+export component LayerSettingsModal inherits Rectangle {
+    in-out property <bool> open;
+    in property <int> layer-index;
+    in property <string> layer-name;
+    in property <bool> layer-visible;
+    in property <bool> can-delete;
+
+    in property <brush> theme-bg;
+    in property <brush> theme-surface;
+    in property <brush> theme-surface-hover;
+    in property <brush> theme-text;
+    in property <brush> theme-text-muted;
+    in property <brush> theme-accent-teal;
+    in property <brush> theme-island-border;
+    in property <brush> theme-danger;
+
+    in property <string> title-text;
+    in property <string> visibility-label;
+    in property <string> export-label;
+    in property <string> duplicate-label;
+    in property <string> delete-label;
+
+    callback dismissed();
+    callback toggle-visibility();
+    callback export-layer();
+    callback duplicate-layer();
+    callback delete-layer();
+
+    width: 100%;
+    height: 100%;
+
+    CalmModal {
+        open <=> root.open;
+        scrim-color: root.theme-bg;
+        dismissed => { root.dismissed(); }
+
+        Rectangle {
+            width: 280px;
+            background: theme-bg;
+            border-radius: 12px;
+            border-width: 1px;
+            border-color: theme-island-border;
+
+            VerticalBox {
+                padding: 16px;
+                spacing: 12px;
+
+                HorizontalLayout {
+                    Text {
+                        text: title-text;
+                        font-size: 10px;
+                        font-weight: 700;
+                        color: theme-text;
+                        horizontal-stretch: 1;
+                    }
+                    CalmPointer {
+                        Text { text: "×"; color: theme-text-muted; }
+                        clicked => {
+                            root.open = false;
+                            root.dismissed();
+                        }
+                    }
+                }
+
+                Text {
+                    text: layer-name;
+                    color: theme-text;
+                    font-size: 12px;
+                    font-weight: 600;
+                    overflow: elide;
+                }
+
+                ActionRow {
+                    label: visibility-label;
+                    label-color: theme-accent-teal;
+                    surface: theme-surface;
+                    surface-hover: theme-surface-hover;
+                    row-border: theme-island-border;
+                    activated => { root.toggle-visibility(); }
+                }
+                ActionRow {
+                    label: export-label;
+                    label-color: theme-accent-teal;
+                    surface: theme-surface;
+                    surface-hover: theme-surface-hover;
+                    row-border: theme-island-border;
+                    activated => { root.export-layer(); }
+                }
+                ActionRow {
+                    label: duplicate-label;
+                    label-color: theme-accent-teal;
+                    surface: theme-surface;
+                    surface-hover: theme-surface-hover;
+                    row-border: theme-island-border;
+                    activated => { root.duplicate-layer(); }
+                }
+                if can-delete: ActionRow {
+                    label: delete-label;
+                    label-color: theme-danger;
+                    surface: theme-surface;
+                    surface-hover: theme-surface-hover;
+                    row-border: theme-island-border;
+                    activated => { root.delete-layer(); }
+                }
+            }
+        }
+    }
+}

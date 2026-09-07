@@ -1,0 +1,33 @@
+export component CalmModal inherits Rectangle {
+    in-out property <bool> open;
+    in property <brush> scrim-color;
+    callback dismissed();
+
+    visible: open;
+    width: 100%;
+    height: 100%;
+
+    Rectangle {
+        width: 100%;
+        height: 100%;
+        background: scrim-color;
+
+        TouchArea {
+            width: 100%;
+            height: 100%;
+            clicked => {
+                root.open = false;
+                root.dismissed();
+            }
+        }
+    }
+
+    VerticalLayout {
+        z: 1;
+        width: parent.width;
+        height: parent.height;
+        alignment: center;
+
+        @children
+    }
+}

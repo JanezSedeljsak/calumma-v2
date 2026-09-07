@@ -47,7 +47,7 @@ bits use `{0}`, `{1}`, … filled by `l10n.formatKey(...)`. Visual tokens stay i
 3. **Custom SVG icons only.** Ship icons from `design/icons/`. No icon packs.
    SF Symbols are not the product icon set (system chrome may still use them).
 4. **Light and dark.** Every color has a light and dark value in tokens. The
-   shell toggles theme; the engine receives dark-paper via FFI.
+   shell toggles theme; the engine receives dark-paper via `Engine::set_board_colors`.
 5. **Filled controls, one height.** Inputs, buttons, and cards are solid surfaces.
    Hover and active states shift luminance, not outline weight — never the border.
    Every standard control is `control.height` tall (`Tokens.Control.height`), the one
@@ -66,7 +66,8 @@ bits use `{0}`, `{1}`, … filled by `l10n.formatKey(...)`. Visual tokens stay i
    layer hover outline) is WGSL — the shell never paints board content. The one thing the
    shell may draw over the board is a **placeholder for a board with nothing to show yet**:
    `CanvasSkeleton` covers the Metal view while a project loads, on the rectangle
-   `calm_fit_size` says the paper will occupy. Standing in for the canvas, not styling it. Board colors are
+   `calumma_core::camera::fit_size` says the paper will occupy (frozen Swift-shell behavior —
+   `gui/` has no loading skeleton yet). Standing in for the canvas, not styling it. Board colors are
    pushed from tokens into the engine, never hardcoded in the shader. Small chrome controls
    may float over the canvas island (zoom pill, bottom-trailing); panels do not.
 
@@ -91,11 +92,13 @@ bits use `{0}`, `{1}`, … filled by `l10n.formatKey(...)`. Visual tokens stay i
 | Control focus | `color.controlFocusBorder` | The same edge on a focused input; accent-tinted so focus stays visible against the resting border |
 
 Desk, desk grid, and paper border are the only tokens the engine consumes. They travel
-shell → `calm_engine_set_board_colors` → `PaperUniforms` → `board.wgsl`. Changing the board
+shell → `Engine::set_board_colors` → `PaperUniforms` → `board.wgsl`. Changing the board
 look is a `tokens.json` edit, never a shader edit.
 
 Project accent colors are **not** in this table — they are document data owned by
-`calumma_core::palette`, served to the shell through `calm_palette_color`.
+`calumma_core::palette`, assigned core/io-side at project creation. There is no
+shell-facing getter for a palette color today (nothing on `Engine` re-exposes one since the
+ffi rewrite).
 
 ## Type
 
@@ -128,8 +131,8 @@ While a project loads, the canvas island holds a **skeleton** rather than the ou
 board: the desk with its squared paper, and one sweeping band across the rectangle the paper
 is about to fill (`CanvasSkeleton`, rule 7). Rulers stay up with ticks for the incoming
 project; only the canvas content is covered. Luminance only — no spinner, no label. Every
-measurement in it is the engine's — the rectangle from `calm_fit_size`, the grid from
-`calm_desk_metrics` — so the placeholder sits on the same lattice the shader draws on and the
+measurement in it is the engine's — the rectangle from `fit_size`, the grid from
+`calumma_core::DeskMetrics` — so the placeholder sits on the same lattice the shader draws on and the
 swap is invisible.
 
 Transform grips are white discs with a **thin grey ring** under them: a white grip on white

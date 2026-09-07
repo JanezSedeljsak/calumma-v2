@@ -1,0 +1,35 @@
+import { CalmPointer } from "CalmPointer.slint";
+
+export component CalmToolButton inherits Rectangle {
+    in property <bool> selected;
+    in property <image> icon;
+    in property <brush> surface;
+    in property <brush> selected-bg;
+    in property <brush> btn-border-color;
+    in property <brush> accent;
+    in property <brush> icon-color;
+
+    callback clicked();
+
+    width: 32px;
+    height: 32px;
+    border-radius: 4px;
+    background: selected ? selected-bg : surface;
+    border-width: 1px;
+    border-color: selected ? accent : btn-border-color;
+
+    touch := CalmPointer {
+        width: 100%;
+        height: 100%;
+        clicked => { root.clicked(); }
+    }
+
+    Image {
+        source: icon;
+        width: 16px;
+        height: 16px;
+        colorize: icon-color;
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+    }
+}

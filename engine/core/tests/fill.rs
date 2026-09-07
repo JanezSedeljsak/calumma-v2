@@ -128,14 +128,14 @@ fn fill_bleeds_through_antialiased_stroke_fringe() {
     }
     for y in 6..26 {
         for x in 6..26 {
-            let dx = x as i32 - 16;
-            let dy = y as i32 - 16;
+            let dx = x - 16;
+            let dy = y - 16;
             let d = ((dx * dx + dy * dy) as f32).sqrt();
             if d > 8.0 && d < 9.5 {
                 grid.set_pixel(x, y, [255, 255, 255, 255]);
             } else if d > 9.0 && d < 10.5 {
                 grid.set_pixel(x, y, [0, 0, 0, 60]);
-            } else if d >= 10.5 && d < 11.5 {
+            } else if (10.5..11.5).contains(&d) {
                 grid.set_pixel(x, y, [0, 0, 0, 255]);
             }
         }

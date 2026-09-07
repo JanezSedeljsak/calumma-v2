@@ -117,22 +117,6 @@ fn placeholders(count: usize) -> String {
         .join(",")
 }
 
-fn ensure_clips_to_column(conn: &Connection) -> Result<(), StoreError> {
-    let mut stmt = conn.prepare("PRAGMA table_info(layers)")?;
-    let mut has = false;
-    let rows = stmt.query_map([], |row| row.get::<_, String>(1))?;
-    for name in rows {
-        if name? == "clips_to" {
-            has = true;
-            break;
-        }
-    }
-    if !has {
-        conn.execute("ALTER TABLE layers ADD COLUMN clips_to TEXT", [])?;
-    }
-    Ok(())
-}
-
 impl ProjectStore {
     pub fn open(path: impl AsRef<Path>) -> Result<Self, StoreError> {
         if let Some(parent) = path.as_ref().parent() {
@@ -187,9 +171,11 @@ impl ProjectStore {
                 project_id TEXT NOT NULL UNIQUE,
                 FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
             );
+            DROP TABLE IF EXISTS workspace_projects;
+            DROP TABLE IF EXISTS open_workspace_tabs;
+            DROP TABLE IF EXISTS workspaces;
             ",
         )?;
-        ensure_clips_to_column(&conn)?;
         Ok(Self {
             conn,
             path: path.as_ref().to_path_buf(),

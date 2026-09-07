@@ -1,0 +1,31 @@
+import { CalmPointer } from "CalmPointer.slint";
+
+export component CalmButton inherits Rectangle {
+    in property <string> text;
+    in property <brush> surface;
+    in property <brush> surface-hover;
+    in property <brush> text-color;
+    in property <brush> btn-border-color;
+
+    callback clicked();
+
+    min-width: 72px;
+    height: 28px;
+    border-radius: 4px;
+    background: touch.has-hover ? surface-hover : surface;
+    border-width: 1px;
+    border-color: btn-border-color;
+
+    touch := CalmPointer {
+        clicked => { root.clicked(); }
+    }
+
+    Text {
+        text: root.text;
+        color: text-color;
+        font-size: 12px;
+        font-weight: 600;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+}

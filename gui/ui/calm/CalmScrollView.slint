@@ -1,0 +1,48 @@
+import { CalmScrollBar } from "CalmScrollBar.slint";
+
+export component CalmScrollView inherits Rectangle {
+    in property <brush> thumb-pressed-color;
+    in property <brush> thumb-hover-color;
+    in property <brush> thumb-color;
+
+    property <bool> scroll-chrome: false;
+    property <bool> chrome-visible: scroll-chrome || bar.chrome-visible;
+
+    clip: true;
+
+    flick := Flickable {
+        width: parent.width;
+        height: parent.height;
+        viewport-width: content.preferred-width;
+        viewport-height: content.preferred-height;
+
+        content := VerticalLayout {
+            @children
+        }
+
+        changed viewport-y => {
+            root.scroll-chrome = true;
+            hide-timer.restart();
+        }
+    }
+
+    property <float> scroll-fraction: content.preferred-height <= flick.viewport-height ? 0 :
+        flick.viewport-y / max(1px, content.preferred-height - flick.viewport-height);
+
+    hide-timer := Timer {
+        interval: 800ms;
+        running: false;
+        triggered => { root.scroll-chrome = false; }
+    }
+
+    bar := CalmScrollBar {
+        x: parent.width - self.width - 1px;
+        y: 2px;
+        track-length: parent.height - 4px;
+        box-hovered: root.scroll-chrome;
+        scroll-fraction: root.scroll-fraction;
+        thumb-pressed-color: root.thumb-pressed-color;
+        thumb-hover-color: root.thumb-hover-color;
+        thumb-color: root.thumb-color;
+    }
+}

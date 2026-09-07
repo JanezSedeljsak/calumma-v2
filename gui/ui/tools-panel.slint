@@ -1,0 +1,375 @@
+import { VerticalBox } from "std-widgets.slint";
+import { CalmScrollView } from "calm/CalmScrollView.slint";
+import { CalmIsland } from "calm/CalmIsland.slint";
+import { CalmDivider } from "calm/CalmDivider.slint";
+import { CalmSliderRow } from "calm/CalmSliderRow.slint";
+import { CalmPointer } from "calm/CalmPointer.slint";
+import { CalmToolButton } from "calm/CalmToolButton.slint";
+import { QuickColorPicker } from "quick-color-picker.slint";
+
+component ToolRow inherits HorizontalLayout {
+    in property <int> active-tool;
+    in property <int> left-id;
+    in property <image> left-icon;
+    in property <int> right-id;
+    in property <image> right-icon;
+    in property <brush> surface;
+    in property <brush> selected-bg;
+    in property <brush> btn-border-color;
+    in property <brush> accent;
+    in property <brush> icon-color;
+
+    callback pick(int);
+
+    spacing: 4px;
+
+    CalmToolButton {
+        icon: left-icon;
+        selected: active-tool == left-id;
+        surface: surface;
+        selected-bg: selected-bg;
+        btn-border-color: btn-border-color;
+        accent: accent;
+        icon-color: icon-color;
+        clicked => { root.pick(left-id); }
+    }
+    CalmToolButton {
+        icon: right-icon;
+        selected: active-tool == right-id;
+        surface: surface;
+        selected-bg: selected-bg;
+        btn-border-color: btn-border-color;
+        accent: accent;
+        icon-color: icon-color;
+        clicked => { root.pick(right-id); }
+    }
+}
+
+component ToolAction inherits Rectangle {
+    in property <string> label;
+    in property <bool> enabled;
+    in property <brush> theme-text;
+
+    callback activated();
+
+    height: 28px;
+    opacity: enabled ? 1 : 0.4;
+
+    touch := CalmPointer {
+        enabled: enabled;
+        clicked => { root.activated(); }
+    }
+
+    Text {
+        text: label;
+        color: theme-text;
+        font-size: 11px;
+        x: 8px;
+        vertical-alignment: center;
+    }
+}
+
+export component ToolsPanel inherits CalmIsland {
+    in property <brush> theme-surface;
+    in property <brush> theme-surface-hover;
+    in property <brush> theme-text;
+    in property <brush> theme-text-muted;
+    in property <brush> theme-accent-teal;
+    in property <brush> theme-island-border;
+    in property <brush> theme-control-border;
+    in property <brush> theme-control-focus-border;
+    in property <brush> theme-tool-selected;
+
+    in property <int> active-tool;
+    in property <string> active-tool-label;
+    in property <bool> show-brush-size;
+    in property <bool> show-ink-opacity;
+    in property <string> brush-size-label;
+    in property <string> ink-opacity-label;
+    in property <string> brush-size-text;
+    in property <string> ink-opacity-text;
+    in-out property <float> brush-size-unit;
+    in-out property <float> ink-opacity;
+
+    in property <string> tools-menu-title;
+    in property <bool> tools-menu-open;
+    in property <bool> tools-busy;
+    in property <string> upscale-label;
+    in property <string> smart-matte-label;
+    in property <string> seam-carve-label;
+    in property <bool> can-upscale;
+    in property <bool> can-smart-matte;
+    in property <bool> can-seam-carve;
+
+    in property <string> color-label;
+    in property <brush> color-swatch0;
+    in property <brush> color-swatch1;
+    in property <brush> color-swatch2;
+    in property <int> active-color-swatch;
+    in property <brush> color-hue-brush;
+    in-out property <float> color-sb-x;
+    in-out property <float> color-sb-y;
+    in-out property <float> color-hue-x;
+    in-out property <string> color-hex-text;
+
+    callback pick-tool(int);
+    callback brush-size-changed(float);
+    callback ink-opacity-changed(float);
+    callback select-color-swatch(int);
+    callback color-sb-changed(float, float);
+    callback color-hue-changed(float);
+    callback color-hex-changed(string);
+    callback toggle-tools-menu();
+    callback run-upscale();
+    callback run-smart-matte();
+    callback run-seam-carve();
+
+    private property <image> icon-move: @image-url("move.svg");
+    private property <image> icon-select: @image-url("select-rect.svg");
+    private property <image> icon-pen: @image-url("pen.svg");
+    private property <image> icon-eraser: @image-url("eraser.svg");
+    private property <image> icon-blur: @image-url("blur.svg");
+    private property <image> icon-clone: @image-url("clone.svg");
+    private property <image> icon-heal: @image-url("heal.svg");
+    private property <image> icon-shape: @image-url("shape.svg");
+    private property <image> icon-bucket: @image-url("bucket.svg");
+    private property <image> icon-eyedropper: @image-url("eyedropper.svg");
+    private property <image> icon-text: @image-url("text.svg");
+    private property <image> icon-crop: @image-url("crop.svg");
+    private property <image> icon-ai: @image-url("ai.svg");
+
+    width: 148px;
+    background: theme-surface;
+    border-color: theme-island-border;
+    island-padding: 8px;
+
+    CalmScrollView {
+        x: root.island-padding;
+        y: root.island-padding;
+        width: parent.width - root.island-padding * 2;
+        height: parent.height - root.island-padding * 2;
+        thumb-pressed-color: theme-text;
+        thumb-hover-color: theme-text-muted;
+        thumb-color: theme-island-border;
+
+        VerticalBox {
+            spacing: 8px;
+            width: parent.width;
+
+            ToolRow {
+                active-tool: root.active-tool;
+                left-id: 15;
+                left-icon: icon-move;
+                right-id: 6;
+                right-icon: icon-select;
+                surface: theme-surface;
+                selected-bg: theme-tool-selected;
+                btn-border-color: theme-island-border;
+                accent: theme-accent-teal;
+                icon-color: theme-text;
+                pick(id) => { root.pick-tool(id); }
+            }
+            ToolRow {
+                active-tool: root.active-tool;
+                left-id: 0;
+                left-icon: icon-pen;
+                right-id: 5;
+                right-icon: icon-eraser;
+                surface: theme-surface;
+                selected-bg: theme-tool-selected;
+                btn-border-color: theme-island-border;
+                accent: theme-accent-teal;
+                icon-color: theme-text;
+                pick(id) => { root.pick-tool(id); }
+            }
+            ToolRow {
+                active-tool: root.active-tool;
+                left-id: 16;
+                left-icon: icon-blur;
+                right-id: 19;
+                right-icon: icon-clone;
+                surface: theme-surface;
+                selected-bg: theme-tool-selected;
+                btn-border-color: theme-island-border;
+                accent: theme-accent-teal;
+                icon-color: theme-text;
+                pick(id) => { root.pick-tool(id); }
+            }
+            ToolRow {
+                active-tool: root.active-tool;
+                left-id: 20;
+                left-icon: icon-heal;
+                right-id: 2;
+                right-icon: icon-shape;
+                surface: theme-surface;
+                selected-bg: theme-tool-selected;
+                btn-border-color: theme-island-border;
+                accent: theme-accent-teal;
+                icon-color: theme-text;
+                pick(id) => { root.pick-tool(id); }
+            }
+            ToolRow {
+                active-tool: root.active-tool;
+                left-id: 9;
+                left-icon: icon-bucket;
+                right-id: 11;
+                right-icon: icon-eyedropper;
+                surface: theme-surface;
+                selected-bg: theme-tool-selected;
+                btn-border-color: theme-island-border;
+                accent: theme-accent-teal;
+                icon-color: theme-text;
+                pick(id) => { root.pick-tool(id); }
+            }
+            ToolRow {
+                active-tool: root.active-tool;
+                left-id: 14;
+                left-icon: icon-text;
+                right-id: 21;
+                right-icon: icon-crop;
+                surface: theme-surface;
+                selected-bg: theme-tool-selected;
+                btn-border-color: theme-island-border;
+                accent: theme-accent-teal;
+                icon-color: theme-text;
+                pick(id) => { root.pick-tool(id); }
+            }
+
+            Text {
+                text: active-tool-label;
+                font-size: 10px;
+                font-weight: 700;
+                letter-spacing: 0.8px;
+                color: theme-text-muted;
+                horizontal-alignment: center;
+            }
+
+            CalmDivider { divider-color: theme-island-border; }
+
+            CalmSliderRow {
+                visible: root.show-brush-size;
+                label: root.brush-size-label;
+                value-text: root.brush-size-text;
+                value <=> root.brush-size-unit;
+                label-color: theme-text-muted;
+                track-color: theme-island-border;
+                fill-color: theme-accent-teal;
+                handle-color: theme-surface;
+                handle-border-color: theme-control-border;
+                handle-focus-border-color: theme-control-focus-border;
+                moved(v) => { root.brush-size-changed(v); }
+            }
+
+            CalmSliderRow {
+                visible: root.show-ink-opacity;
+                label: root.ink-opacity-label;
+                value-text: root.ink-opacity-text;
+                value <=> root.ink-opacity;
+                label-color: theme-text-muted;
+                track-color: theme-island-border;
+                fill-color: theme-accent-teal;
+                handle-color: theme-surface;
+                handle-border-color: theme-control-border;
+                handle-focus-border-color: theme-control-focus-border;
+                moved(v) => { root.ink-opacity-changed(v); }
+            }
+
+            CalmDivider { divider-color: theme-island-border; }
+
+            Text {
+                text: color-label;
+                font-size: 10px;
+                font-weight: 700;
+                color: theme-text;
+            }
+
+            QuickColorPicker {
+                theme-surface: theme-surface;
+                theme-text: theme-text;
+                theme-text-muted: theme-text-muted;
+                theme-accent-teal: theme-accent-teal;
+                theme-island-border: theme-island-border;
+                theme-control-border: theme-control-border;
+                theme-control-focus-border: theme-control-focus-border;
+                swatch0: color-swatch0;
+                swatch1: color-swatch1;
+                swatch2: color-swatch2;
+                active-swatch: active-color-swatch;
+                hue-color: color-hue-brush;
+                sb-x <=> color-sb-x;
+                sb-y <=> color-sb-y;
+                hue-x <=> color-hue-x;
+                hex-text <=> color-hex-text;
+                select-swatch(i) => { root.select-color-swatch(i); }
+                sb-changed(x, y) => { root.color-sb-changed(x, y); }
+                hue-changed(x) => { root.color-hue-changed(x); }
+                hex-changed(text) => { root.color-hex-changed(text); }
+            }
+
+            CalmDivider { divider-color: theme-island-border; }
+
+            menu-touch := CalmPointer {
+                height: 28px;
+                clicked => { root.toggle-tools-menu(); }
+
+                Rectangle {
+                    height: 28px;
+                    background: menu-touch.has-hover ? theme-surface-hover : theme-surface;
+                    border-radius: 4px;
+                    border-width: 1px;
+                    border-color: theme-island-border;
+
+                    HorizontalLayout {
+                        padding-left: 8px;
+                        padding-right: 8px;
+                        spacing: 6px;
+
+                        if tools-busy: Text {
+                            text: "◌";
+                            color: theme-accent-teal;
+                            font-size: 12px;
+                            vertical-alignment: center;
+                        }
+                        if !tools-busy: Image {
+                            source: icon-ai;
+                            width: 14px;
+                            height: 14px;
+                            colorize: theme-text-muted;
+                            vertical-alignment: center;
+                        }
+                        Text {
+                            text: tools-menu-title;
+                            color: theme-text;
+                            font-size: 11px;
+                            font-weight: 600;
+                            horizontal-stretch: 1;
+                            vertical-alignment: center;
+                        }
+                    }
+                }
+            }
+
+            if tools-menu-open: VerticalLayout {
+                spacing: 2px;
+                ToolAction {
+                    label: upscale-label;
+                    enabled: can-upscale && !tools-busy;
+                    theme-text: theme-text;
+                    activated => { root.run-upscale(); }
+                }
+                ToolAction {
+                    label: smart-matte-label;
+                    enabled: can-smart-matte && !tools-busy;
+                    theme-text: theme-text;
+                    activated => { root.run-smart-matte(); }
+                }
+                ToolAction {
+                    label: seam-carve-label;
+                    enabled: can-seam-carve && !tools-busy;
+                    theme-text: theme-text;
+                    activated => { root.run-seam-carve(); }
+                }
+            }
+        }
+    }
+}

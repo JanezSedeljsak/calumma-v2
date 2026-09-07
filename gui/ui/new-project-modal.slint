@@ -1,0 +1,83 @@
+import { VerticalBox, HorizontalBox, LineEdit } from "std-widgets.slint";
+import { CalmModal } from "calm/CalmModal.slint";
+import { CalmButton } from "calm/CalmButton.slint";
+
+export component NewProjectModal inherits Rectangle {
+    in-out property <bool> open;
+    in property <brush> theme-bg;
+    in property <brush> theme-surface;
+    in property <brush> theme-surface-hover;
+    in property <brush> theme-text;
+    in property <brush> theme-text-muted;
+    in property <brush> theme-island-border;
+    in property <brush> theme-accent-teal;
+
+    in property <string> project-name-label;
+    in property <string> resolution-label;
+    in property <string> create-label;
+
+    in-out property <string> project-name;
+    in-out property <string> width-text;
+    in-out property <string> height-text;
+
+    callback dismissed();
+    callback create-clicked();
+
+    width: 100%;
+    height: 100%;
+
+    CalmModal {
+        open <=> root.open;
+        scrim-color: root.theme-bg;
+        dismissed => { root.dismissed(); }
+
+        Rectangle {
+            width: 480px;
+            height: 220px;
+            background: theme-bg;
+            border-radius: 12px;
+            border-width: 1px;
+            border-color: theme-island-border;
+
+            VerticalBox {
+                padding: 24px;
+                spacing: 16px;
+
+                Text {
+                    text: create-label;
+                    font-size: 15px;
+                    font-weight: 700;
+                    color: theme-accent-teal;
+                }
+
+                VerticalBox {
+                    spacing: 6px;
+                    Text { text: project-name-label; font-size: 10px; font-weight: 600; color: theme-text; }
+                    LineEdit {
+                        text <=> root.project-name;
+                        accepted => { root.create-clicked(); }
+                    }
+                }
+
+                VerticalBox {
+                    spacing: 6px;
+                    Text { text: resolution-label; font-size: 10px; font-weight: 600; color: theme-text; }
+                    HorizontalBox {
+                        spacing: 8px;
+                        LineEdit { text <=> root.width-text; min-width: 72px; }
+                        Text { text: "×"; color: theme-text-muted; }
+                        LineEdit { text <=> root.height-text; min-width: 72px; }
+                        CalmButton {
+                            text: create-label;
+                            surface: theme-surface;
+                            surface-hover: theme-surface-hover;
+                            text-color: theme-text;
+                            btn-border-color: theme-island-border;
+                            clicked => { root.create-clicked(); }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

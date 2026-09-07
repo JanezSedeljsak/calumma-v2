@@ -1,0 +1,44 @@
+[package]
+name = "calumma-gui"
+version = "0.30.0"
+edition = "2021"
+license = "AGPL-3.0-or-later"
+publish = false
+
+[dependencies]
+calumma-app = { path = "../engine/app" }
+calumma-core = { path = "../engine/core" }
+anyhow = "1.0"
+dirs = "6.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+toml = "0.8"
+rfd = "0.15"
+image = "0.25"
+calumma-io = { path = "../engine/io" }
+slint = { version = "1.17", default-features = false, features = [
+    "backend-winit",
+    "renderer-femtovg",
+    "unstable-winit-030",
+    "compat-1-2",
+] }
+i-slint-backend-winit = "=1.17.1"
+raw-window-handle = "0.6"
+
+[dependencies.winit]
+version = "0.30"
+default-features = false
+features = ["rwh_06"]
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", features = ["NSGraphics", "objc2-quartz-core"] }
+objc2-quartz-core = { version = "0.3", features = ["CAMetalLayer", "CALayer", "objc2-metal"] }
+objc2-foundation = "0.3"
+objc2-metal = "0.3"
+resvg = "0.44"
+usvg = "0.44"
+tiny-skia = "0.11"
+
+[build-dependencies]
+slint-build = "1.17"

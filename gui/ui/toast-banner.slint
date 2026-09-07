@@ -1,0 +1,41 @@
+import { CalmPointer } from "calm/CalmPointer.slint";
+
+export component ToastBanner inherits Rectangle {
+    in property <bool> show;
+    in property <string> text;
+    in property <bool> is-error;
+    in property <brush> theme-surface;
+    in property <brush> theme-text;
+    in property <brush> theme-accent-teal;
+    in property <brush> theme-danger;
+
+    callback dismiss();
+
+    width: 100%;
+    height: 100%;
+    visible: root.show;
+
+    if show: Rectangle {
+        y: parent.height - self.height - 16px;
+        x: (parent.width - self.width) / 2;
+        height: 40px;
+        min-width: 120px;
+        border-radius: 12px;
+        background: theme-surface;
+        border-width: 1px;
+        border-color: is-error ? theme-danger : theme-accent-teal;
+
+        touch := CalmPointer {
+            clicked => { root.dismiss(); }
+        }
+
+        Text {
+            text: (is-error ? "⚠ " : "✓ ") + text;
+            color: theme-text;
+            font-size: 12px;
+            font-weight: 600;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+    }
+}

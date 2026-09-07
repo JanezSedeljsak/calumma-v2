@@ -1,0 +1,31 @@
+export component CalmScrollBar inherits Rectangle {
+    in property <bool> box-hovered;
+    in property <float> scroll-fraction;
+    in property <length> track-length;
+    in property <brush> thumb-pressed-color;
+    in property <brush> thumb-hover-color;
+    in property <brush> thumb-color;
+
+    width: 8px;
+    height: track-length;
+
+    touch := TouchArea {
+        width: 100%;
+        height: 100%;
+    }
+
+    out property <bool> chrome-visible: box-hovered || touch.has-hover || touch.pressed;
+    property <length> thumb-length: max(24px, track-length * track-length / max(track-length * 1.5, 1px));
+    property <length> thumb-offset: (track-length - thumb-length) * scroll-fraction;
+
+    visible: chrome-visible;
+
+    if chrome-visible: Rectangle {
+        x: 1px;
+        y: thumb-offset + 2px;
+        width: 6px;
+        height: thumb-length - 4px;
+        border-radius: 3px;
+        background: touch.pressed ? thumb-pressed-color : (touch.has-hover ? thumb-hover-color : thumb-color);
+    }
+}

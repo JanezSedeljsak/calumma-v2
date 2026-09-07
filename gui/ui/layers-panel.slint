@@ -1,0 +1,317 @@
+import { CalmScrollView } from "calm/CalmScrollView.slint";
+import { CalmPointer } from "calm/CalmPointer.slint";
+import { LayerRow } from "models.slint";
+
+component LayerListRow inherits Rectangle {
+    in property <LayerRow> layer-row;
+    in property <brush> surface;
+    in property <brush> surface-hover;
+    in property <brush> surface-active;
+    in property <brush> text-color;
+    in property <brush> text-muted;
+    in property <brush> accent;
+    in property <brush> row-border;
+    in property <brush> danger;
+    in property <image> icon-eye-open;
+    in property <image> icon-eye-closed;
+    in property <image> icon-more;
+    in property <image> icon-trash;
+
+    callback row-clicked();
+    callback toggle-visible();
+    callback open-settings();
+    callback delete-layer();
+    callback hover-enter();
+    callback hover-leave();
+
+    height: 40px;
+    border-radius: 4px;
+    background: layer-row.active ? surface-active : (row-touch.has-hover ? surface-hover : surface);
+    border-width: 1px;
+    border-color: layer-row.active ? accent : row-border;
+
+    private property <bool> row-hovered: row-touch.has-hover;
+
+    row-touch := CalmPointer {
+        clicked => { root.row-clicked(); }
+    }
+
+    changed row-hovered => {
+        if (row-hovered) {
+            root.hover-enter();
+        } else {
+            root.hover-leave();
+        }
+    }
+
+    HorizontalLayout {
+        padding-left: 4px;
+        padding-right: 4px;
+        spacing: 4px;
+
+        CalmPointer {
+            width: 20px;
+            Image {
+                source: layer-row.visible ? icon-eye-open : icon-eye-closed;
+                width: 14px;
+                height: 14px;
+                colorize: layer-row.visible ? text-color : text-muted;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+            clicked => { root.toggle-visible(); }
+        }
+
+        Rectangle {
+            width: 40px;
+            height: 28px;
+            border-radius: 3px;
+            clip: true;
+            border-width: 1px;
+            border-color: row-border;
+            Image {
+                source: layer-row.thumb;
+                width: 100%;
+                height: 100%;
+                image-fit: contain;
+            }
+        }
+
+        Text {
+            text: layer-row.name;
+            color: layer-row.active ? accent : text-color;
+            font-weight: layer-row.active ? 600 : 400;
+            font-size: 12px;
+            horizontal-stretch: 1;
+            vertical-alignment: center;
+            opacity: layer-row.visible ? 1 : 0.45;
+            overflow: elide;
+        }
+
+        CalmPointer {
+            width: 20px;
+            Image {
+                source: icon-more;
+                width: 14px;
+                height: 14px;
+                colorize: text-muted;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+            clicked => { root.open-settings(); }
+        }
+
+        CalmPointer {
+            width: 20px;
+            visible: !layer-row.locked;
+            Image {
+                source: icon-trash;
+                width: 14px;
+                height: 14px;
+                colorize: danger;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+            clicked => { root.delete-layer(); }
+        }
+    }
+}
+
+export component LayersSlideout inherits Rectangle {
+    in-out property <bool> open;
+    in property <length> panel-width: 240px;
+    in property <brush> theme-surface;
+    in property <brush> theme-surface-hover;
+    in property <brush> theme-text;
+    in property <brush> theme-text-muted;
+    in property <brush> theme-accent-teal;
+    in property <brush> theme-island-border;
+    in property <brush> theme-tool-selected;
+    in property <brush> theme-danger;
+    in property <string> title-text;
+    in property <string> add-label;
+    in property <string> doc-width-text;
+    in property <string> doc-height-text;
+    in property <[LayerRow]> layers;
+
+    in property <bool> hover-preview-visible;
+    in property <string> hover-preview-name;
+    in property <image> hover-preview-image;
+
+    callback collapse();
+    callback expand();
+    callback add-layer();
+    callback pick-layer(int);
+    callback toggle-layer-visible(int);
+    callback open-layer-settings(int);
+    callback delete-layer(int);
+    callback hover-layer(int);
+    callback clear-layer-hover();
+
+    private property <image> icon-eye-open: @image-url("eye-open.svg");
+    private property <image> icon-eye-closed: @image-url("eye-closed.svg");
+    private property <image> icon-more: @image-url("more.svg");
+    private property <image> icon-trash: @image-url("trash.svg");
+    private property <image> icon-plus: @image-url("plus.svg");
+
+    width: open ? panel-width : 24px;
+    height: 100%;
+
+    if hover-preview-visible: Rectangle {
+        x: -196px;
+        y: 48px;
+        width: 192px;
+        background: theme-surface;
+        border-radius: 10px;
+        border-width: 1px;
+        border-color: theme-island-border;
+
+        VerticalLayout {
+            padding: 8px;
+            spacing: 6px;
+            Text {
+                text: hover-preview-name;
+                color: theme-text;
+                font-size: 11px;
+                font-weight: 600;
+                overflow: elide;
+            }
+            Rectangle {
+                height: 120px;
+                border-radius: 4px;
+                clip: true;
+                border-width: 1px;
+                border-color: theme-island-border;
+                Image {
+                    source: hover-preview-image;
+                    width: 100%;
+                    height: 100%;
+                    image-fit: contain;
+                }
+            }
+        }
+    }
+
+    if open: Rectangle {
+        width: panel-width;
+        height: 100%;
+        background: theme-surface;
+        border-radius: 10px;
+        border-width: 1px;
+        border-color: theme-island-border;
+        clip: true;
+
+        VerticalLayout {
+            padding: 8px;
+            spacing: 8px;
+
+            HorizontalLayout {
+                Text {
+                    text: title-text.to-uppercase();
+                    font-size: 10px;
+                    font-weight: 700;
+                    letter-spacing: 0.8px;
+                    color: theme-text;
+                    horizontal-stretch: 1;
+                }
+                CalmPointer {
+                    Image {
+                        source: icon-plus;
+                        width: 14px;
+                        height: 14px;
+                        colorize: theme-accent-teal;
+                    }
+                    clicked => { root.add-layer(); }
+                }
+                CalmPointer {
+                    Text { text: "›"; color: theme-text-muted; font-size: 14px; }
+                    clicked => { root.collapse(); }
+                }
+            }
+
+            CalmScrollView {
+                horizontal-stretch: 1;
+                vertical-stretch: 1;
+                thumb-color: theme-island-border;
+                thumb-hover-color: theme-text-muted;
+                thumb-pressed-color: theme-accent-teal;
+
+                VerticalLayout {
+                    spacing: 2px;
+                    for layer[i] in layers: LayerListRow {
+                        layer-row: layer;
+                        surface: theme-surface;
+                        surface-hover: theme-surface-hover;
+                        surface-active: theme-tool-selected;
+                        text-color: theme-text;
+                        text-muted: theme-text-muted;
+                        accent: theme-accent-teal;
+                        row-border: theme-island-border;
+                        danger: theme-danger;
+                        icon-eye-open: icon-eye-open;
+                        icon-eye-closed: icon-eye-closed;
+                        icon-more: icon-more;
+                        icon-trash: icon-trash;
+                        row-clicked => { root.pick-layer(layer.index); }
+                        toggle-visible => { root.toggle-layer-visible(layer.index); }
+                        open-settings => { root.open-layer-settings(layer.index); }
+                        delete-layer => { root.delete-layer(layer.index); }
+                        hover-enter => { root.hover-layer(layer.index); }
+                        hover-leave => { root.clear-layer-hover(); }
+                    }
+                }
+            }
+
+            HorizontalLayout {
+                spacing: 8px;
+                Text {
+                    text: "W";
+                    color: theme-text-muted;
+                    font-size: 10px;
+                    font-weight: 600;
+                }
+                Text {
+                    text: doc-width-text;
+                    color: theme-text;
+                    font-size: 11px;
+                    horizontal-stretch: 1;
+                }
+                Text {
+                    text: "H";
+                    color: theme-text-muted;
+                    font-size: 10px;
+                    font-weight: 600;
+                }
+                Text {
+                    text: doc-height-text;
+                    color: theme-text;
+                    font-size: 11px;
+                    horizontal-stretch: 1;
+                }
+            }
+        }
+    }
+
+    if !open: CalmPointer {
+        width: 24px;
+        height: 100%;
+        clicked => { root.expand(); }
+
+        Rectangle {
+            width: 24px;
+            height: 100%;
+            background: theme-surface;
+            border-radius: 10px;
+            border-width: 1px;
+            border-color: theme-island-border;
+
+            Text {
+                text: "‹";
+                color: theme-text-muted;
+                font-size: 16px;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+        }
+    }
+}

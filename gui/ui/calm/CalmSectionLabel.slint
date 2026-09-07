@@ -1,0 +1,24 @@
+export component CalmSectionLabel inherits HorizontalLayout {
+    in property <string> label;
+    in property <brush> dot-color;
+    in property <brush> text-color;
+
+    spacing: 6px;
+
+    Rectangle {
+        width: 6px;
+        height: 6px;
+        border-radius: 3px;
+        background: dot-color;
+        y: (parent.height - self.height) / 2;
+    }
+
+    Text {
+        text: label;
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.8px;
+        color: text-color;
+        vertical-alignment: center;
+    }
+}
