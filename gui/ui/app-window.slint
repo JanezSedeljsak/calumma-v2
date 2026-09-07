@@ -811,7 +811,8 @@ export component AppWindow inherits Window {
         }
     }
 
-    if Tip.open && Tip.text != "": CalmTip {
+    CalmTip {
+        visible: Tip.open && Tip.text != "";
         x: Tip.leading ? Tip.x - self.width : Tip.x;
         y: Tip.y - self.height / 2;
         tip: Tip.text;
