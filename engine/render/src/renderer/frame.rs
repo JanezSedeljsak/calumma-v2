@@ -125,9 +125,10 @@ impl Renderer {
             .map(|(layer_index, coord, _, skip_mips)| {
                 let layer = doc.layers.get(*layer_index)?;
                 let pixels = layer.tiles()?.get(*coord)?;
-                let clip_base = layer.clips_to.as_deref().and_then(|id| {
-                    doc.layers.iter().find(|l| l.id == id)
-                });
+                let clip_base = layer
+                    .clips_to
+                    .as_deref()
+                    .and_then(|id| doc.layers.iter().find(|l| l.id == id));
                 let composited =
                     composited_tile_payload(pixels, *coord, layer, clip_base, doc_width);
                 let base: &[u8] = composited.as_deref().unwrap_or(pixels.as_slice());

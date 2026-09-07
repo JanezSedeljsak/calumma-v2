@@ -2601,7 +2601,8 @@ impl Document {
             if !layer.visible {
                 continue;
             }
-            let src = layer_composited_pixel(layer, &self.layers, doc_x, doc_y, self.width, self.height);
+            let src =
+                layer_composited_pixel(layer, &self.layers, doc_x, doc_y, self.width, self.height);
             if src[3] == 0 {
                 continue;
             }
@@ -2694,7 +2695,8 @@ impl Document {
             if doc_x < bounds.0 || doc_y < bounds.1 || doc_x > bounds.2 || doc_y > bounds.3 {
                 continue;
             }
-            let src = layer_composited_pixel(layer, &self.layers, doc_x, doc_y, self.width, self.height);
+            let src =
+                layer_composited_pixel(layer, &self.layers, doc_x, doc_y, self.width, self.height);
             if src[3] == 0 {
                 continue;
             }

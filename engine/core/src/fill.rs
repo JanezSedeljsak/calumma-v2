@@ -102,10 +102,7 @@ fn grow_one_step(
             }
         }
     }
-    (
-        next.finish().unwrap_or_else(|| working.clone()),
-        grew,
-    )
+    (next.finish().unwrap_or_else(|| working.clone()), grew)
 }
 
 fn grow_fringe_until_stable(

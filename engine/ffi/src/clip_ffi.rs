@@ -34,12 +34,16 @@ pub extern "C" fn calm_engine_release_clipping_mask(
 
 #[no_mangle]
 pub extern "C" fn calm_engine_layer_is_clipped(engine: *mut CalmEngine, index: u32) -> c_int {
-    read_doc(engine, 0, |doc| c_int::from(doc.is_layer_clipped(index as usize)))
+    read_doc(engine, 0, |doc| {
+        c_int::from(doc.is_layer_clipped(index as usize))
+    })
 }
 
 #[no_mangle]
 pub extern "C" fn calm_engine_layer_is_clip_base(engine: *mut CalmEngine, index: u32) -> c_int {
-    read_doc(engine, 0, |doc| c_int::from(doc.is_layer_clip_base(index as usize)))
+    read_doc(engine, 0, |doc| {
+        c_int::from(doc.is_layer_clip_base(index as usize))
+    })
 }
 
 #[no_mangle]

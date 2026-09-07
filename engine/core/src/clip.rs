@@ -60,9 +60,7 @@ impl Document {
     }
 
     pub fn is_layer_clipped(&self, index: usize) -> bool {
-        self.layers
-            .get(index)
-            .is_some_and(|l| l.clips_to.is_some())
+        self.layers.get(index).is_some_and(|l| l.clips_to.is_some())
     }
 
     pub fn is_layer_clip_base(&self, index: usize) -> bool {

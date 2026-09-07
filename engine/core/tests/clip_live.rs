@@ -28,10 +28,18 @@ fn live_clip_hides_pixels_outside_the_base_ink() {
     let mut doc = two_layer_doc();
     let i20 = (20 * 64 + 20) * 4;
     let (_, _, before) = doc.composite_rgba();
-    assert_eq!(before[i20 + 1], 0, "uncovered top pixel is red, not paper white");
+    assert_eq!(
+        before[i20 + 1],
+        0,
+        "uncovered top pixel is red, not paper white"
+    );
     assert!(doc.create_clipping_mask(2));
     let (_, _, after) = doc.composite_rgba();
-    assert_eq!(after[i20 + 1], 255, "clipped away — paper white shows through");
+    assert_eq!(
+        after[i20 + 1],
+        255,
+        "clipped away — paper white shows through"
+    );
     let i10 = (10 * 64 + 10) * 4;
     assert!(after[i10 + 3] > 0, "inside the base silhouette");
 }
@@ -93,7 +101,10 @@ fn clip_on_composite_follows_layer_transform() {
     let (_, _, rgba) = doc.composite_rgba();
     let i30 = (30 * 64 + 30) * 4;
     let i10 = (10 * 64 + 10) * 4;
-    assert!(rgba[i30] > 200 && rgba[i30 + 1] < 10, "ink lands where the transform puts it");
+    assert!(
+        rgba[i30] > 200 && rgba[i30 + 1] < 10,
+        "ink lands where the transform puts it"
+    );
     assert_eq!(rgba[i10 + 1], 255, "untouched spot stays paper white");
 }
 
@@ -124,10 +135,16 @@ fn cannot_clip_to_a_layer_that_is_already_clipped() {
     doc.layers.clear();
     doc.layers.push(Layer::paper(64, 64));
     let mut silhouette = Layer::new("1", 64, 64);
-    silhouette.tiles_mut().unwrap().set_pixel(10, 10, [0, 0, 0, 255]);
+    silhouette
+        .tiles_mut()
+        .unwrap()
+        .set_pixel(10, 10, [0, 0, 0, 255]);
     doc.layers.push(silhouette);
     let mut texture = Layer::new("2", 64, 64);
-    texture.tiles_mut().unwrap().set_pixel(10, 10, [255, 0, 0, 255]);
+    texture
+        .tiles_mut()
+        .unwrap()
+        .set_pixel(10, 10, [255, 0, 0, 255]);
     doc.layers.push(texture);
     let mut top = Layer::new("3", 64, 64);
     top.tiles_mut().unwrap().set_pixel(20, 20, [0, 255, 0, 255]);

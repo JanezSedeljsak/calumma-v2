@@ -613,12 +613,8 @@ pub fn composited_tile_payload(
                 }
             }
             if let Some(base) = clip_base {
-                let base_alpha = calumma_core::clip::clip_base_alpha_for_layer_pixel(
-                    layer,
-                    base,
-                    x,
-                    y,
-                );
+                let base_alpha =
+                    calumma_core::clip::clip_base_alpha_for_layer_pixel(layer, base, x, y);
                 out[i + 3] = calumma_core::clip::multiply_clip_alpha(out[i + 3], base_alpha);
             }
         }
