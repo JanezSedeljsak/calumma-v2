@@ -53,9 +53,7 @@ pub fn apply_clip_alpha_to_buffer(buf: &mut [u8], base: &Layer, w: u32, _h: u32)
 
 impl Document {
     pub fn clip_base_layer(&self, index: usize) -> Option<&Layer> {
-        let Some(base_id) = self.layers.get(index).and_then(|l| l.clips_to.as_deref()) else {
-            return None;
-        };
+        let base_id = self.layers.get(index).and_then(|l| l.clips_to.as_deref())?;
         self.layers.iter().find(|l| l.id == base_id)
     }
 
