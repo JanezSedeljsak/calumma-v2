@@ -6,7 +6,7 @@ use crate::ui_bridge::{AppWindow, Tokens};
 #[cfg(target_os = "macos")]
 const TITLEBAR_LEADING: f32 = 80.0;
 #[cfg(target_os = "macos")]
-const TITLEBAR_HEIGHT: f32 = 52.0;
+const TITLEBAR_HEIGHT: f32 = 36.0;
 
 #[cfg(not(target_os = "macos"))]
 const TITLEBAR_LEADING: f32 = 0.0;

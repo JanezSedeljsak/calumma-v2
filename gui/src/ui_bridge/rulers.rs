@@ -24,6 +24,17 @@ pub fn sync_rulers(ui: &AppWindow, controller: &AppController) {
     ui.set_ruler_ticks_y(ModelRc::new(VecModel::from(y)));
 }
 
+pub fn sync_zoom_chrome(ui: &AppWindow, controller: &AppController) {
+    let engine = controller.engine.borrow();
+    let unit = engine.zoom_unit();
+    let zoom = engine.zoom_factor();
+    let is_fit = engine.is_fit();
+    drop(engine);
+    ui.set_zoom_unit(unit);
+    ui.set_zoom_text(SharedString::from(format!("{}%", (zoom * 100.0).round() as i32)));
+    ui.set_is_fit(is_fit);
+}
+
 pub fn camera_signature(controller: &AppController) -> (f32, f32, f32) {
     let engine = controller.engine.borrow();
     let (pan_x, pan_y) = engine.camera_pan();

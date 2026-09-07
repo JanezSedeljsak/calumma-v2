@@ -18,6 +18,7 @@ export global ToolChrome {
     in-out property <bool> show-vector: false;
     in-out property <bool> show-aligned: false;
     in-out property <bool> show-transform: false;
+    in-out property <bool> show-crop: false;
 
     in-out property <string> brush-size-label;
     in-out property <string> ink-opacity-label;
@@ -30,6 +31,17 @@ export global ToolChrome {
     in-out property <string> vector-label;
     in-out property <string> aligned-label;
     in-out property <string> transform-label;
+    in-out property <string> crop-aspect-label;
+    in-out property <string> crop-overlay-label;
+    in-out property <string> crop-free-label;
+    in-out property <string> crop-square-label;
+    in-out property <string> crop-overlay-off-label;
+    in-out property <string> crop-overlay-thirds-label;
+    in-out property <string> crop-overlay-grid-label;
+    in-out property <string> crop-overlay-diagonal-label;
+    in-out property <string> crop-overlay-golden-label;
+    in-out property <string> crop-cancel-label;
+    in-out property <string> crop-commit-label;
 
     in-out property <string> brush-size-text;
     in-out property <string> ink-opacity-text;
@@ -51,4 +63,6 @@ export global ToolChrome {
     in-out property <bool> vector-locked: false;
     in-out property <bool> clone-aligned: false;
     in-out property <bool> transform-on: false;
+    in-out property <int> crop-aspect: 0;
+    in-out property <int> crop-overlay: 1;
 }

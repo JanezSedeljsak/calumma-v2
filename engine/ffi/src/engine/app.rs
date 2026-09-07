@@ -348,6 +348,15 @@ impl Engine {
         }
     }
 
+    pub fn zoom_to(&mut self, x: f32, y: f32, zoom: f32) {
+        let mut inner = self.inner.lock();
+        if let Some(doc) = &mut inner.doc {
+            let (w, h) = (doc.width as f32, doc.height as f32);
+            doc.camera.zoom_at(x, y, zoom, w, h);
+            inner.invalidate_camera();
+        }
+    }
+
     pub fn end_camera_motion(&mut self) {
         let mut inner = self.inner.lock();
         if let Some(renderer) = &mut inner.renderer {
@@ -428,6 +437,7 @@ impl Engine {
         let mut inner = self.inner.lock();
         if let Some(doc) = &mut inner.doc {
             if doc.end_guide_drag() {
+                inner.dirty_save = true;
                 inner.invalidate_overlay();
             }
         }
@@ -662,6 +672,7 @@ impl Engine {
                 locked: layer.locked,
                 active: index == active,
                 is_paper: layer.is_paper(),
+                clipped: layer.clips_to.is_some(),
             })
             .collect()
     }
@@ -692,9 +703,14 @@ pub struct LayerSummary {
     pub locked: bool,
     pub active: bool,
     pub is_paper: bool,
+    pub clipped: bool,
 }
 
 mod colors;
+mod guides;
 mod knobs;
+mod layers;
 mod ops;
 mod shell;
+
+pub use guides::GuideInfo;

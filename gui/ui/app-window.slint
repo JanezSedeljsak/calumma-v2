@@ -1,19 +1,21 @@
 import { Landing } from "landing.slint";
 import { Editor } from "editor.slint";
-import { RecentRow, PresetRow, LayerRow, ToolEntry, BrushEntry } from "models.slint";
+import { RecentRow, PresetRow, LayerRow, ToolEntry, BrushEntry, GuideRow } from "models.slint";
 import { RulerTickRow } from "ruler.slint";
 import { Titlebar } from "titlebar.slint";
 import { SettingsModal } from "settings-modal.slint";
 import { NewProjectModal } from "new-project-modal.slint";
 import { ToastBanner } from "toast-banner.slint";
 import { LayerSettingsModal } from "layer-settings-modal.slint";
+import { GuidesCard } from "guides-card.slint";
 import { Theme } from "calm/CalmTheme.slint";
 import { Tokens } from "calm/CalmTokens.slint";
 import { CalmTip, Tip } from "calm/CalmTip.slint";
 import { ToolChrome } from "tool-chrome.slint";
+import { LayerChrome } from "layer-chrome.slint";
 import { SmartMenu, SmartMenuOverlay } from "smart-menu.slint";
 
-export { Theme, Tokens, RecentRow, PresetRow, LayerRow, ToolEntry, BrushEntry, RulerTickRow, ToolChrome, Tip, SmartMenu }
+export { Theme, Tokens, RecentRow, PresetRow, LayerRow, ToolEntry, BrushEntry, GuideRow, RulerTickRow, ToolChrome, LayerChrome, Tip, SmartMenu }
 
 export component AppWindow inherits Window {
     in-out property <bool> editor-open: false;
@@ -21,11 +23,13 @@ export component AppWindow inherits Window {
     in-out property <bool> new-project-open: false;
     in-out property <bool> layers-open: true;
     in-out property <bool> layer-settings-open: false;
+    in-out property <bool> guides-open: false;
 
     changed editor-open => {
         if (!root.editor-open) {
             SmartMenu.open = false;
             Tip.open = false;
+            root.guides-open = false;
         }
     }
 
@@ -45,6 +49,9 @@ export component AppWindow inherits Window {
     callback pointer-enter();
     callback pointer-exit();
     callback scrolled(float, float, float, float, bool, bool);
+    callback pinch-started();
+    callback pinch-updated(float, float, float);
+    callback pinch-ended();
 
     callback pick-tool(int);
     callback pick-brush(int);
@@ -60,6 +67,10 @@ export component AppWindow inherits Window {
     callback vector-toggled();
     callback aligned-toggled();
     callback transform-toggled();
+    callback crop-aspect-changed(int);
+    callback crop-overlay-changed(int);
+    callback commit-crop();
+    callback cancel-crop();
     callback zoom-changed(float);
     callback step-zoom(bool);
     callback fit-zoom();
@@ -94,6 +105,17 @@ export component AppWindow inherits Window {
     callback layer-settings-toggle-visibility();
     callback layer-settings-toggle-lock();
     callback layer-settings-opacity-changed(float);
+    callback layer-settings-blend-changed(int);
+    callback layer-settings-filter-changed(int, float);
+    callback layer-settings-reset-filters();
+    callback layer-settings-rename(string);
+    callback layer-settings-toggle-clip();
+    callback layer-settings-flatten-clip();
+    callback layer-settings-merge-down();
+    callback layer-settings-reset-transform();
+    callback layer-settings-move-up();
+    callback layer-settings-move-down();
+    callback layer-settings-rasterize();
     callback layer-settings-export-layer();
     callback layer-settings-duplicate();
     callback layer-settings-delete();
@@ -108,6 +130,14 @@ export component AppWindow inherits Window {
     callback guide-pressed(bool, float, float);
     callback guide-moved(float, float);
     callback guide-released();
+    callback open-guides();
+    callback guides-dismissed();
+    callback add-guide();
+    callback remove-guide(int);
+    callback clear-guides();
+    callback set-guide-axis(int, bool);
+    callback set-guide-offset(int, string);
+    callback set-guide-color(int, int);
 
     callback shell-key-pressed(string, bool, bool, bool, bool);
     callback shell-key-released(string, bool, bool, bool, bool);
@@ -253,6 +283,25 @@ export component AppWindow inherits Window {
     in property <[RecentRow]> recents;
     in property <[RulerTickRow]> ruler-ticks-x;
     in property <[RulerTickRow]> ruler-ticks-y;
+    in property <string> guides-tip;
+    in property <string> guides-title;
+    in property <string> guides-hint;
+    in property <string> no-guides-label;
+    in property <string> add-guide-label;
+    in property <string> guides-full-label;
+    in property <string> guide-top-label;
+    in property <string> guide-left-label;
+    in property <string> delete-guide-tip;
+    in property <string> clear-guides-label;
+    in property <[GuideRow]> guides;
+    in property <[color]> guide-palette;
+    in property <bool> can-add-guide;
+    in-out property <bool> add-guide-horizontal;
+    in-out property <string> add-guide-offset;
+    in property <bool> guide-readout-visible;
+    in property <bool> guide-readout-horizontal;
+    in property <string> guide-readout-text;
+    in property <float> guide-readout-screen;
 
     init => {
         focus-scope.focus();
@@ -404,29 +453,9 @@ export component AppWindow inherits Window {
             accept;
         }
 
-        VerticalLayout {
-            Titlebar {
-                editor-open: root.editor-open;
-                project-name: root.active-project-name;
-                project-accent: root.active-project-accent;
-                new-project-tip: root.new-project-menu-title;
-                close-tip: root.back-to-landing-tip;
-                close-tab => {
-                    root.back-to-landing();
-                }
-                new-project => {
-                    root.menu-new-project();
-                }
-                drag => {
-                    root.titlebar-drag();
-                }
-                zoom => {
-                    root.titlebar-zoom();
-                }
-            }
-
-            Rectangle {
-                vertical-stretch: 1;
+        Rectangle {
+            width: 100%;
+            height: 100%;
 
         Landing {
             width: 100%;
@@ -480,6 +509,14 @@ export component AppWindow inherits Window {
             visible: root.editor-open;
             ruler-ticks-x: root.ruler-ticks-x;
             ruler-ticks-y: root.ruler-ticks-y;
+            guides-tip: root.guides-tip;
+            guide-readout-visible: root.guide-readout-visible;
+            guide-readout-horizontal: root.guide-readout-horizontal;
+            guide-readout-text: root.guide-readout-text;
+            guide-readout-screen: root.guide-readout-screen;
+            open-guides => {
+                root.open-guides();
+            }
             guide-pressed(horizontal, x, y) => {
                 root.guide-pressed(horizontal, x, y);
             }
@@ -583,6 +620,18 @@ export component AppWindow inherits Window {
             transform-toggled => {
                 root.transform-toggled();
             }
+            crop-aspect-changed(index) => {
+                root.crop-aspect-changed(index);
+            }
+            crop-overlay-changed(index) => {
+                root.crop-overlay-changed(index);
+            }
+            commit-crop => {
+                root.commit-crop();
+            }
+            cancel-crop => {
+                root.cancel-crop();
+            }
             zoom-changed(v) => {
                 root.zoom-changed(v);
             }
@@ -658,11 +707,42 @@ export component AppWindow inherits Window {
             scrolled(x, y, dx, dy, alt, meta) => {
                 root.scrolled(x, y, dx, dy, alt, meta);
             }
+            pinch-started => {
+                root.pinch-started();
+            }
+            pinch-updated(x, y, scale) => {
+                root.pinch-updated(x, y, scale);
+            }
+            pinch-ended => {
+                root.pinch-ended();
+            }
         }
+        }
+
+        Titlebar {
+            y: 0;
+            width: 100%;
+            editor-open: root.editor-open;
+            project-name: root.active-project-name;
+            project-accent: root.active-project-accent;
+            new-project-tip: root.new-project-menu-title;
+            close-tip: root.back-to-landing-tip;
+            close-tab => {
+                root.back-to-landing();
+            }
+            new-project => {
+                root.menu-new-project();
+            }
+            drag => {
+                root.titlebar-drag();
+            }
+            zoom => {
+                root.titlebar-zoom();
             }
         }
 
         SettingsModal {
+            z: 20;
             open <=> root.settings-open;
             title-text: root.settings-title;
             theme-label: root.theme-label;
@@ -691,6 +771,7 @@ export component AppWindow inherits Window {
         }
 
         NewProjectModal {
+            z: 20;
             open <=> root.new-project-open;
             brand-text: root.brand-text;
             tagline-text: root.tagline-text;
@@ -737,21 +818,49 @@ export component AppWindow inherits Window {
             }
         }
 
+        GuidesCard {
+            z: 20;
+            open <=> root.guides-open;
+            title-text: root.guides-title;
+            hint-text: root.guides-hint;
+            empty-text: root.no-guides-label;
+            add-label: root.add-guide-label;
+            full-text: root.guides-full-label;
+            top-label: root.guide-top-label;
+            left-label: root.guide-left-label;
+            delete-tip: root.delete-guide-tip;
+            clear-label: root.clear-guides-label;
+            guides: root.guides;
+            palette: root.guide-palette;
+            can-add: root.can-add-guide;
+            add-horizontal <=> root.add-guide-horizontal;
+            add-offset <=> root.add-guide-offset;
+            dismissed => {
+                root.guides-dismissed();
+            }
+            add-guide => {
+                root.add-guide();
+            }
+            remove-guide(index) => {
+                root.remove-guide(index);
+            }
+            clear-guides => {
+                root.clear-guides();
+            }
+            set-axis(index, horizontal) => {
+                root.set-guide-axis(index, horizontal);
+            }
+            set-offset(index, text) => {
+                root.set-guide-offset(index, text);
+            }
+            set-color(index, palette-index) => {
+                root.set-guide-color(index, palette-index);
+            }
+        }
+
         LayerSettingsModal {
+            z: 20;
             open <=> root.layer-settings-open;
-            layer-name: root.layer-settings-name;
-            preview: root.layer-settings-preview;
-            layer-visible: root.layer-settings-visible;
-            layer-locked: root.layer-settings-locked;
-            can-delete: root.layer-settings-can-delete;
-            layer-opacity <=> root.layer-settings-opacity;
-            opacity-text: root.layer-settings-opacity-text;
-            visibility-label: root.layer-visibility-label;
-            lock-label: root.layer-lock-label;
-            opacity-label: root.opacity-label;
-            export-label: root.layer-export-label;
-            duplicate-label: root.layer-duplicate-label;
-            delete-label: root.layer-delete-label;
             dismissed => {
                 root.layer-settings-dismissed();
             }
@@ -763,6 +872,39 @@ export component AppWindow inherits Window {
             }
             opacity-changed(v) => {
                 root.layer-settings-opacity-changed(v);
+            }
+            blend-changed(mode) => {
+                root.layer-settings-blend-changed(mode);
+            }
+            filter-changed(kind, value) => {
+                root.layer-settings-filter-changed(kind, value);
+            }
+            reset-filters => {
+                root.layer-settings-reset-filters();
+            }
+            rename-layer(text) => {
+                root.layer-settings-rename(text);
+            }
+            toggle-clip => {
+                root.layer-settings-toggle-clip();
+            }
+            flatten-clip => {
+                root.layer-settings-flatten-clip();
+            }
+            merge-down => {
+                root.layer-settings-merge-down();
+            }
+            reset-transform => {
+                root.layer-settings-reset-transform();
+            }
+            move-up => {
+                root.layer-settings-move-up();
+            }
+            move-down => {
+                root.layer-settings-move-down();
+            }
+            rasterize-layer => {
+                root.layer-settings-rasterize();
             }
             export-layer => {
                 root.layer-settings-export-layer();

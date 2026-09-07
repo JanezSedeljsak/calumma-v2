@@ -1,14 +1,16 @@
 slint::include_modules!();
 
 mod editor;
+mod guides;
 mod landing;
 mod rulers;
 mod strings;
 mod theme;
 
 pub use editor::{set_editor_open, sync_editor, sync_layer_rows, sync_layer_settings, sync_layers};
+pub use guides::{sync_guide_readout, sync_guides};
 pub use landing::{parse_dimension, refresh_landing, sync_recents};
-pub use rulers::{camera_signature, sync_rulers};
+pub use rulers::{camera_signature, sync_rulers, sync_zoom_chrome};
 pub use strings::{init_form_defaults, sync_strings, DEFAULT_HEIGHT, DEFAULT_WIDTH};
 pub use theme::apply_theme;
 
@@ -32,6 +34,7 @@ pub fn sync_shell(ui: &AppWindow, controller: &AppController) {
     ui.set_settings_open(controller.settings_open);
     ui.set_new_project_open(controller.new_project_open);
     ui.set_layer_settings_open(controller.layer_settings_open);
+    ui.set_guides_open(controller.guides_open);
     ui.set_toast_visible(controller.toast_visible);
     ui.set_toast_text(SharedString::from(controller.toast_text.as_str()));
     ui.set_toast_is_error(controller.toast_is_error);
@@ -39,4 +42,7 @@ pub fn sync_shell(ui: &AppWindow, controller: &AppController) {
     ui.set_can_undo(controller.can_undo());
     ui.set_can_redo(controller.can_redo());
     sync_layer_settings(ui, controller);
+    guides::sync_guide_palette(ui);
+    guides::sync_guides(ui, controller);
+    guides::sync_guide_readout(ui, controller);
 }

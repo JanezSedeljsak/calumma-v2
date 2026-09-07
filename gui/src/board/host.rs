@@ -126,8 +126,9 @@ impl BoardHost {
         layout: &super::layout::BoardLayout,
         content_height: f32,
         scale: f32,
+        overlay: bool,
     ) {
-        if !self.active {
+        if !self.active || overlay {
             #[cfg(target_os = "macos")]
             if let Some(surface) = &self.surface {
                 surface.set_hidden(true);
@@ -194,6 +195,14 @@ impl BoardHost {
             self.refresh_cursor(modal_open, mods);
             return;
         }
+        if self.engine.borrow().is_dragging_guide() {
+            let mut engine = self.engine.borrow_mut();
+            engine.set_shift_held(mods.shift_held);
+            engine.update_guide_drag(x, y);
+            drop(engine);
+            self.refresh_cursor(modal_open, mods);
+            return;
+        }
         let tool = self.engine.borrow().active_tool().unwrap_or(Tool::Pen);
         let input = BoardCursorInput {
             pointer_inside: self.pointer_inside,
@@ -226,6 +235,8 @@ impl BoardHost {
             engine.set_alt_held(mods.alt_held);
             engine.pointer_up(x, y);
             self.stroke_active = false;
+        } else if self.engine.borrow().is_dragging_guide() {
+            self.engine.borrow_mut().end_guide_drag();
         }
         let tool = self.engine.borrow().active_tool().unwrap_or(Tool::Pen);
         let input = BoardCursorInput {
@@ -244,10 +255,14 @@ impl BoardHost {
     }
 
     pub fn modifiers_changed(&mut self, mods: ModifierState, modal_open: bool) {
-        if self.stroke_active {
+        let dragging = self.engine.borrow().is_dragging_guide();
+        if self.stroke_active || dragging {
             let mut engine = self.engine.borrow_mut();
             engine.set_shift_held(mods.shift_held);
             engine.set_alt_held(mods.alt_held);
+            if dragging {
+                engine.update_guide_drag(self.hover.0, self.hover.1);
+            }
         }
         let tool = self.engine.borrow().active_tool().unwrap_or(Tool::Pen);
         let input = BoardCursorInput {
@@ -278,19 +293,11 @@ impl BoardHost {
         alt_held: bool,
         meta_held: bool,
     ) {
-        let precise = scroll_is_precise(delta_x, delta_y);
         if alt_held || meta_held {
-            self.engine.borrow_mut().zoom_scroll(x, y, delta_y, precise);
+            self.engine.borrow_mut().zoom_scroll(x, y, delta_y, true);
         } else {
-            self.engine
-                .borrow_mut()
-                .pan_scroll(delta_x, delta_y, precise);
+            self.engine.borrow_mut().pan_scroll(delta_x, delta_y, true);
         }
         self.engine.borrow_mut().end_camera_motion();
     }
-}
-
-fn scroll_is_precise(dx: f32, dy: f32) -> bool {
-    let mag = dx.abs().max(dy.abs());
-    mag > 0.0 && (mag < 1.0 || mag > 10.0 || mag.fract().abs() > 0.05)
 }

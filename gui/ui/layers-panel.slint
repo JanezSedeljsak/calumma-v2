@@ -70,7 +70,7 @@ component LayerListRow inherits HorizontalLayout {
         }
 
         HorizontalLayout {
-            padding-left: Tokens.space-sm;
+            padding-left: root.layer-row.clipped ? Tokens.space-lg : Tokens.space-sm;
             padding-right: Tokens.space-sm;
             padding-top: Tokens.space-xs;
             padding-bottom: Tokens.space-xs;

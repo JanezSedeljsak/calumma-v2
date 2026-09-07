@@ -113,6 +113,10 @@ pub fn is_toggle_layers_shortcut(text: &str, meta: bool, alt: bool) -> bool {
     meta && alt && text.eq_ignore_ascii_case("l")
 }
 
+pub fn is_clip_shortcut(text: &str, meta: bool, alt: bool) -> bool {
+    meta && alt && text.eq_ignore_ascii_case("g")
+}
+
 pub fn is_transform_shortcut(text: &str, meta: bool, ctrl: bool) -> bool {
     (meta || ctrl) && text.eq_ignore_ascii_case("t")
 }
@@ -123,4 +127,16 @@ pub fn is_undo_shortcut(text: &str, meta: bool, ctrl: bool, shift: bool) -> bool
 
 pub fn is_redo_shortcut(text: &str, meta: bool, ctrl: bool, shift: bool) -> bool {
     (meta || ctrl) && shift && text.eq_ignore_ascii_case("z")
+}
+
+pub fn is_zoom_in_shortcut(text: &str, meta: bool, ctrl: bool) -> bool {
+    (meta || ctrl) && (text == "=" || text == "+")
+}
+
+pub fn is_zoom_out_shortcut(text: &str, meta: bool, ctrl: bool) -> bool {
+    (meta || ctrl) && (text == "-" || text == "\u{2212}")
+}
+
+pub fn is_fit_zoom_shortcut(text: &str, meta: bool, ctrl: bool, alt: bool) -> bool {
+    !meta && !ctrl && !alt && text == "0"
 }

@@ -203,7 +203,7 @@ fn pan_by_scroll_moves_further_than_a_raw_pan_when_zoomed_out() {
     scrolled.zoom_to_center(scrolled.min_zoom(doc.0, doc.1), doc.0, doc.1);
     let mut dragged = scrolled;
 
-    scrolled.pan_by_scroll(30.0, 0.0, true, doc.0, doc.1);
+    scrolled.pan_by_scroll(30.0, 0.0, false, doc.0, doc.1);
     dragged.pan_by(30.0, 0.0, doc.0, doc.1);
     assert!(
         scrolled.pan_x > dragged.pan_x,
@@ -211,6 +211,19 @@ fn pan_by_scroll_moves_further_than_a_raw_pan_when_zoomed_out() {
         scrolled.pan_x,
         dragged.pan_x
     );
+}
+
+#[test]
+fn precise_scroll_pan_tracks_the_finger_even_when_zoomed_out() {
+    let doc = (2000.0, 1500.0);
+    let mut scrolled = cam(1000.0, 800.0);
+    scrolled.fit(doc.0, doc.1);
+    scrolled.zoom_to_center(scrolled.min_zoom(doc.0, doc.1), doc.0, doc.1);
+    let mut dragged = scrolled;
+
+    scrolled.pan_by_scroll(30.0, 0.0, true, doc.0, doc.1);
+    dragged.pan_by(30.0, 0.0, doc.0, doc.1);
+    assert!((scrolled.pan_x - dragged.pan_x).abs() < 1e-4);
 }
 
 #[test]
@@ -294,6 +307,20 @@ fn a_wheel_notch_zooms_further_than_a_trackpad_pixel() {
     wheel.zoom_by_scroll(500.0, 400.0, -1.0, false, doc.0, doc.1);
     trackpad.zoom_by_scroll(500.0, 400.0, -1.0, true, doc.0, doc.1);
     assert!(wheel.zoom > trackpad.zoom);
+}
+
+#[test]
+fn a_huge_scroll_delta_cannot_cross_the_zoom_range() {
+    let doc = (2000.0, 1500.0);
+    let mut c = cam(1000.0, 800.0);
+    c.fit(doc.0, doc.1);
+    let start = c.zoom_unit(doc.0, doc.1);
+    c.zoom_by_scroll(500.0, 400.0, -1000.0, false, doc.0, doc.1);
+    let jumped = (start - c.zoom_unit(doc.0, doc.1)).abs();
+    assert!(
+        jumped <= ZOOM_UNIT_PER_SCROLL_LINE * 2.0 + 1e-4,
+        "a single event covered {jumped} of the range"
+    );
 }
 
 #[test]

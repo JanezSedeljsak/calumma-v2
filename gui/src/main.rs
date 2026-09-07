@@ -19,8 +19,9 @@ use std::rc::Rc;
 use std::time::Duration;
 use ui_bridge::{
     camera_signature, init_form_defaults, parse_dimension, refresh_landing, set_editor_open,
-    sync_editor, sync_layer_rows, sync_layer_settings, sync_layers, sync_rulers, sync_shell,
-    AppWindow, SharedUi, DEFAULT_HEIGHT, DEFAULT_WIDTH,
+    sync_editor, sync_guide_readout, sync_guides, sync_layer_rows, sync_layer_settings,
+    sync_layers, sync_rulers, sync_shell, sync_zoom_chrome, AppWindow, SharedUi, DEFAULT_HEIGHT,
+    DEFAULT_WIDTH,
 };
 
 struct InputState {
@@ -35,11 +36,24 @@ impl InputState {
     }
 }
 
+fn init_platform() -> Result<(), Box<dyn std::error::Error>> {
+    let mut builder = i_slint_backend_winit::Backend::builder();
+    #[cfg(target_os = "macos")]
+    {
+        use winit::platform::macos::WindowAttributesExtMacOS;
+        builder = builder.with_window_attributes_hook(|attributes| {
+            attributes
+                .with_titlebar_transparent(true)
+                .with_fullsize_content_view(true)
+                .with_title_hidden(true)
+        });
+    }
+    slint::platform::set_platform(Box::new(builder.build()?))?;
+    Ok(())
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    slint::BackendSelector::new()
-        .backend_name("winit".into())
-        .select()
-        .map_err(|e| format!("selecting the winit backend: {e}"))?;
+    init_platform()?;
 
     let root = workspace_root();
     let window_metrics = Theme::window_metrics(&root)?;
@@ -437,6 +451,54 @@ fn wire_editor_callbacks(
             }
         }
     });
+    ui.on_crop_aspect_changed({
+        let controller = controller.clone();
+        let ui_weak = ui_weak.clone();
+        move |index| {
+            controller.borrow_mut().set_crop_aspect(index);
+            if let Some(ui) = ui_weak.upgrade() {
+                let mut ctrl = controller.borrow_mut();
+                sync_editor(&ui, &mut ctrl);
+            }
+            wake(&ui_weak);
+        }
+    });
+    ui.on_crop_overlay_changed({
+        let controller = controller.clone();
+        let ui_weak = ui_weak.clone();
+        move |index| {
+            controller.borrow_mut().set_crop_overlay(index);
+            if let Some(ui) = ui_weak.upgrade() {
+                let mut ctrl = controller.borrow_mut();
+                sync_editor(&ui, &mut ctrl);
+            }
+            wake(&ui_weak);
+        }
+    });
+    ui.on_commit_crop({
+        let controller = controller.clone();
+        let ui_weak = ui_weak.clone();
+        move || {
+            controller.borrow_mut().commit_crop();
+            if let Some(ui) = ui_weak.upgrade() {
+                let mut ctrl = controller.borrow_mut();
+                sync_editor(&ui, &mut ctrl);
+            }
+            wake(&ui_weak);
+        }
+    });
+    ui.on_cancel_crop({
+        let controller = controller.clone();
+        let ui_weak = ui_weak.clone();
+        move || {
+            controller.borrow_mut().cancel_crop();
+            if let Some(ui) = ui_weak.upgrade() {
+                let mut ctrl = controller.borrow_mut();
+                sync_editor(&ui, &mut ctrl);
+            }
+            wake(&ui_weak);
+        }
+    });
     ui.on_commit_layer_bounds({
         let controller = controller.clone();
         let ui_weak = ui_weak.clone();
@@ -474,6 +536,9 @@ fn wire_editor_callbacks(
         let ui_weak = ui_weak.clone();
         move |unit| {
             controller.borrow_mut().set_zoom_unit(unit);
+            if let Some(ui) = ui_weak.upgrade() {
+                sync_zoom_chrome(&ui, &controller.borrow());
+            }
             wake(&ui_weak);
         }
     });
@@ -507,16 +572,28 @@ fn wire_editor_callbacks(
     ui.on_guide_pressed({
         let controller = controller.clone();
         let ui_weak = ui_weak.clone();
+        let input = input.clone();
         move |horizontal, x, y| {
-            controller.borrow_mut().begin_guide_drag(horizontal, x, y);
+            let shift = input.borrow().mods.shift_held;
+            controller
+                .borrow_mut()
+                .begin_guide_drag(horizontal, x, y, shift);
+            if let Some(ui) = ui_weak.upgrade() {
+                sync_guide_readout(&ui, &controller.borrow());
+            }
             wake(&ui_weak);
         }
     });
     ui.on_guide_moved({
         let controller = controller.clone();
         let ui_weak = ui_weak.clone();
+        let input = input.clone();
         move |x, y| {
-            controller.borrow_mut().update_guide_drag(x, y);
+            let shift = input.borrow().mods.shift_held;
+            controller.borrow_mut().update_guide_drag(x, y, shift);
+            if let Some(ui) = ui_weak.upgrade() {
+                sync_guide_readout(&ui, &controller.borrow());
+            }
             wake(&ui_weak);
         }
     });
@@ -525,6 +602,11 @@ fn wire_editor_callbacks(
         let ui_weak = ui_weak.clone();
         move || {
             controller.borrow_mut().end_guide_drag();
+            if let Some(ui) = ui_weak.upgrade() {
+                let ctrl = controller.borrow();
+                sync_guide_readout(&ui, &ctrl);
+                sync_guides(&ui, &ctrl);
+            }
             wake(&ui_weak);
         }
     });
@@ -555,6 +637,11 @@ fn wire_editor_callbacks(
         move |x, y| {
             let (mods, modal) = cursor_context(&controller, &input);
             host.borrow_mut().pointer_moved(x, y, mods, modal);
+            if controller.borrow().engine.borrow().is_dragging_guide() {
+                if let Some(ui) = ui_weak.upgrade() {
+                    sync_guide_readout(&ui, &controller.borrow());
+                }
+            }
             wake(&ui_weak);
         }
     });
@@ -569,6 +656,8 @@ fn wire_editor_callbacks(
             if let Some(ui) = ui_weak.upgrade() {
                 let mut ctrl = controller.borrow_mut();
                 sync_layers(&ui, &mut ctrl);
+                sync_guide_readout(&ui, &ctrl);
+                sync_guides(&ui, &ctrl);
             }
             wake(&ui_weak);
         }
@@ -593,12 +682,41 @@ fn wire_editor_callbacks(
     });
     ui.on_scrolled({
         let host = host.clone();
+        let controller = controller.clone();
         let input = input.clone();
         let ui_weak = ui_weak.clone();
         move |x, y, dx, dy, alt, meta| {
+            if controller.borrow().pinch_zoom.is_some() {
+                return;
+            }
             input.borrow_mut().mods.alt_held = alt;
             input.borrow_mut().mods.meta_held = meta;
             host.borrow_mut().scroll(x, y, dx, dy, alt, meta);
+            wake(&ui_weak);
+        }
+    });
+    ui.on_pinch_started({
+        let controller = controller.clone();
+        move || {
+            controller.borrow_mut().pinch_started();
+        }
+    });
+    ui.on_pinch_updated({
+        let controller = controller.clone();
+        let ui_weak = ui_weak.clone();
+        move |x, y, scale| {
+            controller.borrow_mut().pinch_updated(x, y, scale);
+            wake(&ui_weak);
+        }
+    });
+    ui.on_pinch_ended({
+        let controller = controller.clone();
+        let ui_weak = ui_weak.clone();
+        move || {
+            controller.borrow_mut().pinch_ended();
+            if let Some(ui) = ui_weak.upgrade() {
+                sync_zoom_chrome(&ui, &controller.borrow());
+            }
             wake(&ui_weak);
         }
     });
@@ -1020,6 +1138,162 @@ fn wire_layer_actions(ui: &AppWindow, controller: SharedController, ui_weak: Sha
             wake(&ui_weak);
         }
     });
+    ui.on_layer_settings_blend_changed({
+        let controller = controller.clone();
+        let ui_weak = ui_weak.clone();
+        move |mode| {
+            let mut ctrl = controller.borrow_mut();
+            let index = ctrl.layer_settings_index;
+            ctrl.set_layer_blend_mode(index, mode);
+            if let Some(ui) = ui_weak.upgrade() {
+                sync_layer_settings(&ui, &ctrl);
+                sync_layers(&ui, &mut ctrl);
+            }
+            wake(&ui_weak);
+        }
+    });
+    ui.on_layer_settings_filter_changed({
+        let controller = controller.clone();
+        let ui_weak = ui_weak.clone();
+        move |kind, value| {
+            let mut ctrl = controller.borrow_mut();
+            let index = ctrl.layer_settings_index;
+            ctrl.set_layer_filter(index, kind, value);
+            if let Some(ui) = ui_weak.upgrade() {
+                sync_layer_settings(&ui, &ctrl);
+            }
+            wake(&ui_weak);
+        }
+    });
+    ui.on_layer_settings_reset_filters({
+        let controller = controller.clone();
+        let ui_weak = ui_weak.clone();
+        move || {
+            let mut ctrl = controller.borrow_mut();
+            let index = ctrl.layer_settings_index;
+            ctrl.reset_layer_filters(index);
+            if let Some(ui) = ui_weak.upgrade() {
+                sync_layer_settings(&ui, &ctrl);
+            }
+            wake(&ui_weak);
+        }
+    });
+    ui.on_layer_settings_rename({
+        let controller = controller.clone();
+        let ui_weak = ui_weak.clone();
+        move |name| {
+            let mut ctrl = controller.borrow_mut();
+            let index = ctrl.layer_settings_index;
+            ctrl.rename_layer(index, &name);
+            if let Some(ui) = ui_weak.upgrade() {
+                sync_layer_settings(&ui, &ctrl);
+                sync_layers(&ui, &mut ctrl);
+            }
+            wake(&ui_weak);
+        }
+    });
+    ui.on_layer_settings_toggle_clip({
+        let controller = controller.clone();
+        let ui_weak = ui_weak.clone();
+        move || {
+            let mut ctrl = controller.borrow_mut();
+            let index = ctrl.layer_settings_index;
+            ctrl.toggle_layer_clip(index);
+            if let Some(ui) = ui_weak.upgrade() {
+                sync_shell(&ui, &ctrl);
+                sync_layers(&ui, &mut ctrl);
+            }
+            wake(&ui_weak);
+        }
+    });
+    ui.on_layer_settings_flatten_clip({
+        let controller = controller.clone();
+        let ui_weak = ui_weak.clone();
+        move || {
+            let mut ctrl = controller.borrow_mut();
+            let index = ctrl.layer_settings_index;
+            if ctrl.flatten_layer_clip(index) {
+                ctrl.layer_settings_open = false;
+            }
+            if let Some(ui) = ui_weak.upgrade() {
+                sync_shell(&ui, &ctrl);
+                sync_layers(&ui, &mut ctrl);
+            }
+            wake(&ui_weak);
+        }
+    });
+    ui.on_layer_settings_merge_down({
+        let controller = controller.clone();
+        let ui_weak = ui_weak.clone();
+        move || {
+            let mut ctrl = controller.borrow_mut();
+            let index = ctrl.layer_settings_index;
+            if ctrl.merge_layer_down(index) {
+                ctrl.layer_settings_open = false;
+            }
+            if let Some(ui) = ui_weak.upgrade() {
+                sync_shell(&ui, &ctrl);
+                sync_layers(&ui, &mut ctrl);
+            }
+            wake(&ui_weak);
+        }
+    });
+    ui.on_layer_settings_reset_transform({
+        let controller = controller.clone();
+        let ui_weak = ui_weak.clone();
+        move || {
+            let mut ctrl = controller.borrow_mut();
+            let index = ctrl.layer_settings_index;
+            ctrl.reset_layer_transform(index);
+            if let Some(ui) = ui_weak.upgrade() {
+                sync_layer_settings(&ui, &ctrl);
+                sync_layers(&ui, &mut ctrl);
+            }
+            wake(&ui_weak);
+        }
+    });
+    ui.on_layer_settings_move_up({
+        let controller = controller.clone();
+        let ui_weak = ui_weak.clone();
+        move || {
+            let mut ctrl = controller.borrow_mut();
+            let index = ctrl.layer_settings_index;
+            ctrl.move_layer_up(index);
+            if let Some(ui) = ui_weak.upgrade() {
+                sync_layer_settings(&ui, &ctrl);
+                sync_layers(&ui, &mut ctrl);
+            }
+            wake(&ui_weak);
+        }
+    });
+    ui.on_layer_settings_move_down({
+        let controller = controller.clone();
+        let ui_weak = ui_weak.clone();
+        move || {
+            let mut ctrl = controller.borrow_mut();
+            let index = ctrl.layer_settings_index;
+            ctrl.move_layer_down(index);
+            if let Some(ui) = ui_weak.upgrade() {
+                sync_layer_settings(&ui, &ctrl);
+                sync_layers(&ui, &mut ctrl);
+            }
+            wake(&ui_weak);
+        }
+    });
+    ui.on_layer_settings_rasterize({
+        let controller = controller.clone();
+        let ui_weak = ui_weak.clone();
+        move || {
+            let mut ctrl = controller.borrow_mut();
+            let index = ctrl.layer_settings_index;
+            ctrl.rasterize_layer(index);
+            if let Some(ui) = ui_weak.upgrade() {
+                sync_layer_settings(&ui, &ctrl);
+                sync_layers(&ui, &mut ctrl);
+            }
+            wake(&ui_weak);
+        }
+    });
 }
 
 fn wire_tools(ui: &AppWindow, controller: SharedController, ui_weak: SharedUi) {
@@ -1186,6 +1460,110 @@ fn wire_modals(
         }
     });
 
+    ui.on_open_guides({
+        let controller = controller.clone();
+        let ui_weak = ui_weak.clone();
+        move || {
+            controller.borrow_mut().open_guides();
+            if let Some(ui) = ui_weak.upgrade() {
+                let ctrl = controller.borrow();
+                if ui.get_add_guide_offset().is_empty() {
+                    ui.set_add_guide_offset(slint::SharedString::from("0"));
+                }
+                sync_shell(&ui, &ctrl);
+                sync_guides(&ui, &ctrl);
+            }
+            wake(&ui_weak);
+        }
+    });
+    ui.on_guides_dismissed({
+        let controller = controller.clone();
+        let ui_weak = ui_weak.clone();
+        move || {
+            controller.borrow_mut().guides_open = false;
+            if let Some(ui) = ui_weak.upgrade() {
+                sync_shell(&ui, &controller.borrow());
+            }
+        }
+    });
+    ui.on_add_guide({
+        let controller = controller.clone();
+        let ui_weak = ui_weak.clone();
+        move || {
+            if let Some(ui) = ui_weak.upgrade() {
+                let horizontal = ui.get_add_guide_horizontal();
+                let offset = ui.get_add_guide_offset().to_string();
+                controller
+                    .borrow_mut()
+                    .add_guide_from_card(horizontal, &offset);
+                let ctrl = controller.borrow();
+                sync_guides(&ui, &ctrl);
+            }
+            wake(&ui_weak);
+        }
+    });
+    ui.on_remove_guide({
+        let controller = controller.clone();
+        let ui_weak = ui_weak.clone();
+        move |index| {
+            controller.borrow_mut().remove_guide(index as usize);
+            if let Some(ui) = ui_weak.upgrade() {
+                sync_guides(&ui, &controller.borrow());
+            }
+            wake(&ui_weak);
+        }
+    });
+    ui.on_clear_guides({
+        let controller = controller.clone();
+        let ui_weak = ui_weak.clone();
+        move || {
+            controller.borrow_mut().clear_guides();
+            if let Some(ui) = ui_weak.upgrade() {
+                sync_guides(&ui, &controller.borrow());
+            }
+            wake(&ui_weak);
+        }
+    });
+    ui.on_set_guide_axis({
+        let controller = controller.clone();
+        let ui_weak = ui_weak.clone();
+        move |index, horizontal| {
+            controller
+                .borrow_mut()
+                .set_guide_axis(index as usize, horizontal);
+            if let Some(ui) = ui_weak.upgrade() {
+                sync_guides(&ui, &controller.borrow());
+            }
+            wake(&ui_weak);
+        }
+    });
+    ui.on_set_guide_offset({
+        let controller = controller.clone();
+        let ui_weak = ui_weak.clone();
+        move |index, text| {
+            controller
+                .borrow_mut()
+                .set_guide_offset(index as usize, text.as_str());
+            if let Some(ui) = ui_weak.upgrade() {
+                sync_guides(&ui, &controller.borrow());
+            }
+            wake(&ui_weak);
+        }
+    });
+    ui.on_set_guide_color({
+        let controller = controller.clone();
+        let ui_weak = ui_weak.clone();
+        move |index, palette_index| {
+            controller
+                .borrow_mut()
+                .set_guide_color(index as usize, palette_index as usize);
+            if let Some(ui) = ui_weak.upgrade() {
+                sync_guides(&ui, &controller.borrow());
+            }
+            wake(&ui_weak);
+        }
+    });
+
     ui.on_create_from_modal({
         let controller = controller.clone();
         let ui_weak = ui_weak.clone();
@@ -1263,6 +1641,12 @@ fn wire_shell_keys(
             }
             host.borrow_mut()
                 .modifiers_changed(input.borrow().mods, controller.borrow().any_modal_open());
+            controller
+                .borrow_mut()
+                .refresh_guide_shift(input.borrow().mods.shift_held);
+            if let Some(ui) = ui_weak.upgrade() {
+                sync_guide_readout(&ui, &controller.borrow());
+            }
 
             let ctrl = controller.borrow();
             let action = handle_shell_key(
@@ -1276,13 +1660,24 @@ fn wire_shell_keys(
             drop(ctrl);
 
             match action {
-                ShellKeyAction::None => {}
+                ShellKeyAction::None => {
+                    if (text == "\n" || text == "\r")
+                        && !controller.borrow().any_modal_open()
+                        && controller.borrow().engine.borrow().active_tool()
+                            == Some(calumma_core::Tool::Crop)
+                    {
+                        controller.borrow_mut().commit_crop();
+                    }
+                }
                 ShellKeyAction::Escape => {
                     let mut ctrl = controller.borrow_mut();
                     if ctrl.toast_visible {
                         ctrl.dismiss_toast();
                     } else if ctrl.any_modal_open() {
                         ctrl.dismiss_modals();
+                    } else if ctrl.engine.borrow().active_tool() == Some(calumma_core::Tool::Crop)
+                    {
+                        ctrl.cancel_crop();
                     }
                 }
                 ShellKeyAction::OpenSettings => {
@@ -1294,6 +1689,11 @@ fn wire_shell_keys(
                 ShellKeyAction::ToggleLayers => {
                     let mut ctrl = controller.borrow_mut();
                     let _ = ctrl.toggle_layers_panel();
+                }
+                ShellKeyAction::ClipLayer => {
+                    if let Some(index) = controller.borrow().engine.borrow().active_layer_index() {
+                        controller.borrow_mut().toggle_layer_clip(index);
+                    }
                 }
                 ShellKeyAction::Editor(editor_action) => match editor_action {
                     EditorKeyAction::None => {}
@@ -1309,6 +1709,15 @@ fn wire_shell_keys(
                             .borrow_mut()
                             .pick_tool(calumma_core::Tool::Transform);
                     }
+                    EditorKeyAction::ZoomIn => {
+                        controller.borrow_mut().step_zoom(true);
+                    }
+                    EditorKeyAction::ZoomOut => {
+                        controller.borrow_mut().step_zoom(false);
+                    }
+                    EditorKeyAction::FitZoom => {
+                        controller.borrow_mut().fit_to_view();
+                    }
                     EditorKeyAction::PickTool(tool) => {
                         controller.borrow_mut().pick_tool(tool);
                     }
@@ -1320,6 +1729,7 @@ fn wire_shell_keys(
                 sync_shell(&ui, &ctrl);
                 if ctrl.editor_open {
                     sync_editor(&ui, &mut ctrl);
+                    sync_layers(&ui, &mut ctrl);
                     ui.set_layers_open(ctrl.prefs.layers_panel_open);
                 }
             }
@@ -1351,6 +1761,12 @@ fn wire_shell_keys(
             }
             host.borrow_mut()
                 .modifiers_changed(input.borrow().mods, controller.borrow().any_modal_open());
+            controller
+                .borrow_mut()
+                .refresh_guide_shift(input.borrow().mods.shift_held);
+            if let Some(ui) = ui_weak.upgrade() {
+                sync_guide_readout(&ui, &controller.borrow());
+            }
         }
     });
 }
@@ -1364,6 +1780,10 @@ fn setup_board(ui_weak: &SharedUi, host: &Rc<RefCell<BoardHost>>) {
 fn sync_board_geometry(ui: &AppWindow, host: &Rc<RefCell<BoardHost>>) {
     let scale = ui.window().scale_factor();
     let content_height = ui.window().size().to_logical(scale).height;
+    let overlay = ui.get_settings_open()
+        || ui.get_new_project_open()
+        || ui.get_guides_open()
+        || ui.get_layer_settings_open();
     let layout = board_layout(
         ui.get_board_x(),
         ui.get_board_y(),
@@ -1372,8 +1792,10 @@ fn sync_board_geometry(ui: &AppWindow, host: &Rc<RefCell<BoardHost>>) {
     );
     ui.window().with_winit_window(|winit_window| {
         host.borrow_mut()
-            .sync_geometry(winit_window, &layout, content_height, scale);
-        host.borrow_mut().render();
+            .sync_geometry(winit_window, &layout, content_height, scale, overlay);
+        if !overlay {
+            host.borrow_mut().render();
+        }
     });
 }
 
@@ -1442,6 +1864,7 @@ fn start_frame_loop(
                 if *camera.borrow() != next {
                     *camera.borrow_mut() = next;
                     sync_rulers(&ui, &ctrl);
+                    sync_zoom_chrome(&ui, &ctrl);
                 }
             }
         }

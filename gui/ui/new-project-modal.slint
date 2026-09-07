@@ -48,6 +48,7 @@ export component NewProjectModal inherits Rectangle {
         }
 
         CalmModalCard {
+            z: 1;
             width: min(Tokens.new-project-width, parent.width - Tokens.space-xl * 2);
             height: min(Tokens.new-project-height, parent.height - Tokens.space-xl * 2);
             clip: true;

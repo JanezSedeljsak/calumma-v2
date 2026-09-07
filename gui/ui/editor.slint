@@ -2,6 +2,9 @@ import { LayerRow, ToolEntry } from "models.slint";
 import { Theme } from "calm/CalmTheme.slint";
 import { Tokens } from "calm/CalmTokens.slint";
 import { CalmIsland } from "calm/CalmIsland.slint";
+import { CalmPointer } from "calm/CalmPointer.slint";
+import { CalmMuted } from "calm/CalmText.slint";
+import { Tip } from "calm/CalmTip.slint";
 import { ToolsPanel } from "tools-panel.slint";
 import { LayersPanel, LayerHoverCard } from "layers-panel.slint";
 import { ZoomPill } from "zoom-pill.slint";
@@ -71,9 +74,23 @@ export component Editor inherits Rectangle {
     out property <length> board-width: board-surface.width;
     out property <length> board-height: board-surface.height;
 
+    function strip-to-board-x(strip-x: length, local-x: length) -> float {
+        (strip-x + local-x - board-surface.absolute-position.x) / 1px;
+    }
+
+    function strip-to-board-y(strip-y: length, local-y: length) -> float {
+        (strip-y + local-y - board-surface.absolute-position.y) / 1px;
+    }
+
     in property <[RulerTickRow]> ruler-ticks-x;
     in property <[RulerTickRow]> ruler-ticks-y;
+    in property <string> guides-tip;
+    in property <bool> guide-readout-visible;
+    in property <bool> guide-readout-horizontal;
+    in property <string> guide-readout-text;
+    in property <float> guide-readout-screen;
 
+    callback open-guides();
     callback guide-pressed(bool, float, float);
     callback guide-moved(float, float);
     callback guide-released();
@@ -91,6 +108,10 @@ export component Editor inherits Rectangle {
     callback vector-toggled();
     callback aligned-toggled();
     callback transform-toggled();
+    callback crop-aspect-changed(int);
+    callback crop-overlay-changed(int);
+    callback commit-crop();
+    callback cancel-crop();
     callback zoom-changed(float);
     callback step-zoom(bool);
     callback fit-zoom();
@@ -116,12 +137,18 @@ export component Editor inherits Rectangle {
     callback pointer-enter();
     callback pointer-exit();
     callback scrolled(float, float, float, float, bool, bool);
+    callback pinch-started();
+    callback pinch-updated(float, float, float);
+    callback pinch-ended();
 
     background: Theme.bg;
 
-    VerticalLayout {
-        padding: Tokens.space-xs;
-        spacing: Tokens.space-xs;
+        VerticalLayout {
+            padding-left: Tokens.space-xs;
+            padding-right: Tokens.space-xs;
+            padding-bottom: Tokens.space-xs;
+            padding-top: Tokens.titlebar-height;
+            spacing: Tokens.space-xs;
 
         HorizontalLayout {
             spacing: Tokens.space-xs;
@@ -194,6 +221,18 @@ export component Editor inherits Rectangle {
                 transform-toggled => {
                     root.transform-toggled();
                 }
+                crop-aspect-changed(index) => {
+                    root.crop-aspect-changed(index);
+                }
+                crop-overlay-changed(index) => {
+                    root.crop-overlay-changed(index);
+                }
+                commit-crop => {
+                    root.commit-crop();
+                }
+                cancel-crop => {
+                    root.cancel-crop();
+                }
                 select-color-swatch(i) => {
                     root.select-color-swatch(i);
                 }
@@ -238,14 +277,14 @@ export component Editor inherits Rectangle {
                             background: Theme.surface;
                         }
 
-                        RulerStrip {
+                        h-ruler := RulerStrip {
                             horizontal-stretch: 1;
                             ticks: root.ruler-ticks-x;
                             guide-pressed(x, y) => {
-                                root.guide-pressed(true, x / 1px, (y - Tokens.ruler-thickness) / 1px);
+                                root.guide-pressed(true, root.strip-to-board-x(h-ruler.absolute-position.x, x), root.strip-to-board-y(h-ruler.absolute-position.y, y));
                             }
                             guide-moved(x, y) => {
-                                root.guide-moved(x / 1px, (y - Tokens.ruler-thickness) / 1px);
+                                root.guide-moved(root.strip-to-board-x(h-ruler.absolute-position.x, x), root.strip-to-board-y(h-ruler.absolute-position.y, y));
                             }
                             guide-released => {
                                 root.guide-released();
@@ -256,65 +295,80 @@ export component Editor inherits Rectangle {
                     HorizontalLayout {
                         vertical-stretch: 1;
 
-                        RulerStrip {
+                        v-ruler := RulerStrip {
                             width: Tokens.ruler-thickness;
                             vertical: true;
                             ticks: root.ruler-ticks-y;
                             guide-pressed(x, y) => {
-                                root.guide-pressed(false, (x - Tokens.ruler-thickness) / 1px, y / 1px);
+                                root.guide-pressed(false, root.strip-to-board-x(v-ruler.absolute-position.x, x), root.strip-to-board-y(v-ruler.absolute-position.y, y));
                             }
                             guide-moved(x, y) => {
-                                root.guide-moved((x - Tokens.ruler-thickness) / 1px, y / 1px);
+                                root.guide-moved(root.strip-to-board-x(v-ruler.absolute-position.x, x), root.strip-to-board-y(v-ruler.absolute-position.y, y));
                             }
                             guide-released => {
                                 root.guide-released();
                             }
                         }
 
-                        Rectangle {
+                        board-stack := Rectangle {
                             horizontal-stretch: 1;
 
                             board-surface := Rectangle {
-                                x: 0;
-                                y: 0;
-                                width: parent.width;
-                                height: parent.height - zoom-pill.height - Tokens.space-md * 2;
+                                width: 100%;
+                                height: parent.height - zoom-pill.height - Tokens.space-xs * 2;
 
-                                board-touch := TouchArea {
+                                pinch := ScaleRotateGestureHandler {
                                     width: 100%;
                                     height: 100%;
+                                    started => {
+                                        root.pinch-started();
+                                    }
+                                    updated => {
+                                        root.pinch-updated(board-touch.mouse-x / 1px, board-touch.mouse-y / 1px, self.scale);
+                                    }
+                                    ended => {
+                                        root.pinch-ended();
+                                    }
+                                    cancelled => {
+                                        root.pinch-ended();
+                                    }
 
-                                    pointer-event(event) => {
-                                        if (event.button == PointerEventButton.left || event.button == PointerEventButton.middle) {
-                                            if (event.kind == PointerEventKind.down) {
-                                                root.pointer-pressed(
-                                                    self.mouse-x / 1px,
-                                                    self.mouse-y / 1px,
-                                                    event.button == PointerEventButton.middle,
-                                                    event.modifiers.meta || event.modifiers.control,
-                                                    event.modifiers.alt,
-                                                    event.modifiers.shift,
-                                                );
-                                            } else if (event.kind == PointerEventKind.up) {
-                                                root.pointer-released(self.mouse-x / 1px, self.mouse-y / 1px);
+                                    board-touch := TouchArea {
+                                        width: 100%;
+                                        height: 100%;
+
+                                        pointer-event(event) => {
+                                            if (event.button == PointerEventButton.left || event.button == PointerEventButton.middle) {
+                                                if (event.kind == PointerEventKind.down) {
+                                                    root.pointer-pressed(
+                                                        self.mouse-x / 1px,
+                                                        self.mouse-y / 1px,
+                                                        event.button == PointerEventButton.middle,
+                                                        event.modifiers.meta || event.modifiers.control,
+                                                        event.modifiers.alt,
+                                                        event.modifiers.shift,
+                                                    );
+                                                } else if (event.kind == PointerEventKind.up) {
+                                                    root.pointer-released(self.mouse-x / 1px, self.mouse-y / 1px);
+                                                }
                                             }
                                         }
-                                    }
 
-                                    moved => {
-                                        root.pointer-moved(self.mouse-x / 1px, self.mouse-y / 1px);
-                                    }
+                                        moved => {
+                                            root.pointer-moved(self.mouse-x / 1px, self.mouse-y / 1px);
+                                        }
 
-                                    scroll-event(event) => {
-                                        root.scrolled(
-                                            self.mouse-x / 1px,
-                                            self.mouse-y / 1px,
-                                            event.delta-x / 1px,
-                                            event.delta-y / 1px,
-                                            event.modifiers.alt,
-                                            event.modifiers.meta || event.modifiers.control,
-                                        );
-                                        accept;
+                                        scroll-event(event) => {
+                                            root.scrolled(
+                                                self.mouse-x / 1px,
+                                                self.mouse-y / 1px,
+                                                event.delta-x / 1px,
+                                                event.delta-y / 1px,
+                                                event.modifiers.alt,
+                                                event.modifiers.meta || event.modifiers.control,
+                                            );
+                                            accept;
+                                        }
                                     }
                                 }
 
@@ -330,8 +384,8 @@ export component Editor inherits Rectangle {
                             }
 
                             zoom-pill := ZoomPill {
-                                x: parent.width - self.width - Tokens.space-md;
-                                y: parent.height - self.height - Tokens.space-md;
+                                x: parent.width - self.width - Tokens.space-xs;
+                                y: parent.height - self.height - Tokens.space-xs;
                                 zoom-unit <=> root.zoom-unit;
                                 zoom-text: root.zoom-text;
                                 is-fit: root.is-fit;
@@ -349,6 +403,68 @@ export component Editor inherits Rectangle {
                                 }
                             }
                         }
+                    }
+                }
+
+                guides-corner := Rectangle {
+                    width: Tokens.guides-corner-size;
+                    height: Tokens.guides-corner-size;
+                    x: 1px + Tokens.ruler-thickness / 2 - self.width / 2;
+                    y: 1px + Tokens.ruler-thickness / 2 - self.height / 2;
+                    border-radius: self.width / 2;
+                    background: Theme.surface-hover;
+                    border-width: 1px;
+                    border-color: Theme.island-border;
+
+                    Image {
+                        source: @image-url("ruler.svg");
+                        width: Tokens.row-icon-size;
+                        height: Tokens.row-icon-size;
+                        x: (parent.width - self.width) / 2;
+                        y: (parent.height - self.height) / 2;
+                        colorize: Theme.text-muted;
+                    }
+
+                    corner-touch := CalmPointer {
+                        clicked => {
+                            Tip.armed = false;
+                            Tip.open = false;
+                            root.open-guides();
+                        }
+                        changed has-hover => {
+                            if (self.has-hover && root.guides-tip != "") {
+                                Tip.text = root.guides-tip;
+                                Tip.shortcut = "";
+                                Tip.leading = false;
+                                Tip.x = guides-corner.absolute-position.x + guides-corner.width + Tokens.space-sm;
+                                Tip.y = guides-corner.absolute-position.y + guides-corner.height / 2;
+                                Tip.open = false;
+                                Tip.armed = true;
+                            } else if (Tip.text == root.guides-tip) {
+                                Tip.armed = false;
+                                Tip.open = false;
+                            }
+                        }
+                    }
+                }
+
+                if root.guide-readout-visible: Rectangle {
+                    x: root.guide-readout-horizontal
+                        ? 1px + 2px
+                        : min(max(1px + Tokens.ruler-thickness + 4px, 1px + Tokens.ruler-thickness + root.guide-readout-screen * 1px + 4px), parent.width - self.width - Tokens.space-sm);
+                    y: root.guide-readout-horizontal
+                        ? min(max(1px + Tokens.ruler-thickness, 1px + Tokens.ruler-thickness + root.guide-readout-screen * 1px - self.height / 2), parent.height - self.height - Tokens.space-sm)
+                        : 1px + 2px;
+                    background: Theme.surface;
+                    border-radius: Tokens.radius-sm;
+                    height: Tokens.label-size + Tokens.space-xs * 2;
+                    width: readout-label.preferred-width + Tokens.space-sm;
+
+                    readout-label := CalmMuted {
+                        x: Tokens.space-xs;
+                        y: Tokens.space-xs;
+                        text: root.guide-readout-text;
+                        mono: true;
                     }
                 }
             }

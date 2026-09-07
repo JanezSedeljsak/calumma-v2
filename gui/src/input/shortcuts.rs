@@ -1,5 +1,6 @@
 use calumma_app::shortcuts::{
-    is_redo_shortcut, is_toggle_layers_shortcut, is_transform_shortcut, is_undo_shortcut,
+    is_clip_shortcut, is_fit_zoom_shortcut, is_redo_shortcut, is_toggle_layers_shortcut,
+    is_transform_shortcut, is_undo_shortcut, is_zoom_in_shortcut, is_zoom_out_shortcut,
     tool_for_key,
 };
 use calumma_core::Tool;
@@ -44,15 +45,13 @@ pub fn handle_shell_key(
         return ShellKeyAction::ToggleLayers;
     }
 
+    if editor_open && is_clip_shortcut(text, mods.meta, mods.alt) {
+        return ShellKeyAction::ClipLayer;
+    }
+
     match handle_editor_key(text, mods, editor_open, can_undo, can_redo) {
         EditorKeyAction::None => ShellKeyAction::None,
-        EditorKeyAction::Undo => ShellKeyAction::Editor(EditorKeyAction::Undo),
-        EditorKeyAction::Redo => ShellKeyAction::Editor(EditorKeyAction::Redo),
-        EditorKeyAction::Save => ShellKeyAction::Editor(EditorKeyAction::Save),
-        EditorKeyAction::ToggleTransform => {
-            ShellKeyAction::Editor(EditorKeyAction::ToggleTransform)
-        }
-        EditorKeyAction::PickTool(tool) => ShellKeyAction::Editor(EditorKeyAction::PickTool(tool)),
+        action => ShellKeyAction::Editor(action),
     }
 }
 
@@ -76,11 +75,20 @@ pub fn handle_editor_key(
     if is_transform_shortcut(text, mods.meta, mods.control) {
         return EditorKeyAction::ToggleTransform;
     }
+    if is_zoom_in_shortcut(text, mods.meta, mods.control) {
+        return EditorKeyAction::ZoomIn;
+    }
+    if is_zoom_out_shortcut(text, mods.meta, mods.control) {
+        return EditorKeyAction::ZoomOut;
+    }
     if mods.control || mods.meta || mods.alt {
         if text.eq_ignore_ascii_case("s") {
             return EditorKeyAction::Save;
         }
         return EditorKeyAction::None;
+    }
+    if is_fit_zoom_shortcut(text, mods.meta, mods.control, mods.alt) {
+        return EditorKeyAction::FitZoom;
     }
     if text.len() == 1 {
         let key = text.chars().next().unwrap().to_ascii_lowercase();
@@ -123,6 +131,7 @@ pub enum ShellKeyAction {
     OpenSettings,
     NewProject,
     ToggleLayers,
+    ClipLayer,
     Editor(EditorKeyAction),
 }
 
@@ -132,6 +141,9 @@ pub enum EditorKeyAction {
     Redo,
     Save,
     ToggleTransform,
+    ZoomIn,
+    ZoomOut,
+    FitZoom,
     PickTool(Tool),
 }
 

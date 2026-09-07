@@ -192,7 +192,11 @@ impl Camera {
         doc_width: f32,
         doc_height: f32,
     ) {
-        let gain = self.scroll_pan_gain(doc_width, doc_height);
+        let gain = if precise {
+            1.0
+        } else {
+            self.scroll_pan_gain(doc_width, doc_height)
+        };
         self.pan_by(
             scroll_pixels(dx, precise) * gain,
             scroll_pixels(dy, precise) * gain,
@@ -215,7 +219,8 @@ impl Camera {
         } else {
             ZOOM_UNIT_PER_SCROLL_LINE
         };
-        let step = delta * weight;
+        let cap = ZOOM_UNIT_PER_SCROLL_LINE * 2.0;
+        let step = (delta * weight).clamp(-cap, cap);
         if step == 0.0 {
             return;
         }

@@ -2,7 +2,7 @@ use super::export::{project_basename, save_bytes, save_text};
 use super::{format_bytes, Catalog, LayerThumbCache, QuickColors, ShellPrefs, Theme};
 use anyhow::Result;
 use calumma_app::{pick_tool, Engine, LayerSummary, ProjectSummary};
-use calumma_core::{guide::GuideAxis, Tool};
+use calumma_core::{guide::GuideAxis, BlendMode, CropOverlayStyle, Tool};
 use calumma_io::RasterFormat;
 use std::cell::RefCell;
 use std::path::PathBuf;
@@ -19,6 +19,9 @@ pub struct AppController {
     pub new_project_open: bool,
     pub layer_settings_open: bool,
     pub layer_settings_index: usize,
+    pub guides_open: bool,
+    pub guide_drag_pos: Option<(f32, f32)>,
+    pub pinch_zoom: Option<f32>,
     pub tools_busy: bool,
     pub layer_hover_index: Option<usize>,
     pub layer_hover_y: f32,
@@ -46,6 +49,9 @@ impl AppController {
             new_project_open: false,
             layer_settings_open: false,
             layer_settings_index: 0,
+            guides_open: false,
+            guide_drag_pos: None,
+            pinch_zoom: None,
             tools_busy: false,
             layer_hover_index: None,
             layer_hover_y: 0.0,
@@ -58,13 +64,14 @@ impl AppController {
     }
 
     pub fn any_modal_open(&self) -> bool {
-        self.settings_open || self.new_project_open || self.layer_settings_open
+        self.settings_open || self.new_project_open || self.layer_settings_open || self.guides_open
     }
 
     pub fn dismiss_modals(&mut self) {
         self.settings_open = false;
         self.new_project_open = false;
         self.layer_settings_open = false;
+        self.guides_open = false;
     }
 
     pub fn push_board_colors(&mut self) {
@@ -217,6 +224,9 @@ impl AppController {
         self.prefs.set_last_active_project(None);
         let _ = self.prefs.save();
         self.editor_open = false;
+        self.guides_open = false;
+        self.guide_drag_pos = None;
+        self.pinch_zoom = None;
     }
 
     pub fn delete_project(&mut self, id: &str) -> Result<()> {
@@ -259,27 +269,94 @@ impl AppController {
         self.engine.borrow_mut().set_zoom_unit(unit);
     }
 
+    pub fn pinch_started(&mut self) {
+        self.pinch_zoom = Some(self.engine.borrow().zoom_factor());
+    }
+
+    pub fn pinch_updated(&mut self, x: f32, y: f32, scale: f32) {
+        let Some(start) = self.pinch_zoom else {
+            return;
+        };
+        self.engine
+            .borrow_mut()
+            .zoom_to(x, y, start * scale.max(0.01));
+    }
+
+    pub fn pinch_ended(&mut self) {
+        self.pinch_zoom = None;
+        self.engine.borrow_mut().end_camera_motion();
+    }
+
     pub fn step_zoom(&mut self, zoom_in: bool) {
         self.engine.borrow_mut().step_zoom(zoom_in);
     }
 
-    pub fn begin_guide_drag(&mut self, horizontal: bool, x: f32, y: f32) {
+    pub fn begin_guide_drag(&mut self, horizontal: bool, x: f32, y: f32, shift: bool) {
         let axis = if horizontal {
             GuideAxis::Horizontal
         } else {
             GuideAxis::Vertical
         };
-        self.engine
-            .borrow_mut()
-            .begin_guide_drag_from_ruler(axis, x, y);
+        let mut engine = self.engine.borrow_mut();
+        engine.set_shift_held(shift);
+        engine.begin_guide_drag_from_ruler(axis, x, y);
+        self.guide_drag_pos = Some((x, y));
     }
 
-    pub fn update_guide_drag(&mut self, x: f32, y: f32) {
-        self.engine.borrow_mut().update_guide_drag(x, y);
+    pub fn update_guide_drag(&mut self, x: f32, y: f32, shift: bool) {
+        let mut engine = self.engine.borrow_mut();
+        engine.set_shift_held(shift);
+        engine.update_guide_drag(x, y);
+        self.guide_drag_pos = Some((x, y));
     }
 
     pub fn end_guide_drag(&mut self) {
         self.engine.borrow_mut().end_guide_drag();
+        self.guide_drag_pos = None;
+    }
+
+    pub fn refresh_guide_shift(&mut self, shift: bool) {
+        let mut engine = self.engine.borrow_mut();
+        engine.set_shift_held(shift);
+        if let Some((x, y)) = self.guide_drag_pos {
+            engine.update_guide_drag(x, y);
+        }
+    }
+
+    pub fn open_guides(&mut self) {
+        self.guides_open = true;
+    }
+
+    pub fn add_guide_from_card(&mut self, horizontal: bool, text: &str) {
+        let Ok(position) = text.trim().parse::<f32>() else {
+            return;
+        };
+        self.engine.borrow_mut().add_guide(horizontal, position);
+    }
+
+    pub fn remove_guide(&mut self, index: usize) {
+        self.engine.borrow_mut().remove_guide(index);
+    }
+
+    pub fn clear_guides(&mut self) {
+        self.engine.borrow_mut().clear_guides();
+    }
+
+    pub fn set_guide_axis(&mut self, index: usize, horizontal: bool) {
+        self.engine.borrow_mut().set_guide_axis(index, horizontal);
+    }
+
+    pub fn set_guide_offset(&mut self, index: usize, text: &str) {
+        let Ok(position) = text.trim().parse::<f32>() else {
+            return;
+        };
+        self.engine.borrow_mut().set_guide_position(index, position);
+    }
+
+    pub fn set_guide_color(&mut self, index: usize, palette_index: usize) {
+        self.engine
+            .borrow_mut()
+            .set_guide_color(index, palette_index);
     }
 
     pub fn fit_to_view(&mut self) {
@@ -394,6 +471,100 @@ impl AppController {
 
     pub fn set_layer_opacity(&mut self, index: usize, opacity: f32) {
         self.engine.borrow_mut().set_layer_opacity(index, opacity);
+    }
+
+    pub fn set_layer_blend_mode(&mut self, index: usize, mode: i32) {
+        if let Some(mode) = BlendMode::from_u32(mode as u32) {
+            self.engine.borrow_mut().set_layer_blend_mode(index, mode);
+        }
+    }
+
+    pub fn set_layer_filter(&mut self, index: usize, kind: i32, value: f32) {
+        let mut adjustments = self.engine.borrow().layer_adjustments(index);
+        match kind {
+            0 => adjustments.brightness = value,
+            1 => adjustments.contrast = value,
+            2 => adjustments.vibrance = value,
+            3 => adjustments.saturation = value,
+            4 => adjustments.levels_gamma = value,
+            _ => return,
+        }
+        self.engine
+            .borrow_mut()
+            .set_layer_adjustments(index, adjustments);
+    }
+
+    pub fn reset_layer_filters(&mut self, index: usize) {
+        self.engine.borrow_mut().reset_layer_adjustments(index);
+    }
+
+    pub fn rename_layer(&mut self, index: usize, name: &str) -> bool {
+        self.engine.borrow_mut().set_layer_name(index, name)
+    }
+
+    pub fn toggle_layer_clip(&mut self, index: usize) -> bool {
+        let mut engine = self.engine.borrow_mut();
+        if engine.is_layer_clipped(index) {
+            engine.release_clipping_mask(index)
+        } else {
+            engine.create_clipping_mask(index)
+        }
+    }
+
+    pub fn flatten_layer_clip(&mut self, index: usize) -> bool {
+        self.engine.borrow_mut().flatten_clip(index)
+    }
+
+    pub fn merge_layer_down(&mut self, index: usize) -> bool {
+        self.engine.borrow_mut().merge_layer_down(index)
+    }
+
+    pub fn reset_layer_transform(&mut self, index: usize) {
+        self.engine.borrow_mut().reset_layer_transform(index);
+    }
+
+    pub fn move_layer_up(&mut self, index: usize) -> bool {
+        if !self.engine.borrow_mut().move_layer_up(index) {
+            return false;
+        }
+        self.layer_settings_index = index + 1;
+        true
+    }
+
+    pub fn move_layer_down(&mut self, index: usize) -> bool {
+        if !self.engine.borrow_mut().move_layer_down(index) {
+            return false;
+        }
+        self.layer_settings_index = index.saturating_sub(1);
+        true
+    }
+
+    pub fn rasterize_layer(&mut self, index: usize) -> bool {
+        self.engine.borrow_mut().rasterize_layer(index)
+    }
+
+    pub fn set_crop_aspect(&mut self, index: i32) {
+        let ratio = match index {
+            1 => Some(1.0),
+            2 => Some(4.0 / 3.0),
+            3 => Some(16.0 / 9.0),
+            _ => None,
+        };
+        self.engine.borrow_mut().set_crop_aspect_lock(ratio);
+    }
+
+    pub fn set_crop_overlay(&mut self, index: i32) {
+        if let Some(style) = CropOverlayStyle::from_u32(index as u32) {
+            self.engine.borrow_mut().set_crop_overlay_style(style);
+        }
+    }
+
+    pub fn commit_crop(&mut self) {
+        self.engine.borrow_mut().commit_crop();
+    }
+
+    pub fn cancel_crop(&mut self) {
+        self.engine.borrow_mut().cancel_crop();
     }
 
     pub fn duplicate_layer(&mut self, index: usize) -> bool {

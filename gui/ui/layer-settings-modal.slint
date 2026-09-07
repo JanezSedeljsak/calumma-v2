@@ -7,27 +7,58 @@ import { CalmSliderRow } from "calm/CalmSliderRow.slint";
 import { CalmBody, CalmMuted } from "calm/CalmText.slint";
 import { CalmScrollView } from "calm/CalmScrollView.slint";
 import { CalmPointer } from "calm/CalmPointer.slint";
+import { CalmField } from "calm/CalmField.slint";
+import { CalmSectionLabel } from "calm/CalmSectionLabel.slint";
+import { LayerChrome } from "layer-chrome.slint";
+
+component BlendChip inherits Rectangle {
+    in property <string> label;
+    in property <bool> selected: false;
+
+    callback clicked();
+
+    height: Tokens.control-height;
+    min-width: chip-label.preferred-width + Tokens.space-sm * 2;
+    horizontal-stretch: 1;
+    border-radius: Tokens.radius-sm;
+    background: root.selected ? Theme.surface-hover : Theme.surface;
+    border-width: 1px;
+    border-color: root.selected ? Theme.control-focus-border : Theme.control-border;
+
+    CalmPointer {
+        clicked => {
+            root.clicked();
+        }
+    }
+
+    chip-label := Text {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        text: root.label;
+        color: root.selected ? Theme.text : Theme.text-muted;
+        font-size: Tokens.label-size;
+        font-weight: 500;
+    }
+}
 
 export component LayerSettingsModal inherits Rectangle {
     in-out property <bool> open;
-    in property <string> layer-name;
-    in property <image> preview;
-    in property <bool> layer-visible;
-    in property <bool> layer-locked;
-    in property <bool> can-delete;
-    in-out property <float> layer-opacity;
-    in property <string> opacity-text;
-    in property <string> visibility-label;
-    in property <string> lock-label;
-    in property <string> opacity-label;
-    in property <string> export-label;
-    in property <string> duplicate-label;
-    in property <string> delete-label;
 
     callback dismissed();
     callback toggle-visibility();
     callback toggle-lock();
     callback opacity-changed(float);
+    callback blend-changed(int);
+    callback filter-changed(int, float);
+    callback reset-filters();
+    callback rename-layer(string);
+    callback toggle-clip();
+    callback flatten-clip();
+    callback merge-down();
+    callback reset-transform();
+    callback move-up();
+    callback move-down();
+    callback rasterize-layer();
     callback export-layer();
     callback duplicate-layer();
     callback delete-layer();
@@ -83,8 +114,15 @@ export component LayerSettingsModal inherits Rectangle {
                 spacing: Tokens.space-md;
                 alignment: start;
 
-                CalmBody {
-                    text: root.layer-name;
+                if LayerChrome.can-rename: CalmField {
+                    text: LayerChrome.name;
+                    accepted(text) => {
+                        root.rename-layer(text);
+                    }
+                }
+
+                if !LayerChrome.can-rename: CalmBody {
+                    text: LayerChrome.name;
                     strong: true;
                     overflow: elide;
                 }
@@ -96,7 +134,7 @@ export component LayerSettingsModal inherits Rectangle {
                     clip: true;
 
                     Image {
-                        source: root.preview;
+                        source: LayerChrome.preview;
                         width: 100%;
                         height: 100%;
                         image-fit: contain;
@@ -105,11 +143,11 @@ export component LayerSettingsModal inherits Rectangle {
 
                 HorizontalLayout {
                     CalmMuted {
-                        text: root.visibility-label;
+                        text: LayerChrome.visibility-label;
                         horizontal-stretch: 1;
                     }
                     CalmToggle {
-                        checked: root.layer-visible;
+                        checked: LayerChrome.visible;
                         y: (parent.height - self.height) / 2;
                         toggled => {
                             root.toggle-visibility();
@@ -119,11 +157,11 @@ export component LayerSettingsModal inherits Rectangle {
 
                 HorizontalLayout {
                     CalmMuted {
-                        text: root.lock-label;
+                        text: LayerChrome.lock-label;
                         horizontal-stretch: 1;
                     }
                     CalmToggle {
-                        checked: root.layer-locked;
+                        checked: LayerChrome.locked;
                         y: (parent.height - self.height) / 2;
                         toggled => {
                             root.toggle-lock();
@@ -132,18 +170,186 @@ export component LayerSettingsModal inherits Rectangle {
                 }
 
                 CalmSliderRow {
-                    label: root.opacity-label;
-                    value-text: root.opacity-text;
-                    value <=> root.layer-opacity;
+                    label: LayerChrome.opacity-label;
+                    value-text: LayerChrome.opacity-text;
+                    value <=> LayerChrome.opacity;
                     moved(v) => {
                         root.opacity-changed(v);
+                    }
+                }
+
+                CalmMuted {
+                    text: LayerChrome.blend-label;
+                }
+
+                HorizontalLayout {
+                    spacing: Tokens.space-xs;
+
+                    BlendChip {
+                        label: LayerChrome.blend-normal-label;
+                        selected: LayerChrome.blend == 0;
+                        clicked => {
+                            root.blend-changed(0);
+                        }
+                    }
+
+                    BlendChip {
+                        label: LayerChrome.blend-multiply-label;
+                        selected: LayerChrome.blend == 1;
+                        clicked => {
+                            root.blend-changed(1);
+                        }
+                    }
+
+                    BlendChip {
+                        label: LayerChrome.blend-screen-label;
+                        selected: LayerChrome.blend == 2;
+                        clicked => {
+                            root.blend-changed(2);
+                        }
+                    }
+                }
+
+                CalmSectionLabel {
+                    label: LayerChrome.filters-label;
+                    has-accent: false;
+                }
+
+                CalmSliderRow {
+                    label: LayerChrome.brightness-label;
+                    value-text: LayerChrome.brightness-text;
+                    minimum: -1;
+                    maximum: 1;
+                    value <=> LayerChrome.brightness;
+                    moved(v) => {
+                        root.filter-changed(0, v);
+                    }
+                }
+
+                CalmSliderRow {
+                    label: LayerChrome.contrast-label;
+                    value-text: LayerChrome.contrast-text;
+                    minimum: -1;
+                    maximum: 1;
+                    value <=> LayerChrome.contrast;
+                    moved(v) => {
+                        root.filter-changed(1, v);
+                    }
+                }
+
+                CalmSliderRow {
+                    label: LayerChrome.vibrance-label;
+                    value-text: LayerChrome.vibrance-text;
+                    minimum: -1;
+                    maximum: 1;
+                    value <=> LayerChrome.vibrance;
+                    moved(v) => {
+                        root.filter-changed(2, v);
+                    }
+                }
+
+                CalmSliderRow {
+                    label: LayerChrome.saturation-label;
+                    value-text: LayerChrome.saturation-text;
+                    minimum: -1;
+                    maximum: 1;
+                    value <=> LayerChrome.saturation;
+                    moved(v) => {
+                        root.filter-changed(3, v);
+                    }
+                }
+
+                CalmSliderRow {
+                    label: LayerChrome.gamma-label;
+                    value-text: LayerChrome.gamma-text;
+                    minimum: 0.1;
+                    maximum: 4;
+                    value <=> LayerChrome.gamma;
+                    moved(v) => {
+                        root.filter-changed(4, v);
+                    }
+                }
+
+                CalmButton {
+                    text: LayerChrome.reset-filters-label;
+                    fill: true;
+                    clicked => {
+                        root.reset-filters();
                     }
                 }
 
                 CalmDivider { }
 
                 CalmButton {
-                    text: root.export-label;
+                    text: LayerChrome.clip-label;
+                    fill: true;
+                    enabled: LayerChrome.can-clip || LayerChrome.clipped;
+                    clicked => {
+                        root.toggle-clip();
+                    }
+                }
+
+                CalmButton {
+                    text: LayerChrome.flatten-label;
+                    fill: true;
+                    enabled: LayerChrome.can-flatten;
+                    clicked => {
+                        root.flatten-clip();
+                    }
+                }
+
+                CalmButton {
+                    text: LayerChrome.merge-label;
+                    fill: true;
+                    enabled: LayerChrome.can-merge;
+                    clicked => {
+                        root.merge-down();
+                    }
+                }
+
+                CalmButton {
+                    text: LayerChrome.reset-transform-label;
+                    fill: true;
+                    enabled: LayerChrome.can-reset-transform;
+                    clicked => {
+                        root.reset-transform();
+                    }
+                }
+
+                HorizontalLayout {
+                    spacing: Tokens.space-xs;
+
+                    CalmButton {
+                        text: LayerChrome.move-up-label;
+                        fill: true;
+                        enabled: LayerChrome.can-move-up;
+                        clicked => {
+                            root.move-up();
+                        }
+                    }
+
+                    CalmButton {
+                        text: LayerChrome.move-down-label;
+                        fill: true;
+                        enabled: LayerChrome.can-move-down;
+                        clicked => {
+                            root.move-down();
+                        }
+                    }
+                }
+
+                if LayerChrome.can-rasterize: CalmButton {
+                    text: LayerChrome.rasterize-label;
+                    fill: true;
+                    clicked => {
+                        root.rasterize-layer();
+                    }
+                }
+
+                CalmDivider { }
+
+                CalmButton {
+                    text: LayerChrome.export-label;
                     fill: true;
                     clicked => {
                         root.export-layer();
@@ -151,17 +357,17 @@ export component LayerSettingsModal inherits Rectangle {
                 }
 
                 CalmButton {
-                    text: root.duplicate-label;
+                    text: LayerChrome.duplicate-label;
                     fill: true;
                     clicked => {
                         root.duplicate-layer();
                     }
                 }
 
-                if root.can-delete: CalmDivider { }
+                if LayerChrome.can-delete: CalmDivider { }
 
-                if root.can-delete: CalmButton {
-                    text: root.delete-label;
+                if LayerChrome.can-delete: CalmButton {
+                    text: LayerChrome.delete-label;
                     fill: true;
                     has-tint: true;
                     tint: Theme.danger;

@@ -1,5 +1,5 @@
 use super::landing::accent_color;
-use super::{brush, AppWindow, BrushEntry, LayerRow, ToolChrome, ToolEntry};
+use super::{brush, AppWindow, BrushEntry, LayerChrome, LayerRow, ToolChrome, ToolEntry};
 use crate::shell::{
     brush_icon_index, brush_label_key, format_bytes, grid_slot_selected, grid_slot_tip_key,
     grid_slot_tool, hue_color, slint_color, tool_family_key, tool_icon_index, tool_label_key,
@@ -169,6 +169,7 @@ fn sync_tool_chrome(ui: &AppWindow, controller: &AppController, tool: Tool) {
     chrome.set_show_vector(tool.shows_vector_mode());
     chrome.set_show_aligned(tool.takes_clone_aligned());
     chrome.set_show_transform(tool == Tool::Move);
+    chrome.set_show_crop(tool == Tool::Crop);
     chrome.set_shape_tools(put_rows(
         chrome.get_shape_tools(),
         shape_entries(controller, tool),
@@ -200,18 +201,72 @@ fn sync_tool_chrome(ui: &AppWindow, controller: &AppController, tool: Tool) {
     chrome.set_vector_locked(vector_locked);
     chrome.set_clone_aligned(aligned);
     chrome.set_transform_on(transform_on);
+    if tool == Tool::Crop {
+        let engine = controller.engine.borrow();
+        chrome.set_crop_overlay(engine.crop_overlay_style() as i32);
+        chrome.set_crop_aspect(crop_aspect_index(engine.crop_aspect_lock()));
+    }
+}
+
+fn crop_aspect_index(ratio: Option<f32>) -> i32 {
+    match ratio {
+        Some(value) if (value - 1.0).abs() < 0.02 => 1,
+        Some(value) if (value - 4.0 / 3.0).abs() < 0.02 => 2,
+        Some(value) if (value - 16.0 / 9.0).abs() < 0.02 => 3,
+        _ => 0,
+    }
+}
+
+fn signed_percent(value: f32) -> String {
+    format!("{:+}", (value * 100.0).round() as i32)
 }
 
 pub fn sync_layer_settings(ui: &AppWindow, controller: &AppController) {
+    let chrome = ui.global::<LayerChrome>();
     if let Some(layer) = controller.layer_settings_summary() {
-        let opacity = controller.engine.borrow().layer_opacity(layer.index);
-        ui.set_layer_settings_name(SharedString::from(layer.name.as_str()));
-        ui.set_layer_settings_visible(layer.visible);
-        ui.set_layer_settings_locked(layer.locked);
-        ui.set_layer_settings_can_delete(!layer.is_paper);
-        ui.set_layer_settings_opacity(opacity);
-        ui.set_layer_settings_opacity_text(put(format!("{}", (opacity * 100.0).round() as i32)));
-        ui.set_layer_settings_preview(controller.thumb_cache.preview_image(layer.index));
+        let engine = controller.engine.borrow();
+        let index = layer.index;
+        let opacity = engine.layer_opacity(index);
+        let adjustments = engine.layer_adjustments(index);
+        let clipped = engine.is_layer_clipped(index);
+        chrome.set_name(SharedString::from(layer.name.as_str()));
+        chrome.set_visible(layer.visible);
+        chrome.set_locked(layer.locked);
+        chrome.set_can_delete(!layer.is_paper);
+        chrome.set_can_rename(engine.can_rename_layer(index));
+        chrome.set_opacity(opacity);
+        chrome.set_opacity_text(put(format!("{}", (opacity * 100.0).round() as i32)));
+        chrome.set_preview(controller.thumb_cache.preview_image(index));
+        chrome.set_blend(engine.layer_blend_mode(index) as i32);
+        chrome.set_brightness(adjustments.brightness);
+        chrome.set_contrast(adjustments.contrast);
+        chrome.set_vibrance(adjustments.vibrance);
+        chrome.set_saturation(adjustments.saturation);
+        chrome.set_gamma(adjustments.levels_gamma);
+        chrome.set_brightness_text(put(signed_percent(adjustments.brightness)));
+        chrome.set_contrast_text(put(signed_percent(adjustments.contrast)));
+        chrome.set_vibrance_text(put(signed_percent(adjustments.vibrance)));
+        chrome.set_saturation_text(put(signed_percent(adjustments.saturation)));
+        chrome.set_gamma_text(put(format!("{:.2}", adjustments.levels_gamma)));
+        chrome.set_clipped(clipped);
+        chrome.set_can_clip(engine.can_create_clipping_mask(index));
+        chrome.set_can_flatten(engine.can_flatten_clip(index));
+        chrome.set_can_merge(engine.can_merge_layer_down(index));
+        chrome.set_can_reset_transform(engine.layer_has_transform(index) && !layer.locked);
+        chrome.set_can_move_up(engine.can_move_layer_up(index));
+        chrome.set_can_move_down(engine.can_move_layer_down(index));
+        chrome.set_can_rasterize(engine.layer_is_rasterizable(index));
+        chrome.set_lock_label(put(controller.l10n.get(if layer.locked {
+            "layerUnlock"
+        } else {
+            "layerLock"
+        })));
+        chrome.set_clip_label(put(controller.l10n.get(if clipped {
+            "releaseClippingMask"
+        } else {
+            "createClippingMask"
+        })));
+        drop(engine);
         ui.set_layer_lock_label(put(controller.l10n.get(if layer.locked {
             "layerUnlock"
         } else {
@@ -279,6 +334,7 @@ pub fn sync_layer_rows(ui: &AppWindow, controller: &mut AppController) {
                 visible: layer.visible,
                 locked: layer.locked,
                 active: layer.active,
+                clipped: layer.clipped,
                 thumb: controller.thumb_cache.row_image(layer.index),
             })
             .collect();
@@ -350,6 +406,8 @@ pub fn sync_editor(ui: &AppWindow, controller: &mut AppController) {
     ui.set_can_smart_matte(can_tools);
     ui.set_can_seam_carve(can_tools);
     super::sync_rulers(ui, controller);
+    super::sync_guides(ui, controller);
+    super::sync_guide_readout(ui, controller);
     sync_color_picker(ui, controller);
     sync_layers(ui, controller);
 }

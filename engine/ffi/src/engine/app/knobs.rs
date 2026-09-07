@@ -3,7 +3,7 @@ use calumma_core::limits::{
     BLUR_STRENGTH_MAX, BLUR_STRENGTH_MIN, ERASER_HARDNESS_MAX, ERASER_HARDNESS_MIN,
     EYEDROPPER_RADIUS_MAX, EYEDROPPER_RADIUS_MIN, TOLERANCE_MAX, TOLERANCE_MIN,
 };
-use calumma_core::{Brush, Tool};
+use calumma_core::{Brush, CropOverlayStyle, Tool};
 
 impl Engine {
     pub fn shape_fill(&self) -> bool {
@@ -190,6 +190,57 @@ impl Engine {
                 doc.exit_transform();
             }
             inner.invalidate_renderer();
+        }
+    }
+
+    pub fn commit_crop(&mut self) {
+        let mut inner = self.inner.lock();
+        if let Some(doc) = &mut inner.doc {
+            doc.commit_crop();
+            inner.dirty_save = true;
+            inner.invalidate_renderer();
+        }
+    }
+
+    pub fn cancel_crop(&mut self) {
+        let mut inner = self.inner.lock();
+        if let Some(doc) = &mut inner.doc {
+            doc.exit_crop();
+            doc.set_tool(Tool::Move);
+            inner.invalidate_renderer();
+        }
+    }
+
+    pub fn crop_overlay_style(&self) -> CropOverlayStyle {
+        self.inner
+            .lock()
+            .doc
+            .as_ref()
+            .map(|doc| doc.crop_overlay_style)
+            .unwrap_or_default()
+    }
+
+    pub fn set_crop_overlay_style(&mut self, style: CropOverlayStyle) {
+        let mut inner = self.inner.lock();
+        if let Some(doc) = &mut inner.doc {
+            doc.crop_overlay_style = style;
+            inner.invalidate_overlay();
+        }
+    }
+
+    pub fn crop_aspect_lock(&self) -> Option<f32> {
+        self.inner
+            .lock()
+            .doc
+            .as_ref()
+            .and_then(|doc| doc.crop_aspect_lock)
+    }
+
+    pub fn set_crop_aspect_lock(&mut self, ratio: Option<f32>) {
+        let mut inner = self.inner.lock();
+        if let Some(doc) = &mut inner.doc {
+            doc.crop_aspect_lock = ratio.filter(|value| *value > 1e-6);
+            inner.invalidate_overlay();
         }
     }
 }

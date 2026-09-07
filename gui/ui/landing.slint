@@ -1,5 +1,6 @@
 import { RecentRow, PresetRow } from "models.slint";
 import { Theme } from "calm/CalmTheme.slint";
+import { Tokens } from "calm/CalmTokens.slint";
 import { ProjectForm } from "project-form.slint";
 
 export component Landing inherits Rectangle {
@@ -36,8 +37,9 @@ export component Landing inherits Rectangle {
     background: Theme.bg;
 
     ProjectForm {
+        y: Tokens.titlebar-height;
         width: 100%;
-        height: 100%;
+        height: parent.height - Tokens.titlebar-height;
         brand-text: root.brand-text;
         tagline-text: root.tagline-text;
         project-name-label: root.project-name-label;

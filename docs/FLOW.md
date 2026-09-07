@@ -263,9 +263,10 @@ from the card. Three things about how they are drawn:
   it, so only the label redrew. The pointer-move handler avoids the same cost during a stroke
   by syncing nothing at all — this is that rule, kept, whatever shell reads it.
 
-**Guides are not yet ported to `gui/`** (no ruler, no guide overlay, no card) — tracked in
-`docs/plans/02-slint-shell.md`. The rest of this section, including the card described next,
-is the frozen Swift shell's implementation, kept for the product rules it encodes:
+**Guides are in `gui/`**: rulers sit on the canvas island, a drag off a strip creates a
+guide, Move repositions one, the corner button opens the guides card, and the live readout
+rides the ruler the guide came from. The rest of this section is the product rules that
+implementation follows:
 
 **The guides card**, from the ruler corner, is the list view of the same guides:
 
@@ -321,10 +322,11 @@ deactivation, so a Space held across ⌘-Tab cannot leave the board stuck pannin
 
 Scroll-wheel and trackpad panning pass the scroll delta through **unnegated** — the OS has
 already applied the system's "natural scrolling" preference, so any sign flip in the shell
-would fight the user's setting rather than honour it. Scroll pan also carries a zoom-
+would fight the user's setting rather than honour it. A **wheel notch** also carries a zoom-
 dependent gain (`Camera::scroll_pan_gain`, `limits::SCROLL_PAN_MAX_GAIN`): a notch is a
 fixed pixel amount, so without it a zoomed-out board crawls. Gain is 1 at Fit and never
-drops below 1, so zooming in never makes scrolling slower. Pointer **drag** panning has no
+drops below 1, so zooming in never makes scrolling slower. **Trackpad** pixel deltas stay
+one-for-one with the finger; the gain is wheel-only. Pointer **drag** panning has no
 gain — it tracks the cursor one-for-one by definition.
 
 ---

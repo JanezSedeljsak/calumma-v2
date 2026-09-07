@@ -127,16 +127,16 @@ pub const PAN_KEEP_VISIBLE: f32 = 0.5;
 /// board one-for-one with the pointer, but a scroll notch is a fixed number of pixels,
 /// so without this a zoomed-out board crawls. Gain is `fit_zoom / zoom`, clamped to
 /// `[1, SCROLL_PAN_MAX_GAIN]` — never below 1, so zooming in cannot slow scrolling down.
-pub const SCROLL_PAN_MAX_GAIN: f32 = 4.0;
+pub const SCROLL_PAN_MAX_GAIN: f32 = 2.0;
 /// A trackpad reports precise per-pixel scroll deltas; a wheel reports lines — one or three
 /// per notch. Lines are scaled to pixels by this so a notch moves a notch's worth of board
 /// instead of a few pixels.
 pub const SCROLL_LINE_PIXELS: f32 = 24.0;
-/// Fraction of the log zoom range one wheel notch covers. Twenty notches walk min→max, so a
-/// postage-stamp board and a 4k one take the same gesture to cross their range — a constant
-/// exponential step was a huge fraction of a small board's short curve and a crawl on a large
-/// one. Trackpad pixels are this divided by [`SCROLL_LINE_PIXELS`].
-pub const ZOOM_UNIT_PER_SCROLL_LINE: f32 = 1.0 / 20.0;
+/// Fraction of the log zoom range one wheel notch covers. Forty-eight notches walk min→max,
+/// so a postage-stamp board and a 4k one take the same gesture to cross their range — a
+/// constant exponential step was a huge fraction of a small board's short curve and a crawl
+/// on a large one. Trackpad pixels are this divided by [`SCROLL_LINE_PIXELS`].
+pub const ZOOM_UNIT_PER_SCROLL_LINE: f32 = 1.0 / 48.0;
 pub const ZOOM_UNIT_PER_SCROLL_PIXEL: f32 = ZOOM_UNIT_PER_SCROLL_LINE / SCROLL_LINE_PIXELS;
 pub const MAX_ZOOM_HARD: f32 = 64.0;
 pub const VIEWPORT_CULL_PADDING_PX: f32 = 1.0;

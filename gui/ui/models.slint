@@ -19,6 +19,7 @@ export struct LayerRow {
     visible: bool,
     locked: bool,
     active: bool,
+    clipped: bool,
     thumb: image,
 }
 
@@ -36,4 +37,11 @@ export struct BrushEntry {
     icon: int,
     tip: string,
     selected: bool,
+}
+
+export struct GuideRow {
+    index: int,
+    horizontal: bool,
+    offset-text: string,
+    color: color,
 }

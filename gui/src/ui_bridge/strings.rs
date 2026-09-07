@@ -1,4 +1,4 @@
-use super::{AppWindow, ToolChrome};
+use super::{AppWindow, LayerChrome, ToolChrome};
 use crate::shell::Catalog;
 use slint::{ComponentHandle, SharedString};
 
@@ -9,6 +9,8 @@ pub fn init_form_defaults(ui: &AppWindow, l10n: &Catalog) {
     ui.set_project_name(SharedString::from(l10n.get("newProject")));
     ui.set_width_text(SharedString::from(DEFAULT_WIDTH.to_string()));
     ui.set_height_text(SharedString::from(DEFAULT_HEIGHT.to_string()));
+    ui.set_add_guide_offset(SharedString::from("0"));
+    ui.set_add_guide_horizontal(true);
 }
 
 pub fn sync_strings(ui: &AppWindow, l10n: &Catalog) {
@@ -51,6 +53,16 @@ pub fn sync_strings(ui: &AppWindow, l10n: &Catalog) {
     ui.set_zoom_in_label(put(l10n.get("zoomIn")));
     ui.set_zoom_out_label(put(l10n.get("zoomOut")));
     ui.set_toggle_layers_menu_title(put(l10n.get("toggleLayers")));
+    ui.set_guides_tip(put(l10n.get("guides")));
+    ui.set_guides_title(put(l10n.get("guides")));
+    ui.set_guides_hint(put(l10n.get("guidesHint")));
+    ui.set_no_guides_label(put(l10n.get("noGuides")));
+    ui.set_add_guide_label(put(l10n.get("addGuide")));
+    ui.set_guides_full_label(put(l10n.get("guidesFull")));
+    ui.set_guide_top_label(put(l10n.get("guideTop")));
+    ui.set_guide_left_label(put(l10n.get("guideLeft")));
+    ui.set_delete_guide_tip(put(l10n.get("deleteGuide")));
+    ui.set_clear_guides_label(put(l10n.get("clearGuides")));
     ui.set_fullscreen_menu_title(put(l10n.get("enterFullScreen")));
     ui.set_layers_title(put(l10n.get("layers")));
     ui.set_add_layer_label(put(l10n.get("addLayer")));
@@ -90,4 +102,40 @@ pub fn sync_strings(ui: &AppWindow, l10n: &Catalog) {
     chrome.set_vector_label(put(l10n.get("vectorMode")));
     chrome.set_aligned_label(put(l10n.get("cloneAligned")));
     chrome.set_transform_label(put(l10n.get("toolTransform")));
+    chrome.set_crop_aspect_label(put(l10n.get("cropAspectRatio")));
+    chrome.set_crop_overlay_label(put(l10n.get("cropOverlay")));
+    chrome.set_crop_free_label(put(l10n.get("cropAspectFree")));
+    chrome.set_crop_square_label(put("1:1".into()));
+    chrome.set_crop_overlay_off_label(put(l10n.get("cropOverlayOff")));
+    chrome.set_crop_overlay_thirds_label(put(l10n.get("cropOverlayThirds")));
+    chrome.set_crop_overlay_grid_label(put(l10n.get("cropOverlayGrid")));
+    chrome.set_crop_overlay_diagonal_label(put(l10n.get("cropOverlayDiagonal")));
+    chrome.set_crop_overlay_golden_label(put(l10n.get("cropOverlayGoldenRatio")));
+    chrome.set_crop_cancel_label(put(l10n.get("cropCancel")));
+    chrome.set_crop_commit_label(put(l10n.get("cropCommit")));
+
+    let layers = ui.global::<LayerChrome>();
+    layers.set_visibility_label(put(l10n.get("layerVisibility")));
+    layers.set_opacity_label(put(l10n.get("opacity")));
+    layers.set_blend_label(put(l10n.get("blendMode")));
+    layers.set_blend_normal_label(put(l10n.get("blendNormal")));
+    layers.set_blend_multiply_label(put(l10n.get("blendMultiply")));
+    layers.set_blend_screen_label(put(l10n.get("blendScreen")));
+    layers.set_filters_label(put(l10n.get("filters")));
+    layers.set_brightness_label(put(l10n.get("brightness")));
+    layers.set_contrast_label(put(l10n.get("contrast")));
+    layers.set_vibrance_label(put(l10n.get("vibrance")));
+    layers.set_saturation_label(put(l10n.get("saturation")));
+    layers.set_gamma_label(put(l10n.get("levelsGamma")));
+    layers.set_reset_filters_label(put(l10n.get("resetFilters")));
+    layers.set_rename_label(put(l10n.get("renameLayer")));
+    layers.set_flatten_label(put(l10n.get("flattenClippingMask")));
+    layers.set_merge_label(put(l10n.get("mergeLayerDown")));
+    layers.set_reset_transform_label(put(l10n.get("resetTransform")));
+    layers.set_move_up_label(put(l10n.get("moveLayerUp")));
+    layers.set_move_down_label(put(l10n.get("moveLayerDown")));
+    layers.set_rasterize_label(put(l10n.get("rasterizeLayer")));
+    layers.set_export_label(put(l10n.get("exportLayer")));
+    layers.set_duplicate_label(put(l10n.get("duplicateLayer")));
+    layers.set_delete_label(put(l10n.get("deleteLayer")));
 }
