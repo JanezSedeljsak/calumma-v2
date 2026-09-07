@@ -1,23 +1,8 @@
-import { VerticalBox, HorizontalBox, LineEdit } from "std-widgets.slint";
 import { RecentRow, PresetRow } from "models.slint";
-import { CalmScrollView } from "calm/CalmScrollView.slint";
-import { CalmPointer } from "calm/CalmPointer.slint";
-import { CalmButton } from "calm/CalmButton.slint";
-import { CalmSectionLabel } from "calm/CalmSectionLabel.slint";
-import { PasteArtworkIsland } from "paste-artwork-island.slint";
+import { Theme } from "calm/CalmTheme.slint";
+import { ProjectForm } from "project-form.slint";
 
 export component Landing inherits Rectangle {
-    in property <brush> theme-bg;
-    in property <brush> theme-surface;
-    in property <brush> theme-surface-hover;
-    in property <brush> theme-text;
-    in property <brush> theme-text-muted;
-    in property <brush> theme-accent-teal;
-    in property <brush> theme-accent-orange;
-    in property <brush> theme-island-border;
-    in property <brush> theme-control-border;
-    in property <brush> theme-danger;
-
     in property <string> brand-text;
     in property <string> tagline-text;
     in property <string> project-name-label;
@@ -26,13 +11,16 @@ export component Landing inherits Rectangle {
     in property <string> presets-label;
     in property <string> recents-label;
     in property <string> clear-all-label;
+    in property <string> no-recents-label;
+    in property <string> delete-project-label;
     in property <string> paste-artwork-title;
     in property <string> paste-artwork-hint;
     in property <string> artwork-formats;
+    in property <image> app-icon;
 
     in-out property <string> project-name;
-    in-out property <string> width-text: "1280";
-    in-out property <string> height-text: "720";
+    in-out property <string> width-text;
+    in-out property <string> height-text;
 
     in property <[PresetRow]> presets;
     in property <[RecentRow]> recents;
@@ -44,270 +32,47 @@ export component Landing inherits Rectangle {
     callback clear-all-clicked();
     callback paste-artwork-clicked();
 
-    private property <image> icon-plus: @image-url("plus.svg");
-    private property <image> icon-trash: @image-url("trash.svg");
+    background: Theme.bg;
 
-    background: theme-bg;
-
-    VerticalBox {
-        padding: 24px;
-        spacing: 20px;
-
-        HorizontalBox {
-            spacing: 12px;
-            Text {
-                text: root.brand-text;
-                font-size: 32px;
-                font-weight: 700;
-                color: theme-accent-teal;
-            }
-            Text {
-                text: root.tagline-text.to-uppercase();
-                font-size: 10px;
-                font-weight: 600;
-                letter-spacing: 1px;
-                color: theme-text-muted;
-                vertical-alignment: center;
-            }
+    ProjectForm {
+        width: 100%;
+        height: 100%;
+        brand-text: root.brand-text;
+        tagline-text: root.tagline-text;
+        project-name-label: root.project-name-label;
+        resolution-label: root.resolution-label;
+        create-label: root.create-label;
+        presets-label: root.presets-label;
+        recents-label: root.recents-label;
+        clear-all-label: root.clear-all-label;
+        no-recents-label: root.no-recents-label;
+        delete-project-label: root.delete-project-label;
+        paste-artwork-title: root.paste-artwork-title;
+        paste-artwork-hint: root.paste-artwork-hint;
+        artwork-formats: root.artwork-formats;
+        app-icon: root.app-icon;
+        project-name <=> root.project-name;
+        width-text <=> root.width-text;
+        height-text <=> root.height-text;
+        presets: root.presets;
+        recents: root.recents;
+        create-clicked => {
+            root.create-clicked();
         }
-
-        HorizontalBox {
-            spacing: 16px;
-            vertical-stretch: 1;
-
-            VerticalBox {
-                horizontal-stretch: 1;
-                spacing: 16px;
-                vertical-stretch: 1;
-
-                VerticalBox {
-                    spacing: 6px;
-                    CalmSectionLabel {
-                        label: project-name-label.to-uppercase();
-                        dot-color: theme-accent-teal;
-                        text-color: theme-text-muted;
-                    }
-                    Rectangle {
-                        height: 28px;
-                        background: theme-surface;
-                        border-radius: 4px;
-                        border-width: 1px;
-                        border-color: theme-control-border;
-                        LineEdit {
-                            text <=> root.project-name;
-                            accepted => { root.create-clicked(); }
-                        }
-                    }
-                }
-
-                VerticalBox {
-                    spacing: 6px;
-                    CalmSectionLabel {
-                        label: resolution-label.to-uppercase();
-                        dot-color: theme-accent-teal;
-                        text-color: theme-text-muted;
-                    }
-                    HorizontalBox {
-                        spacing: 8px;
-                        Rectangle {
-                            horizontal-stretch: 1;
-                            height: 28px;
-                            background: theme-surface;
-                            border-radius: 4px;
-                            border-width: 1px;
-                            border-color: theme-control-border;
-                            LineEdit { text <=> root.width-text; }
-                        }
-                        Rectangle {
-                            horizontal-stretch: 1;
-                            height: 28px;
-                            background: theme-surface;
-                            border-radius: 4px;
-                            border-width: 1px;
-                            border-color: theme-control-border;
-                            LineEdit { text <=> root.height-text; }
-                        }
-                        CalmButton {
-                            text: create-label;
-                            surface: theme-surface;
-                            surface-hover: theme-surface-hover;
-                            text-color: theme-accent-teal;
-                            btn-border-color: theme-control-border;
-                            clicked => { root.create-clicked(); }
-                        }
-                    }
-                }
-
-                HorizontalBox {
-                    spacing: 12px;
-                    vertical-stretch: 1;
-
-                    VerticalBox {
-                        horizontal-stretch: 1;
-                        spacing: 8px;
-                        vertical-stretch: 1;
-
-                        CalmSectionLabel {
-                            label: presets-label.to-uppercase();
-                            dot-color: theme-accent-teal;
-                            text-color: theme-text-muted;
-                        }
-
-                        CalmScrollView {
-                            vertical-stretch: 1;
-                            thumb-pressed-color: theme-text;
-                            thumb-hover-color: theme-text-muted;
-                            thumb-color: theme-island-border;
-
-                            VerticalBox {
-                                spacing: 6px;
-                                for preset in root.presets: Rectangle {
-                                    height: 52px;
-                                    background: touch.has-hover ? theme-surface-hover : theme-surface;
-                                    border-width: 1px;
-                                    border-color: theme-island-border;
-                                    border-radius: 6px;
-                                    touch := CalmPointer {
-                                        clicked => { root.preset-clicked(preset.width, preset.height); }
-                                    }
-                                    HorizontalBox {
-                                        padding: 8px;
-                                        spacing: 8px;
-                                        Image {
-                                            source: icon-plus;
-                                            width: 14px;
-                                            height: 14px;
-                                            colorize: theme-text-muted;
-                                            vertical-alignment: center;
-                                        }
-                                        VerticalBox {
-                                            horizontal-stretch: 1;
-                                            spacing: 2px;
-                                            Text {
-                                                text: preset.label;
-                                                color: theme-text;
-                                                font-size: 12px;
-                                                font-weight: 600;
-                                            }
-                                            Text {
-                                                text: preset.width + " x " + preset.height;
-                                                color: theme-text-muted;
-                                                font-size: 10px;
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    VerticalBox {
-                        horizontal-stretch: 1;
-                        spacing: 8px;
-                        vertical-stretch: 1;
-
-                        HorizontalBox {
-                            CalmSectionLabel {
-                                label: recents-label.to-uppercase();
-                                dot-color: theme-accent-orange;
-                                text-color: theme-text-muted;
-                                horizontal-stretch: 1;
-                            }
-                            CalmPointer {
-                                Text {
-                                    text: clear-all-label;
-                                    font-size: 10px;
-                                    color: theme-danger;
-                                }
-                                clicked => { root.clear-all-clicked(); }
-                            }
-                        }
-
-                        CalmScrollView {
-                            vertical-stretch: 1;
-                            thumb-pressed-color: theme-text;
-                            thumb-hover-color: theme-text-muted;
-                            thumb-color: theme-island-border;
-
-                            VerticalBox {
-                                spacing: 6px;
-                                for recent in root.recents: Rectangle {
-                                    height: 56px;
-                                    background: row-touch.has-hover ? theme-surface-hover : theme-surface;
-                                    border-width: 1px;
-                                    border-color: theme-island-border;
-                                    border-radius: 6px;
-                                    row-touch := CalmPointer {
-                                        clicked => { root.recent-clicked(recent.id); }
-                                    }
-                                    HorizontalBox {
-                                        padding: 6px;
-                                        spacing: 8px;
-                                        Rectangle {
-                                            width: 44px;
-                                            height: 44px;
-                                            border-radius: 4px;
-                                            clip: true;
-                                            border-width: 1px;
-                                            border-color: theme-island-border;
-                                            background: theme-bg;
-                                            Image {
-                                                source: recent.thumb;
-                                                width: 100%;
-                                                height: 100%;
-                                                image-fit: contain;
-                                            }
-                                        }
-                                        VerticalBox {
-                                            horizontal-stretch: 1;
-                                            spacing: 2px;
-                                            Text {
-                                                text: recent.name;
-                                                color: theme-text;
-                                                font-size: 12px;
-                                                font-weight: 600;
-                                                overflow: elide;
-                                            }
-                                            Text {
-                                                text: recent.size-text;
-                                                color: theme-text-muted;
-                                                font-size: 10px;
-                                            }
-                                        }
-                                        Text {
-                                            text: recent.time-text;
-                                            color: theme-text-muted;
-                                            font-size: 10px;
-                                            vertical-alignment: center;
-                                        }
-                                        CalmPointer {
-                                            Image {
-                                                source: icon-trash;
-                                                width: 14px;
-                                                height: 14px;
-                                                colorize: theme-danger;
-                                            }
-                                            clicked => { root.delete-recent(recent.id); }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            PasteArtworkIsland {
-                theme-accent-teal: theme-accent-teal;
-                theme-accent-orange: theme-accent-orange;
-                theme-island-border: theme-island-border;
-                theme-text: theme-text;
-                theme-text-muted: theme-text-muted;
-                title-text: paste-artwork-title;
-                hint-text: paste-artwork-hint;
-                formats-text: artwork-formats;
-                clicked => { root.paste-artwork-clicked(); }
-            }
+        preset-clicked(w, h) => {
+            root.preset-clicked(w, h);
+        }
+        recent-clicked(id) => {
+            root.recent-clicked(id);
+        }
+        delete-recent(id) => {
+            root.delete-recent(id);
+        }
+        clear-all-clicked => {
+            root.clear-all-clicked();
+        }
+        paste-artwork-clicked => {
+            root.paste-artwork-clicked();
         }
     }
 }

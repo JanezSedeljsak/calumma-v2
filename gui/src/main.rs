@@ -16,8 +16,9 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::time::Duration;
 use ui_bridge::{
-    parse_dimension, refresh_landing, set_editor_open, sync_editor, sync_layer_settings,
-    sync_layers, sync_shell, AppWindow, SharedUi,
+    init_form_defaults, load_app_icon, parse_dimension, refresh_landing, set_editor_open,
+    sync_editor, sync_layer_settings, sync_layers, sync_shell, AppWindow, SharedUi, DEFAULT_HEIGHT,
+    DEFAULT_WIDTH,
 };
 
 struct InputState {
@@ -49,6 +50,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let ui = AppWindow::new()?;
     set_window_icon(&ui, &root);
+    load_app_icon(&ui, &root);
     {
         ui.window().set_size(slint::LogicalSize::new(
             window_metrics.width as f32,
@@ -60,6 +62,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     {
         let mut ctrl = controller.borrow_mut();
         refresh_landing(&ui, &ctrl);
+        init_form_defaults(&ui, &ctrl.l10n);
         ui.set_layers_open(ctrl.prefs.layers_panel_open);
         if !ctrl.try_restore_last() {
             ctrl.editor_open = false;
@@ -96,17 +99,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         host.clone(),
     );
 
-    slint::Timer::single_shot(Duration::from_millis(0), {
-        let ui_weak = ui_weak.clone();
-        let host = host.clone();
-        let controller = controller.clone();
-        move || {
-            if controller.borrow().editor_open {
-                setup_board(&ui_weak, &host);
-            }
-            start_frame_loop(ui_weak, host, controller);
-        }
-    });
+    let _frame_timers = start_frame_loop(ui_weak, host, controller);
 
     ui.run()?;
     Ok(())
@@ -125,8 +118,8 @@ fn wire_landing_callbacks(
         move || {
             let ui = ui_weak.upgrade().unwrap();
             let name = ui.get_project_name().to_string();
-            let width = parse_dimension(&ui.get_width_text().to_string(), 1280);
-            let height = parse_dimension(&ui.get_height_text().to_string(), 720);
+            let width = parse_dimension(&ui.get_width_text().to_string(), DEFAULT_WIDTH);
+            let height = parse_dimension(&ui.get_height_text().to_string(), DEFAULT_HEIGHT);
             let mut ctrl = controller.borrow_mut();
             if ctrl.create_project(&name, width, height).is_ok() {
                 set_editor_open(&ui, &mut ctrl, true);
@@ -264,6 +257,19 @@ fn wire_editor_callbacks(
             if let Some(ui) = ui_weak.upgrade() {
                 sync_editor(&ui, &mut ctrl);
             }
+        }
+    });
+
+    ui.on_brush_size_committed({
+        let controller = controller.clone();
+        let ui_weak = ui_weak.clone();
+        move |text| {
+            let mut ctrl = controller.borrow_mut();
+            ctrl.commit_brush_size(&text.to_string());
+            if let Some(ui) = ui_weak.upgrade() {
+                sync_editor(&ui, &mut ctrl);
+            }
+            wake(&ui_weak);
         }
     });
 
@@ -415,30 +421,6 @@ fn wire_menus(ui: &AppWindow, controller: SharedController, ui_weak: SharedUi) {
     };
 
     ui.on_toggle_layers(toggle_layers.clone());
-    ui.on_collapse_layers({
-        let controller = controller.clone();
-        let ui_weak = ui_weak.clone();
-        move || {
-            let mut ctrl = controller.borrow_mut();
-            let _ = ctrl.set_layers_panel_open(false);
-            if let Some(ui) = ui_weak.upgrade() {
-                ui.set_layers_open(false);
-            }
-            wake(&ui_weak);
-        }
-    });
-    ui.on_expand_layers({
-        let controller = controller.clone();
-        let ui_weak = ui_weak.clone();
-        move || {
-            let mut ctrl = controller.borrow_mut();
-            let _ = ctrl.set_layers_panel_open(true);
-            if let Some(ui) = ui_weak.upgrade() {
-                ui.set_layers_open(true);
-            }
-            wake(&ui_weak);
-        }
-    });
     ui.on_add_layer({
         let controller = controller.clone();
         let ui_weak = ui_weak.clone();
@@ -921,8 +903,8 @@ fn wire_modals(
         move || {
             let ui = ui_weak.upgrade().unwrap();
             let name = ui.get_project_name().to_string();
-            let width = parse_dimension(&ui.get_width_text().to_string(), 1280);
-            let height = parse_dimension(&ui.get_height_text().to_string(), 720);
+            let width = parse_dimension(&ui.get_width_text().to_string(), DEFAULT_WIDTH);
+            let height = parse_dimension(&ui.get_height_text().to_string(), DEFAULT_HEIGHT);
             let mut ctrl = controller.borrow_mut();
             ctrl.new_project_open = false;
             if ctrl.create_project(&name, width, height).is_ok() {
@@ -1090,16 +1072,17 @@ fn setup_board(ui_weak: &SharedUi, host: &Rc<RefCell<BoardHost>>) {
 }
 
 fn sync_board_geometry(ui: &AppWindow, host: &Rc<RefCell<BoardHost>>) {
-    let size = ui.window().size();
     let scale = ui.window().scale_factor();
-    let layout = board_layout(size.width as f32, size.height as f32, ui.get_layers_open());
+    let content_height = ui.window().size().to_logical(scale).height;
+    let layout = board_layout(
+        ui.get_board_x(),
+        ui.get_board_y(),
+        ui.get_board_width(),
+        ui.get_board_height(),
+    );
     ui.window().with_winit_window(|winit_window| {
-        host.borrow_mut().sync_geometry(
-            winit_window,
-            &layout,
-            size.height as f32,
-            scale,
-        );
+        host.borrow_mut()
+            .sync_geometry(winit_window, &layout, content_height, scale);
         host.borrow_mut().render();
     });
 }
@@ -1108,8 +1091,8 @@ fn set_window_icon(ui: &AppWindow, root: &std::path::Path) {
     let path = root.join("design").join("icon.png");
     let bytes = std::fs::read(&path).ok();
     ui.window().with_winit_window(|window| {
-        if let Some(bytes) = bytes {
-            if let Ok(image) = image::load_from_memory(&bytes) {
+        if let Some(bytes) = &bytes {
+            if let Ok(image) = image::load_from_memory(bytes) {
                 let rgba = image.to_rgba8();
                 let (width, height) = rgba.dimensions();
                 if let Ok(icon) = winit::window::Icon::from_rgba(rgba.into_raw(), width, height) {
@@ -1118,17 +1101,44 @@ fn set_window_icon(ui: &AppWindow, root: &std::path::Path) {
             }
         }
     });
+    // winit's window icon is a no-op on macOS (title bars don't carry one) — the Dock icon is
+    // a separate, process-wide setting only AppKit exposes.
+    #[cfg(target_os = "macos")]
+    if let Some(bytes) = bytes {
+        set_dock_icon(&bytes);
+    }
 }
 
-fn start_frame_loop(ui_weak: SharedUi, host: Rc<RefCell<BoardHost>>, controller: SharedController) {
-    slint::Timer::default().start(slint::TimerMode::Repeated, Duration::from_millis(16), {
+#[cfg(target_os = "macos")]
+fn set_dock_icon(png_bytes: &[u8]) {
+    use objc2::rc::Retained;
+    use objc2::{AnyThread, MainThreadMarker};
+    use objc2_app_kit::{NSApplication, NSImage};
+    use objc2_foundation::NSData;
+
+    let Some(mtm) = MainThreadMarker::new() else {
+        return;
+    };
+    let data = NSData::with_bytes(png_bytes);
+    let image: Option<Retained<NSImage>> =
+        unsafe { NSImage::initWithData(NSImage::alloc(), &data) };
+    if let Some(image) = image {
+        let app = NSApplication::sharedApplication(mtm);
+        unsafe { app.setApplicationIconImage(Some(&image)) };
+    }
+}
+
+fn start_frame_loop(
+    ui_weak: SharedUi,
+    host: Rc<RefCell<BoardHost>>,
+    controller: SharedController,
+) -> Vec<slint::Timer> {
+    let board = slint::Timer::default();
+    board.start(slint::TimerMode::Repeated, Duration::from_millis(16), {
         let ui_weak = ui_weak.clone();
         let host = host.clone();
         let controller = controller.clone();
         move || {
-            if ui_weak.upgrade().is_none() {
-                return;
-            }
             if !controller.borrow().editor_open {
                 return;
             }
@@ -1138,7 +1148,8 @@ fn start_frame_loop(ui_weak: SharedUi, host: Rc<RefCell<BoardHost>>, controller:
         }
     });
 
-    slint::Timer::default().start(slint::TimerMode::Repeated, Duration::from_millis(500), {
+    let stats = slint::Timer::default();
+    stats.start(slint::TimerMode::Repeated, Duration::from_millis(500), {
         let ui_weak = ui_weak.clone();
         let controller = controller.clone();
         move || {
@@ -1154,6 +1165,8 @@ fn start_frame_loop(ui_weak: SharedUi, host: Rc<RefCell<BoardHost>>, controller:
             }
         }
     });
+
+    vec![board, stats]
 }
 
 fn wake(ui_weak: &SharedUi) {

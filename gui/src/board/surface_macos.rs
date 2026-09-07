@@ -29,7 +29,12 @@ impl BoardSurface {
         let scale = winit_window.scale_factor();
         let mtm = MainThreadMarker::new()
             .context("the board surface must be installed on the main thread")?;
-        let board = unsafe { NSView::initWithFrame(NSView::alloc(mtm), NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(1.0, 1.0))) };
+        let board = unsafe {
+            NSView::initWithFrame(
+                NSView::alloc(mtm),
+                NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(1.0, 1.0)),
+            )
+        };
         unsafe {
             board.setAutoresizingMask(NSAutoresizingMaskOptions::empty());
             board.setHidden(true);
@@ -49,16 +54,23 @@ impl BoardSurface {
         })
     }
 
-    pub fn set_frame(&self, x: f64, y_top: f64, width: f64, height: f64, window_height: f64) {
+    pub fn set_frame(&self, x: f64, y_top: f64, width: f64, height: f64, content_height: f64) {
         if width < 1.0 || height < 1.0 {
             self.view.setHidden(true);
             return;
         }
-        let y = window_height - y_top - height;
+        let host = unsafe { self.view.superview() };
+        let flipped = host.as_ref().is_some_and(|view| view.isFlipped());
+        let y = if flipped {
+            y_top
+        } else {
+            content_height - y_top - height
+        };
         let frame = NSRect::new(NSPoint::new(x, y), NSSize::new(width, height));
         self.view.setFrame(frame);
         self.view.setHidden(false);
-        self.layer.setDrawableSize(NSSize::new(width * self.scale, height * self.scale));
+        self.layer
+            .setDrawableSize(NSSize::new(width * self.scale, height * self.scale));
     }
 
     pub fn set_hidden(&self, hidden: bool) {

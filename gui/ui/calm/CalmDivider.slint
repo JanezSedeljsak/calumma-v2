@@ -1,5 +1,6 @@
+import { Theme } from "CalmTheme.slint";
+
 export component CalmDivider inherits Rectangle {
-    in property <brush> divider-color;
     height: 1px;
-    background: divider-color;
+    background: Theme.island-border;
 }

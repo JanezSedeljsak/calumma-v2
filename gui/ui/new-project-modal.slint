@@ -1,81 +1,97 @@
-import { VerticalBox, HorizontalBox, LineEdit } from "std-widgets.slint";
-import { CalmModal } from "calm/CalmModal.slint";
-import { CalmButton } from "calm/CalmButton.slint";
+import { RecentRow, PresetRow } from "models.slint";
+import { Tokens } from "calm/CalmTokens.slint";
+import { CalmModal, CalmModalCard } from "calm/CalmModal.slint";
+import { ProjectForm } from "project-form.slint";
 
 export component NewProjectModal inherits Rectangle {
     in-out property <bool> open;
-    in property <brush> theme-bg;
-    in property <brush> theme-surface;
-    in property <brush> theme-surface-hover;
-    in property <brush> theme-text;
-    in property <brush> theme-text-muted;
-    in property <brush> theme-island-border;
-    in property <brush> theme-accent-teal;
 
+    in property <string> brand-text;
+    in property <string> tagline-text;
     in property <string> project-name-label;
     in property <string> resolution-label;
     in property <string> create-label;
+    in property <string> presets-label;
+    in property <string> recents-label;
+    in property <string> clear-all-label;
+    in property <string> no-recents-label;
+    in property <string> delete-project-label;
+    in property <string> paste-artwork-title;
+    in property <string> paste-artwork-hint;
+    in property <string> artwork-formats;
+    in property <image> app-icon;
 
     in-out property <string> project-name;
     in-out property <string> width-text;
     in-out property <string> height-text;
 
+    in property <[PresetRow]> presets;
+    in property <[RecentRow]> recents;
+
     callback dismissed();
     callback create-clicked();
+    callback preset-clicked(int, int);
+    callback recent-clicked(string);
+    callback delete-recent(string);
+    callback clear-all-clicked();
+    callback paste-artwork-clicked();
 
     width: 100%;
     height: 100%;
+    visible: open;
 
     CalmModal {
         open <=> root.open;
-        scrim-color: root.theme-bg;
-        dismissed => { root.dismissed(); }
+        dismissed => {
+            root.dismissed();
+        }
 
-        Rectangle {
-            width: 480px;
-            height: 220px;
-            background: theme-bg;
-            border-radius: 12px;
-            border-width: 1px;
-            border-color: theme-island-border;
+        CalmModalCard {
+            width: min(Tokens.new-project-width, parent.width - Tokens.space-xl * 2);
+            height: min(Tokens.new-project-height, parent.height - Tokens.space-xl * 2);
+            clip: true;
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
 
-            VerticalBox {
-                padding: 24px;
-                spacing: 16px;
-
-                Text {
-                    text: create-label;
-                    font-size: 15px;
-                    font-weight: 700;
-                    color: theme-accent-teal;
+            ProjectForm {
+                width: 100%;
+                height: 100%;
+                brand-text: root.brand-text;
+                tagline-text: root.tagline-text;
+                project-name-label: root.project-name-label;
+                resolution-label: root.resolution-label;
+                create-label: root.create-label;
+                presets-label: root.presets-label;
+                recents-label: root.recents-label;
+                clear-all-label: root.clear-all-label;
+                no-recents-label: root.no-recents-label;
+                delete-project-label: root.delete-project-label;
+                paste-artwork-title: root.paste-artwork-title;
+                paste-artwork-hint: root.paste-artwork-hint;
+                artwork-formats: root.artwork-formats;
+                app-icon: root.app-icon;
+                project-name <=> root.project-name;
+                width-text <=> root.width-text;
+                height-text <=> root.height-text;
+                presets: root.presets;
+                recents: root.recents;
+                create-clicked => {
+                    root.create-clicked();
                 }
-
-                VerticalBox {
-                    spacing: 6px;
-                    Text { text: project-name-label; font-size: 10px; font-weight: 600; color: theme-text; }
-                    LineEdit {
-                        text <=> root.project-name;
-                        accepted => { root.create-clicked(); }
-                    }
+                preset-clicked(w, h) => {
+                    root.preset-clicked(w, h);
                 }
-
-                VerticalBox {
-                    spacing: 6px;
-                    Text { text: resolution-label; font-size: 10px; font-weight: 600; color: theme-text; }
-                    HorizontalBox {
-                        spacing: 8px;
-                        LineEdit { text <=> root.width-text; min-width: 72px; }
-                        Text { text: "×"; color: theme-text-muted; }
-                        LineEdit { text <=> root.height-text; min-width: 72px; }
-                        CalmButton {
-                            text: create-label;
-                            surface: theme-surface;
-                            surface-hover: theme-surface-hover;
-                            text-color: theme-text;
-                            btn-border-color: theme-island-border;
-                            clicked => { root.create-clicked(); }
-                        }
-                    }
+                recent-clicked(id) => {
+                    root.recent-clicked(id);
+                }
+                delete-recent(id) => {
+                    root.delete-recent(id);
+                }
+                clear-all-clicked => {
+                    root.clear-all-clicked();
+                }
+                paste-artwork-clicked => {
+                    root.paste-artwork-clicked();
                 }
             }
         }

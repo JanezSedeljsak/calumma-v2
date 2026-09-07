@@ -156,8 +156,8 @@ impl Engine {
     }
 
     pub fn create_project_from_encoded(&mut self, name: &str, bytes: &[u8]) -> Result<String> {
-        let (width, height, rgba) = calumma_io::decode_encoded(bytes)
-            .with_context(|| "decoding artwork bytes")?;
+        let (width, height, rgba) =
+            calumma_io::decode_encoded(bytes).with_context(|| "decoding artwork bytes")?;
         let mut inner = self.inner.lock();
         inner.close_document();
         let mut doc = inner
@@ -184,10 +184,7 @@ impl Engine {
 
     pub fn document_size(&self) -> Option<(u32, u32)> {
         let inner = self.inner.lock();
-        inner
-            .doc
-            .as_ref()
-            .map(|doc| (doc.width, doc.height))
+        inner.doc.as_ref().map(|doc| (doc.width, doc.height))
     }
 
     pub fn open_project(&mut self, id: &str) -> Result<()> {
@@ -471,6 +468,20 @@ impl Engine {
             .unwrap_or(0.0)
     }
 
+    pub fn zoom_factor(&self) -> f32 {
+        let inner = self.inner.lock();
+        inner.doc.as_ref().map(|doc| doc.camera.zoom).unwrap_or(1.0)
+    }
+
+    pub fn is_fit(&self) -> bool {
+        let inner = self.inner.lock();
+        inner
+            .doc
+            .as_ref()
+            .map(|doc| doc.camera.is_fit(doc.width as f32, doc.height as f32))
+            .unwrap_or(false)
+    }
+
     pub fn set_zoom_unit(&mut self, unit: f32) {
         let mut inner = self.inner.lock();
         if let Some(doc) = &mut inner.doc {
@@ -509,6 +520,17 @@ impl Engine {
 
     pub fn brush_size_unit(&self) -> f32 {
         brush_size_unit(self.brush_size())
+    }
+
+    pub fn set_brush_size(&mut self, size: f32) {
+        let mut inner = self.inner.lock();
+        if let Some(doc) = &mut inner.doc {
+            doc.brush_size = size.clamp(
+                calumma_core::limits::BRUSH_SIZE_MIN,
+                calumma_core::limits::BRUSH_SIZE_MAX,
+            );
+            inner.invalidate_overlay();
+        }
     }
 
     pub fn set_brush_size_unit(&mut self, unit: f32) {

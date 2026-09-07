@@ -1,21 +1,49 @@
+import { LayerRow } from "models.slint";
+import { Theme } from "calm/CalmTheme.slint";
+import { Tokens } from "calm/CalmTokens.slint";
 import { CalmScrollView } from "calm/CalmScrollView.slint";
 import { CalmPointer } from "calm/CalmPointer.slint";
-import { LayerRow } from "models.slint";
+import { CalmIsland } from "calm/CalmIsland.slint";
+import { CalmDivider } from "calm/CalmDivider.slint";
+import { CalmSurface } from "calm/CalmSurface.slint";
+import { CalmIconButton } from "calm/CalmToolButton.slint";
+import { CalmBody, CalmLabel, CalmMuted } from "calm/CalmText.slint";
 
-component LayerListRow inherits Rectangle {
+component LayerThumb inherits Rectangle {
+    in property <image> thumb;
+    in property <int> position;
+
+    width: Tokens.layer-thumb-width;
+    height: Tokens.layer-thumb-height;
+    border-radius: Tokens.radius-sm;
+    background: Theme.surface-hover;
+    clip: true;
+
+    CalmMuted {
+        width: 100%;
+        height: 100%;
+        text: root.position;
+        font-weight: 700;
+        horizontal-alignment: center;
+    }
+
+    Image {
+        source: root.thumb;
+        width: 100%;
+        height: 100%;
+        image-fit: contain;
+    }
+}
+
+component LayerListRow inherits HorizontalLayout {
     in property <LayerRow> layer-row;
-    in property <brush> surface;
-    in property <brush> surface-hover;
-    in property <brush> surface-active;
-    in property <brush> text-color;
-    in property <brush> text-muted;
-    in property <brush> accent;
-    in property <brush> row-border;
-    in property <brush> danger;
     in property <image> icon-eye-open;
     in property <image> icon-eye-closed;
     in property <image> icon-more;
     in property <image> icon-trash;
+    in property <string> visibility-tip;
+    in property <string> settings-tip;
+    in property <string> delete-tip;
 
     callback row-clicked();
     callback toggle-visible();
@@ -24,122 +52,128 @@ component LayerListRow inherits Rectangle {
     callback hover-enter();
     callback hover-leave();
 
-    height: 40px;
-    border-radius: 4px;
-    background: layer-row.active ? surface-active : (row-touch.has-hover ? surface-hover : surface);
-    border-width: 1px;
-    border-color: layer-row.active ? accent : row-border;
+    spacing: Tokens.space-sm;
 
-    private property <bool> row-hovered: row-touch.has-hover;
-
-    row-touch := CalmPointer {
-        clicked => { root.row-clicked(); }
-    }
+    private property <bool> row-hovered: card-touch.has-hover;
 
     changed row-hovered => {
-        if (row-hovered) {
+        if (root.row-hovered) {
             root.hover-enter();
         } else {
             root.hover-leave();
         }
     }
 
-    HorizontalLayout {
-        padding-left: 4px;
-        padding-right: 4px;
-        spacing: 4px;
+    card := CalmSurface {
+        horizontal-stretch: 1;
+        radius: Tokens.radius-sm;
+        bordered: true;
+        hover: root.layer-row.active;
+        focused: root.layer-row.active;
 
-        CalmPointer {
-            width: 20px;
-            Image {
-                source: layer-row.visible ? icon-eye-open : icon-eye-closed;
-                width: 14px;
-                height: 14px;
-                colorize: layer-row.visible ? text-color : text-muted;
-                horizontal-alignment: center;
-                vertical-alignment: center;
-            }
-            clicked => { root.toggle-visible(); }
-        }
-
-        Rectangle {
-            width: 40px;
-            height: 28px;
-            border-radius: 3px;
-            clip: true;
-            border-width: 1px;
-            border-color: row-border;
-            Image {
-                source: layer-row.thumb;
-                width: 100%;
-                height: 100%;
-                image-fit: contain;
+        card-touch := CalmPointer {
+            clicked => {
+                root.row-clicked();
             }
         }
 
-        Text {
-            text: layer-row.name;
-            color: layer-row.active ? accent : text-color;
-            font-weight: layer-row.active ? 600 : 400;
-            font-size: 12px;
-            horizontal-stretch: 1;
-            vertical-alignment: center;
-            opacity: layer-row.visible ? 1 : 0.45;
-            overflow: elide;
-        }
+        HorizontalLayout {
+            padding-left: Tokens.space-sm;
+            padding-right: Tokens.space-sm;
+            padding-top: Tokens.space-xs;
+            padding-bottom: Tokens.space-xs;
+            spacing: Tokens.space-md;
 
-        CalmPointer {
-            width: 20px;
-            Image {
-                source: icon-more;
-                width: 14px;
-                height: 14px;
-                colorize: text-muted;
-                horizontal-alignment: center;
-                vertical-alignment: center;
+            LayerThumb {
+                thumb: root.layer-row.thumb;
+                position: root.layer-row.index + 1;
+                y: (parent.height - self.height) / 2;
             }
-            clicked => { root.open-settings(); }
-        }
 
-        CalmPointer {
-            width: 20px;
-            visible: !layer-row.locked;
-            Image {
-                source: icon-trash;
-                width: 14px;
-                height: 14px;
-                colorize: danger;
-                horizontal-alignment: center;
-                vertical-alignment: center;
+            CalmBody {
+                text: root.layer-row.name;
+                strong: root.layer-row.active;
+                horizontal-stretch: 1;
+                opacity: root.layer-row.visible ? 1.0 : 0.45;
+                overflow: elide;
             }
-            clicked => { root.delete-layer(); }
+
+            Rectangle {
+                width: Tokens.row-icon-size;
+                height: Tokens.row-icon-size;
+                y: (parent.height - self.height) / 2;
+
+                if root.row-hovered && !root.layer-row.locked: CalmIconButton {
+                    icon: root.icon-trash;
+                    tint: Theme.danger;
+                    tip: root.delete-tip;
+                    clicked => {
+                        root.delete-layer();
+                    }
+                }
+            }
+        }
+    }
+
+    CalmIconButton {
+        icon: root.layer-row.visible ? root.icon-eye-open : root.icon-eye-closed;
+        tint: root.layer-row.visible ? Theme.text-muted : Theme.text-muted.with-alpha(0.4);
+        tip: root.visibility-tip;
+        y: (parent.height - self.height) / 2;
+        clicked => {
+            root.toggle-visible();
+        }
+    }
+
+    CalmIconButton {
+        icon: root.icon-more;
+        tip: root.settings-tip;
+        y: (parent.height - self.height) / 2;
+        clicked => {
+            root.open-settings();
         }
     }
 }
 
-export component LayersSlideout inherits Rectangle {
-    in-out property <bool> open;
-    in property <length> panel-width: 240px;
-    in property <brush> theme-surface;
-    in property <brush> theme-surface-hover;
-    in property <brush> theme-text;
-    in property <brush> theme-text-muted;
-    in property <brush> theme-accent-teal;
-    in property <brush> theme-island-border;
-    in property <brush> theme-tool-selected;
-    in property <brush> theme-danger;
+component BoundsField inherits HorizontalLayout {
+    in property <string> label;
+    in property <string> value;
+
+    spacing: Tokens.space-sm;
+    horizontal-stretch: 1;
+
+    CalmLabel {
+        label: root.label;
+    }
+
+    CalmSurface {
+        horizontal-stretch: 1;
+        bordered: true;
+        height: Tokens.control-height;
+
+        CalmMuted {
+            x: Tokens.space-sm;
+            height: 100%;
+            text: root.value;
+            mono: true;
+            color: Theme.text;
+            font-size: Tokens.body-size;
+        }
+    }
+}
+
+export component LayersPanel inherits CalmIsland {
     in property <string> title-text;
-    in property <string> add-label;
+    in property <string> add-tip;
+    in property <string> width-label;
+    in property <string> height-label;
     in property <string> doc-width-text;
     in property <string> doc-height-text;
+    in property <string> visibility-tip;
+    in property <string> settings-tip;
+    in property <string> delete-tip;
     in property <[LayerRow]> layers;
 
-    in property <bool> hover-preview-visible;
-    in property <string> hover-preview-name;
-    in property <image> hover-preview-image;
-
-    callback collapse();
-    callback expand();
     callback add-layer();
     callback pick-layer(int);
     callback toggle-layer-visible(int);
@@ -154,163 +188,117 @@ export component LayersSlideout inherits Rectangle {
     private property <image> icon-trash: @image-url("trash.svg");
     private property <image> icon-plus: @image-url("plus.svg");
 
-    width: open ? panel-width : 24px;
-    height: 100%;
+    width: Tokens.layers-panel-width;
+    island-padding: Tokens.space-sm;
+    clip: true;
 
-    if hover-preview-visible: Rectangle {
-        x: -196px;
-        y: 48px;
-        width: 192px;
-        background: theme-surface;
-        border-radius: 10px;
-        border-width: 1px;
-        border-color: theme-island-border;
+    VerticalLayout {
+        padding: root.island-padding;
+        spacing: Tokens.space-sm;
 
-        VerticalLayout {
-            padding: 8px;
-            spacing: 6px;
-            Text {
-                text: hover-preview-name;
-                color: theme-text;
-                font-size: 11px;
-                font-weight: 600;
-                overflow: elide;
-            }
-            Rectangle {
-                height: 120px;
-                border-radius: 4px;
-                clip: true;
-                border-width: 1px;
-                border-color: theme-island-border;
-                Image {
-                    source: hover-preview-image;
-                    width: 100%;
-                    height: 100%;
-                    image-fit: contain;
-                }
-            }
-        }
-    }
-
-    if open: Rectangle {
-        width: panel-width;
-        height: 100%;
-        background: theme-surface;
-        border-radius: 10px;
-        border-width: 1px;
-        border-color: theme-island-border;
-        clip: true;
-
-        VerticalLayout {
-            padding: 8px;
-            spacing: 8px;
-
-            HorizontalLayout {
-                Text {
-                    text: title-text.to-uppercase();
-                    font-size: 10px;
-                    font-weight: 700;
-                    letter-spacing: 0.8px;
-                    color: theme-text;
-                    horizontal-stretch: 1;
-                }
-                CalmPointer {
-                    Image {
-                        source: icon-plus;
-                        width: 14px;
-                        height: 14px;
-                        colorize: theme-accent-teal;
-                    }
-                    clicked => { root.add-layer(); }
-                }
-                CalmPointer {
-                    Text { text: "›"; color: theme-text-muted; font-size: 14px; }
-                    clicked => { root.collapse(); }
-                }
-            }
-
-            CalmScrollView {
+        HorizontalLayout {
+            CalmLabel {
+                label: root.title-text;
                 horizontal-stretch: 1;
-                vertical-stretch: 1;
-                thumb-color: theme-island-border;
-                thumb-hover-color: theme-text-muted;
-                thumb-pressed-color: theme-accent-teal;
-
-                VerticalLayout {
-                    spacing: 2px;
-                    for layer[i] in layers: LayerListRow {
-                        layer-row: layer;
-                        surface: theme-surface;
-                        surface-hover: theme-surface-hover;
-                        surface-active: theme-tool-selected;
-                        text-color: theme-text;
-                        text-muted: theme-text-muted;
-                        accent: theme-accent-teal;
-                        row-border: theme-island-border;
-                        danger: theme-danger;
-                        icon-eye-open: icon-eye-open;
-                        icon-eye-closed: icon-eye-closed;
-                        icon-more: icon-more;
-                        icon-trash: icon-trash;
-                        row-clicked => { root.pick-layer(layer.index); }
-                        toggle-visible => { root.toggle-layer-visible(layer.index); }
-                        open-settings => { root.open-layer-settings(layer.index); }
-                        delete-layer => { root.delete-layer(layer.index); }
-                        hover-enter => { root.hover-layer(layer.index); }
-                        hover-leave => { root.clear-layer-hover(); }
-                    }
-                }
             }
 
-            HorizontalLayout {
-                spacing: 8px;
-                Text {
-                    text: "W";
-                    color: theme-text-muted;
-                    font-size: 10px;
-                    font-weight: 600;
-                }
-                Text {
-                    text: doc-width-text;
-                    color: theme-text;
-                    font-size: 11px;
-                    horizontal-stretch: 1;
-                }
-                Text {
-                    text: "H";
-                    color: theme-text-muted;
-                    font-size: 10px;
-                    font-weight: 600;
-                }
-                Text {
-                    text: doc-height-text;
-                    color: theme-text;
-                    font-size: 11px;
-                    horizontal-stretch: 1;
+            CalmIconButton {
+                icon: root.icon-plus;
+                tip: root.add-tip;
+                clicked => {
+                    root.add-layer();
                 }
             }
         }
-    }
 
-    if !open: CalmPointer {
-        width: 24px;
-        height: 100%;
-        clicked => { root.expand(); }
+        CalmScrollView {
+            vertical-stretch: 1;
+            min-height: 96px;
+
+            VerticalLayout {
+                spacing: Tokens.space-sm;
+                alignment: start;
+
+                for layer in root.layers: LayerListRow {
+                    layer-row: layer;
+                    icon-eye-open: root.icon-eye-open;
+                    icon-eye-closed: root.icon-eye-closed;
+                    icon-more: root.icon-more;
+                    icon-trash: root.icon-trash;
+                    visibility-tip: root.visibility-tip;
+                    settings-tip: root.settings-tip;
+                    delete-tip: root.delete-tip;
+                    row-clicked => {
+                        root.pick-layer(layer.index);
+                    }
+                    toggle-visible => {
+                        root.toggle-layer-visible(layer.index);
+                    }
+                    open-settings => {
+                        root.open-layer-settings(layer.index);
+                    }
+                    delete-layer => {
+                        root.delete-layer(layer.index);
+                    }
+                    hover-enter => {
+                        root.hover-layer(layer.index);
+                    }
+                    hover-leave => {
+                        root.clear-layer-hover();
+                    }
+                }
+            }
+        }
+
+        CalmDivider { }
+
+        HorizontalLayout {
+            spacing: Tokens.space-sm;
+
+            BoundsField {
+                label: root.width-label;
+                value: root.doc-width-text;
+            }
+
+            BoundsField {
+                label: root.height-label;
+                value: root.doc-height-text;
+            }
+        }
+    }
+}
+
+export component LayerHoverCard inherits Rectangle {
+    in property <string> layer-name;
+    in property <image> preview;
+
+    width: Tokens.hover-card-width;
+    background: Theme.surface;
+    border-radius: Tokens.radius-sm;
+    border-width: 1px;
+    border-color: Theme.island-border;
+
+    VerticalLayout {
+        padding: Tokens.space-md;
+        spacing: Tokens.space-sm;
+
+        CalmBody {
+            text: root.layer-name;
+            strong: true;
+            overflow: elide;
+        }
 
         Rectangle {
-            width: 24px;
-            height: 100%;
-            background: theme-surface;
-            border-radius: 10px;
-            border-width: 1px;
-            border-color: theme-island-border;
+            height: 120px;
+            border-radius: Tokens.radius-sm;
+            background: Theme.surface-hover;
+            clip: true;
 
-            Text {
-                text: "‹";
-                color: theme-text-muted;
-                font-size: 16px;
-                horizontal-alignment: center;
-                vertical-alignment: center;
+            Image {
+                source: root.preview;
+                width: 100%;
+                height: 100%;
+                image-fit: contain;
             }
         }
     }

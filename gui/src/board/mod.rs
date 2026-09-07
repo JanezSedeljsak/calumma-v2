@@ -6,4 +6,4 @@ mod surface_macos;
 
 pub use cursor::ModifierState;
 pub use host::BoardHost;
-pub use layout::{board_layout, BoardLayout};
+pub use layout::board_layout;

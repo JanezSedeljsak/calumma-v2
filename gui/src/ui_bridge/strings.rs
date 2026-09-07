@@ -1,0 +1,77 @@
+use super::AppWindow;
+use crate::shell::Catalog;
+use slint::SharedString;
+
+pub const DEFAULT_WIDTH: u32 = 1280;
+pub const DEFAULT_HEIGHT: u32 = 720;
+
+pub fn init_form_defaults(ui: &AppWindow, l10n: &Catalog) {
+    ui.set_project_name(SharedString::from(l10n.get("newProject")));
+    ui.set_width_text(SharedString::from(DEFAULT_WIDTH.to_string()));
+    ui.set_height_text(SharedString::from(DEFAULT_HEIGHT.to_string()));
+}
+
+pub fn sync_strings(ui: &AppWindow, l10n: &Catalog) {
+    let put = |value: String| SharedString::from(value);
+
+    ui.set_brand_text(put(l10n.get("brand")));
+    ui.set_tagline_text(put(l10n.get("tagline")));
+    ui.set_project_name_label(put(l10n.get("projectName")));
+    ui.set_resolution_label(put(l10n.get("resolution")));
+    ui.set_create_label(put(l10n.get("create")));
+    ui.set_presets_label(put(l10n.get("presets")));
+    ui.set_recents_label(put(l10n.get("recents")));
+    ui.set_clear_all_label(put(l10n.get("clearAllRecents")));
+    ui.set_no_recents_label(put(l10n.get("noRecents")));
+    ui.set_delete_project_label(put(l10n.get("deleteProject")));
+    ui.set_paste_artwork_title(put(l10n.get("pasteArtwork")));
+    ui.set_paste_artwork_hint(put(l10n.get("pasteArtworkHint")));
+    ui.set_artwork_formats(put(l10n.get("artworkFormats")));
+    ui.set_back_to_landing_tip(put(l10n.get("backToProjects")));
+    ui.set_brush_size_label(put(l10n.get("brushSize")));
+    ui.set_ink_opacity_label(put(l10n.get("inkOpacity")));
+    ui.set_settings_title(put(l10n.get("settings")));
+    ui.set_theme_label(put(l10n.get("theme")));
+    ui.set_theme_light_label(put(l10n.get("themeLight")));
+    ui.set_theme_dark_label(put(l10n.get("themeDark")));
+    ui.set_language_label(put(l10n.get("language")));
+    ui.set_language_name(put(l10n.get("languageEnglish")));
+    ui.set_memory_label(put(l10n.get("memoryUsed")));
+    ui.set_version_label(put(l10n.get("version")));
+    ui.set_color_label(put(l10n.get("color")));
+    ui.set_primary_color_label(put(l10n.get("primaryColor")));
+    ui.set_secondary_color_label(put(l10n.get("secondaryColor")));
+    ui.set_tertiary_color_label(put(l10n.get("tertiaryColor")));
+    ui.set_file_menu_title(put(l10n.get("fileMenu")));
+    ui.set_edit_menu_title(put(l10n.get("editMenu")));
+    ui.set_board_menu_title(put(l10n.get("boardMenu")));
+    ui.set_new_project_menu_title(put(l10n.get("newProjectMenu")));
+    ui.set_undo_menu_title(put(l10n.get("undo")));
+    ui.set_redo_menu_title(put(l10n.get("redo")));
+    ui.set_fit_view_menu_title(put(l10n.get("fitToView")));
+    ui.set_fit_view_label(put(l10n.get("fitToView")));
+    ui.set_zoom_in_label(put(l10n.get("zoomIn")));
+    ui.set_zoom_out_label(put(l10n.get("zoomOut")));
+    ui.set_toggle_layers_menu_title(put(l10n.get("toggleLayers")));
+    ui.set_fullscreen_menu_title(put(l10n.get("enterFullScreen")));
+    ui.set_layers_title(put(l10n.get("layers")));
+    ui.set_add_layer_label(put(l10n.get("addLayer")));
+    ui.set_width_short_label(put(l10n.get("canvasWidth")));
+    ui.set_height_short_label(put(l10n.get("canvasHeight")));
+    ui.set_export_menu_title(put(l10n.get("exportMenu")));
+    ui.set_export_png_title(put(l10n.format("exportAs", &["PNG"])));
+    ui.set_export_jpeg_title(put(l10n.format("exportAs", &["JPEG"])));
+    ui.set_export_webp_title(put(l10n.format("exportAs", &["WebP"])));
+    ui.set_export_avif_title(put(l10n.format("exportAs", &["AVIF"])));
+    ui.set_export_heic_title(put(l10n.format("exportAs", &["HEIC"])));
+    ui.set_export_psd_title(put(l10n.format("exportAs", &["PSD"])));
+    ui.set_export_svg_title(put(l10n.format("exportAs", &["SVG"])));
+    ui.set_export_pdf_title(put(l10n.format("exportAs", &["PDF"])));
+    ui.set_tools_menu_title(put(l10n.get("smartTools")));
+    ui.set_upscale_label(put(l10n.get("upscale")));
+    ui.set_seam_carve_label(put(l10n.get("seamCarve")));
+    ui.set_layer_settings_label(put(l10n.get("layerSettings")));
+    ui.set_layer_export_label(put(l10n.get("exportLayer")));
+    ui.set_layer_duplicate_label(put(l10n.get("duplicateLayer")));
+    ui.set_layer_delete_label(put(l10n.get("deleteLayer")));
+}

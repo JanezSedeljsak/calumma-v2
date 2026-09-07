@@ -1,47 +1,50 @@
-import { VerticalBox } from "std-widgets.slint";
+import { Tokens } from "CalmTokens.slint";
+import { CalmMuted } from "CalmText.slint";
 import { CalmSlider } from "CalmSlider.slint";
+import { CalmSliderValueField } from "CalmField.slint";
 
-export component CalmSliderRow inherits VerticalBox {
+export component CalmSliderRow inherits VerticalLayout {
     in property <string> label;
-    in property <string> value-text;
+    in-out property <string> value-text;
+    in property <bool> editable: false;
     in property <float> minimum: 0;
     in property <float> maximum: 1;
     in-out property <float> value;
-    in property <brush> label-color;
-    in property <brush> track-color;
-    in property <brush> fill-color;
-    in property <brush> handle-color;
-    in property <brush> handle-border-color;
-    in property <brush> handle-focus-border-color;
 
     callback moved(float);
+    callback committed(string);
 
     spacing: 2px;
 
     HorizontalLayout {
-        Text {
+        spacing: Tokens.space-xs;
+        alignment: space-between;
+
+        CalmMuted {
             text: root.label;
-            color: label-color;
-            font-size: 11px;
             horizontal-stretch: 1;
+            overflow: elide;
         }
-        Text {
+
+        if editable: CalmSliderValueField {
+            text <=> root.value-text;
+            accepted(text) => {
+                root.committed(text);
+            }
+        }
+
+        if !editable: CalmMuted {
             text: root.value-text;
-            color: label-color;
-            font-size: 11px;
-            font-family: "Menlo";
+            mono: true;
         }
     }
 
     CalmSlider {
+        value <=> root.value;
         minimum: root.minimum;
         maximum: root.maximum;
-        value <=> root.value;
-        track-color: root.track-color;
-        fill-color: root.fill-color;
-        handle-color: root.handle-color;
-        handle-border-color: root.handle-border-color;
-        handle-focus-border-color: root.handle-focus-border-color;
-        moved(value) => { root.moved(value); }
+        moved(v) => {
+            root.moved(v);
+        }
     }
 }

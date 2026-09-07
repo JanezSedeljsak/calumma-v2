@@ -64,12 +64,17 @@ bits use `{0}`, `{1}`, … filled by `l10n.formatKey(...)`. Visual tokens stay i
    gradient field jump under the cursor.
 7. **Canvas stays Rust.** Anything *drawn on the board* (paper, strokes, shapes, desk grid,
    layer hover outline) is WGSL — the shell never paints board content. The one thing the
-   shell may draw over the board is a **placeholder for a board with nothing to show yet**:
+   shell may draw over the board is a **placeholder for a board with nothing to show yet** —
+   and even that only where the shell owns the pixels. In `gui/` the board is a native
+   `CAMetalLayer` subview, which draws *over* every Slint element inside its rect, so no chrome
+   may overlap the board rectangle at all: the zoom pill sits in a strip along the bottom of the
+   canvas island rather than floating over the paper. The exception below is Swift-shell
+   behavior:
    `CanvasSkeleton` covers the Metal view while a project loads, on the rectangle
    `calumma_core::camera::fit_size` says the paper will occupy (frozen Swift-shell behavior —
    `gui/` has no loading skeleton yet). Standing in for the canvas, not styling it. Board colors are
    pushed from tokens into the engine, never hardcoded in the shader. Small chrome controls
-   may float over the canvas island (zoom pill, bottom-trailing); panels do not.
+   belong to the canvas island (the zoom pill, bottom-trailing); panels do not.
 
 ## Hierarchy
 
@@ -121,11 +126,13 @@ the gradient brightens, no outline.
 
 ## Editor
 
-Project tabs sit in a **compact window titlebar** (right of the traffic lights) inside one
-shared capsule with the `+` control. Selected tab is a soft highlight clipped to
-that capsule — not a second nested pill. Each tab carries its own project's accent dot,
-then the name, then `×`; clicking the dot opens the rename / recolor card. Top padding is
-tight (`space.xs`) so the board starts close under the titlebar.
+Project tabs sit in one shared capsule with the `+` control — in the Swift shell that capsule
+lived in a **compact window titlebar** right of the traffic lights; `gui/` cannot put content
+in the OS titlebar, so the same capsule is the first row inside the window, above the islands.
+Selected tab is a soft highlight clipped to that capsule — not a second nested pill. Each tab
+carries its own project's accent dot, then the name, then `×`; clicking the dot opens the
+rename / recolor card (no `Engine` entry point for it in `gui/` yet, so the dot is a marker
+there). Top padding is tight (`space.xs`) so the board starts close under the titlebar.
 
 While a project loads, the canvas island holds a **skeleton** rather than the outgoing
 board: the desk with its squared paper, and one sweeping band across the rectangle the paper
@@ -142,8 +149,8 @@ outline — the overlay pass has no stroked circle, and two discs is the same pr
 Tools, canvas, and layers are three **rounded, bordered islands**, full-height, separated
 by a minimal gap (`space.xs`) with a matching margin from the window edge on every side — no
 longer flush. The **zoom pill** floats bottom-trailing *inside* the canvas island: `−`, log
-slider, `+`, percentage, a fit-to-view icon (tooltip, no label). Layer list rows stay
-compact; hovering a row shows a thumbnail popover. Board hover outline remains a dashed
+slider, `+`, percentage, a fit-to-view icon (tooltip, no label) — in its own strip in `gui/`,
+see rule 7. Layer list rows stay compact; hovering a row shows a thumbnail popover. Board hover outline remains a dashed
 WGSL stroke, not a Swift overlay.
 
 A tools-panel slider row is a muted label, the value, and the track under both. Where the

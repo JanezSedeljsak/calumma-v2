@@ -1,42 +1,44 @@
+import { Theme } from "CalmTheme.slint";
+
 export component CalmSlider inherits Rectangle {
     in property <float> minimum: 0;
     in property <float> maximum: 1;
     in-out property <float> value: 0;
-    in property <brush> track-color;
-    in property <brush> fill-color;
-    in property <brush> handle-color;
-    in property <brush> handle-border-color;
-    in property <brush> handle-focus-border-color;
 
     callback moved(float);
 
     height: 20px;
+    min-width: 60px;
 
-    property <float> fraction: (maximum - minimum) == 0 ? 0 : (value - minimum) / (maximum - minimum);
+    private property <length> knob: 12px;
+    private property <float> fraction: (maximum - minimum) == 0 ? 0 : clamp((value - minimum) / (maximum - minimum), 0, 1);
 
     Rectangle {
         y: (parent.height - self.height) / 2;
-        width: parent.width;
+        x: root.knob / 2;
+        width: parent.width - root.knob;
         height: 4px;
         border-radius: 2px;
-        background: track-color;
+        background: Theme.island-border;
 
         Rectangle {
+            x: 0;
             width: parent.width * root.fraction;
             height: parent.height;
             border-radius: parent.border-radius;
-            background: fill-color;
+            background: Theme.accent-teal;
         }
     }
 
     track-touch := TouchArea {
-        width: parent.width;
-        height: parent.height;
+        width: 100%;
+        height: 100%;
+        mouse-cursor: pointer;
 
         pointer-event(event) => {
             if (event.kind == PointerEventKind.down || (event.kind == PointerEventKind.move && self.pressed)) {
-                let track = (parent.width / 1px) - 12;
-                let next = (self.mouse-x / 1px) / max(1, track);
+                let track = parent.width - root.knob;
+                let next = clamp((self.mouse-x - root.knob / 2) / max(track, 1px), 0, 1);
                 root.value = root.minimum + next * (root.maximum - root.minimum);
                 root.moved(root.value);
             }
@@ -44,13 +46,13 @@ export component CalmSlider inherits Rectangle {
     }
 
     Rectangle {
-        x: root.fraction * (parent.width - 12px);
-        y: (parent.height - 12px) / 2;
-        width: 12px;
-        height: 12px;
-        border-radius: 6px;
-        background: handle-color;
+        x: root.fraction * (parent.width - root.knob);
+        y: (parent.height - root.knob) / 2;
+        width: root.knob;
+        height: root.knob;
+        border-radius: self.width / 2;
+        background: Theme.surface;
         border-width: 1px;
-        border-color: track-touch.pressed ? handle-focus-border-color : handle-border-color;
+        border-color: track-touch.pressed || track-touch.has-hover ? Theme.control-focus-border : Theme.control-border;
     }
 }

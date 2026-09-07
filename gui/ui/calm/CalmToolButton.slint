@@ -1,35 +1,125 @@
+import { Theme } from "CalmTheme.slint";
+import { Tokens } from "CalmTokens.slint";
 import { CalmPointer } from "CalmPointer.slint";
+import { CalmTip } from "CalmTip.slint";
 
 export component CalmToolButton inherits Rectangle {
     in property <bool> selected;
+    in property <bool> enabled: true;
     in property <image> icon;
-    in property <brush> surface;
-    in property <brush> selected-bg;
-    in property <brush> btn-border-color;
-    in property <brush> accent;
-    in property <brush> icon-color;
+    in property <brush> icon-tint;
+    in property <bool> has-icon-tint: false;
+    in property <string> tip;
+    in property <string> shortcut;
+    in property <bool> tip-leading: false;
 
     callback clicked();
 
-    width: 32px;
-    height: 32px;
-    border-radius: 4px;
-    background: selected ? selected-bg : surface;
-    border-width: 1px;
-    border-color: selected ? accent : btn-border-color;
+    width: Tokens.tool-button-size;
+    height: Tokens.tool-button-size;
+    border-radius: Tokens.radius-sm;
+    background: selected ? Theme.surface-hover : transparent;
+    opacity: enabled ? 1.0 : Tokens.disabled-opacity;
 
     touch := CalmPointer {
-        width: 100%;
-        height: 100%;
-        clicked => { root.clicked(); }
+        enabled: root.enabled;
+        clicked => {
+            root.clicked();
+        }
     }
 
     Image {
-        source: icon;
-        width: 16px;
-        height: 16px;
-        colorize: icon-color;
+        source: root.icon;
+        width: Tokens.tool-icon-size;
+        height: Tokens.tool-icon-size;
         x: (parent.width - self.width) / 2;
         y: (parent.height - self.height) / 2;
+        colorize: has-icon-tint ? icon-tint : (selected ? Theme.accent-teal : Theme.text-muted);
+        image-fit: contain;
+    }
+
+    delay := Timer {
+        interval: 450ms;
+        running: touch.has-hover && root.tip != "";
+        triggered => {
+            tip-popup.show();
+            self.running = false;
+        }
+    }
+
+    changed has-hover-tip => {
+        if (!root.has-hover-tip) {
+            tip-popup.close();
+        }
+    }
+
+    property <bool> has-hover-tip: touch.has-hover;
+
+    tip-popup := PopupWindow {
+        x: root.tip-leading ? -self.width - Tokens.space-sm : root.width + Tokens.space-sm;
+        y: (root.height - self.height) / 2;
+        close-policy: no-auto-close;
+
+        CalmTip {
+            tip: root.tip;
+            shortcut: root.shortcut;
+        }
+    }
+}
+
+export component CalmIconButton inherits Rectangle {
+    in property <image> icon;
+    in property <brush> tint: Theme.text-muted;
+    in property <length> icon-size: Tokens.row-icon-size;
+    in property <bool> enabled: true;
+    in property <string> tip;
+    in property <bool> tip-leading: true;
+
+    callback clicked();
+
+    width: icon-size;
+    height: icon-size;
+
+    touch := CalmPointer {
+        enabled: root.enabled;
+        clicked => {
+            root.clicked();
+        }
+    }
+
+    Image {
+        source: root.icon;
+        width: parent.width;
+        height: parent.height;
+        colorize: root.tint;
+        image-fit: contain;
+        opacity: touch.has-hover ? 1.0 : 0.86;
+    }
+
+    delay := Timer {
+        interval: 450ms;
+        running: touch.has-hover && root.tip != "";
+        triggered => {
+            tip-popup.show();
+            self.running = false;
+        }
+    }
+
+    property <bool> has-hover-tip: touch.has-hover;
+
+    changed has-hover-tip => {
+        if (!root.has-hover-tip) {
+            tip-popup.close();
+        }
+    }
+
+    tip-popup := PopupWindow {
+        x: root.tip-leading ? -self.width - Tokens.space-sm : root.width + Tokens.space-sm;
+        y: (root.height - self.height) / 2;
+        close-policy: no-auto-close;
+
+        CalmTip {
+            tip: root.tip;
+        }
     }
 }

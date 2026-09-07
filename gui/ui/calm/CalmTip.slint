@@ -1,0 +1,37 @@
+import { Theme } from "CalmTheme.slint";
+import { Tokens } from "CalmTokens.slint";
+
+export component CalmTip inherits Rectangle {
+    in property <string> tip;
+    in property <string> shortcut;
+
+    background: Theme.surface-hover;
+    border-radius: Tokens.radius-sm;
+    border-width: 1px;
+    border-color: Theme.island-border;
+
+    HorizontalLayout {
+        padding-left: Tokens.space-sm;
+        padding-right: Tokens.space-sm;
+        padding-top: Tokens.space-xs;
+        padding-bottom: Tokens.space-xs;
+        spacing: Tokens.space-sm;
+
+        Text {
+            text: root.tip;
+            color: Theme.text;
+            font-size: Tokens.label-size;
+            font-weight: 500;
+            vertical-alignment: center;
+        }
+
+        if shortcut != "": Text {
+            text: root.shortcut;
+            color: Theme.text-muted;
+            font-size: Tokens.label-size;
+            font-weight: 600;
+            font-family: "Menlo";
+            vertical-alignment: center;
+        }
+    }
+}

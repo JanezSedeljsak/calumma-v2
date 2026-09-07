@@ -1,52 +1,17 @@
-import { VerticalBox } from "std-widgets.slint";
-import { CalmModal } from "calm/CalmModal.slint";
-import { CalmPointer } from "calm/CalmPointer.slint";
-
-component ActionRow inherits Rectangle {
-    in property <string> label;
-    in property <brush> label-color;
-    in property <brush> surface;
-    in property <brush> surface-hover;
-    in property <brush> row-border;
-
-    callback activated();
-
-    height: 32px;
-    border-radius: 4px;
-    background: touch.has-hover ? surface-hover : surface;
-    border-width: 1px;
-    border-color: row-border;
-
-    touch := CalmPointer {
-        clicked => { root.activated(); }
-    }
-
-    Text {
-        text: label;
-        color: label-color;
-        font-size: 12px;
-        horizontal-alignment: center;
-        vertical-alignment: center;
-    }
-}
+import { Theme } from "calm/CalmTheme.slint";
+import { Tokens } from "calm/CalmTokens.slint";
+import { CalmModal, CalmModalCard } from "calm/CalmModal.slint";
+import { CalmDivider } from "calm/CalmDivider.slint";
+import { CalmButton } from "calm/CalmButton.slint";
+import { CalmToggle } from "calm/CalmToggle.slint";
+import { CalmBody, CalmMuted } from "calm/CalmText.slint";
 
 export component LayerSettingsModal inherits Rectangle {
     in-out property <bool> open;
-    in property <int> layer-index;
     in property <string> layer-name;
     in property <bool> layer-visible;
     in property <bool> can-delete;
 
-    in property <brush> theme-bg;
-    in property <brush> theme-surface;
-    in property <brush> theme-surface-hover;
-    in property <brush> theme-text;
-    in property <brush> theme-text-muted;
-    in property <brush> theme-accent-teal;
-    in property <brush> theme-island-border;
-    in property <brush> theme-danger;
-
-    in property <string> title-text;
     in property <string> visibility-label;
     in property <string> export-label;
     in property <string> duplicate-label;
@@ -60,79 +25,77 @@ export component LayerSettingsModal inherits Rectangle {
 
     width: 100%;
     height: 100%;
+    visible: open;
 
     CalmModal {
         open <=> root.open;
-        scrim-color: root.theme-bg;
-        dismissed => { root.dismissed(); }
+        dismissed => {
+            root.dismissed();
+        }
 
-        Rectangle {
-            width: 280px;
-            background: theme-bg;
-            border-radius: 12px;
-            border-width: 1px;
-            border-color: theme-island-border;
+        CalmModalCard {
+            width: 260px;
+            height: card.preferred-height;
+            background: Theme.surface;
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
 
-            VerticalBox {
-                padding: 16px;
-                spacing: 12px;
+            card := VerticalLayout {
+                padding: Tokens.space-md;
+                spacing: Tokens.space-md;
+
+                CalmBody {
+                    text: root.layer-name;
+                    strong: true;
+                    overflow: elide;
+                }
 
                 HorizontalLayout {
-                    Text {
-                        text: title-text;
-                        font-size: 10px;
-                        font-weight: 700;
-                        color: theme-text;
+                    CalmMuted {
+                        text: root.visibility-label;
                         horizontal-stretch: 1;
                     }
-                    CalmPointer {
-                        Text { text: "×"; color: theme-text-muted; }
-                        clicked => {
-                            root.open = false;
-                            root.dismissed();
+                    CalmToggle {
+                        checked: root.layer-visible;
+                        y: (parent.height - self.height) / 2;
+                        toggled => {
+                            root.toggle-visibility();
                         }
                     }
                 }
 
-                Text {
-                    text: layer-name;
-                    color: theme-text;
-                    font-size: 12px;
-                    font-weight: 600;
-                    overflow: elide;
+                CalmDivider { }
+
+                HorizontalLayout {
+                    spacing: Tokens.space-sm;
+
+                    CalmButton {
+                        text: root.export-label;
+                        fill: true;
+                        clicked => {
+                            root.export-layer();
+                        }
+                    }
+
+                    CalmButton {
+                        text: root.duplicate-label;
+                        fill: true;
+                        clicked => {
+                            root.duplicate-layer();
+                        }
+                    }
                 }
 
-                ActionRow {
-                    label: visibility-label;
-                    label-color: theme-accent-teal;
-                    surface: theme-surface;
-                    surface-hover: theme-surface-hover;
-                    row-border: theme-island-border;
-                    activated => { root.toggle-visibility(); }
-                }
-                ActionRow {
-                    label: export-label;
-                    label-color: theme-accent-teal;
-                    surface: theme-surface;
-                    surface-hover: theme-surface-hover;
-                    row-border: theme-island-border;
-                    activated => { root.export-layer(); }
-                }
-                ActionRow {
-                    label: duplicate-label;
-                    label-color: theme-accent-teal;
-                    surface: theme-surface;
-                    surface-hover: theme-surface-hover;
-                    row-border: theme-island-border;
-                    activated => { root.duplicate-layer(); }
-                }
-                if can-delete: ActionRow {
-                    label: delete-label;
-                    label-color: theme-danger;
-                    surface: theme-surface;
-                    surface-hover: theme-surface-hover;
-                    row-border: theme-island-border;
-                    activated => { root.delete-layer(); }
+                if root.can-delete: CalmDivider { }
+
+                if root.can-delete: CalmButton {
+                    text: root.delete-label;
+                    fill: true;
+                    has-tint: true;
+                    tint: Theme.danger;
+                    clicked => {
+                        root.delete-layer();
+                    }
                 }
             }
         }

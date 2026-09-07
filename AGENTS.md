@@ -35,10 +35,11 @@ the project-color palette and which color a new project gets, import limits, los
 quality — all core constants and core functions, reached through `calumma-app`. The shell
 renders what the engine reports (`Engine::zoom_unit`) and never recomputes it. There is no
 `CalmState` struct any more — the old C-ABI one-struct-per-frame snapshot is gone, and
-`Engine` exposes granular getters instead. Two of those getters haven't been re-exposed
-since the ffi rewrite: nothing on `Engine` answers "is the board already at fit" (the zoom
-pill in `gui/` has no Fit-lit-when-fit state today) or "what was the last shape tool" —
-engine-API gaps to close, not dropped product rules. Same for the palette: a project's
+`Engine` exposes granular getters instead. `Engine::zoom_factor` and `Engine::is_fit` answer
+"how far is the board zoomed" and "is it already at fit" — the zoom pill reads both. "What
+was the last shape tool" is still not re-exposed since the ffi rewrite: `gui/`'s shape and
+marquee grid slots always pick `Rect` / `SelectRect` rather than the member last used, an
+engine-API gap to close, not a dropped product rule. Same for the palette: a project's
 accent is still assigned core/io-side at `create_project` (`engine/io`), but no `Engine`
 call hands a shell a palette color to preview before creating one.
 Theme **values** are the exception that proves the rule: they come from `design/tokens.json`
@@ -532,15 +533,20 @@ Visual tokens live in `design/tokens.json` → `gui/src/shell/theme.rs` (radius,
 window, color). Engine name constants live in `calumma_core::names`. CLI paths/binaries live
 in `cli/constants.py`.
 
-Compose calm components in `gui/ui/calm/` (`CalmIsland`, `CalmSlider`, `CalmModal`, …). Theme
-colors are Slint properties set from Rust each frame in `ui_bridge::sync_shell`.
+Compose calm components in `gui/ui/calm/` (`CalmIsland`, `CalmSlider`, `CalmModal`, …).
+Colors and metrics are two Slint **globals**, `Theme` and `Tokens` (`gui/ui/calm/CalmTheme.slint`,
+`CalmTokens.slint`), filled from Rust in `ui_bridge::theme::apply_theme`. A component reads
+`Theme.surface` / `Tokens.space-md` directly — do not thread a `theme-*` property through five
+parents, and do not write a hex value or a pixel metric into a `.slint` file: both are token
+data, and the globals are how tokens reach the UI.
 
-1. Islands (`CalmIsland`) carry a thin `Tokens.Light/Dark.islandBorder` stroke. Text/number
-   inputs, buttons, and list rows carry a stronger `controlBorder` (focused inputs:
-   `controlFocusBorder`) via `calmSurface(bordered:focused:)`. Everywhere else — chips,
-   swatches, the tool grid, sliders — separate surfaces by background contrast only.
-2. Controls use `Tokens.Radius.sm` / `md`. Islands use `Tokens.Radius.island` (rounded) and
-   sit apart with a minimal gap and window margin (`Tokens.Space.xs`), not flush.
+1. Islands (`CalmIsland`) carry a thin `Theme.island-border` stroke. Text/number inputs
+   (`CalmField`), buttons (`CalmButton`), and list rows (`CalmSurface { bordered: true }`)
+   carry a stronger `control-border` (focused inputs: `control-focus-border`). Everywhere
+   else — chips, swatches, the tool grid, sliders — separate surfaces by background contrast
+   only.
+2. Controls use `Tokens.radius-sm` / `radius-md`. Islands use `Tokens.radius-island` (rounded)
+   and sit apart with a minimal gap and window margin (`Tokens.space-xs`), not flush.
 3. Custom Canvas/`AppIcon` drawings only — no icon packs / SF Symbols as product icons.
 4. Light and dark from tokens; push desk / grid / paper-border into the engine via
    `Engine::set_board_colors`. Never hardcode a color in `.rs` or `.wgsl`.
@@ -665,6 +671,18 @@ LOD, motion mode) are documented in `docs/RENDERING.md`, not repeated here.
   `Wayland` surface kinds for the same attach path, but `gui/src/board` only implements the
   macOS one today; attaching on Windows/Linux currently fails (`attach_failed`) until that
   lands.
+- **A subview draws over Slint, never under it.** Slint renders into the winit view's own
+  layer, so the board's `NSView` sits on top of every Slint element inside its rect, whatever
+  the subview ordering says. Nothing Slint draws may overlap the board rect — which is why the
+  zoom pill has a strip of its own at the bottom of the canvas island rather than floating over
+  the paper the way the Swift shell's did. Slint owns the rect too: `Editor` publishes
+  `board-surface`'s `absolute-position` and size, `sync_board_geometry` feeds those straight to
+  `BoardSurface::set_frame`, and nothing in Rust re-derives panel widths or paddings. The frame
+  is set in *logical* points, and the host view is **flipped** (top-left origin), so `set_frame`
+  asks `isFlipped` rather than assuming AppKit's bottom-left convention.
+- The frame loop is two `slint::Timer`s owned by `main` (`start_frame_loop` returns them). A
+  `Timer` stops when it is dropped, so binding them to a local that lives until `ui.run()` is
+  what keeps the board attaching, resizing and presenting at all.
 - Layer hover = dashed outline in the shader, not a shell-drawn overlay.
 - Board **chrome** — guides, transform and vector-item frames, the text session's box and
   caret, the hover outline — is measured in *screen* pixels, not document units, so it is the

@@ -16,4 +16,4 @@ pub use l10n::Catalog;
 pub use layers::LayerThumbCache;
 pub use prefs::ShellPrefs;
 pub use theme::Theme;
-pub use tool_labels::tool_label_key;
+pub use tool_labels::{grid_slot_selected, grid_slot_tip_key, tool_family_key, TOOL_GRID};

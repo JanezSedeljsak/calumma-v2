@@ -1,35 +1,54 @@
-import { ToolsPanel } from "tools-panel.slint";
-import { LayersSlideout } from "layers-panel.slint";
-import { CalmSlider } from "calm/CalmSlider.slint";
-import { CalmIsland } from "calm/CalmIsland.slint";
-import { CalmPointer } from "calm/CalmPointer.slint";
 import { LayerRow } from "models.slint";
+import { Theme } from "calm/CalmTheme.slint";
+import { Tokens } from "calm/CalmTokens.slint";
+import { CalmIsland } from "calm/CalmIsland.slint";
+import { ToolsPanel, ToolEntry } from "tools-panel.slint";
+import { LayersPanel, LayerHoverCard } from "layers-panel.slint";
+import { ProjectTabs } from "project-tabs.slint";
+import { ZoomPill } from "zoom-pill.slint";
 
 export component Editor inherits Rectangle {
-    in property <brush> theme-bg;
-    in property <brush> theme-surface;
-    in property <brush> theme-surface-hover;
-    in property <brush> theme-text;
-    in property <brush> theme-text-muted;
-    in property <brush> theme-accent-teal;
-    in property <brush> theme-island-border;
-    in property <brush> theme-control-border;
-    in property <brush> theme-control-focus-border;
-    in property <brush> theme-tool-selected;
-    in property <brush> theme-danger;
-    in property <string> back-label;
+    in property <string> project-name;
+    in property <color> project-accent;
+    in property <string> new-project-tip;
+    in property <string> close-tab-tip;
+
+    in property <bool> layers-open;
     in property <string> layers-title;
-    in property <string> add-layer-label;
+    in property <string> add-layer-tip;
+    in property <string> layer-visibility-tip;
+    in property <string> layer-settings-tip;
+    in property <string> delete-layer-tip;
+    in property <string> width-label;
+    in property <string> height-label;
     in property <string> doc-width-text;
     in property <string> doc-height-text;
-    in-out property <bool> layers-open;
     in property <[LayerRow]> layers;
 
     in property <bool> hover-preview-visible;
     in property <string> hover-preview-name;
     in property <image> hover-preview-image;
 
-    in-out property <bool> tools-menu-open;
+    in property <int> active-tool;
+    in property <[ToolEntry]> tools;
+    in property <string> active-tool-label;
+    in property <bool> show-brush-size;
+    in property <bool> show-ink-opacity;
+    in property <string> brush-size-label;
+    in property <string> ink-opacity-label;
+    in-out property <string> brush-size-text;
+    in property <string> ink-opacity-text;
+    in-out property <float> brush-size-unit;
+    in-out property <float> ink-opacity;
+
+    in-out property <float> zoom-unit;
+    in property <string> zoom-text;
+    in property <bool> is-fit;
+    in property <string> zoom-in-tip;
+    in property <string> zoom-out-tip;
+    in property <string> fit-tip;
+
+    in property <bool> tools-menu-open;
     in property <bool> tools-busy;
     in property <string> tools-menu-title;
     in property <string> upscale-label;
@@ -44,14 +63,29 @@ export component Editor inherits Rectangle {
     in property <brush> color-swatch1;
     in property <brush> color-swatch2;
     in property <int> active-color-swatch;
-    in property <brush> color-hue-brush;
+    in property <color> color-hue-brush;
+    in property <string> primary-color-label;
+    in property <string> secondary-color-label;
+    in property <string> tertiary-color-label;
     in-out property <float> color-sb-x;
     in-out property <float> color-sb-y;
     in-out property <float> color-hue-x;
     in-out property <string> color-hex-text;
 
-    callback collapse-layers();
-    callback expand-layers();
+    out property <length> board-x: board-surface.absolute-position.x;
+    out property <length> board-y: board-surface.absolute-position.y;
+    out property <length> board-width: board-surface.width;
+    out property <length> board-height: board-surface.height;
+
+    callback close-tab();
+    callback new-project();
+    callback pick-tool(int);
+    callback brush-size-changed(float);
+    callback brush-size-committed(string);
+    callback ink-opacity-changed(float);
+    callback zoom-changed(float);
+    callback step-zoom(bool);
+    callback fit-zoom();
     callback add-layer();
     callback pick-layer(int);
     callback toggle-layer-visible(int);
@@ -67,26 +101,6 @@ export component Editor inherits Rectangle {
     callback color-sb-changed(float, float);
     callback color-hue-changed(float);
     callback color-hex-changed(string);
-
-    in property <int> active-tool;
-    in property <string> active-tool-label;
-    in property <bool> show-brush-size;
-    in property <bool> show-ink-opacity;
-    in property <string> brush-size-label;
-    in property <string> ink-opacity-label;
-    in property <string> brush-size-text;
-    in property <string> ink-opacity-text;
-    in-out property <float> brush-size-unit;
-    in-out property <float> ink-opacity;
-    in-out property <float> zoom-unit;
-
-    callback back-clicked();
-    callback pick-tool(int);
-    callback brush-size-changed(float);
-    callback ink-opacity-changed(float);
-    callback zoom-changed(float);
-    callback step-zoom(bool);
-    callback fit-zoom();
     callback pointer-pressed(float, float, bool);
     callback pointer-moved(float, float);
     callback pointer-released(float, float);
@@ -94,196 +108,225 @@ export component Editor inherits Rectangle {
     callback pointer-exit();
     callback scrolled(float, float, float);
 
-    background: theme-bg;
+    background: Theme.bg;
 
-    HorizontalLayout {
-        padding: 8px;
-        spacing: 8px;
+    VerticalLayout {
+        padding: Tokens.space-xs;
+        spacing: Tokens.space-xs;
 
-        ToolsPanel {
-            vertical-stretch: 1;
-            theme-surface: root.theme-surface;
-            theme-surface-hover: root.theme-surface-hover;
-            theme-text: root.theme-text;
-            theme-text-muted: root.theme-text-muted;
-            theme-accent-teal: root.theme-accent-teal;
-            theme-island-border: root.theme-island-border;
-            theme-control-border: root.theme-control-border;
-            theme-control-focus-border: root.theme-control-focus-border;
-            theme-tool-selected: root.theme-tool-selected;
-            active-tool: root.active-tool;
-            active-tool-label: root.active-tool-label;
-            show-brush-size: root.show-brush-size;
-            show-ink-opacity: root.show-ink-opacity;
-            brush-size-label: root.brush-size-label;
-            ink-opacity-label: root.ink-opacity-label;
-            brush-size-text: root.brush-size-text;
-            ink-opacity-text: root.ink-opacity-text;
-            brush-size-unit <=> root.brush-size-unit;
-            ink-opacity <=> root.ink-opacity;
-            tools-menu-open <=> root.tools-menu-open;
-            tools-busy: root.tools-busy;
-            tools-menu-title: root.tools-menu-title;
-            upscale-label: root.upscale-label;
-            smart-matte-label: root.smart-matte-label;
-            seam-carve-label: root.seam-carve-label;
-            can-upscale: root.can-upscale;
-            can-smart-matte: root.can-smart-matte;
-            can-seam-carve: root.can-seam-carve;
-            pick-tool(id) => { root.pick-tool(id); }
-            brush-size-changed(v) => { root.brush-size-changed(v); }
-            ink-opacity-changed(v) => { root.ink-opacity-changed(v); }
-            toggle-tools-menu => { root.toggle-tools-menu(); }
-            run-upscale => { root.run-upscale(); }
-            run-smart-matte => { root.run-smart-matte(); }
-            run-seam-carve => { root.run-seam-carve(); }
-            color-label: root.color-label;
-            color-swatch0: root.color-swatch0;
-            color-swatch1: root.color-swatch1;
-            color-swatch2: root.color-swatch2;
-            active-color-swatch: root.active-color-swatch;
-            color-hue-brush: root.color-hue-brush;
-            color-sb-x <=> root.color-sb-x;
-            color-sb-y <=> root.color-sb-y;
-            color-hue-x <=> root.color-hue-x;
-            color-hex-text <=> root.color-hex-text;
-            select-color-swatch(i) => { root.select-color-swatch(i); }
-            color-sb-changed(x, y) => { root.color-sb-changed(x, y); }
-            color-hue-changed(x) => { root.color-hue-changed(x); }
-            color-hex-changed(text) => { root.color-hex-changed(text); }
+        HorizontalLayout {
+            alignment: start;
+
+            ProjectTabs {
+                project-name: root.project-name;
+                project-accent: root.project-accent;
+                new-project-tip: root.new-project-tip;
+                close-tip: root.close-tab-tip;
+                close-tab => {
+                    root.close-tab();
+                }
+                new-project => {
+                    root.new-project();
+                }
+            }
         }
 
-        board-area := CalmIsland {
-            horizontal-stretch: 1;
+        HorizontalLayout {
+            spacing: Tokens.space-xs;
             vertical-stretch: 1;
-            min-width: 320px;
-            background: transparent;
-            border-color: theme-island-border;
-            island-padding: 0px;
-            clip: true;
 
-            board-touch := TouchArea {
-                width: 100%;
-                height: 100%;
+            ToolsPanel {
+                vertical-stretch: 1;
+                active-tool: root.active-tool;
+                tools: root.tools;
+                active-tool-label: root.active-tool-label;
+                show-brush-size: root.show-brush-size;
+                show-ink-opacity: root.show-ink-opacity;
+                brush-size-label: root.brush-size-label;
+                ink-opacity-label: root.ink-opacity-label;
+                brush-size-text <=> root.brush-size-text;
+                ink-opacity-text: root.ink-opacity-text;
+                brush-size-unit <=> root.brush-size-unit;
+                ink-opacity <=> root.ink-opacity;
+                color-label: root.color-label;
+                tools-menu-title: root.tools-menu-title;
+                tools-menu-open: root.tools-menu-open;
+                tools-busy: root.tools-busy;
+                upscale-label: root.upscale-label;
+                smart-matte-label: root.smart-matte-label;
+                seam-carve-label: root.seam-carve-label;
+                can-upscale: root.can-upscale;
+                can-smart-matte: root.can-smart-matte;
+                can-seam-carve: root.can-seam-carve;
+                color-swatch0: root.color-swatch0;
+                color-swatch1: root.color-swatch1;
+                color-swatch2: root.color-swatch2;
+                active-color-swatch: root.active-color-swatch;
+                color-hue-brush: root.color-hue-brush;
+                primary-color-label: root.primary-color-label;
+                secondary-color-label: root.secondary-color-label;
+                tertiary-color-label: root.tertiary-color-label;
+                color-sb-x <=> root.color-sb-x;
+                color-sb-y <=> root.color-sb-y;
+                color-hue-x <=> root.color-hue-x;
+                color-hex-text <=> root.color-hex-text;
+                pick-tool(id) => {
+                    root.pick-tool(id);
+                }
+                brush-size-changed(v) => {
+                    root.brush-size-changed(v);
+                }
+                brush-size-committed(text) => {
+                    root.brush-size-committed(text);
+                }
+                ink-opacity-changed(v) => {
+                    root.ink-opacity-changed(v);
+                }
+                select-color-swatch(i) => {
+                    root.select-color-swatch(i);
+                }
+                color-sb-changed(x, y) => {
+                    root.color-sb-changed(x, y);
+                }
+                color-hue-changed(x) => {
+                    root.color-hue-changed(x);
+                }
+                color-hex-changed(text) => {
+                    root.color-hex-changed(text);
+                }
+                toggle-tools-menu => {
+                    root.toggle-tools-menu();
+                }
+                run-upscale => {
+                    root.run-upscale();
+                }
+                run-smart-matte => {
+                    root.run-smart-matte();
+                }
+                run-seam-carve => {
+                    root.run-seam-carve();
+                }
+            }
 
-                pointer-event(event) => {
-                    if (event.button == PointerEventButton.left || event.button == PointerEventButton.middle) {
-                        if (event.kind == PointerEventKind.down) {
-                            root.pointer-pressed(
-                                self.mouse-x / 1px,
-                                self.mouse-y / 1px,
-                                event.button == PointerEventButton.middle,
-                            );
-                        } else if (event.kind == PointerEventKind.up) {
-                            root.pointer-released(self.mouse-x / 1px, self.mouse-y / 1px);
+            board-area := CalmIsland {
+                horizontal-stretch: 1;
+                vertical-stretch: 1;
+                min-width: 320px;
+                island-padding: 0px;
+                clip: true;
+
+                board-surface := Rectangle {
+                    x: 1px;
+                    y: 1px;
+                    width: parent.width - 2px;
+                    height: parent.height - zoom-pill.height - Tokens.space-md * 2;
+                }
+
+                board-touch := TouchArea {
+                    width: 100%;
+                    height: 100%;
+
+                    pointer-event(event) => {
+                        if (event.button == PointerEventButton.left || event.button == PointerEventButton.middle) {
+                            if (event.kind == PointerEventKind.down) {
+                                root.pointer-pressed(
+                                    self.mouse-x / 1px,
+                                    self.mouse-y / 1px,
+                                    event.button == PointerEventButton.middle,
+                                );
+                            } else if (event.kind == PointerEventKind.up) {
+                                root.pointer-released(self.mouse-x / 1px, self.mouse-y / 1px);
+                            }
                         }
                     }
-                }
 
-                moved => {
-                    root.pointer-moved(self.mouse-x / 1px, self.mouse-y / 1px);
-                }
-
-                scroll-event(event) => {
-                    root.scrolled(self.mouse-x / 1px, self.mouse-y / 1px, event.delta-y / 1px);
-                    accept;
-                }
-            }
-
-            private property <bool> board-hovered: board-touch.has-hover;
-
-            changed board-hovered => {
-                if (board-hovered) {
-                    root.pointer-enter();
-                } else {
-                    root.pointer-exit();
-                }
-            }
-
-            CalmIsland {
-                y: 12px;
-                x: 12px;
-                height: 32px;
-                width: back-touch.preferred-width;
-                background: theme-surface;
-                border-color: theme-island-border;
-                island-padding: 0px;
-
-                back-touch := CalmPointer {
-                    clicked => { root.back-clicked(); }
-                    Text { text: back-label; color: theme-text; font-size: 12px; }
-                }
-            }
-
-            CalmIsland {
-                x: (parent.width - self.width) / 2;
-                y: parent.height - self.height - 12px;
-                island-padding: 8px;
-                background: theme-surface;
-                border-color: theme-island-border;
-
-                HorizontalLayout {
-                    spacing: 8px;
-
-                    CalmPointer {
-                        Text { text: "−"; color: theme-text-muted; font-size: 15px; }
-                        clicked => { root.step-zoom(false); }
+                    moved => {
+                        root.pointer-moved(self.mouse-x / 1px, self.mouse-y / 1px);
                     }
 
-                    CalmSlider {
-                        width: 96px;
-                        minimum: 0;
-                        maximum: 1;
-                        value <=> root.zoom-unit;
-                        track-color: theme-island-border;
-                        fill-color: theme-accent-teal;
-                        handle-color: theme-surface;
-                        handle-border-color: theme-control-border;
-                        handle-focus-border-color: theme-control-focus-border;
-                        moved(v) => { root.zoom-changed(v); }
+                    scroll-event(event) => {
+                        root.scrolled(self.mouse-x / 1px, self.mouse-y / 1px, event.delta-y / 1px);
+                        accept;
                     }
+                }
 
-                    CalmPointer {
-                        Text { text: "+"; color: theme-text-muted; font-size: 15px; }
-                        clicked => { root.step-zoom(true); }
+                private property <bool> board-hovered: board-touch.has-hover;
+
+                changed board-hovered => {
+                    if (self.board-hovered) {
+                        root.pointer-enter();
+                    } else {
+                        root.pointer-exit();
                     }
+                }
 
-                    CalmPointer {
-                        Text { text: "Fit"; color: theme-text-muted; font-size: 11px; font-weight: 600; }
-                        clicked => { root.fit-zoom(); }
+                zoom-pill := ZoomPill {
+                    x: parent.width - self.width - Tokens.space-md;
+                    y: parent.height - self.height - Tokens.space-md;
+                    zoom-unit <=> root.zoom-unit;
+                    zoom-text: root.zoom-text;
+                    is-fit: root.is-fit;
+                    zoom-in-tip: root.zoom-in-tip;
+                    zoom-out-tip: root.zoom-out-tip;
+                    fit-tip: root.fit-tip;
+                    zoom-changed(v) => {
+                        root.zoom-changed(v);
+                    }
+                    step-zoom(zoom-in) => {
+                        root.step-zoom(zoom-in);
+                    }
+                    fit-zoom => {
+                        root.fit-zoom();
                     }
                 }
             }
-        }
 
-        LayersSlideout {
-            vertical-stretch: 1;
-            open <=> root.layers-open;
-            theme-surface: root.theme-surface;
-            theme-surface-hover: root.theme-surface-hover;
-            theme-text: root.theme-text;
-            theme-text-muted: root.theme-text-muted;
-            theme-accent-teal: root.theme-accent-teal;
-            theme-island-border: root.theme-island-border;
-            theme-tool-selected: root.theme-tool-selected;
-            theme-danger: root.theme-danger;
-            title-text: root.layers-title;
-            add-label: root.add-layer-label;
-            doc-width-text: root.doc-width-text;
-            doc-height-text: root.doc-height-text;
-            layers: root.layers;
-            hover-preview-visible: root.hover-preview-visible;
-            hover-preview-name: root.hover-preview-name;
-            hover-preview-image: root.hover-preview-image;
-            collapse => { root.collapse-layers(); }
-            expand => { root.expand-layers(); }
-            add-layer => { root.add-layer(); }
-            pick-layer(index) => { root.pick-layer(index); }
-            toggle-layer-visible(index) => { root.toggle-layer-visible(index); }
-            open-layer-settings(index) => { root.open-layer-settings(index); }
-            delete-layer(index) => { root.delete-layer(index); }
-            hover-layer(index) => { root.hover-layer(index); }
-            clear-layer-hover => { root.clear-layer-hover(); }
+            if root.layers-open: Rectangle {
+                width: Tokens.layers-panel-width;
+
+                LayersPanel {
+                    width: 100%;
+                    height: 100%;
+                    title-text: root.layers-title;
+                    add-tip: root.add-layer-tip;
+                    visibility-tip: root.layer-visibility-tip;
+                    settings-tip: root.layer-settings-tip;
+                    delete-tip: root.delete-layer-tip;
+                    width-label: root.width-label;
+                    height-label: root.height-label;
+                    doc-width-text: root.doc-width-text;
+                    doc-height-text: root.doc-height-text;
+                    layers: root.layers;
+                    add-layer => {
+                        root.add-layer();
+                    }
+                    pick-layer(index) => {
+                        root.pick-layer(index);
+                    }
+                    toggle-layer-visible(index) => {
+                        root.toggle-layer-visible(index);
+                    }
+                    open-layer-settings(index) => {
+                        root.open-layer-settings(index);
+                    }
+                    delete-layer(index) => {
+                        root.delete-layer(index);
+                    }
+                    hover-layer(index) => {
+                        root.hover-layer(index);
+                    }
+                    clear-layer-hover => {
+                        root.clear-layer-hover();
+                    }
+                }
+
+                if root.hover-preview-visible: LayerHoverCard {
+                    x: -Tokens.hover-card-width - Tokens.space-md;
+                    y: (parent.height - self.height) / 2;
+                    layer-name: root.hover-preview-name;
+                    preview: root.hover-preview-image;
+                }
+            }
         }
     }
 }

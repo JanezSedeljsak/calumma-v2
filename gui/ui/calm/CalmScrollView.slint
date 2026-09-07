@@ -1,22 +1,19 @@
 import { CalmScrollBar } from "CalmScrollBar.slint";
 
 export component CalmScrollView inherits Rectangle {
-    in property <brush> thumb-pressed-color;
-    in property <brush> thumb-hover-color;
-    in property <brush> thumb-color;
-
     property <bool> scroll-chrome: false;
-    property <bool> chrome-visible: scroll-chrome || bar.chrome-visible;
 
     clip: true;
 
     flick := Flickable {
         width: parent.width;
         height: parent.height;
-        viewport-width: content.preferred-width;
-        viewport-height: content.preferred-height;
+        viewport-width: parent.width;
+        viewport-height: max(content.preferred-height, parent.height);
 
         content := VerticalLayout {
+            width: parent.width;
+            height: max(self.preferred-height, flick.height);
             @children
         }
 
@@ -26,13 +23,17 @@ export component CalmScrollView inherits Rectangle {
         }
     }
 
-    property <float> scroll-fraction: content.preferred-height <= flick.viewport-height ? 0 :
-        flick.viewport-y / max(1px, content.preferred-height - flick.viewport-height);
+    property <length> overflow: max(0px, flick.viewport-height - flick.height);
+    property <float> scroll-fraction: overflow <= 0px ? 0 : clamp(-flick.viewport-y / overflow, 0, 1);
+    property <float> visible-fraction: flick.viewport-height <= 0px ? 1 : clamp(flick.height / flick.viewport-height, 0, 1);
 
     hide-timer := Timer {
         interval: 800ms;
-        running: false;
-        triggered => { root.scroll-chrome = false; }
+        running: root.scroll-chrome;
+        triggered => {
+            root.scroll-chrome = false;
+            self.running = false;
+        }
     }
 
     bar := CalmScrollBar {
@@ -41,8 +42,6 @@ export component CalmScrollView inherits Rectangle {
         track-length: parent.height - 4px;
         box-hovered: root.scroll-chrome;
         scroll-fraction: root.scroll-fraction;
-        thumb-pressed-color: root.thumb-pressed-color;
-        thumb-hover-color: root.thumb-hover-color;
-        thumb-color: root.thumb-color;
+        visible-fraction: root.visible-fraction;
     }
 }

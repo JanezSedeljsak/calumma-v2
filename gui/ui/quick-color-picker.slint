@@ -1,40 +1,47 @@
-import { LineEdit } from "std-widgets.slint";
+import { Theme } from "calm/CalmTheme.slint";
+import { Tokens } from "calm/CalmTokens.slint";
 import { CalmPointer } from "calm/CalmPointer.slint";
+import { CalmMuted } from "calm/CalmText.slint";
 
 component ColorSwatch inherits Rectangle {
     in property <brush> swatch-color;
     in property <bool> active;
-    in property <brush> accent;
-    in property <brush> swatch-border;
+    in property <string> tip;
 
     callback clicked();
 
     height: 24px;
     horizontal-stretch: 1;
-    border-radius: 4px;
+    border-radius: Tokens.radius-sm;
     background: swatch-color;
     border-width: active ? 2px : 1px;
-    border-color: active ? accent : swatch-border;
+    border-color: active ? Theme.accent-teal : Theme.island-border;
 
     touch := CalmPointer {
-        clicked => { root.clicked(); }
+        clicked => {
+            root.clicked();
+        }
     }
 }
 
-export component QuickColorPicker inherits VerticalLayout {
-    in property <brush> theme-surface;
-    in property <brush> theme-text;
-    in property <brush> theme-text-muted;
-    in property <brush> theme-accent-teal;
-    in property <brush> theme-island-border;
-    in property <brush> theme-control-border;
-    in property <brush> theme-control-focus-border;
+component ColorKnob inherits Rectangle {
+    width: 10px;
+    height: 10px;
+    border-radius: self.width / 2;
+    background: #FFFFFF;
+    border-width: 1px;
+    border-color: #00000059;
+}
 
+export component QuickColorPicker inherits VerticalLayout {
     in property <brush> swatch0;
     in property <brush> swatch1;
     in property <brush> swatch2;
     in property <int> active-swatch;
-    in property <brush> hue-color;
+    in property <color> hue-color;
+    in property <string> primary-tip;
+    in property <string> secondary-tip;
+    in property <string> tertiary-tip;
 
     in-out property <float> sb-x;
     in-out property <float> sb-y;
@@ -46,49 +53,51 @@ export component QuickColorPicker inherits VerticalLayout {
     callback hue-changed(float);
     callback hex-changed(string);
 
-    spacing: 4px;
+    spacing: Tokens.space-xs;
 
     HorizontalLayout {
-        spacing: 4px;
+        spacing: Tokens.space-xs;
+
         ColorSwatch {
-            swatch-color: swatch0;
-            active: active-swatch == 0;
-            accent: theme-accent-teal;
-            swatch-border: theme-island-border;
-            clicked => { root.select-swatch(0); }
+            swatch-color: root.swatch0;
+            active: root.active-swatch == 0;
+            tip: root.primary-tip;
+            clicked => {
+                root.select-swatch(0);
+            }
         }
         ColorSwatch {
-            swatch-color: swatch1;
-            active: active-swatch == 1;
-            accent: theme-accent-teal;
-            swatch-border: theme-island-border;
-            clicked => { root.select-swatch(1); }
+            swatch-color: root.swatch1;
+            active: root.active-swatch == 1;
+            tip: root.secondary-tip;
+            clicked => {
+                root.select-swatch(1);
+            }
         }
         ColorSwatch {
-            swatch-color: swatch2;
-            active: active-swatch == 2;
-            accent: theme-accent-teal;
-            swatch-border: theme-island-border;
-            clicked => { root.select-swatch(2); }
+            swatch-color: root.swatch2;
+            active: root.active-swatch == 2;
+            tip: root.tertiary-tip;
+            clicked => {
+                root.select-swatch(2);
+            }
         }
     }
 
     Rectangle {
         height: 84px;
-        border-radius: 4px;
+        border-radius: Tokens.radius-sm;
         clip: true;
-        border-width: 1px;
-        border-color: theme-island-border;
 
         Rectangle {
             width: 100%;
             height: 100%;
-            background: hue-color;
+            background: root.hue-color;
         }
         Rectangle {
             width: 100%;
             height: 100%;
-            background: @linear-gradient(90deg, #ffffff 0%, #ffffff00 100%);
+            background: @linear-gradient(90deg, #FFFFFF 0%, #FFFFFF00 100%);
         }
         Rectangle {
             width: 100%;
@@ -100,7 +109,7 @@ export component QuickColorPicker inherits VerticalLayout {
             width: 100%;
             height: 100%;
             pointer-event(event) => {
-                if (event.button == PointerEventButton.left && event.kind != PointerEventKind.up) {
+                if (event.kind != PointerEventKind.up && (event.kind == PointerEventKind.down || self.pressed)) {
                     let x = clamp(self.mouse-x / parent.width, 0, 1);
                     let y = clamp(self.mouse-y / parent.height, 0, 1);
                     root.sb-x = x;
@@ -110,40 +119,30 @@ export component QuickColorPicker inherits VerticalLayout {
             }
         }
 
-        Rectangle {
-            x: sb-x * parent.width - 5px;
-            y: sb-y * parent.height - 5px;
-            width: 10px;
-            height: 10px;
-            border-radius: 5px;
-            background: #ffffff;
-            border-width: 1px;
-            border-color: #00000059;
+        ColorKnob {
+            x: root.sb-x * parent.width - self.width / 2;
+            y: root.sb-y * parent.height - self.height / 2;
         }
     }
 
     Rectangle {
         height: 14px;
-        border-radius: 4px;
+        border-radius: Tokens.radius-sm;
         clip: true;
-        border-width: 1px;
-        border-color: theme-island-border;
-        background: @linear-gradient(
-            90deg,
-            #ff0000 0%,
-            #ffff00 17%,
-            #00ff00 33%,
-            #00ffff 50%,
-            #0000ff 67%,
-            #ff00ff 83%,
-            #ff0000 100%
-        );
+        background: @linear-gradient(90deg,
+            #FF0000 0%,
+            #FFFF00 17%,
+            #00FF00 33%,
+            #00FFFF 50%,
+            #0000FF 67%,
+            #FF00FF 83%,
+            #FF0000 100%);
 
         hue-touch := TouchArea {
             width: 100%;
             height: 100%;
             pointer-event(event) => {
-                if (event.button == PointerEventButton.left && event.kind != PointerEventKind.up) {
+                if (event.kind != PointerEventKind.up && (event.kind == PointerEventKind.down || self.pressed)) {
                     let x = clamp(self.mouse-x / parent.width, 0, 1);
                     root.hue-x = x;
                     root.hue-changed(x);
@@ -151,42 +150,44 @@ export component QuickColorPicker inherits VerticalLayout {
             }
         }
 
-        Rectangle {
-            x: hue-x * parent.width - 5px;
-            y: 2px;
-            width: 10px;
-            height: 10px;
-            border-radius: 5px;
-            background: #ffffff;
-            border-width: 1px;
-            border-color: #00000059;
+        ColorKnob {
+            x: root.hue-x * (parent.width - self.width);
+            y: (parent.height - self.height) / 2;
         }
     }
 
     Rectangle {
-        height: 24px;
-        border-radius: 4px;
+        height: Tokens.label-size * 2.2;
+        border-radius: Tokens.radius-sm;
+        background: Theme.surface;
         border-width: 1px;
-        border-color: theme-control-border;
-        background: theme-surface;
+        border-color: hex-input.has-focus ? Theme.control-focus-border : Theme.control-border;
 
         HorizontalLayout {
-            padding-left: 6px;
-            padding-right: 6px;
+            padding-left: Tokens.space-xs;
+            padding-right: Tokens.space-xs;
             spacing: 2px;
-            Text {
+
+            CalmMuted {
                 text: "#";
-                color: theme-text-muted;
-                font-size: 11px;
-                font-family: "Menlo";
-                vertical-alignment: center;
+                mono: true;
             }
-            hex-input := LineEdit {
+
+            hex-input := TextInput {
                 text <=> root.hex-text;
-                font-size: 11px;
-                font-family: "Menlo";
                 horizontal-stretch: 1;
-                edited(text) => { root.hex-changed(text); }
+                height: 100%;
+                single-line: true;
+                vertical-alignment: center;
+                color: Theme.text;
+                font-size: Tokens.label-size;
+                font-weight: 500;
+                font-family: "Menlo";
+                selection-background-color: Theme.accent-teal;
+                selection-foreground-color: Theme.bg;
+                accepted => {
+                    root.hex-changed(self.text);
+                }
             }
         }
     }

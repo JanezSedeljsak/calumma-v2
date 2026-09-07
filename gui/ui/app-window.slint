@@ -1,10 +1,15 @@
 import { Landing } from "landing.slint";
 import { Editor } from "editor.slint";
 import { RecentRow, PresetRow, LayerRow } from "models.slint";
+import { ToolEntry } from "tools-panel.slint";
 import { SettingsModal } from "settings-modal.slint";
 import { NewProjectModal } from "new-project-modal.slint";
 import { ToastBanner } from "toast-banner.slint";
 import { LayerSettingsModal } from "layer-settings-modal.slint";
+import { Theme } from "calm/CalmTheme.slint";
+import { Tokens } from "calm/CalmTokens.slint";
+
+export { Theme, Tokens, RecentRow, PresetRow, LayerRow, ToolEntry }
 
 export component AppWindow inherits Window {
     in-out property <bool> editor-open: false;
@@ -31,6 +36,7 @@ export component AppWindow inherits Window {
 
     callback pick-tool(int);
     callback brush-size-changed(float);
+    callback brush-size-committed(string);
     callback ink-opacity-changed(float);
     callback zoom-changed(float);
     callback step-zoom(bool);
@@ -42,8 +48,6 @@ export component AppWindow inherits Window {
     callback menu-settings();
     callback menu-undo();
     callback menu-redo();
-    callback collapse-layers();
-    callback expand-layers();
     callback add-layer();
     callback pick-layer(int);
     callback toggle-layer-visible(int);
@@ -87,8 +91,11 @@ export component AppWindow inherits Window {
     in-out property <string> project-name;
     in-out property <string> width-text;
     in-out property <string> height-text;
+    in property <string> active-project-name;
+    in property <color> active-project-accent;
 
     in-out property <int> active-tool;
+    in property <[ToolEntry]> tools;
     in property <string> active-tool-label;
     in-out property <bool> show-brush-size;
     in-out property <bool> show-ink-opacity;
@@ -99,6 +106,8 @@ export component AppWindow inherits Window {
     in-out property <float> brush-size-unit;
     in-out property <float> ink-opacity;
     in-out property <float> zoom-unit;
+    in property <string> zoom-text;
+    in property <bool> is-fit;
     in property <string> doc-width-text;
     in property <string> doc-height-text;
 
@@ -116,11 +125,17 @@ export component AppWindow inherits Window {
     in property <string> hover-preview-name;
     in property <image> hover-preview-image;
 
-    in property <int> layer-settings-index;
+    in property <string> layer-settings-label;
     in property <string> layer-settings-name;
+    in property <string> back-to-landing-tip;
+    out property <length> board-x: editor.board-x;
+    out property <length> board-y: editor.board-y;
+    out property <length> board-width: editor.board-width;
+    out property <length> board-height: editor.board-height;
+    in property <string> width-short-label;
+    in property <string> height-short-label;
     in property <bool> layer-settings-visible;
     in property <bool> layer-settings-can-delete;
-    in property <string> layer-settings-title;
     in property <string> layer-visibility-label;
     in property <string> layer-export-label;
     in property <string> layer-duplicate-label;
@@ -131,7 +146,10 @@ export component AppWindow inherits Window {
     in property <brush> color-swatch1;
     in property <brush> color-swatch2;
     in property <int> active-color-swatch;
-    in property <brush> color-hue-brush;
+    in property <color> color-hue-brush;
+    in property <string> primary-color-label;
+    in property <string> secondary-color-label;
+    in property <string> tertiary-color-label;
     in-out property <float> color-sb-x;
     in-out property <float> color-sb-y;
     in-out property <float> color-hue-x;
@@ -139,25 +157,14 @@ export component AppWindow inherits Window {
 
     in property <bool> theme-is-dark;
     in property <bool> language-is-en;
+    in property <string> language-name;
     in property <string> memory-value;
     in property <string> version-value;
     in property <bool> toast-visible;
     in property <string> toast-text;
     in property <bool> toast-is-error;
 
-    in property <brush> theme-bg;
-    in property <brush> theme-surface;
-    in property <brush> theme-surface-hover;
-    in property <brush> theme-text;
-    in property <brush> theme-text-muted;
-    in property <brush> theme-accent-teal;
-    in property <brush> theme-accent-orange;
-    in property <brush> theme-island-border;
-    in property <brush> theme-control-border;
-    in property <brush> theme-control-focus-border;
-    in property <brush> theme-tool-selected;
-    in property <brush> theme-danger;
-
+    in property <image> app-icon;
     in property <string> brand-text;
     in property <string> tagline-text;
     in property <string> project-name-label;
@@ -166,10 +173,11 @@ export component AppWindow inherits Window {
     in property <string> presets-label;
     in property <string> recents-label;
     in property <string> clear-all-label;
+    in property <string> no-recents-label;
+    in property <string> delete-project-label;
     in property <string> paste-artwork-title;
     in property <string> paste-artwork-hint;
     in property <string> artwork-formats;
-    in property <string> back-label;
     in property <string> settings-title;
     in property <string> theme-label;
     in property <string> theme-light-label;
@@ -192,6 +200,9 @@ export component AppWindow inherits Window {
     in property <string> fullscreen-menu-title;
     in property <string> layers-title;
     in property <string> add-layer-label;
+    in property <string> zoom-in-label;
+    in property <string> zoom-out-label;
+    in property <string> fit-view-label;
     in property <string> export-menu-title;
     in property <string> export-png-title;
     in property <string> export-jpeg-title;
@@ -212,89 +223,119 @@ export component AppWindow inherits Window {
     title: "Calumma";
     preferred-width: 960px;
     preferred-height: 520px;
-    min-width: 760px;
-    min-height: 520px;
-    background: theme-bg;
+    min-width: Tokens.main-min-width;
+    min-height: Tokens.main-min-height;
+    background: Theme.bg;
 
     MenuBar {
         Menu {
-            title: file-menu-title;
+            title: root.file-menu-title;
             MenuItem {
-                title: new-project-menu-title;
-                enabled: editor-open;
-                activated => { root.menu-new-project(); }
+                title: root.new-project-menu-title;
+                enabled: root.editor-open;
+                activated => {
+                    root.menu-new-project();
+                }
             }
             Menu {
-                title: export-menu-title;
-                enabled: editor-open;
+                title: root.export-menu-title;
+                enabled: root.editor-open;
                 MenuItem {
-                    title: export-png-title;
-                    activated => { root.export-png(); }
+                    title: root.export-png-title;
+                    activated => {
+                        root.export-png();
+                    }
                 }
                 MenuItem {
-                    title: export-jpeg-title;
-                    activated => { root.export-jpeg(); }
+                    title: root.export-jpeg-title;
+                    activated => {
+                        root.export-jpeg();
+                    }
                 }
                 MenuItem {
-                    title: export-webp-title;
-                    activated => { root.export-webp(); }
+                    title: root.export-webp-title;
+                    activated => {
+                        root.export-webp();
+                    }
                 }
                 MenuItem {
-                    title: export-avif-title;
-                    activated => { root.export-avif(); }
+                    title: root.export-avif-title;
+                    activated => {
+                        root.export-avif();
+                    }
                 }
                 MenuItem {
-                    title: export-heic-title;
-                    activated => { root.export-heic(); }
+                    title: root.export-heic-title;
+                    activated => {
+                        root.export-heic();
+                    }
                 }
                 MenuItem {
-                    title: export-psd-title;
-                    activated => { root.export-psd(); }
+                    title: root.export-psd-title;
+                    activated => {
+                        root.export-psd();
+                    }
                 }
                 MenuItem {
-                    title: export-svg-title;
-                    activated => { root.export-svg(); }
+                    title: root.export-svg-title;
+                    activated => {
+                        root.export-svg();
+                    }
                 }
                 MenuItem {
-                    title: export-pdf-title;
-                    activated => { root.export-pdf(); }
+                    title: root.export-pdf-title;
+                    activated => {
+                        root.export-pdf();
+                    }
                 }
             }
             MenuItem {
-                title: settings-title;
-                activated => { root.menu-settings(); }
+                title: root.settings-title;
+                activated => {
+                    root.menu-settings();
+                }
             }
         }
         Menu {
-            title: edit-menu-title;
+            title: root.edit-menu-title;
             MenuItem {
-                title: undo-menu-title;
-                enabled: editor-open && can-undo;
-                activated => { root.menu-undo(); }
+                title: root.undo-menu-title;
+                enabled: root.editor-open && root.can-undo;
+                activated => {
+                    root.menu-undo();
+                }
             }
             MenuItem {
-                title: redo-menu-title;
-                enabled: editor-open && can-redo;
-                activated => { root.menu-redo(); }
+                title: root.redo-menu-title;
+                enabled: root.editor-open && root.can-redo;
+                activated => {
+                    root.menu-redo();
+                }
             }
         }
         Menu {
-            title: board-menu-title;
+            title: root.board-menu-title;
             MenuItem {
-                title: fit-view-menu-title;
-                enabled: editor-open;
-                activated => { root.menu-fit-view(); }
+                title: root.fit-view-menu-title;
+                enabled: root.editor-open;
+                activated => {
+                    root.menu-fit-view();
+                }
             }
             MenuItem {
-                title: toggle-layers-menu-title;
-                enabled: editor-open;
+                title: root.toggle-layers-menu-title;
+                enabled: root.editor-open;
                 checkable: true;
-                checked: layers-open;
-                activated => { root.toggle-layers(); }
+                checked: root.layers-open;
+                activated => {
+                    root.toggle-layers();
+                }
             }
             MenuItem {
-                title: fullscreen-menu-title;
-                activated => { root.menu-fullscreen(); }
+                title: root.fullscreen-menu-title;
+                activated => {
+                    root.menu-fullscreen();
+                }
             }
         }
     }
@@ -325,17 +366,8 @@ export component AppWindow inherits Window {
             accept;
         }
 
-        if !editor-open: Landing {
-            theme-bg: root.theme-bg;
-            theme-surface: root.theme-surface;
-            theme-surface-hover: root.theme-surface-hover;
-            theme-text: root.theme-text;
-            theme-text-muted: root.theme-text-muted;
-            theme-accent-teal: root.theme-accent-teal;
-            theme-accent-orange: root.theme-accent-orange;
-            theme-island-border: root.theme-island-border;
-            theme-control-border: root.theme-control-border;
-            theme-danger: root.theme-danger;
+        Landing {
+            visible: !root.editor-open;
             brand-text: root.brand-text;
             tagline-text: root.tagline-text;
             project-name-label: root.project-name-label;
@@ -344,53 +376,75 @@ export component AppWindow inherits Window {
             presets-label: root.presets-label;
             recents-label: root.recents-label;
             clear-all-label: root.clear-all-label;
+            no-recents-label: root.no-recents-label;
+            delete-project-label: root.delete-project-label;
             paste-artwork-title: root.paste-artwork-title;
             paste-artwork-hint: root.paste-artwork-hint;
             artwork-formats: root.artwork-formats;
+            app-icon: root.app-icon;
             project-name <=> root.project-name;
             width-text <=> root.width-text;
             height-text <=> root.height-text;
             presets: root.presets;
             recents: root.recents;
-            create-clicked => { root.create-project(); }
-            preset-clicked(width, height) => { root.preset-size(width, height); }
-            recent-clicked(id) => { root.open-recent(id); }
-            delete-recent(id) => { root.delete-recent(id); }
-            clear-all-clicked => { root.clear-recents(); }
-            paste-artwork-clicked => { root.paste-artwork-clicked(); }
+            create-clicked => {
+                root.create-project();
+            }
+            preset-clicked(width, height) => {
+                root.preset-size(width, height);
+            }
+            recent-clicked(id) => {
+                root.open-recent(id);
+            }
+            delete-recent(id) => {
+                root.delete-recent(id);
+            }
+            clear-all-clicked => {
+                root.clear-recents();
+            }
+            paste-artwork-clicked => {
+                root.paste-artwork-clicked();
+            }
         }
 
-        if editor-open: Editor {
-            theme-bg: root.theme-bg;
-            theme-surface: root.theme-surface;
-            theme-surface-hover: root.theme-surface-hover;
-            theme-text: root.theme-text;
-            theme-text-muted: root.theme-text-muted;
-            theme-accent-teal: root.theme-accent-teal;
-            theme-island-border: root.theme-island-border;
-            theme-control-border: root.theme-control-border;
-            theme-control-focus-border: root.theme-control-focus-border;
-            theme-tool-selected: root.theme-tool-selected;
-            theme-danger: root.theme-danger;
-            back-label: root.back-label;
+        editor := Editor {
+            visible: root.editor-open;
+            project-name: root.active-project-name;
+            project-accent: root.active-project-accent;
+            new-project-tip: root.new-project-menu-title;
+            close-tab-tip: root.back-to-landing-tip;
+            layers-open: root.layers-open;
             layers-title: root.layers-title;
-            add-layer-label: root.add-layer-label;
-            layers-open <=> root.layers-open;
+            add-layer-tip: root.add-layer-label;
+            layer-visibility-tip: root.layer-visibility-label;
+            layer-settings-tip: root.layer-settings-label;
+            delete-layer-tip: root.layer-delete-label;
+            width-label: root.width-short-label;
+            height-label: root.height-short-label;
+            doc-width-text: root.doc-width-text;
+            doc-height-text: root.doc-height-text;
             layers: root.layers;
+            hover-preview-visible: root.hover-preview-visible;
+            hover-preview-name: root.hover-preview-name;
+            hover-preview-image: root.hover-preview-image;
             active-tool: root.active-tool;
+            tools: root.tools;
             active-tool-label: root.active-tool-label;
             show-brush-size: root.show-brush-size;
             show-ink-opacity: root.show-ink-opacity;
             brush-size-label: root.brush-size-label;
             ink-opacity-label: root.ink-opacity-label;
-            brush-size-text: root.brush-size-text;
+            brush-size-text <=> root.brush-size-text;
             ink-opacity-text: root.ink-opacity-text;
             brush-size-unit <=> root.brush-size-unit;
             ink-opacity <=> root.ink-opacity;
             zoom-unit <=> root.zoom-unit;
-            doc-width-text: root.doc-width-text;
-            doc-height-text: root.doc-height-text;
-            tools-menu-open <=> root.tools-menu-open;
+            zoom-text: root.zoom-text;
+            is-fit: root.is-fit;
+            zoom-in-tip: root.zoom-in-label;
+            zoom-out-tip: root.zoom-out-label;
+            fit-tip: root.fit-view-label;
+            tools-menu-open: root.tools-menu-open;
             tools-busy: root.tools-busy;
             tools-menu-title: root.tools-menu-title;
             upscale-label: root.upscale-label;
@@ -399,131 +453,216 @@ export component AppWindow inherits Window {
             can-upscale: root.can-upscale;
             can-smart-matte: root.can-smart-matte;
             can-seam-carve: root.can-seam-carve;
-            hover-preview-visible: root.hover-preview-visible;
-            hover-preview-name: root.hover-preview-name;
-            hover-preview-image: root.hover-preview-image;
-            back-clicked => { root.back-to-landing(); }
-            pick-tool(id) => { root.pick-tool(id); }
-            brush-size-changed(v) => { root.brush-size-changed(v); }
-            ink-opacity-changed(v) => { root.ink-opacity-changed(v); }
-            zoom-changed(v) => { root.zoom-changed(v); }
-            step-zoom(in) => { root.step-zoom(in); }
-            fit-zoom => { root.fit-zoom(); }
-            collapse-layers => { root.collapse-layers(); }
-            expand-layers => { root.expand-layers(); }
-            add-layer => { root.add-layer(); }
-            pick-layer(index) => { root.pick-layer(index); }
-            toggle-layer-visible(index) => { root.toggle-layer-visible(index); }
-            open-layer-settings(index) => { root.open-layer-settings(index); }
-            delete-layer(index) => { root.delete-layer(index); }
-            hover-layer(index) => { root.hover-layer(index); }
-            clear-layer-hover => { root.clear-layer-hover(); }
-            toggle-tools-menu => { root.toggle-tools-menu(); }
-            run-upscale => { root.run-upscale(); }
-            run-smart-matte => { root.run-smart-matte(); }
-            run-seam-carve => { root.run-seam-carve(); }
             color-label: root.color-label;
             color-swatch0: root.color-swatch0;
             color-swatch1: root.color-swatch1;
             color-swatch2: root.color-swatch2;
             active-color-swatch: root.active-color-swatch;
             color-hue-brush: root.color-hue-brush;
+            primary-color-label: root.primary-color-label;
+            secondary-color-label: root.secondary-color-label;
+            tertiary-color-label: root.tertiary-color-label;
             color-sb-x <=> root.color-sb-x;
             color-sb-y <=> root.color-sb-y;
             color-hue-x <=> root.color-hue-x;
             color-hex-text <=> root.color-hex-text;
-            select-color-swatch(i) => { root.select-color-swatch(i); }
-            color-sb-changed(x, y) => { root.color-sb-changed(x, y); }
-            color-hue-changed(x) => { root.color-hue-changed(x); }
-            color-hex-changed(text) => { root.color-hex-changed(text); }
-            pointer-pressed(x, y, middle) => { root.pointer-pressed(x, y, middle); }
-            pointer-moved(x, y) => { root.pointer-moved(x, y); }
-            pointer-released(x, y) => { root.pointer-released(x, y); }
-            pointer-enter => { root.pointer-enter(); }
-            pointer-exit => { root.pointer-exit(); }
-            scrolled(x, y, delta) => { root.scrolled(x, y, delta); }
+            close-tab => {
+                root.back-to-landing();
+            }
+            new-project => {
+                root.menu-new-project();
+            }
+            pick-tool(id) => {
+                root.pick-tool(id);
+            }
+            brush-size-changed(v) => {
+                root.brush-size-changed(v);
+            }
+            brush-size-committed(text) => {
+                root.brush-size-committed(text);
+            }
+            ink-opacity-changed(v) => {
+                root.ink-opacity-changed(v);
+            }
+            zoom-changed(v) => {
+                root.zoom-changed(v);
+            }
+            step-zoom(zoom-in) => {
+                root.step-zoom(zoom-in);
+            }
+            fit-zoom => {
+                root.fit-zoom();
+            }
+            add-layer => {
+                root.add-layer();
+            }
+            pick-layer(index) => {
+                root.pick-layer(index);
+            }
+            toggle-layer-visible(index) => {
+                root.toggle-layer-visible(index);
+            }
+            open-layer-settings(index) => {
+                root.open-layer-settings(index);
+            }
+            delete-layer(index) => {
+                root.delete-layer(index);
+            }
+            hover-layer(index) => {
+                root.hover-layer(index);
+            }
+            clear-layer-hover => {
+                root.clear-layer-hover();
+            }
+            toggle-tools-menu => {
+                root.toggle-tools-menu();
+            }
+            run-upscale => {
+                root.run-upscale();
+            }
+            run-smart-matte => {
+                root.run-smart-matte();
+            }
+            run-seam-carve => {
+                root.run-seam-carve();
+            }
+            select-color-swatch(i) => {
+                root.select-color-swatch(i);
+            }
+            color-sb-changed(x, y) => {
+                root.color-sb-changed(x, y);
+            }
+            color-hue-changed(x) => {
+                root.color-hue-changed(x);
+            }
+            color-hex-changed(text) => {
+                root.color-hex-changed(text);
+            }
+            pointer-pressed(x, y, middle) => {
+                root.pointer-pressed(x, y, middle);
+            }
+            pointer-moved(x, y) => {
+                root.pointer-moved(x, y);
+            }
+            pointer-released(x, y) => {
+                root.pointer-released(x, y);
+            }
+            pointer-enter => {
+                root.pointer-enter();
+            }
+            pointer-exit => {
+                root.pointer-exit();
+            }
+            scrolled(x, y, delta) => {
+                root.scrolled(x, y, delta);
+            }
         }
 
         SettingsModal {
             open <=> root.settings-open;
-            theme-bg: root.theme-bg;
-            theme-surface: root.theme-surface;
-            theme-surface-hover: root.theme-surface-hover;
-            theme-text: root.theme-text;
-            theme-text-muted: root.theme-text-muted;
-            theme-island-border: root.theme-island-border;
-            theme-control-border: root.theme-control-border;
             title-text: root.settings-title;
             theme-label: root.theme-label;
             theme-light-label: root.theme-light-label;
             theme-dark-label: root.theme-dark-label;
             language-label: root.language-label;
+            language-name: root.language-name;
             memory-label: root.memory-label;
             memory-value: root.memory-value;
             version-label: root.version-label;
             version-value: root.version-value;
             theme-is-dark: root.theme-is-dark;
             language-is-en: root.language-is-en;
-            dismissed => { root.settings-dismissed(); }
-            set-theme-light => { root.set-theme-light(); }
-            set-theme-dark => { root.set-theme-dark(); }
-            set-language-en => { root.set-language-en(); }
+            dismissed => {
+                root.settings-dismissed();
+            }
+            set-theme-light => {
+                root.set-theme-light();
+            }
+            set-theme-dark => {
+                root.set-theme-dark();
+            }
+            set-language-en => {
+                root.set-language-en();
+            }
         }
 
         NewProjectModal {
             open <=> root.new-project-open;
-            theme-bg: root.theme-bg;
-            theme-surface: root.theme-surface;
-            theme-surface-hover: root.theme-surface-hover;
-            theme-text: root.theme-text;
-            theme-text-muted: root.theme-text-muted;
-            theme-island-border: root.theme-island-border;
-            theme-accent-teal: root.theme-accent-teal;
+            brand-text: root.brand-text;
+            tagline-text: root.tagline-text;
             project-name-label: root.project-name-label;
             resolution-label: root.resolution-label;
             create-label: root.create-label;
+            presets-label: root.presets-label;
+            recents-label: root.recents-label;
+            clear-all-label: root.clear-all-label;
+            no-recents-label: root.no-recents-label;
+            delete-project-label: root.delete-project-label;
+            paste-artwork-title: root.paste-artwork-title;
+            paste-artwork-hint: root.paste-artwork-hint;
+            artwork-formats: root.artwork-formats;
+            app-icon: root.app-icon;
             project-name <=> root.project-name;
             width-text <=> root.width-text;
             height-text <=> root.height-text;
-            dismissed => { root.new-project-dismissed(); }
-            create-clicked => { root.create-from-modal(); }
+            presets: root.presets;
+            recents: root.recents;
+            dismissed => {
+                root.new-project-dismissed();
+            }
+            create-clicked => {
+                root.create-from-modal();
+            }
+            preset-clicked(width, height) => {
+                root.preset-size(width, height);
+            }
+            recent-clicked(id) => {
+                root.open-recent(id);
+            }
+            delete-recent(id) => {
+                root.delete-recent(id);
+            }
+            clear-all-clicked => {
+                root.clear-recents();
+            }
+            paste-artwork-clicked => {
+                root.paste-artwork-clicked();
+            }
         }
 
         LayerSettingsModal {
             open <=> root.layer-settings-open;
-            layer-index: root.layer-settings-index;
             layer-name: root.layer-settings-name;
             layer-visible: root.layer-settings-visible;
             can-delete: root.layer-settings-can-delete;
-            theme-bg: root.theme-bg;
-            theme-surface: root.theme-surface;
-            theme-surface-hover: root.theme-surface-hover;
-            theme-text: root.theme-text;
-            theme-text-muted: root.theme-text-muted;
-            theme-accent-teal: root.theme-accent-teal;
-            theme-island-border: root.theme-island-border;
-            theme-danger: root.theme-danger;
-            title-text: root.layer-settings-title;
             visibility-label: root.layer-visibility-label;
             export-label: root.layer-export-label;
             duplicate-label: root.layer-duplicate-label;
             delete-label: root.layer-delete-label;
-            dismissed => { root.layer-settings-dismissed(); }
-            toggle-visibility => { root.layer-settings-toggle-visibility(); }
-            export-layer => { root.layer-settings-export-layer(); }
-            duplicate-layer => { root.layer-settings-duplicate(); }
-            delete-layer => { root.layer-settings-delete(); }
+            dismissed => {
+                root.layer-settings-dismissed();
+            }
+            toggle-visibility => {
+                root.layer-settings-toggle-visibility();
+            }
+            export-layer => {
+                root.layer-settings-export-layer();
+            }
+            duplicate-layer => {
+                root.layer-settings-duplicate();
+            }
+            delete-layer => {
+                root.layer-settings-delete();
+            }
         }
 
         ToastBanner {
             show: root.toast-visible;
             text: root.toast-text;
             is-error: root.toast-is-error;
-            theme-surface: root.theme-surface;
-            theme-text: root.theme-text;
-            theme-accent-teal: root.theme-accent-teal;
-            theme-danger: root.theme-danger;
-            dismiss => { root.toast-dismissed(); }
+            dismiss => {
+                root.toast-dismissed();
+            }
         }
     }
 }

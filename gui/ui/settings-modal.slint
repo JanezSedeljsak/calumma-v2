@@ -1,83 +1,70 @@
-import { VerticalBox, LineEdit } from "std-widgets.slint";
-import { CalmModal } from "calm/CalmModal.slint";
+import { Theme } from "calm/CalmTheme.slint";
+import { Tokens } from "calm/CalmTokens.slint";
+import { CalmModal, CalmModalCard } from "calm/CalmModal.slint";
 import { CalmPointer } from "calm/CalmPointer.slint";
+import { CalmSurface } from "calm/CalmSurface.slint";
+import { CalmBody, CalmLabel, CalmMuted, CalmTitle } from "calm/CalmText.slint";
 
-component ThemeChip inherits Rectangle {
+component ThemeChip inherits CalmSurface {
     in property <string> text;
     in property <bool> selected;
-    in property <brush> surface;
-    in property <brush> hover;
-    in property <brush> chip-border;
-    in property <brush> text-color;
-    in property <brush> text-muted;
 
     callback clicked();
 
-    height: 28px;
-    min-width: 72px;
-    border-radius: 4px;
-    background: touch.has-hover || selected ? hover : surface;
-    border-width: 1px;
-    border-color: chip-border;
+    hover: selected;
+    height: Tokens.control-height + Tokens.space-sm;
 
     touch := CalmPointer {
-        clicked => { root.clicked(); }
+        clicked => {
+            root.clicked();
+        }
     }
 
     Text {
+        x: Tokens.space-lg;
+        width: parent.width - Tokens.space-lg * 2;
+        height: 100%;
         text: root.text;
-        color: selected ? text-color : text-muted;
-        font-weight: selected ? 600 : 400;
-        font-size: 12px;
+        color: selected ? Theme.text : Theme.text-muted;
+        font-weight: selected ? 700 : 500;
+        font-size: Tokens.body-size;
         horizontal-alignment: center;
         vertical-alignment: center;
     }
 }
 
-component SelectRow inherits Rectangle {
+component LanguageRow inherits CalmSurface {
     in property <string> text;
     in property <bool> selected;
-    in property <brush> surface;
-    in property <brush> hover;
-    in property <brush> row-border;
-    in property <brush> text-color;
 
     callback clicked();
 
-    height: 32px;
-    border-radius: 4px;
-    background: touch.has-hover ? hover : surface;
-    border-width: 1px;
-    border-color: selected ? text-color : row-border;
+    hover: selected;
+    height: Tokens.control-height + Tokens.space-md;
 
     touch := CalmPointer {
-        clicked => { root.clicked(); }
+        clicked => {
+            root.clicked();
+        }
     }
 
-    Text {
-        x: 8px;
+    CalmBody {
+        x: Tokens.space-md;
+        height: 100%;
         text: root.text;
-        color: text-color;
-        font-size: 12px;
-        vertical-alignment: center;
+        strong: root.selected;
     }
 }
 
 export component SettingsModal inherits Rectangle {
     in-out property <bool> open;
-    in property <brush> theme-bg;
-    in property <brush> theme-surface;
-    in property <brush> theme-surface-hover;
-    in property <brush> theme-text;
-    in property <brush> theme-text-muted;
-    in property <brush> theme-island-border;
-    in property <brush> theme-control-border;
 
     in property <string> title-text;
     in property <string> theme-label;
     in property <string> theme-light-label;
     in property <string> theme-dark-label;
     in property <string> language-label;
+    in property <string> language-name;
     in property <string> memory-label;
     in property <string> memory-value;
     in property <string> version-label;
@@ -93,34 +80,39 @@ export component SettingsModal inherits Rectangle {
 
     width: 100%;
     height: 100%;
+    visible: open;
 
     CalmModal {
         open <=> root.open;
-        scrim-color: root.theme-bg;
-        dismissed => { root.dismissed(); }
+        dismissed => {
+            root.dismissed();
+        }
 
-        Rectangle {
+        CalmModalCard {
             width: 360px;
             height: 380px;
-            background: theme-bg;
-            border-radius: 12px;
-            border-width: 1px;
-            border-color: theme-island-border;
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
 
-            VerticalBox {
-                padding: 24px;
-                spacing: 24px;
+            VerticalLayout {
+                padding: Tokens.space-xl;
+                spacing: Tokens.space-xl;
 
                 HorizontalLayout {
-                    Text {
-                        text: title-text;
-                        font-size: 15px;
-                        font-weight: 700;
-                        color: theme-text;
+                    CalmTitle {
+                        text: root.title-text;
+                        strong: true;
                         horizontal-stretch: 1;
                     }
-                    CalmPointer {
-                        Text { text: "×"; color: theme-text-muted; font-size: 18px; }
+                    close-touch := CalmPointer {
+                        width: Tokens.space-lg;
+                        Text {
+                            text: "×";
+                            font-size: Tokens.title-size;
+                            color: close-touch.has-hover ? Theme.text : Theme.text-muted;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
                         clicked => {
                             root.open = false;
                             root.dismissed();
@@ -128,56 +120,74 @@ export component SettingsModal inherits Rectangle {
                     }
                 }
 
-                VerticalBox {
-                    spacing: 8px;
-                    Text { text: theme-label; font-size: 10px; font-weight: 600; color: theme-text; }
+                VerticalLayout {
+                    spacing: Tokens.space-sm;
+
+                    CalmLabel {
+                        label: root.theme-label;
+                    }
+
                     HorizontalLayout {
-                        spacing: 8px;
+                        spacing: Tokens.space-sm;
+                        alignment: start;
+
                         ThemeChip {
-                            text: theme-light-label;
-                            selected: !theme-is-dark;
-                            surface: theme-bg;
-                            hover: theme-surface-hover;
-                            chip-border: theme-control-border;
-                            text-color: theme-text;
-                            text-muted: theme-text-muted;
-                            clicked => { root.set-theme-light(); }
+                            text: root.theme-light-label;
+                            selected: !root.theme-is-dark;
+                            clicked => {
+                                root.set-theme-light();
+                            }
                         }
                         ThemeChip {
-                            text: theme-dark-label;
-                            selected: theme-is-dark;
-                            surface: theme-bg;
-                            hover: theme-surface-hover;
-                            chip-border: theme-control-border;
-                            text-color: theme-text;
-                            text-muted: theme-text-muted;
-                            clicked => { root.set-theme-dark(); }
+                            text: root.theme-dark-label;
+                            selected: root.theme-is-dark;
+                            clicked => {
+                                root.set-theme-dark();
+                            }
                         }
                     }
                 }
 
-                VerticalBox {
-                    spacing: 8px;
-                    Text { text: language-label; font-size: 10px; font-weight: 600; color: theme-text; }
-                    SelectRow {
-                        text: "English";
-                        selected: language-is-en;
-                        surface: theme-surface;
-                        hover: theme-surface-hover;
-                        row-border: theme-island-border;
-                        text-color: theme-text;
-                        clicked => { root.set-language-en(); }
+                VerticalLayout {
+                    spacing: Tokens.space-sm;
+
+                    CalmLabel {
+                        label: root.language-label;
+                    }
+
+                    LanguageRow {
+                        text: root.language-name;
+                        selected: root.language-is-en;
+                        clicked => {
+                            root.set-language-en();
+                        }
                     }
                 }
 
                 HorizontalLayout {
-                    Text { text: memory-label; font-size: 10px; font-weight: 600; color: theme-text-muted; horizontal-stretch: 1; }
-                    Text { text: memory-value; font-size: 11px; color: theme-text-muted; font-family: "Menlo"; }
+                    CalmLabel {
+                        label: root.memory-label;
+                        horizontal-stretch: 1;
+                    }
+                    CalmMuted {
+                        text: root.memory-value;
+                        mono: true;
+                    }
                 }
 
                 HorizontalLayout {
-                    Text { text: version-label; font-size: 10px; font-weight: 600; color: theme-text-muted; horizontal-stretch: 1; }
-                    Text { text: version-value; font-size: 11px; color: theme-text-muted; font-family: "Menlo"; }
+                    CalmLabel {
+                        label: root.version-label;
+                        horizontal-stretch: 1;
+                    }
+                    CalmMuted {
+                        text: root.version-value;
+                        mono: true;
+                    }
+                }
+
+                Rectangle {
+                    vertical-stretch: 1;
                 }
             }
         }

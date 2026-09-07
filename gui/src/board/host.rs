@@ -141,7 +141,7 @@ impl BoardHost {
         &mut self,
         winit_window: &winit::window::Window,
         layout: &super::layout::BoardLayout,
-        window_height: f32,
+        content_height: f32,
         scale: f32,
     ) {
         if !self.active {
@@ -161,7 +161,7 @@ impl BoardHost {
                 layout.y as f64,
                 layout.width as f64,
                 layout.height as f64,
-                window_height as f64,
+                content_height as f64,
             );
         }
         if self.attached {

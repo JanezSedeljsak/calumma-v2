@@ -17,11 +17,12 @@ pub struct Theme {
     pub island_border: Color,
     pub control_border: Color,
     pub control_focus_border: Color,
-    pub tool_selected: Color,
     pub danger: Color,
     pub desk: Color,
     pub desk_grid: Color,
+    pub paper: Color,
     pub paper_border: Color,
+    pub metrics: Metrics,
     pub presets: Vec<ResolutionPreset>,
 }
 
@@ -32,11 +33,45 @@ pub struct ResolutionPreset {
     pub height: u32,
 }
 
+#[derive(Clone, Copy, Debug)]
+pub struct Metrics {
+    pub radius_sm: f32,
+    pub radius_md: f32,
+    pub radius_lg: f32,
+    pub radius_window: f32,
+    pub radius_island: f32,
+    pub space_xs: f32,
+    pub space_sm: f32,
+    pub space_md: f32,
+    pub space_lg: f32,
+    pub space_xl: f32,
+    pub space_xxl: f32,
+    pub control_height: f32,
+    pub label_size: f32,
+    pub label_tracking: f32,
+    pub body_size: f32,
+    pub title_size: f32,
+    pub brand_size: f32,
+    pub main_min_width: f32,
+    pub main_min_height: f32,
+    pub new_project_width: f32,
+    pub new_project_height: f32,
+    pub paste_min_width: f32,
+    pub paste_max_width: f32,
+    pub paste_min_height: f32,
+    pub paste_width_ratio: f32,
+}
+
 #[derive(Deserialize)]
 struct TokensFile {
     presets: Vec<PresetEntry>,
     color: ColorModes,
     window: WindowTokens,
+    radius: RadiusTokens,
+    space: SpaceTokens,
+    control: ControlTokens,
+    #[serde(rename = "type")]
+    type_scale: TypeTokens,
 }
 
 #[derive(Deserialize)]
@@ -46,6 +81,46 @@ struct WindowTokens {
     mainHeight: u32,
     mainMinWidth: u32,
     mainMinHeight: u32,
+    newProjectWidth: f32,
+    newProjectHeight: f32,
+    pasteMinWidth: f32,
+    pasteMaxWidth: f32,
+    pasteMinHeight: f32,
+    pasteWidthRatio: f32,
+}
+
+#[derive(Deserialize)]
+struct RadiusTokens {
+    sm: f32,
+    md: f32,
+    lg: f32,
+    window: f32,
+    island: f32,
+}
+
+#[derive(Deserialize)]
+struct SpaceTokens {
+    xs: f32,
+    sm: f32,
+    md: f32,
+    lg: f32,
+    xl: f32,
+    xxl: f32,
+}
+
+#[derive(Deserialize)]
+struct ControlTokens {
+    height: f32,
+}
+
+#[derive(Deserialize)]
+#[allow(non_snake_case)]
+struct TypeTokens {
+    labelSize: f32,
+    labelTracking: f32,
+    bodySize: f32,
+    titleSize: f32,
+    brandSize: f32,
 }
 
 #[derive(Clone, Debug)]
@@ -75,6 +150,7 @@ struct ModeColors {
     danger: String,
     desk: String,
     deskGrid: String,
+    paper: String,
     paperBorder: String,
 }
 
@@ -91,12 +167,16 @@ struct PresetEntry {
     height: u32,
 }
 
+fn read_tokens(root: &Path) -> Result<TokensFile> {
+    let path = root.join("design").join("tokens.json");
+    let text = fs::read_to_string(&path)
+        .with_context(|| format!("reading design tokens at {}", path.display()))?;
+    serde_json::from_str(&text).context("parsing tokens.json")
+}
+
 impl Theme {
     pub fn load(root: &Path, dark: bool) -> Result<Self> {
-        let path = root.join("design").join("tokens.json");
-        let text = fs::read_to_string(&path)
-            .with_context(|| format!("reading design tokens at {}", path.display()))?;
-        let tokens: TokensFile = serde_json::from_str(&text).context("parsing tokens.json")?;
+        let tokens = read_tokens(root)?;
         let mode = if dark {
             &tokens.color.dark
         } else {
@@ -113,11 +193,38 @@ impl Theme {
             island_border: parse_color(&mode.islandBorder)?,
             control_border: parse_color(&mode.controlBorder)?,
             control_focus_border: parse_color(&mode.controlFocusBorder)?,
-            tool_selected: parse_color(&mode.surfaceHover)?,
             danger: parse_color(&mode.danger)?,
             desk: parse_color(&mode.desk)?,
             desk_grid: parse_color(&mode.deskGrid)?,
+            paper: parse_color(&mode.paper)?,
             paper_border: parse_color(&mode.paperBorder)?,
+            metrics: Metrics {
+                radius_sm: tokens.radius.sm,
+                radius_md: tokens.radius.md,
+                radius_lg: tokens.radius.lg,
+                radius_window: tokens.radius.window,
+                radius_island: tokens.radius.island,
+                space_xs: tokens.space.xs,
+                space_sm: tokens.space.sm,
+                space_md: tokens.space.md,
+                space_lg: tokens.space.lg,
+                space_xl: tokens.space.xl,
+                space_xxl: tokens.space.xxl,
+                control_height: tokens.control.height,
+                label_size: tokens.type_scale.labelSize,
+                label_tracking: tokens.type_scale.labelTracking,
+                body_size: tokens.type_scale.bodySize,
+                title_size: tokens.type_scale.titleSize,
+                brand_size: tokens.type_scale.brandSize,
+                main_min_width: tokens.window.mainMinWidth as f32,
+                main_min_height: tokens.window.mainMinHeight as f32,
+                new_project_width: tokens.window.newProjectWidth,
+                new_project_height: tokens.window.newProjectHeight,
+                paste_min_width: tokens.window.pasteMinWidth,
+                paste_max_width: tokens.window.pasteMaxWidth,
+                paste_min_height: tokens.window.pasteMinHeight,
+                paste_width_ratio: tokens.window.pasteWidthRatio,
+            },
             presets: tokens
                 .presets
                 .into_iter()
@@ -139,10 +246,7 @@ impl Theme {
     }
 
     pub fn window_metrics(root: &Path) -> Result<WindowMetrics> {
-        let path = root.join("design").join("tokens.json");
-        let text = fs::read_to_string(&path)
-            .with_context(|| format!("reading design tokens at {}", path.display()))?;
-        let tokens: TokensFile = serde_json::from_str(&text).context("parsing tokens.json")?;
+        let tokens = read_tokens(root)?;
         Ok(WindowMetrics {
             width: tokens.window.mainWidth,
             height: tokens.window.mainHeight,

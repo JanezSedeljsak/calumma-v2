@@ -158,15 +158,6 @@ impl AppController {
         Ok(())
     }
 
-    pub fn set_layers_panel_open(&mut self, open: bool) -> Result<()> {
-        if self.prefs.layers_panel_open == open {
-            return Ok(());
-        }
-        self.prefs.layers_panel_open = open;
-        self.prefs.save()?;
-        Ok(())
-    }
-
     pub fn refresh_recents(&self) -> Vec<ProjectSummary> {
         self.engine.borrow().list_recent_projects(32)
     }
@@ -257,6 +248,12 @@ impl AppController {
 
     pub fn set_brush_size_unit(&mut self, unit: f32) {
         self.engine.borrow_mut().set_brush_size_unit(unit);
+    }
+
+    pub fn commit_brush_size(&mut self, text: &str) {
+        if let Ok(size) = text.trim().parse::<f32>() {
+            self.engine.borrow_mut().set_brush_size(size);
+        }
     }
 
     pub fn set_ink_opacity(&mut self, opacity: f32) {

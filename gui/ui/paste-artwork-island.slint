@@ -1,73 +1,74 @@
+import { Theme } from "calm/CalmTheme.slint";
+import { Tokens } from "calm/CalmTokens.slint";
 import { CalmPointer } from "calm/CalmPointer.slint";
 import { CalmIsland } from "calm/CalmIsland.slint";
 
-export component PasteArtworkIsland inherits Rectangle {
-    in property <brush> theme-accent-teal;
-    in property <brush> theme-accent-orange;
-    in property <brush> theme-island-border;
-    in property <brush> theme-text;
-    in property <brush> theme-text-muted;
-
+export component PasteArtworkIsland inherits CalmIsland {
     in property <string> title-text;
     in property <string> hint-text;
     in property <string> formats-text;
+    in property <bool> targeted: false;
 
     callback clicked();
 
     private property <image> icon-image: @image-url("image.svg");
+    private property <bool> lit: targeted || touch.has-hover;
 
-    min-width: 200px;
-    max-width: 420px;
-    horizontal-stretch: 1;
+    min-width: Tokens.paste-min-width;
+    island-padding: 0px;
+    clip: true;
+    background: @linear-gradient(135deg,
+        Theme.accent-teal.with-alpha(lit ? 0.7 : 0.45) 0%,
+        Theme.accent-orange.with-alpha(lit ? 0.6 : 0.35) 50%,
+        Theme.surface 100%);
 
-    island-touch := CalmPointer {
+    touch := CalmPointer {
         width: 100%;
         height: 100%;
-        clicked => { root.clicked(); }
+        clicked => {
+            root.clicked();
+        }
     }
 
-    CalmIsland {
-        width: 100%;
-        height: 100%;
-        border-color: theme-island-border;
-        island-padding: 0px;
-        background: @linear-gradient(135deg, theme-accent-teal 0%, theme-accent-orange 100%);
-        opacity: island-touch.has-hover ? 1.0 : 0.82;
+    VerticalLayout {
+        padding: Tokens.space-md;
+        spacing: Tokens.space-sm;
+        alignment: center;
 
-        VerticalLayout {
-            padding: 24px;
-            spacing: 12px;
+        HorizontalLayout {
             alignment: center;
 
             Image {
-                source: icon-image;
-                width: 32px;
-                height: 32px;
-                colorize: theme-text;
-                horizontal-alignment: center;
+                source: root.icon-image;
+                width: Tokens.space-xl;
+                height: Tokens.space-xl;
+                colorize: Theme.text;
             }
+        }
 
-            Text {
-                text: title-text;
-                font-size: 15px;
-                font-weight: 700;
-                color: theme-text;
-                horizontal-alignment: center;
-            }
+        Text {
+            text: root.title-text;
+            font-size: Tokens.body-size;
+            font-weight: 700;
+            color: Theme.text;
+            horizontal-alignment: center;
+        }
 
-            Text {
-                text: hint-text;
-                font-size: 11px;
-                color: theme-text-muted;
-                horizontal-alignment: center;
-            }
+        Text {
+            text: root.hint-text;
+            font-size: Tokens.label-size;
+            color: Theme.text.with-alpha(0.7);
+            horizontal-alignment: center;
+            wrap: word-wrap;
+        }
 
-            Text {
-                text: formats-text;
-                font-size: 10px;
-                color: theme-text-muted;
-                horizontal-alignment: center;
-            }
+        Text {
+            text: root.formats-text;
+            font-size: Tokens.label-size;
+            font-weight: 500;
+            color: Theme.text.with-alpha(0.5);
+            horizontal-alignment: center;
+            wrap: word-wrap;
         }
     }
 }

@@ -1,0 +1,85 @@
+import { Theme } from "calm/CalmTheme.slint";
+import { Tokens } from "calm/CalmTokens.slint";
+import { CalmPointer } from "calm/CalmPointer.slint";
+import { CalmDot } from "calm/CalmDot.slint";
+import { CalmIconButton } from "calm/CalmToolButton.slint";
+
+export component ProjectTabs inherits Rectangle {
+    in property <string> project-name;
+    in property <color> project-accent;
+    in property <string> new-project-tip;
+    in property <string> close-tip;
+
+    callback close-tab();
+    callback new-project();
+
+    private property <image> icon-plus: @image-url("plus.svg");
+
+    height: Tokens.control-height;
+    width: strip.preferred-width;
+    border-radius: self.height / 2;
+    background: Theme.surface;
+    clip: true;
+
+    strip := HorizontalLayout {
+        padding-left: Tokens.space-xs;
+        padding-right: Tokens.space-xs;
+
+        Rectangle {
+            background: Theme.surface-hover;
+
+            tab-touch := CalmPointer { }
+
+            HorizontalLayout {
+                padding-left: Tokens.space-sm;
+                padding-right: Tokens.space-sm;
+                spacing: Tokens.space-xs;
+
+                CalmDot {
+                    dot-color: root.project-accent;
+                    y: (parent.height - self.height) / 2;
+                }
+
+                Text {
+                    text: root.project-name;
+                    font-size: Tokens.label-size;
+                    font-weight: 600;
+                    color: Theme.text;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+
+                close-touch := CalmPointer {
+                    width: Tokens.space-md;
+                    Text {
+                        text: "×";
+                        font-size: Tokens.label-size;
+                        font-weight: 500;
+                        color: close-touch.has-hover ? Theme.text : Theme.text-muted;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                    clicked => {
+                        root.close-tab();
+                    }
+                }
+            }
+        }
+
+        Rectangle {
+            width: Tokens.control-height;
+
+            CalmIconButton {
+                icon: root.icon-plus;
+                icon-size: 14px;
+                tip: root.new-project-tip;
+                tip-leading: false;
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                clicked => {
+                    root.new-project();
+                }
+            }
+        }
+    }
+}

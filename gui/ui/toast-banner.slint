@@ -1,41 +1,60 @@
+import { Theme } from "calm/CalmTheme.slint";
+import { Tokens } from "calm/CalmTokens.slint";
 import { CalmPointer } from "calm/CalmPointer.slint";
 
 export component ToastBanner inherits Rectangle {
     in property <bool> show;
     in property <string> text;
     in property <bool> is-error;
-    in property <brush> theme-surface;
-    in property <brush> theme-text;
-    in property <brush> theme-accent-teal;
-    in property <brush> theme-danger;
 
     callback dismiss();
+
+    private property <color> accent: is-error ? Theme.danger : Theme.accent-teal;
 
     width: 100%;
     height: 100%;
     visible: root.show;
 
     if show: Rectangle {
-        y: parent.height - self.height - 16px;
         x: (parent.width - self.width) / 2;
-        height: 40px;
-        min-width: 120px;
-        border-radius: 12px;
-        background: theme-surface;
+        y: Tokens.space-lg;
+        width: banner.preferred-width;
+        height: banner.preferred-height;
+        border-radius: Tokens.radius-md;
+        background: Theme.surface-hover;
         border-width: 1px;
-        border-color: is-error ? theme-danger : theme-accent-teal;
+        border-color: root.accent.with-alpha(0.5);
+        drop-shadow-blur: 12px;
+        drop-shadow-offset-y: 4px;
+        drop-shadow-color: Theme.shadow;
 
         touch := CalmPointer {
-            clicked => { root.dismiss(); }
+            clicked => {
+                root.dismiss();
+            }
         }
 
-        Text {
-            text: (is-error ? "⚠ " : "✓ ") + text;
-            color: theme-text;
-            font-size: 12px;
-            font-weight: 600;
-            horizontal-alignment: center;
-            vertical-alignment: center;
+        banner := HorizontalLayout {
+            padding-left: Tokens.space-md;
+            padding-right: Tokens.space-md;
+            padding-top: Tokens.space-sm;
+            padding-bottom: Tokens.space-sm;
+            spacing: Tokens.space-sm;
+
+            Text {
+                text: root.is-error ? "⚠" : "✓";
+                color: root.accent;
+                font-size: Tokens.body-size;
+                vertical-alignment: center;
+            }
+
+            Text {
+                text: root.text;
+                color: Theme.text;
+                font-size: Tokens.body-size;
+                font-weight: 500;
+                vertical-alignment: center;
+            }
         }
     }
 }
