@@ -1675,8 +1675,7 @@ fn wire_shell_keys(
                         ctrl.dismiss_toast();
                     } else if ctrl.any_modal_open() {
                         ctrl.dismiss_modals();
-                    } else if ctrl.engine.borrow().active_tool() == Some(calumma_core::Tool::Crop)
-                    {
+                    } else if ctrl.engine.borrow().active_tool() == Some(calumma_core::Tool::Crop) {
                         ctrl.cancel_crop();
                     }
                 }
