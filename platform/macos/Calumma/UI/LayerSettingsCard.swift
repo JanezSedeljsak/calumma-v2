@@ -8,7 +8,9 @@ struct LayerSettingsCard: View {
     let canMoveUp: Bool
     let canMoveDown: Bool
     let canMergeDown: Bool
-    let canClipDown: Bool
+    let canCreateClippingMask: Bool
+    let isClipped: Bool
+    let canFlattenClip: Bool
     let canRename: Bool
     let canDelete: Bool
     /// Renaming happens inline in the row, and deleting has to close this popover before the
@@ -63,9 +65,19 @@ struct LayerSettingsCard: View {
                 actionButton(l10n.mergeLayerDown, enabled: canMergeDown) {
                     app.engine.mergeLayerDown(index)
                 }
-                if canClipDown {
-                    actionButton(l10n.clipLayerDown) {
-                        app.engine.clipLayerDown(index)
+                if canCreateClippingMask {
+                    actionButton(l10n.createClippingMask) {
+                        app.engine.createClippingMask(index)
+                    }
+                }
+                if isClipped {
+                    actionButton(l10n.releaseClippingMask) {
+                        app.engine.releaseClippingMask(index)
+                    }
+                }
+                if canFlattenClip {
+                    actionButton(l10n.flattenClippingMask) {
+                        app.engine.flattenClippingMask(index)
                     }
                 }
                 if app.engine.isLayerRasterizable(index: index) {

@@ -651,12 +651,16 @@ struct EditorView: View {
         let locked = index < app.engine.layerLocked.count ? app.engine.layerLocked[index] : false
         let isPaper = app.engine.isLayerPaper(index: index)
         let renameable = !isPaper
+        let isClipBase = app.engine.isLayerClipBase(index: index)
         let row = layerDisplayRow(index)
         return HStack(spacing: Tokens.Space.sm) {
             Button {
                 selectLayerRow(index)
             } label: {
                 HStack(spacing: Tokens.Space.md) {
+                    if isClipBase {
+                        Spacer().frame(width: 5)
+                    }
                     layerThumb(index)
                     if renamingLayer == index {
                         CalmField(text: $renameDraft)
@@ -761,7 +765,9 @@ struct EditorView: View {
                         && !isPaper
                         && !(index == 1 && app.engine.isLayerPaper(index: 0)),
                     canMergeDown: app.engine.canMergeLayerDown(index: index),
-                    canClipDown: app.engine.canClipLayerDown(index: index),
+                    canCreateClippingMask: app.engine.canCreateClippingMask(index: index),
+                    isClipped: app.engine.isLayerClipped(index: index),
+                    canFlattenClip: app.engine.canFlattenClippingMask(index: index),
                     canRename: renameable,
                     canDelete: !isPaper,
                     onRename: {

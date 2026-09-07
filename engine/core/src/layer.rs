@@ -153,6 +153,7 @@ pub struct Layer {
     /// duplicate and export stay available, and so does delete: a lock guards against the
     /// stray stroke, not against a deliberate press of the button next to it.
     pub locked: bool,
+    pub clips_to: Option<String>,
     mask: Option<Vec<u8>>,
     masked_bounds: MaskedBoundsCache,
     vector_bounds: VectorBoundsCache,
@@ -244,6 +245,7 @@ impl Layer {
             adjustments: None,
             transform: None,
             locked: false,
+            clips_to: None,
             mask: None,
             masked_bounds: fresh_masked_bounds_cache(),
             vector_bounds: fresh_vector_bounds_cache(),
@@ -261,6 +263,7 @@ impl Layer {
             adjustments: None,
             transform: None,
             locked: false,
+            clips_to: None,
             mask: None,
             masked_bounds: fresh_masked_bounds_cache(),
             vector_bounds: fresh_vector_bounds_cache(),
@@ -287,6 +290,7 @@ impl Layer {
             adjustments: None,
             transform: None,
             locked: false,
+            clips_to: None,
             mask: None,
             masked_bounds: fresh_masked_bounds_cache(),
             vector_bounds: fresh_vector_bounds_cache(),
@@ -583,6 +587,7 @@ impl PartialEq for Layer {
             && self.adjustments == other.adjustments
             && self.transform == other.transform
             && self.locked == other.locked
+            && self.clips_to == other.clips_to
             && self.mask == other.mask
     }
 }

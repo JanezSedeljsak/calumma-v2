@@ -79,7 +79,7 @@ pub(crate) fn apply_mask(rgba: &mut [u8], mask: Option<&[u8]>) {
         });
 }
 
-fn layer_source_pixel(layer: &Layer, doc_x: f32, doc_y: f32) -> [u8; 4] {
+pub(crate) fn layer_source_pixel(layer: &Layer, doc_x: f32, doc_y: f32) -> [u8; 4] {
     let Some(tiles) = layer.tiles() else {
         return match layer.content.item() {
             Some(item) => vector_source_pixel(item, layer, doc_x, doc_y),
@@ -181,6 +181,7 @@ type BoundedLayer<'a> = (&'a Layer, (f32, f32, f32, f32));
 
 fn layer_composited_pixel(
     layer: &Layer,
+    layers: &[Layer],
     doc_x: f32,
     doc_y: f32,
     doc_w: u32,
@@ -200,6 +201,14 @@ fn layer_composited_pixel(
             }
         } else {
             px[3] = 0;
+        }
+    }
+    if let Some(base_id) = layer.clips_to.as_deref() {
+        if let Some(base) = layers.iter().find(|l| l.id == base_id) {
+            px[3] = crate::clip::multiply_clip_alpha(
+                px[3],
+                crate::clip::base_raw_alpha_at(base, doc_x, doc_y),
+            );
         }
     }
     if let Some(adj) = layer.adjustments.as_ref().filter(|a| !a.is_neutral()) {
@@ -857,6 +866,7 @@ impl Document {
                 *selected -= 1;
             }
         }
+        self.validate_clip_links();
         true
     }
 
@@ -1013,6 +1023,7 @@ impl Document {
         if let Some(layer) = self.layers.get_mut(index) {
             layer.transform = None;
         }
+        self.schedule_clip_recalc_for_indices(&[index]);
     }
 
     pub fn layer_transform(&self, index: usize) -> LayerTransform {
@@ -1262,6 +1273,8 @@ impl Document {
                 }
             }
         }
+        let indices: Vec<usize> = drag.targets.iter().map(|t| t.layer_index).collect();
+        self.schedule_clip_recalc_for_indices(&indices);
     }
 
     pub fn duplicate_layer(&mut self, index: usize) -> bool {
@@ -1277,8 +1290,10 @@ impl Document {
         let mut copy = source;
         copy.id = uuid::Uuid::new_v4().to_string();
         copy.name = crate::names::duplicate_layer_name(&base_name);
+        copy.clips_to = None;
         self.layers.insert(index + 1, copy);
         self.active_layer = index + 1;
+        self.validate_clip_links();
         true
     }
 
@@ -1323,6 +1338,7 @@ impl Document {
             }
         };
         self.remap_layer_indices(remap);
+        self.validate_clip_links();
         true
     }
 
@@ -2545,6 +2561,11 @@ impl Document {
             layer_buf.fill(0);
             copy_layer_into_rgba(layer, &mut layer_buf, w, h);
             apply_mask(&mut layer_buf, layer.mask());
+            if let Some(base_id) = layer.clips_to.as_deref() {
+                if let Some(base) = self.layers.iter().find(|l| l.id == base_id) {
+                    crate::clip::apply_clip_alpha_to_buffer(&mut layer_buf, base, w, h);
+                }
+            }
             let lut = layer.adjustments.map(|a| a.lut());
             apply_layer_effects(&mut layer_buf, layer, lut.as_ref());
             let mode = layer.blend_mode;
@@ -2580,7 +2601,7 @@ impl Document {
             if !layer.visible {
                 continue;
             }
-            let src = layer_composited_pixel(layer, doc_x, doc_y, self.width, self.height);
+            let src = layer_composited_pixel(layer, &self.layers, doc_x, doc_y, self.width, self.height);
             if src[3] == 0 {
                 continue;
             }
@@ -2673,7 +2694,7 @@ impl Document {
             if doc_x < bounds.0 || doc_y < bounds.1 || doc_x > bounds.2 || doc_y > bounds.3 {
                 continue;
             }
-            let src = layer_composited_pixel(layer, doc_x, doc_y, self.width, self.height);
+            let src = layer_composited_pixel(layer, &self.layers, doc_x, doc_y, self.width, self.height);
             if src[3] == 0 {
                 continue;
             }
@@ -3059,23 +3080,20 @@ impl Document {
         let crop_h = h.max(1.0).min(cur_y1 - cur_y);
         let shrinks = crop_w < cur_x1 - cur_x || crop_h < cur_y1 - cur_y;
         let square = t.scale_x == 1.0 && t.scale_y == 1.0 && t.rotation == 0.0;
-        if !shrinks || !square {
-            return true;
+        if shrinks && square {
+            let keep = DocRect::from_floats(
+                x - t.offset_x,
+                y - t.offset_y,
+                x - t.offset_x + crop_w - 1.0,
+                y - t.offset_y + crop_h - 1.0,
+            );
+            if let Some(grid) = layer.tiles_mut() {
+                for band in outside_bands(grid.bounds(), keep) {
+                    grid.paint_rect(band, |_, _, _| Some([0, 0, 0, 0]));
+                }
+            }
         }
-        // The crop is stated in document space but the pixels live in the layer's own
-        // untransformed space, so the offset comes back off before the rectangle is applied.
-        let keep = DocRect::from_floats(
-            x - t.offset_x,
-            y - t.offset_y,
-            x - t.offset_x + crop_w - 1.0,
-            y - t.offset_y + crop_h - 1.0,
-        );
-        let Some(grid) = layer.tiles_mut() else {
-            return true;
-        };
-        for band in outside_bands(grid.bounds(), keep) {
-            grid.paint_rect(band, |_, _, _| Some([0, 0, 0, 0]));
-        }
+        self.schedule_clip_recalc_for_indices(&[index]);
         true
     }
 

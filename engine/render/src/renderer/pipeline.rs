@@ -563,6 +563,7 @@ impl Renderer {
             pan_cache,
             coverage_progress: None,
             drawn_caret_phase: None,
+            layer_transform_stamp: Vec::new(),
         }
     }
 

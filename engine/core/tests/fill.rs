@@ -118,6 +118,44 @@ fn flood_region_pixels_refuses_a_start_point_outside_the_scope() {
 }
 
 #[test]
+fn fill_bleeds_through_antialiased_stroke_fringe() {
+    let mut grid = TileGrid::new(32, 32);
+    let bounds = DocRect::from_size(32, 32);
+    for y in 0..32 {
+        for x in 0..32 {
+            grid.set_pixel(x, y, [255, 255, 255, 255]);
+        }
+    }
+    for y in 6..26 {
+        for x in 6..26 {
+            let dx = x as i32 - 16;
+            let dy = y as i32 - 16;
+            let d = ((dx * dx + dy * dy) as f32).sqrt();
+            if d > 8.0 && d < 9.5 {
+                grid.set_pixel(x, y, [255, 255, 255, 255]);
+            } else if d > 9.0 && d < 10.5 {
+                grid.set_pixel(x, y, [0, 0, 0, 60]);
+            } else if d >= 10.5 && d < 11.5 {
+                grid.set_pixel(x, y, [0, 0, 0, 255]);
+            }
+        }
+    }
+    let touched = flood_fill(&mut grid, bounds, 16, 16, [200, 0, 0, 255], None, 0);
+    assert!(touched > 0);
+    assert_eq!(grid.get_pixel(16, 16)[0], 200);
+    assert_eq!(
+        grid.get_pixel(16, 9)[0],
+        200,
+        "fill should reach through soft AA and any opaque white pocket under the stroke"
+    );
+    assert_eq!(
+        grid.get_pixel(16, 8)[0],
+        200,
+        "opaque white ring inside the stroke should be absorbed"
+    );
+}
+
+#[test]
 fn color_range_pixels_refuses_an_empty_scope() {
     let empty = DocRect::from_size(0, 0);
     assert!(color_range_pixels(empty, [0, 0, 0, 255], 4, |_, _| [0, 0, 0, 255]).is_none());

@@ -106,8 +106,10 @@ final class AppModel: ObservableObject {
         let ids = engine.loadOpenProjectTabs()
         guard !ids.isEmpty else { return }
         openProjects = ids.compactMap { engine.project(id: $0) }
-        if let first = openProjects.first {
-            switchToProject(id: first.id)
+        // `openedAt` is bumped every time a tab is switched to, so the one carrying the
+        // newest timestamp is whichever tab was active when the app last closed.
+        if let lastActive = openProjects.max(by: { $0.openedAt < $1.openedAt }) {
+            switchToProject(id: lastActive.id)
         }
     }
 

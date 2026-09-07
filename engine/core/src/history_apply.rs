@@ -68,6 +68,7 @@ impl Document {
             blend_mode: layer.blend_mode,
             adjustments: layer.adjustments,
             transform: layer.transform,
+            clips_to: layer.clips_to.clone(),
         })
     }
 
@@ -178,6 +179,10 @@ impl HistoryMutator for Document {
             layer.blend_mode = diff.blend_mode;
             layer.adjustments = diff.adjustments;
             layer.transform = diff.transform;
+            layer.clips_to = diff.clips_to.clone();
+            if let Some(tiles) = layer.tiles_mut() {
+                tiles.mark_all_dirty();
+            }
         }
         for diff in &command.vectors {
             let Some(&index) = layer_at.get(&diff.layer_id) else {
@@ -194,6 +199,7 @@ impl HistoryMutator for Document {
                 continue;
             };
             self.layers[index].transform = diff.transform;
+            self.schedule_clip_recalc_for_indices(&[index]);
         }
         self.bump_vector_revision();
     }
@@ -275,6 +281,7 @@ impl HistoryMutator for Document {
                 blend_mode: layer.blend_mode,
                 adjustments: layer.adjustments,
                 transform: layer.transform,
+                clips_to: layer.clips_to.clone(),
             };
             bytes += prop_diff_bytes(&prop);
             props.push(prop);
@@ -325,6 +332,7 @@ impl Document {
         let Some(drag) = self.transform_drag.take() else {
             return;
         };
+        let indices: Vec<usize> = drag.targets.iter().map(|t| t.layer_index).collect();
         let mut transforms = Vec::with_capacity(drag.targets.len());
         for target in &drag.targets {
             let Some(layer) = self.layers.get(target.layer_index) else {
@@ -340,6 +348,7 @@ impl Document {
             });
         }
         self.record_transforms_history(transforms);
+        self.schedule_clip_recalc_for_indices(&indices);
     }
 
     pub(crate) fn commit_vector_drag_history(&mut self) {

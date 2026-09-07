@@ -31,7 +31,7 @@ impl Document {
         };
         self.record_transforms_for_indices(&indices);
         let mut aligned = false;
-        for index in indices {
+        for &index in &indices {
             let Some(layer) = self.layers.get(index) else {
                 continue;
             };
@@ -51,6 +51,9 @@ impl Document {
                 layer.transform = Some(next.clamped());
                 aligned = true;
             }
+        }
+        if aligned {
+            self.schedule_clip_recalc_for_indices(&indices);
         }
         aligned
     }
@@ -113,6 +116,9 @@ impl Document {
             }
             layer.transform = Some(next.clamped());
             moved = true;
+        }
+        if moved {
+            self.schedule_clip_recalc_for_indices(&indices);
         }
         moved
     }

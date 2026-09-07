@@ -583,9 +583,14 @@ pub fn composited_tile_payload(
     pixels: &[u8],
     coord: TileCoord,
     layer: &Layer,
+    clip_base: Option<&Layer>,
     doc_width: u32,
 ) -> Option<Vec<u8>> {
-    let mask = layer.mask()?;
+    let mask = layer.mask();
+    let needs_clip = clip_base.is_some();
+    if mask.is_none() && !needs_clip {
+        return None;
+    }
     let mut out = Vec::with_capacity(TILE_BYTES);
     out.extend_from_slice(pixels);
     out.resize(TILE_BYTES, 0);
@@ -598,12 +603,23 @@ pub fn composited_tile_payload(
                 continue;
             }
             let i = ((ty * TILE_SIZE + tx) * 4) as usize;
-            let mi = (y as u32)
-                .saturating_mul(doc_width)
-                .saturating_add(x as u32) as usize;
-            if let Some(&m) = mask.get(mi) {
-                let a = out[i + 3] as u16 * m as u16 / 255;
-                out[i + 3] = a as u8;
+            if let Some(mask) = mask {
+                let mi = (y as u32)
+                    .saturating_mul(doc_width)
+                    .saturating_add(x as u32) as usize;
+                if let Some(&m) = mask.get(mi) {
+                    let a = out[i + 3] as u16 * m as u16 / 255;
+                    out[i + 3] = a as u8;
+                }
+            }
+            if let Some(base) = clip_base {
+                let base_alpha = calumma_core::clip::clip_base_alpha_for_layer_pixel(
+                    layer,
+                    base,
+                    x,
+                    y,
+                );
+                out[i + 3] = calumma_core::clip::multiply_clip_alpha(out[i + 3], base_alpha);
             }
         }
     }

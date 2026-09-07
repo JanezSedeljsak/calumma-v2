@@ -372,6 +372,7 @@ pub struct Renderer {
     /// about the document changing, and it asks twice a second — so the frame loop draws when
     /// this answer moves rather than at display rate for as long as the session is open.
     drawn_caret_phase: Option<bool>,
+    layer_transform_stamp: Vec<Option<calumma_core::LayerTransform>>,
 }
 
 mod cache;

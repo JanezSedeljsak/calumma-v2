@@ -560,18 +560,14 @@ live in `engine/core`; PNG/JPEG/WebP/AVIF/HEIC encode and decode live in `engine
   standing after 100ms of quiet, which turns a drag into a handful of bakes. Opacity keeps
   its direct binding because its `%` readout reads the engine value and would stutter behind
   the knob.
-- **Clip to Below** (`⌥⌘G`, or the card's button) bakes the layer through the alpha of the one
-  underneath it and merges the two, right then. It is Photoshop's clipping mask as a
-  **destructive action**, not a live compositing rule: there is no clipped flag, no clipping
-  group, no schema column, and no layer whose rendering depends on another layer's contents
-  (`AGENTS.md` → STRICT SCOPE). Clipping into a group of three means doing it twice — each
-  apply leaves an ordinary layer that can be clipped into again. The base keeps its own
-  opacity, mask and adjustments, which then govern the merged result once, so the clip reads
-  the base's **raw** tile alpha rather than its composited alpha. Offered only where it can be
-  honest: greyed out with no layer below, with Paper below, with a vector layer below, or with
-  a base carrying a transform — the source bakes into document space while the base's tiles
-  sit in its own, so the alpha would be off by exactly that transform. Undo restores the
-  pre-clip stack, same as Merge Down.
+- **Clip to Below** (`⌥⌘G`, or the card's buttons) is a **live** clipping mask when created:
+  the active layer's `clips_to` points at the layer directly below, and the texture is
+  multiplied by the silhouette's **raw** tile alpha every frame on CPU composite and at GPU
+  upload. **Release Clipping Mask** clears the link; `⌘Z` undoes the toggle. **Flatten Clip**
+  bakes the same multiply and merges the two, the old destructive path. The silhouette row
+  indents 5px under its texture in the layers panel. One link per layer, no clip trees.
+  Refuses Paper as base; reorder that separates the pair clears the link. Flatten still
+  stands down on a base carrying a transform.
 - **The list uses the height it has:** the stack takes every point the header above it and the
   Layer bounds fields below it do not, and scrolls once it runs out, rather than stopping at a
   fixed share of the island with dead space underneath. A floor keeps it from collapsing

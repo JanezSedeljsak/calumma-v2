@@ -901,10 +901,8 @@ final class Engine: ObservableObject, @unchecked Sendable {
         return calm_engine_layer_can_merge_down(ptr, UInt32(index)) != 0
     }
 
-    /// Bakes the layer through the alpha of the one below it and merges the two. Destructive the
-    /// moment it is pressed — there is no clipped state afterwards, which is the whole reason the
-    /// renderer never has to know the word.
-    func clipLayerDown(_ index: Int) {
+    /// Bakes the live clip through the alpha of the one below it and merges the two.
+    func flattenClippingMask(_ index: Int) {
         guard let ptr else { return }
         _ = calm_engine_clip_layer_down(ptr, UInt32(index))
         syncState()
@@ -912,9 +910,40 @@ final class Engine: ObservableObject, @unchecked Sendable {
         render()
     }
 
-    /// Same engine answer Merge Down uses, so the greyed-out button and the refused call can
+    func createClippingMask(_ index: Int) {
+        guard let ptr else { return }
+        _ = calm_engine_create_clipping_mask(ptr, UInt32(index))
+        syncState()
+        refreshLayers()
+        render()
+    }
+
+    func releaseClippingMask(_ index: Int) {
+        guard let ptr else { return }
+        _ = calm_engine_release_clipping_mask(ptr, UInt32(index))
+        syncState()
+        refreshLayers()
+        render()
+    }
+
+    func canCreateClippingMask(index: Int) -> Bool {
+        guard let ptr, index >= 0 else { return false }
+        return calm_engine_layer_can_create_clipping_mask(ptr, UInt32(index)) != 0
+    }
+
+    func isLayerClipped(index: Int) -> Bool {
+        guard let ptr, index >= 0 else { return false }
+        return calm_engine_layer_is_clipped(ptr, UInt32(index)) != 0
+    }
+
+    func isLayerClipBase(index: Int) -> Bool {
+        guard let ptr, index >= 0 else { return false }
+        return calm_engine_layer_is_clip_base(ptr, UInt32(index)) != 0
+    }
+
+    /// Same engine answer Flatten Clip uses, so the greyed-out button and the refused call can
     /// never disagree.
-    func canClipLayerDown(index: Int) -> Bool {
+    func canFlattenClippingMask(index: Int) -> Bool {
         guard let ptr, index >= 0 else { return false }
         return calm_engine_layer_can_clip_down(ptr, UInt32(index)) != 0
     }

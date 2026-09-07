@@ -44,6 +44,7 @@ pub struct LayerPropDiff {
     pub blend_mode: BlendMode,
     pub adjustments: Option<Adjustments>,
     pub transform: Option<LayerTransform>,
+    pub clips_to: Option<String>,
 }
 
 #[derive(Clone, Debug)]

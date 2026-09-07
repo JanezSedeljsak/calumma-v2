@@ -193,6 +193,9 @@ struct L10nCatalog: Equatable {
     var moveLayerDown: String { self["moveLayerDown"] }
     var mergeLayerDown: String { self["mergeLayerDown"] }
     var clipLayerDown: String { self["clipLayerDown"] }
+    var createClippingMask: String { self["createClippingMask"] }
+    var releaseClippingMask: String { self["releaseClippingMask"] }
+    var flattenClippingMask: String { self["flattenClippingMask"] }
     var opacity: String { self["opacity"] }
     var blendMode: String { self["blendMode"] }
     var blendNormal: String { self["blendNormal"] }

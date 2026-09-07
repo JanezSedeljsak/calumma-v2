@@ -281,6 +281,7 @@ impl Renderer {
         self.stroke_coverage.release();
         self.coverage_progress = None;
         self.visible_upload_needed = None;
+        self.layer_transform_stamp.clear();
         self.frame_dirty = FrameDirty::Content;
     }
 

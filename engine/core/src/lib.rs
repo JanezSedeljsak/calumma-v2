@@ -3,6 +3,7 @@ pub mod brush;
 pub mod brush_cursor;
 pub mod camera;
 pub mod clone;
+pub mod clip;
 pub mod color;
 pub mod coverage;
 pub mod crop_edit;

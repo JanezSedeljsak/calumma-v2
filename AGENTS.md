@@ -364,18 +364,15 @@ pub enum LayerContent {
   `Document::rasterize_layer` (`rasterize.rs`) is the way out of the first two. Do not add a
   second predicate: `active_layer_accepts_paint` survives only for the commands that are not
   a tool press (paste, clear), because they have no tool to name and so nothing to explain.
-- **Clipping is destructive, and that is the whole design**
-  (`engine/core/src/merge.rs`). `clip_layer_down` is `merge_layer_down` with
-  the source's alpha first multiplied by the base's raw tile alpha —
-  `merge_down_inner` is literally one function with a `clip` flag. There is no
-  `clipped` state, no clip group, no schema column, and the renderer never
-  learns the word: after the action there is one ordinary layer, so export is
-  free and there is no CPU/GPU rule pair to keep identical. The base's *raw*
-  alpha is what clips, because the base keeps its own opacity/mask/adjustments
-  afterwards and those then govern the merged result once — Photoshop's
-  clipping-group semantics. It stands down on a base carrying a transform:
-  the source bakes into document space while the base's tiles sit in its own,
-  so the alpha would be misaligned by exactly that transform.
+- **Clipping: live link or flatten bake**
+  (`engine/core/src/clip.rs`, `engine/core/src/merge.rs`). **Create Clipping Mask** sets
+  `Layer.clips_to` to the layer directly below — the texture reads the silhouette's **raw**
+  alpha every frame on CPU composite and at GPU upload. **Release Clipping Mask** clears the
+  link; `⌘Z` rides `LayerPropDiff`. **Flatten Clip** (`clip_layer_down`) is still the
+  one-shot bake: multiply source alpha by the base, merge down, remove the source. One clip
+  link per layer, no folders, no trees — the narrow exception to "layers stay independent."
+  Refuses Paper as base. Reorder that separates a clipped pair clears the link. Flatten still
+  stands down on a base carrying a transform.
 - `Document::duplicate_layer`/`merge_layer_down`/`clip_layer_down`/`resize`
   record a `StackSnapshot` before they run, so `⌘Z` can put the stack back.
   Paint, fill, clear, text sessions, and Remove Background still use tile/mask/run
@@ -758,7 +755,11 @@ Pin versions in `[workspace.dependencies]`. Never `*` or bare `^`.
 ## Deliberately deferred
 
 Vector *rotation* on the GPU (see Layers; per-item undo rides document
-history, shipped as plan `01`), BiRefNet / `ort`,
+history, shipped as plan `01`), **stylus pressure** (cancelled — tablet pen pressure does not
+taper brush size along a stroke; pointer FFI stays `(x, y)` only and mouse/tablet are both
+full press. No tilt, barrel, tangential pressure, per-brush toggles, or shell curve UI.
+Raster paint tools only; vector-mode pen width stays on the item. Do not restart as a plan),
+BiRefNet / `ort`,
 GenerateTexture model manager, SuggestShape,
 Vectorize (`vtracer`), **authoring a layer mask** (`layer.mask` composites, persists and
 undoes, but Remove Background is its only writer — no mask painting, invert, toggle, apply or

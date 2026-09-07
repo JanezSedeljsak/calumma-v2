@@ -5,12 +5,45 @@ const SELECTION_OUTLINE_COLOR: [f32; 4] = [1.0, 1.0, 1.0, 0.9];
 const SELECTION_OUTLINE_WIDTH: f32 = 1.5;
 
 impl Renderer {
+    pub(super) fn sync_clip_for_transform_changes(&mut self, doc: &mut Document) {
+        if self.layer_transform_stamp.len() != doc.layers.len() {
+            self.layer_transform_stamp = doc.layers.iter().map(|l| l.transform).collect();
+            return;
+        }
+        let mut changed = Vec::new();
+        for (i, layer) in doc.layers.iter().enumerate() {
+            if self.layer_transform_stamp[i] != layer.transform {
+                changed.push(i);
+                self.layer_transform_stamp[i] = layer.transform;
+            }
+        }
+        if !changed.is_empty() {
+            doc.schedule_clip_recalc_for_indices(&changed);
+        }
+    }
+
     pub(super) fn sync_tiles(&mut self, doc: &mut Document) {
+        self.sync_clip_for_transform_changes(doc);
         let Some(visible) = doc.visible_rect() else {
             return;
         };
         let retained = visible.expanded_by_tiles(self.budget.retention_margin_tiles());
         let doc_width = doc.width;
+
+        let dirty_bases: Vec<usize> = doc
+            .layers
+            .iter()
+            .enumerate()
+            .filter(|(_, layer)| {
+                layer
+                    .tiles()
+                    .is_some_and(|grid| !grid.dirty_tiles(DirtyChannel::Render).is_empty())
+            })
+            .map(|(i, _)| i)
+            .collect();
+        for base_index in dirty_bases {
+            doc.mark_clip_dependents_render_dirty(base_index);
+        }
 
         let mut live: FxHashSet<TileKey> = FxHashSet::default();
         let mut visible_keys: FxHashSet<TileKey> = FxHashSet::default();
@@ -92,7 +125,11 @@ impl Renderer {
             .map(|(layer_index, coord, _, skip_mips)| {
                 let layer = doc.layers.get(*layer_index)?;
                 let pixels = layer.tiles()?.get(*coord)?;
-                let composited = composited_tile_payload(pixels, *coord, layer, doc_width);
+                let clip_base = layer.clips_to.as_deref().and_then(|id| {
+                    doc.layers.iter().find(|l| l.id == id)
+                });
+                let composited =
+                    composited_tile_payload(pixels, *coord, layer, clip_base, doc_width);
                 let base: &[u8] = composited.as_deref().unwrap_or(pixels.as_slice());
                 let mips = tile_upload_mips(base, *skip_mips);
                 Some((composited, mips))

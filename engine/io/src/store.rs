@@ -117,6 +117,22 @@ fn placeholders(count: usize) -> String {
         .join(",")
 }
 
+fn ensure_clips_to_column(conn: &Connection) -> Result<(), StoreError> {
+    let mut stmt = conn.prepare("PRAGMA table_info(layers)")?;
+    let mut has = false;
+    let rows = stmt.query_map([], |row| row.get::<_, String>(1))?;
+    for name in rows {
+        if name? == "clips_to" {
+            has = true;
+            break;
+        }
+    }
+    if !has {
+        conn.execute("ALTER TABLE layers ADD COLUMN clips_to TEXT", [])?;
+    }
+    Ok(())
+}
+
 impl ProjectStore {
     pub fn open(path: impl AsRef<Path>) -> Result<Self, StoreError> {
         if let Some(parent) = path.as_ref().parent() {
@@ -153,6 +169,7 @@ impl ProjectStore {
                 text_data BLOB,
                 transform BLOB,
                 locked INTEGER NOT NULL DEFAULT 0,
+                clips_to TEXT,
                 PRIMARY KEY (project_id, layer_id),
                 FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
             );
@@ -172,6 +189,7 @@ impl ProjectStore {
             );
             ",
         )?;
+        ensure_clips_to_column(&conn)?;
         Ok(Self {
             conn,
             path: path.as_ref().to_path_buf(),
@@ -308,7 +326,7 @@ impl ProjectStore {
         doc.layers.clear();
 
         let mut layer_stmt = self.conn.prepare(
-            "SELECT layer_id, name, visible, mask, content_kind, vector_data, opacity, blend_mode, adjustments, text_data, transform, locked FROM layers WHERE project_id = ?1 ORDER BY z_index ASC",
+            "SELECT layer_id, name, visible, mask, content_kind, vector_data, opacity, blend_mode, adjustments, text_data, transform, locked, clips_to FROM layers WHERE project_id = ?1 ORDER BY z_index ASC",
         )?;
         let layer_rows = layer_stmt.query_map(params![id], |row| {
             Ok((
@@ -324,6 +342,7 @@ impl ProjectStore {
                 row.get::<_, Option<Vec<u8>>>(9)?,
                 row.get::<_, Option<Vec<u8>>>(10)?,
                 row.get::<_, i64>(11)? != 0,
+                row.get::<_, Option<String>>(12)?,
             ))
         })?;
 
@@ -347,6 +366,7 @@ impl ProjectStore {
                 text_data,
                 transform,
                 locked,
+                clips_to,
             ) = layer_row?;
             let decoded_run = text_data.as_deref().and_then(text_blob::decode);
             let kind = match (content_kind, &decoded_run) {
@@ -379,6 +399,9 @@ impl ProjectStore {
                             adjustments.as_deref().and_then(adjustments_blob::decode);
                         layer.transform = transform.as_deref().and_then(transform_blob::decode);
                         layer.locked = locked;
+                        if first {
+                            layer.clips_to = clips_to.clone();
+                        }
                         doc.layers.push(layer);
                     }
                     continue;
@@ -397,6 +420,7 @@ impl ProjectStore {
             layer.adjustments = adjustments.as_deref().and_then(adjustments_blob::decode);
             layer.transform = transform.as_deref().and_then(transform_blob::decode);
             layer.locked = locked;
+            layer.clips_to = clips_to;
             if kind != LayerKind::Vector {
                 layer.set_mask(mask.filter(|m| m.len() == mask_len));
             }
@@ -493,7 +517,7 @@ impl ProjectStore {
 
         {
             let mut upsert_layer = tx.prepare(
-                "INSERT INTO layers (project_id, layer_id, name, visible, z_index, mask, content_kind, vector_data, opacity, blend_mode, adjustments, text_data, transform, locked) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
+                "INSERT INTO layers (project_id, layer_id, name, visible, z_index, mask, content_kind, vector_data, opacity, blend_mode, adjustments, text_data, transform, locked, clips_to) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)
                  ON CONFLICT(project_id, layer_id) DO UPDATE SET
                     name = excluded.name,
                     visible = excluded.visible,
@@ -506,7 +530,8 @@ impl ProjectStore {
                     adjustments = excluded.adjustments,
                     text_data = excluded.text_data,
                     transform = excluded.transform,
-                    locked = excluded.locked",
+                    locked = excluded.locked,
+                    clips_to = excluded.clips_to",
             )?;
             let mut upsert_tile = tx.prepare(
                 "INSERT INTO tiles (project_id, layer_id, tx, ty, pixels) VALUES (?1, ?2, ?3, ?4, ?5)
@@ -539,7 +564,8 @@ impl ProjectStore {
                     adjustments,
                     text_data,
                     transform,
-                    layer.locked as i64
+                    layer.locked as i64,
+                    layer.clips_to
                 ])?;
 
                 // A text layer's tiles are a cache of its run, so the run is all that is

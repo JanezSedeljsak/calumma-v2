@@ -252,6 +252,12 @@ pub const EYEDROPPER_RADIUS_MIN: u32 = 0;
 pub const EYEDROPPER_RADIUS_MAX: u32 = 15;
 pub const EYEDROPPER_RADIUS_DEFAULT: u32 = 1;
 
+/// Bucket fill keeps growing through semi-transparent ink and same-color pockets until neither
+/// pass changes the region, capped so a pathological layer cannot loop forever.
+pub const FILL_FRINGE_MAX_STEPS: u32 = 16;
+/// Fully opaque pixels stop semi-transparent fringe growth — solid stroke ink is the barrier.
+pub const FILL_BARRIER_ALPHA: u8 = 255;
+
 /// How close a neighbouring pixel has to be to the one clicked for the flood to keep going.
 /// Compared as squared Euclidean distance over all four channels — see `fill::flood_region`.
 /// Shared by the bucket and the magic wand: they are one traversal, so they are one tolerance.

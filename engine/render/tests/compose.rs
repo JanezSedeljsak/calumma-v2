@@ -202,7 +202,7 @@ fn an_empty_lasso_stays_empty_rather_than_closing_onto_nothing() {
 fn a_plain_layer_needs_no_reupload_payload() {
     let layer = paint_layer();
     assert!(
-        composited_tile_payload(&opaque_tile(), TileCoord { x: 0, y: 0 }, &layer, 64).is_none()
+        composited_tile_payload(&opaque_tile(), TileCoord { x: 0, y: 0 }, &layer, None, 64).is_none()
     );
 }
 
@@ -215,7 +215,7 @@ fn a_mask_multiplies_alpha_per_pixel_without_touching_the_tile_bytes() {
     mask[1] = 128;
     layer.set_mask(Some(mask));
 
-    let out = composited_tile_payload(&opaque_tile(), TileCoord { x: 0, y: 0 }, &layer, doc_width)
+    let out = composited_tile_payload(&opaque_tile(), TileCoord { x: 0, y: 0 }, &layer, None, doc_width)
         .expect("payload");
 
     assert_eq!(out[3], 0);
@@ -234,6 +234,7 @@ fn mask_lookups_outside_the_document_are_skipped_rather_than_wrapping() {
         &opaque_tile(),
         TileCoord { x: -1, y: -1 },
         &layer,
+        None,
         doc_width,
     )
     .expect("payload");
@@ -246,7 +247,7 @@ fn a_short_input_tile_is_padded_to_a_full_tile() {
     let doc_width = TILE_SIZE;
     let mut layer = paint_layer();
     layer.set_mask(Some(vec![128u8; (doc_width * doc_width) as usize]));
-    let out = composited_tile_payload(&[255u8; 8], TileCoord { x: 0, y: 0 }, &layer, doc_width)
+    let out = composited_tile_payload(&[255u8; 8], TileCoord { x: 0, y: 0 }, &layer, None, doc_width)
         .expect("payload");
     assert_eq!(out.len(), TILE_BYTES);
     assert_eq!(out[3], 128, "the mask halved the input tile's opaque alpha");
@@ -357,7 +358,7 @@ fn a_mask_shorter_than_the_document_leaves_pixels_past_its_end_untouched() {
     // the buffer's end, which `mask.get` must skip rather than wrap or panic on.
     layer.set_mask(Some(vec![0u8; doc_width as usize]));
 
-    let out = composited_tile_payload(&opaque_tile(), TileCoord { x: 0, y: 0 }, &layer, doc_width)
+    let out = composited_tile_payload(&opaque_tile(), TileCoord { x: 0, y: 0 }, &layer, None, doc_width)
         .expect("payload");
 
     assert_eq!(out[3], 0, "row 0 is covered by the mask");

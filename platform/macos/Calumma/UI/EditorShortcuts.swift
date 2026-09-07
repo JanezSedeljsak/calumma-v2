@@ -85,6 +85,12 @@ extension AppModel {
             commitCrop()
             return true
         }
+        // Return on an active selection reads as "I'm done with this region" the same way Esc
+        // does — the marching ants should not outlive the gesture that made them.
+        if returnKeyCodes.contains(event.keyCode), engine.hasSelection {
+            engine.deselect()
+            return true
+        }
         if event.keyCode == 53 {
             if tool == .crop {
                 cancelCrop()
@@ -176,8 +182,11 @@ extension AppModel {
     @MainActor
     private func clipActiveLayerDown() {
         let index = Int(engine.state.activeLayer)
-        guard engine.canClipLayerDown(index: index) else { return }
-        engine.clipLayerDown(index)
+        if engine.isLayerClipped(index: index) {
+            engine.releaseClippingMask(index)
+        } else if engine.canCreateClippingMask(index: index) {
+            engine.createClippingMask(index)
+        }
     }
 
     /// A shortcut asks the same question the tools panel does before it switches: a key that

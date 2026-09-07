@@ -28,6 +28,9 @@ impl Document {
             layer.transform = Some(t.clamped());
             moved = true;
         }
+        if moved {
+            self.schedule_clip_recalc_for_indices(indices);
+        }
         moved
     }
 

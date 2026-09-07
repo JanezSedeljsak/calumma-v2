@@ -1,3 +1,4 @@
+use crate::limits::{FILL_BARRIER_ALPHA, FILL_FRINGE_MAX_STEPS};
 use crate::selection::Selection;
 use crate::selection_mask::SelectionMask;
 use crate::tile::{blend_over, DocRect, TileGrid};
@@ -66,6 +67,79 @@ where
         }
     }
     reached.finish()
+}
+
+fn grow_one_step(
+    tiles: &TileGrid,
+    working: &SelectionMask,
+    selection: Option<&Selection>,
+    may_enter: &impl Fn([u8; 4]) -> bool,
+) -> (SelectionMask, bool) {
+    let b = working.bounds();
+    let expanded = DocRect::new(b.min_x - 1, b.min_y - 1, b.max_x + 1, b.max_y + 1);
+    let width = (expanded.max_x - expanded.min_x + 1) as u32;
+    let height = (expanded.max_y - expanded.min_y + 1) as u32;
+    let mut next = SelectionMask::new((expanded.min_x, expanded.min_y), width, height);
+    let mut grew = false;
+    for y in expanded.min_y..=expanded.max_y {
+        for x in expanded.min_x..=expanded.max_x {
+            if working.get(x, y) {
+                next.set(x, y);
+                continue;
+            }
+            if let Some(sel) = selection {
+                if !sel.contains(x as f32 + 0.5, y as f32 + 0.5) {
+                    continue;
+                }
+            }
+            let touches = [(x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)]
+                .iter()
+                .any(|(nx, ny)| working.get(*nx, *ny));
+            let px = tiles.get_pixel(x, y);
+            if touches && may_enter(px) {
+                next.set(x, y);
+                grew = true;
+            }
+        }
+    }
+    (
+        next.finish().unwrap_or_else(|| working.clone()),
+        grew,
+    )
+}
+
+fn grow_fringe_until_stable(
+    tiles: &TileGrid,
+    region: SelectionMask,
+    selection: Option<&Selection>,
+    may_enter: impl Fn([u8; 4]) -> bool,
+) -> SelectionMask {
+    let mut working = region;
+    for _ in 0..FILL_FRINGE_MAX_STEPS {
+        let (next, grew) = grow_one_step(tiles, &working, selection, &may_enter);
+        if !grew {
+            break;
+        }
+        working = next;
+    }
+    working
+}
+
+fn grow_fill_region(
+    tiles: &TileGrid,
+    region: SelectionMask,
+    target: [u8; 4],
+    tolerance: u8,
+    selection: Option<&Selection>,
+) -> SelectionMask {
+    let tol2 = (tolerance as u32) * (tolerance as u32) * 4;
+    let mut working = grow_fringe_until_stable(tiles, region, selection, |px| {
+        px[3] > 0 && px[3] < FILL_BARRIER_ALPHA
+    });
+    working = grow_fringe_until_stable(tiles, working, selection, |px| {
+        color_distance(px, target) <= tol2
+    });
+    working
 }
 
 pub fn flood_region(
@@ -154,9 +228,13 @@ pub fn flood_fill(
     if tiles.get_pixel(start_x, start_y) == color {
         return 0;
     }
-    let Some(region) = flood_region(tiles, bounds, start_x, start_y, selection, tolerance) else {
+    let target = tiles.get_pixel(start_x, start_y);
+    let Some(region) = flood_region(tiles, bounds, start_x, start_y, selection, tolerance)
+        .and_then(|m| m.finish())
+    else {
         return 0;
     };
+    let region = grow_fill_region(tiles, region, target, tolerance, selection);
     let mut painted = 0usize;
     tiles.paint_rect(region.bounds(), |x, y, dst| {
         if !region.get(x, y) {
