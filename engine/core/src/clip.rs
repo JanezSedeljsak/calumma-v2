@@ -83,6 +83,9 @@ impl Document {
         if self.is_layer_clipped(index) {
             return false;
         }
+        if self.is_layer_clipped(index - 1) {
+            return false;
+        }
         let base = &self.layers[index - 1];
         if base.is_paper() || base.tiles().is_none() {
             return false;

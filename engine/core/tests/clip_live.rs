@@ -119,6 +119,36 @@ fn transform_queues_clip_recalc_for_the_clipped_layer() {
 }
 
 #[test]
+fn cannot_clip_to_a_layer_that_is_already_clipped() {
+    let mut doc = Document::new("clip".into(), "Clip", 64, 64);
+    doc.layers.clear();
+    doc.layers.push(Layer::paper(64, 64));
+    let mut silhouette = Layer::new("1", 64, 64);
+    silhouette.tiles_mut().unwrap().set_pixel(10, 10, [0, 0, 0, 255]);
+    doc.layers.push(silhouette);
+    let mut texture = Layer::new("2", 64, 64);
+    texture.tiles_mut().unwrap().set_pixel(10, 10, [255, 0, 0, 255]);
+    doc.layers.push(texture);
+    let mut top = Layer::new("3", 64, 64);
+    top.tiles_mut().unwrap().set_pixel(20, 20, [0, 255, 0, 255]);
+    doc.layers.push(top);
+    assert!(doc.create_clipping_mask(2));
+    assert!(!doc.can_create_clipping_mask(3));
+}
+
+#[test]
+fn can_clip_when_the_layer_directly_below_is_not_clipped() {
+    let mut doc = two_layer_doc();
+    doc.add_layer("3");
+    let top = doc.layers.len() - 1;
+    doc.layers[top]
+        .tiles_mut()
+        .unwrap()
+        .set_pixel(5, 5, [0, 255, 0, 255]);
+    assert!(doc.can_create_clipping_mask(top));
+}
+
+#[test]
 fn moving_the_clip_base_rebakes_the_texture_layer() {
     use calumma_core::tile::DirtyChannel;
 

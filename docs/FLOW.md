@@ -564,8 +564,9 @@ live in `engine/core`; PNG/JPEG/WebP/AVIF/HEIC encode and decode live in `engine
   the active layer's `clips_to` points at the layer directly below, and the texture is
   multiplied by the silhouette's **raw** tile alpha every frame on CPU composite and at GPU
   upload. **Release Clipping Mask** clears the link; `⌘Z` undoes the toggle. **Flatten Clip**
-  bakes the same multiply and merges the two, the old destructive path. The silhouette row
-  indents 5px under its texture in the layers panel. One link per layer, no clip trees.
+  bakes the same multiply and merges the two, the old destructive path. The clipped texture
+  row indents in the layers panel so the silhouette it reads stays flush left. One link per
+  layer, no clip trees — a layer cannot clip to one that is already clipped.
   Refuses Paper as base; reorder that separates the pair clears the link. Flatten still
   stands down on a base carrying a transform.
 - **The list uses the height it has:** the stack takes every point the header above it and the

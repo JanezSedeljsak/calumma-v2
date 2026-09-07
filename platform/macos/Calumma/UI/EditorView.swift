@@ -651,15 +651,15 @@ struct EditorView: View {
         let locked = index < app.engine.layerLocked.count ? app.engine.layerLocked[index] : false
         let isPaper = app.engine.isLayerPaper(index: index)
         let renameable = !isPaper
-        let isClipBase = app.engine.isLayerClipBase(index: index)
+        let isClipped = app.engine.isLayerClipped(index: index)
         let row = layerDisplayRow(index)
         return HStack(spacing: Tokens.Space.sm) {
             Button {
                 selectLayerRow(index)
             } label: {
                 HStack(spacing: Tokens.Space.md) {
-                    if isClipBase {
-                        Spacer().frame(width: 5)
+                    if isClipped {
+                        Spacer().frame(width: Tokens.Space.sm)
                     }
                     layerThumb(index)
                     if renamingLayer == index {

@@ -371,7 +371,8 @@ pub enum LayerContent {
   link; `⌘Z` rides `LayerPropDiff`. **Flatten Clip** (`clip_layer_down`) is still the
   one-shot bake: multiply source alpha by the base, merge down, remove the source. One clip
   link per layer, no folders, no trees — the narrow exception to "layers stay independent."
-  Refuses Paper as base. Reorder that separates a clipped pair clears the link. Flatten still
+  Refuses Paper as base and refuses clipping to a layer that is already clipped (no clip
+  chains). Reorder that separates a clipped pair clears the link. Flatten still
   stands down on a base carrying a transform.
 - `Document::duplicate_layer`/`merge_layer_down`/`clip_layer_down`/`resize`
   record a `StackSnapshot` before they run, so `⌘Z` can put the stack back.
