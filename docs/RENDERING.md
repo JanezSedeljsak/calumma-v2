@@ -532,13 +532,13 @@ Things you can remove or gate behind quality settings if smooth pan matters more
 Figma's smoothness comes from a **different contract**:
 
 - Infinite canvas with **scene graph** + **cached tiles** at multiple fixed zoom levels
-- Pan often **translates existing pixels** (scroll blit) — Calumma now does this too for a
+- Pan often **translates existing pixels** (scroll blit) — the Calumma engine now does this too for a
   camera-only frame at unchanged zoom, via `PanCache`, though only single-level (no pyramid)
 - **No full-scene CPU composite** on the hot path
-- **No SQLite** on the display thread — Calumma now matches this too (autosave is background)
+- **No SQLite** on the display thread — Miw matches this too (autosave is background)
 - Aggressive **level-of-detail** — text, effects, and grid degrade during motion
 
-Calumma is closer to a **pixel editor** (sparse tiles, undo, masks, adjustments). Matching
+Miw is closer to a **pixel editor** (sparse tiles, undo, masks, adjustments). Matching
 Figma on pan is achievable — and largely done; matching Figma on *everything* without a
 scene-graph rewrite is not. The pragmatic target: **pan/zoom feels like Figma; edit fidelity
 stays like Krita**. Zoomed-out LOD is a pyramid now (see Overview path); what remains on that

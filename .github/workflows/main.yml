@@ -111,7 +111,7 @@ jobs:
       - run: python -m pip install pip-audit
       # `--requirement`, not an audit of the installed environment. Auditing the environment
       # sounds stricter and is worse: it reports advisories against the runner's own `pip` and
-      # `setuptools`, which are the tools running the audit rather than anything Calumma
+      # `setuptools`, which are the tools running the audit rather than anything Miw
       # depends on — so the gate would fail on day one, and then flake with whatever pip the
       # runner image happens to ship. `--requirement` still resolves transitively (12 packages
       # from the three pinned lines), so nothing real is skipped.

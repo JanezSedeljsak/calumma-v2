@@ -100,7 +100,7 @@ export default function App() {
   return (
     <div className="page">
       <header>
-        <h1 className="brand">Calumma</h1>
+        <h1 className="brand">Miw</h1>
         <p className="tagline">Your personal whiteboard</p>
         <p className="lede">
           Bounded project canvases you draw on with a pen or shapes. Multi-layer

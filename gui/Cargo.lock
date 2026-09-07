@@ -734,35 +734,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "calumma-gui"
-version = "0.30.0"
-dependencies = [
- "anyhow",
- "calumma-app",
- "calumma-core",
- "calumma-io",
- "dirs 6.0.0",
- "i-slint-backend-winit",
- "image",
- "objc2 0.6.4",
- "objc2-app-kit 0.3.2",
- "objc2-foundation 0.3.2",
- "objc2-metal 0.3.2",
- "objc2-quartz-core 0.3.2",
- "raw-window-handle",
- "resvg 0.44.0",
- "rfd",
- "serde",
- "serde_json",
- "slint",
- "slint-build",
- "tiny-skia 0.11.4",
- "toml 0.8.23",
- "usvg 0.44.0",
- "winit",
-]
-
-[[package]]
 name = "calumma-io"
 version = "0.30.0"
 dependencies = [
@@ -3164,6 +3135,35 @@ checksum = "b63fbc4a50860e98e7b2aa7804ded1db5cbc3aff9193adaff57a6931bf7c4b4c"
 dependencies = [
  "adler2",
  "simd-adler32",
+]
+
+[[package]]
+name = "miw"
+version = "0.30.0"
+dependencies = [
+ "anyhow",
+ "calumma-app",
+ "calumma-core",
+ "calumma-io",
+ "dirs 6.0.0",
+ "i-slint-backend-winit",
+ "image",
+ "objc2 0.6.4",
+ "objc2-app-kit 0.3.2",
+ "objc2-foundation 0.3.2",
+ "objc2-metal 0.3.2",
+ "objc2-quartz-core 0.3.2",
+ "raw-window-handle",
+ "resvg 0.44.0",
+ "rfd",
+ "serde",
+ "serde_json",
+ "slint",
+ "slint-build",
+ "tiny-skia 0.11.4",
+ "toml 0.8.23",
+ "usvg 0.44.0",
+ "winit",
 ]
 
 [[package]]

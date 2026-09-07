@@ -151,118 +151,70 @@ export component ToolsPanel inherits CalmIsland {
             vertical-stretch: 1;
 
             VerticalLayout {
-                spacing: Tokens.space-sm;
+                spacing: Tokens.space-xs;
+                alignment: start;
 
-                VerticalLayout {
-                    spacing: Tokens.space-xs;
-
-                    CalmLabel {
-                        label: root.active-tool-label;
-                        horizontal-alignment: center;
-                    }
-
-                    ToolOptions {
-                        tool-icons: root.tool-icons;
-                        brush-icons: root.brush-icons;
-                        pick-tool(id) => {
-                            root.pick-tool(id);
-                        }
-                        pick-brush(id) => {
-                            root.pick-brush(id);
-                        }
-                        brush-size-changed(v) => {
-                            root.brush-size-changed(v);
-                        }
-                        brush-size-committed(text) => {
-                            root.brush-size-committed(text);
-                        }
-                        ink-opacity-changed(v) => {
-                            root.ink-opacity-changed(v);
-                        }
-                        blur-changed(v) => {
-                            root.blur-changed(v);
-                        }
-                        hardness-changed(v) => {
-                            root.hardness-changed(v);
-                        }
-                        tolerance-changed(v) => {
-                            root.tolerance-changed(v);
-                        }
-                        eyedropper-changed(v) => {
-                            root.eyedropper-changed(v);
-                        }
-                        fill-toggled => {
-                            root.fill-toggled();
-                        }
-                        stroke-toggled => {
-                            root.stroke-toggled();
-                        }
-                        vector-toggled => {
-                            root.vector-toggled();
-                        }
-                        aligned-toggled => {
-                            root.aligned-toggled();
-                        }
-                        transform-toggled => {
-                            root.transform-toggled();
-                        }
-                        crop-aspect-changed(index) => {
-                            root.crop-aspect-changed(index);
-                        }
-                        crop-overlay-changed(index) => {
-                            root.crop-overlay-changed(index);
-                        }
-                        commit-crop => {
-                            root.commit-crop();
-                        }
-                        cancel-crop => {
-                            root.cancel-crop();
-                        }
-                    }
+                CalmLabel {
+                    label: root.active-tool-label;
+                    horizontal-alignment: center;
                 }
 
-                CalmDivider { }
-
-                menu-touch := CalmPointer {
-                    height: Tokens.control-height;
-                    clicked => {
-                        Tip.armed = false;
-                        Tip.open = false;
-                        SmartMenu.x = root.absolute-position.x + root.island-padding;
-                        SmartMenu.width = root.width - root.island-padding * 2;
-                        SmartMenu.y = self.absolute-position.y;
-                        SmartMenu.open = true;
+                ToolOptions {
+                    tool-icons: root.tool-icons;
+                    brush-icons: root.brush-icons;
+                    pick-tool(id) => {
+                        root.pick-tool(id);
                     }
-                    changed has-hover => {
-                        if (self.has-hover) {
-                            Tip.text = root.tools-menu-title;
-                            Tip.shortcut = "";
-                            Tip.leading = false;
-                            Tip.x = root.absolute-position.x + root.width + Tokens.space-sm;
-                            Tip.y = self.absolute-position.y + self.height / 2;
-                            Tip.open = false;
-                            Tip.armed = true;
-                        } else if (Tip.text == root.tools-menu-title) {
-                            Tip.armed = false;
-                            Tip.open = false;
-                        }
+                    pick-brush(id) => {
+                        root.pick-brush(id);
                     }
-
-                    HorizontalLayout {
-                        spacing: Tokens.space-xs;
-                        alignment: center;
-
-                        Image {
-                            source: root.icon-ai;
-                            width: 14px;
-                            height: 14px;
-                            colorize: root.tools-busy ? Theme.accent-teal : Theme.text-muted;
-                            y: (parent.height - self.height) / 2;
-                        }
-
-                        CalmLabel {
-                            label: root.tools-menu-title;
-                        }
+                    brush-size-changed(v) => {
+                        root.brush-size-changed(v);
+                    }
+                    brush-size-committed(text) => {
+                        root.brush-size-committed(text);
+                    }
+                    ink-opacity-changed(v) => {
+                        root.ink-opacity-changed(v);
+                    }
+                    blur-changed(v) => {
+                        root.blur-changed(v);
+                    }
+                    hardness-changed(v) => {
+                        root.hardness-changed(v);
+                    }
+                    tolerance-changed(v) => {
+                        root.tolerance-changed(v);
+                    }
+                    eyedropper-changed(v) => {
+                        root.eyedropper-changed(v);
+                    }
+                    fill-toggled => {
+                        root.fill-toggled();
+                    }
+                    stroke-toggled => {
+                        root.stroke-toggled();
+                    }
+                    vector-toggled => {
+                        root.vector-toggled();
+                    }
+                    aligned-toggled => {
+                        root.aligned-toggled();
+                    }
+                    transform-toggled => {
+                        root.transform-toggled();
+                    }
+                    crop-aspect-changed(index) => {
+                        root.crop-aspect-changed(index);
+                    }
+                    crop-overlay-changed(index) => {
+                        root.crop-overlay-changed(index);
+                    }
+                    commit-crop => {
+                        root.commit-crop();
+                    }
+                    cancel-crop => {
+                        root.cancel-crop();
                     }
                 }
             }
@@ -302,6 +254,51 @@ export component ToolsPanel inherits CalmIsland {
                 }
                 hex-changed(text) => {
                     root.color-hex-changed(text);
+                }
+            }
+        }
+
+        CalmDivider { }
+
+        menu-touch := CalmPointer {
+            height: Tokens.control-height;
+            clicked => {
+                Tip.armed = false;
+                Tip.open = false;
+                SmartMenu.x = root.absolute-position.x + root.island-padding;
+                SmartMenu.width = root.width - root.island-padding * 2;
+                SmartMenu.y = self.absolute-position.y;
+                SmartMenu.open = true;
+            }
+            changed has-hover => {
+                if (self.has-hover) {
+                    Tip.text = root.tools-menu-title;
+                    Tip.shortcut = "";
+                    Tip.leading = false;
+                    Tip.x = root.absolute-position.x + root.width + Tokens.space-sm;
+                    Tip.y = self.absolute-position.y + self.height / 2;
+                    Tip.open = false;
+                    Tip.armed = true;
+                } else if (Tip.text == root.tools-menu-title) {
+                    Tip.armed = false;
+                    Tip.open = false;
+                }
+            }
+
+            HorizontalLayout {
+                spacing: Tokens.space-xs;
+                alignment: center;
+
+                Image {
+                    source: root.icon-ai;
+                    width: 14px;
+                    height: 14px;
+                    colorize: root.tools-busy ? Theme.accent-teal : Theme.text-muted;
+                    y: (parent.height - self.height) / 2;
+                }
+
+                CalmLabel {
+                    label: root.tools-menu-title;
                 }
             }
         }

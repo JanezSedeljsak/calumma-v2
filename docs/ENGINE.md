@@ -1,6 +1,6 @@
 # ENGINE.md — how Calumma's engine is built
 
-The engine is everything Calumma knows how to *do*: the document, the pixels, the camera,
+The Calumma engine is everything Miw delegates document work to: the pixels, the camera,
 history, persistence, and the board on screen. The shell (`gui/`, a Rust + Slint desktop app)
 owns a window, a native surface, and a set of UI knobs; it owns no state and computes nothing.
 This file is the map of what lives where and, more usefully, **why each boundary is where it

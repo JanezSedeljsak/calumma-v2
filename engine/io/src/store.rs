@@ -649,7 +649,7 @@ impl ProjectStore {
     pub fn default_path() -> PathBuf {
         dirs::data_dir()
             .unwrap_or_else(std::env::temp_dir)
-            .join("Calumma")
-            .join("calumma.sqlite")
+            .join("Miw")
+            .join("miw.sqlite")
     }
 }

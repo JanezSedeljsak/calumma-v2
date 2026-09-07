@@ -1,4 +1,4 @@
-# STYLE.md — Calumma design system
+# STYLE.md — Miw design system
 
 Single visual language for every shell. Tokens live in `design/tokens.json`.
 Platforms consume generated theme code — never hardcode hex in UI files.

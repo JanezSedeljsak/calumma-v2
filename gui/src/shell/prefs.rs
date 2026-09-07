@@ -75,5 +75,5 @@ impl ShellPrefs {
 
 fn prefs_path() -> Result<PathBuf> {
     let base = dirs::config_dir().context("resolving the OS config directory")?;
-    Ok(base.join("Calumma").join(FILE_NAME))
+    Ok(base.join("Miw").join(FILE_NAME))
 }

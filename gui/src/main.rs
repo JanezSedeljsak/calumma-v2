@@ -686,6 +686,7 @@ fn wire_editor_callbacks(
         let input = input.clone();
         let ui_weak = ui_weak.clone();
         move |x, y, dx, dy, alt, meta| {
+            eprintln!("[DEBUG scroll-event] x={x} y={y} dx={dx} dy={dy} alt={alt} meta={meta} pinch_zoom={:?}", controller.borrow().pinch_zoom);
             if controller.borrow().pinch_zoom.is_some() {
                 return;
             }

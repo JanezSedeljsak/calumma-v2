@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-"""Calumma v2 task runner."""
+"""Miw task runner (Calumma engine)."""
 
 import argparse
 import json
@@ -80,6 +80,12 @@ def cmd_examples(_: argparse.Namespace) -> int:
 
 def cmd_purity(_: argparse.Namespace) -> int:
     return check_core_purity()
+
+
+def cmd_icon(_: argparse.Namespace) -> int:
+    from generate_icon import main as generate_icon_main
+
+    return generate_icon_main()
 
 
 def cmd_dev(_: argparse.Namespace) -> int:
@@ -277,7 +283,7 @@ def cmd_version_check(_: argparse.Namespace) -> int:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="manage.py",
-        description="Calumma v2 task runner (engine, GUI shell, coverage).",
+        description="Miw task runner (Calumma engine, GUI shell, coverage).",
     )
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser(
@@ -290,6 +296,10 @@ def build_parser() -> argparse.ArgumentParser:
         "examples",
         help="optimize README screenshots in design/example/",
     ).set_defaults(func=cmd_examples)
+    sub.add_parser(
+        "icon",
+        help="generate a 256x256 rounded-corner app icon from design/icon.png",
+    ).set_defaults(func=cmd_icon)
     sub.add_parser("dev", help="build and run the GUI shell").set_defaults(func=cmd_dev)
     sub.add_parser("gui-check", help="compile-check the GUI shell (no window)").set_defaults(
         func=cmd_gui_check

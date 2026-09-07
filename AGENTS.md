@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Calumma is a personal whiteboard: bounded project canvases you draw on with a pen or
+Miw is a personal whiteboard: bounded project canvases you draw on with a pen or
 shapes. Titlebar tabs are the open **projects** — one tab is one project, with no grouping
 above it — and switching tabs clean-loads that project from SQLite.
 
@@ -166,10 +166,10 @@ have to be read together.
 
 ## Projects and navigation
 
-- DB path: OS-native app-data directory + `Calumma/calumma.sqlite`, resolved by
+- DB path: OS-native app-data directory + `Miw/miw.sqlite`, resolved by
   `ProjectStore::default_path` (`engine/io/src/store.rs`) via the `dirs` crate —
-  never a hardcoded Unix path. macOS: `~/Library/Application Support/Calumma/…`;
-  Linux: `~/.local/share/Calumma/…`; Windows: `%APPDATA%\Calumma\…`.
+  never a hardcoded Unix path. macOS: `~/Library/Application Support/Miw/…`;
+  Linux: `~/.local/share/Miw/…`; Windows: `%APPDATA%\Miw\…`.
 - Landing: name + resolution, presets from tokens, recents list, Paste Artwork island.
   The same **New Project** modal (`NewProjectModal`, `gui/ui/new-project-modal.slint`) opens
   from both the landing screen's Create button and the editor's `+` / `⌘N` — a modal
@@ -676,7 +676,7 @@ LOD, motion mode) are documented in `docs/RENDERING.md`, not repeated here.
   the subview ordering says. Nothing Slint draws may overlap the board rect — which is why the
   zoom pill has a strip of its own at the bottom of the canvas island rather than floating over
   the paper the way the Swift shell's did. It also means the board view would swallow every
-  pointer event over the canvas, so `CalummaBoardView` overrides `hitTest:` to return nil: the
+  pointer event over the canvas, so `MiwBoardView` overrides `hitTest:` to return nil: the
   layer presents, and the pointer falls through to Slint's `TouchArea`, which is the only thing
   that forwards to `Engine::pointer_*`. Slint owns the rect too: `Editor` publishes
   `board-surface`'s `absolute-position` and size, `sync_board_geometry` feeds those straight to
@@ -756,7 +756,7 @@ manual `workflow_dispatch`) — the old Xcode `.dmg` build, its version-bump gat
 along with the Swift and Qt shells. `engine/Cargo.toml`'s `[workspace.package] version` is the
 one source of truth today (`./manage.py version` prints it, `./manage.py version-check` diffs
 it against the previous commit), but nothing currently stamps it into a `gui/` binary or ships
-one — building and distributing a `calumma-gui` release per platform is open work, not yet
+one — building and distributing a `miw` release per platform is open work, not yet
 started.
 
 Expectations:

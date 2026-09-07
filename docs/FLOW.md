@@ -1,4 +1,4 @@
-# FLOW.md — how Calumma works
+# FLOW.md — how Miw works
 
 Base product documentation: screens, what you can do, navigation, canvas interaction,
 shortcuts, persistence, and import/export. Companion to `AGENTS.md` (architecture) and
@@ -335,7 +335,7 @@ gain — it tracks the cursor one-for-one by definition.
 
 | Concern | Behaviour |
 | --- | --- |
-| Store | OS-native app-data dir + `Calumma/calumma.sqlite` (macOS: `~/Library/Application Support/…`) |
+| Store | OS-native app-data dir + `Miw/miw.sqlite` (macOS: `~/Library/Application Support/…`) |
 | Autosave / explicit save | Engine dirty flag + `⌘S`; tab switch and close save first |
 | One board per project | Bounded document size chosen at create time |
 | Export image | **Shipped** — PNG / JPEG / WebP / AVIF / HEIC / PSD / SVG / PDF via File → Export, plus per-layer **Export…** in the layer card. Raster encode is engine-side. PSD, SVG and PDF are layered (PSD: real per-layer opacity/blend mode/pixels. SVG: vector layers stay geometry, painted layers embed a cropped PNG. PDF: vector layers become real PDF paths, opacity and blend mode ride an `/ExtGState`, transparency an `/SMask`). |
@@ -396,7 +396,7 @@ live in `engine/core`; PNG/JPEG/WebP/AVIF/HEIC encode and decode live in `engine
   raster region for a selection to scope.
 - **Eraser hardness** (Eraser only). The eraser carries an edge but not a whole brush: grain
   and flow describe ink going down, and it is taking ink away, so it gets one **Hardness**
-  slider instead of the picker. 100% is the complete, hard-edged erase Calumma has always had
+  slider instead of the picker. 100% is the complete, hard-edged erase Miw has always had
   and stays the default; lower feathers the rim, thinning alpha and leaving the color it is
   eating away at intact rather than cutting a stamped-out hole. Coverage maxes within a
   stroke, so one soft pass leaves the rim standing and going over it again eats further in —
@@ -945,12 +945,12 @@ and blend mode ride along as `opacity` / `mix-blend-mode`; masks and adjustments
 the pixels, as everywhere else. Text exports as pixels, not `<text>` — the font it needs is not
 in the file.
 
-**PDF** is the same layered walk written to a different format, and the one Calumma's layer
+**PDF** is the same layered walk written to a different format, and the one Miw's layer
 model maps onto most exactly: `layer.opacity` is `/ca` and `/CA`, the three blend modes are
 `/BM` names that match one for one, a vector layer becomes real path operators (`re`, `c`,
 `m`/`l`) rather than a picture of itself, and a painted layer becomes a cropped image XObject
 with its alpha in a `/SMask` — PDF images carry no alpha channel of their own. One flip
-matrix at the top of the page reconciles PDF's bottom-left origin with Calumma's top-left.
+matrix at the top of the page reconciles PDF's bottom-left origin with Miw's top-left.
 Masks and adjustments are still baked. Page size is document pixels at 72 dpi by default
 (`calumma_io::PDF_DEFAULT_DPI`), and the encoder is Rust (`engine/io/src/pdf.rs`) for the same reason
 PSD and SVG are: `CGPDFContext` would need the shell to re-emit every shape.
@@ -1028,7 +1028,7 @@ panel toggles are shell knobs.
 | `L` | Line | Close to line/shape tools |
 | `R` | Rectangle | Ps rectangle is often `U` (shape); `R` is fine for now |
 | `O` | Ellipse | Ps ellipse under shape (`U`) |
-| `A` | Arrow | Calumma-specific |
+| `A` | Arrow | Miw-specific |
 | `3` | Triangle (side count; `T` moved to Text) | — |
 | `5` | Pentagon (side count; was `Y`) | — |
 | `T` | Text — click the board to type inline | Yes |

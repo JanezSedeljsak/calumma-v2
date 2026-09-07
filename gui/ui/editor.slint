@@ -293,6 +293,38 @@ export component Editor inherits Rectangle {
                     }
 
                     HorizontalLayout {
+                        height: zoom-pill.height + Tokens.space-xs * 2;
+
+                        Rectangle {
+                            width: Tokens.ruler-thickness;
+                        }
+
+                        zoom-row := Rectangle {
+                            horizontal-stretch: 1;
+
+                            zoom-pill := ZoomPill {
+                                x: parent.width - self.width - Tokens.space-xs;
+                                y: (parent.height - self.height) / 2;
+                                zoom-unit <=> root.zoom-unit;
+                                zoom-text: root.zoom-text;
+                                is-fit: root.is-fit;
+                                zoom-in-tip: root.zoom-in-tip;
+                                zoom-out-tip: root.zoom-out-tip;
+                                fit-tip: root.fit-tip;
+                                zoom-changed(v) => {
+                                    root.zoom-changed(v);
+                                }
+                                step-zoom(zoom-in) => {
+                                    root.step-zoom(zoom-in);
+                                }
+                                fit-zoom => {
+                                    root.fit-zoom();
+                                }
+                            }
+                        }
+                    }
+
+                    HorizontalLayout {
                         vertical-stretch: 1;
 
                         v-ruler := RulerStrip {
@@ -315,7 +347,7 @@ export component Editor inherits Rectangle {
 
                             board-surface := Rectangle {
                                 width: 100%;
-                                height: parent.height - zoom-pill.height - Tokens.space-xs * 2;
+                                height: 100%;
 
                                 pinch := ScaleRotateGestureHandler {
                                     width: 100%;
@@ -380,26 +412,6 @@ export component Editor inherits Rectangle {
                                     } else {
                                         root.pointer-exit();
                                     }
-                                }
-                            }
-
-                            zoom-pill := ZoomPill {
-                                x: parent.width - self.width - Tokens.space-xs;
-                                y: parent.height - self.height - Tokens.space-xs;
-                                zoom-unit <=> root.zoom-unit;
-                                zoom-text: root.zoom-text;
-                                is-fit: root.is-fit;
-                                zoom-in-tip: root.zoom-in-tip;
-                                zoom-out-tip: root.zoom-out-tip;
-                                fit-tip: root.fit-tip;
-                                zoom-changed(v) => {
-                                    root.zoom-changed(v);
-                                }
-                                step-zoom(zoom-in) => {
-                                    root.step-zoom(zoom-in);
-                                }
-                                fit-zoom => {
-                                    root.fit-zoom();
                                 }
                             }
                         }

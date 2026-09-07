@@ -11,7 +11,7 @@ use std::ptr::NonNull;
 define_class!(
     #[unsafe(super(NSView))]
     #[thread_kind = MainThreadOnly]
-    #[name = "CalummaBoardView"]
+    #[name = "MiwBoardView"]
     pub struct BoardView;
 
     impl BoardView {

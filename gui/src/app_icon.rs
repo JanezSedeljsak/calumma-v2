@@ -1,11 +1,9 @@
-use image::{imageops, Rgba, RgbaImage};
+use image::{Rgba, RgbaImage};
 use slint::{Image, Rgba8Pixel, SharedPixelBuffer};
-use std::io::Cursor;
 use std::sync::OnceLock;
 
 const APP_ICON_PNG: &[u8] = include_bytes!("../../design/icon.png");
-const DOCK_SIDE: u32 = 256;
-const DOCK_PAD: f32 = 0.14;
+const DOCK_ICON_PNG: &[u8] = include_bytes!("../../design/icon-rounded.png");
 const BACKDROP: u8 = 22;
 
 pub fn mark_image() -> Image {
@@ -13,8 +11,7 @@ pub fn mark_image() -> Image {
 }
 
 pub fn dock_png() -> &'static [u8] {
-    static PNG: OnceLock<Vec<u8>> = OnceLock::new();
-    PNG.get_or_init(|| encode_png(&dock_bitmap()))
+    DOCK_ICON_PNG
 }
 
 fn mark_bitmap() -> RgbaImage {
@@ -28,18 +25,6 @@ fn mark_bitmap() -> RgbaImage {
             src
         })
         .clone()
-}
-
-fn dock_bitmap() -> RgbaImage {
-    let mark = mark_bitmap();
-    let mut canvas = RgbaImage::new(DOCK_SIDE, DOCK_SIDE);
-    let inner = ((DOCK_SIDE as f32) * (1.0 - DOCK_PAD * 2.0)).round() as u32;
-    let inner = inner.max(1);
-    let resized = imageops::resize(&mark, inner, inner, imageops::FilterType::Lanczos3);
-    let ox = (DOCK_SIDE - inner) / 2;
-    let oy = (DOCK_SIDE - inner) / 2;
-    imageops::overlay(&mut canvas, &resized, i64::from(ox), i64::from(oy));
-    canvas
 }
 
 fn knockout_backdrop(img: &mut RgbaImage) {
@@ -92,13 +77,4 @@ fn rgba_image(img: &RgbaImage) -> Image {
     let (w, h) = img.dimensions();
     let buffer = SharedPixelBuffer::<Rgba8Pixel>::clone_from_slice(img.as_raw(), w, h);
     Image::from_rgba8(buffer)
-}
-
-fn encode_png(img: &RgbaImage) -> Vec<u8> {
-    let mut out = Vec::new();
-    let dynimg = image::DynamicImage::ImageRgba8(img.clone());
-    dynimg
-        .write_to(&mut Cursor::new(&mut out), image::ImageFormat::Png)
-        .expect("encoding dock icon");
-    out
 }

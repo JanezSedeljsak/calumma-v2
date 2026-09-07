@@ -65,5 +65,5 @@ fn apply_macos(window: &winit::window::Window) {
     ns_window.setMovableByWindowBackground(false);
     #[allow(deprecated)]
     objc2_foundation::NSProcessInfo::processInfo()
-        .setProcessName(&objc2_foundation::NSString::from_str("Calumma"));
+        .setProcessName(&objc2_foundation::NSString::from_str("Miw"));
 }

@@ -294,8 +294,10 @@ impl BoardHost {
         meta_held: bool,
     ) {
         if alt_held || meta_held {
+            eprintln!("[DEBUG host.scroll] zoom_scroll x={x} y={y} delta_y={delta_y}");
             self.engine.borrow_mut().zoom_scroll(x, y, delta_y, true);
         } else {
+            eprintln!("[DEBUG host.scroll] pan_scroll delta_x={delta_x} delta_y={delta_y} active={} attached={}", self.active, self.attached);
             self.engine.borrow_mut().pan_scroll(delta_x, delta_y, true);
         }
         self.engine.borrow_mut().end_camera_motion();

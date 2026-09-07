@@ -1,6 +1,6 @@
 # docs/
 
-Every prose doc for Calumma lives here. Only `README.md`, `AGENTS.md`, and `CLAUDE.md`
+Every prose doc for Miw lives here. Only `README.md`, `AGENTS.md`, and `CLAUDE.md`
 stay at the repository root — the root README is the public front page, and the other two
 are the agent entry points.
 
