@@ -1,3 +1,4 @@
+use crate::blur::{premultiply, unpremultiply};
 use crate::history_tile::HistoryTile;
 use crate::limits::{ALPHA_MAX, ALPHA_ROUND_BIAS, EFFECT_CHUNK_BYTES, LAYER_PREVIEW_MAX_SIDE};
 use parking_lot::Mutex;
@@ -775,6 +776,32 @@ impl TileGrid {
         let mut out = [0u8; 4];
         out.copy_from_slice(&tile[i..i + CHANNELS]);
         out
+    }
+
+    /// A 4-tap bilinear read around `(x, y)`, blended in premultiplied space so a sample
+    /// straddling a transparency edge does not drag transparent black into the color channels —
+    /// the same reasoning `blur.rs` documents for why tiles get premultiplied before any
+    /// interpolation runs on them. `get_pixel` already answers `[0; 4]` outside the grid's
+    /// extent, so a sample near an edge blends smoothly toward transparent instead of a hard
+    /// nearest-neighbor snap.
+    pub fn sample_bilinear(&self, x: f32, y: f32) -> [u8; 4] {
+        let x0 = x.floor();
+        let y0 = y.floor();
+        let (fx, fy) = (x - x0, y - y0);
+        let (ix0, iy0) = (x0 as i32, y0 as i32);
+        let p00 = premultiply(self.get_pixel(ix0, iy0));
+        let p10 = premultiply(self.get_pixel(ix0 + 1, iy0));
+        let p01 = premultiply(self.get_pixel(ix0, iy0 + 1));
+        let p11 = premultiply(self.get_pixel(ix0 + 1, iy0 + 1));
+        let lerp = |a: [f32; 4], b: [f32; 4], t: f32| {
+            [
+                a[0] + (b[0] - a[0]) * t,
+                a[1] + (b[1] - a[1]) * t,
+                a[2] + (b[2] - a[2]) * t,
+                a[3] + (b[3] - a[3]) * t,
+            ]
+        };
+        unpremultiply(lerp(lerp(p00, p10, fx), lerp(p01, p11, fx), fy))
     }
 
     /// The tightest rectangle covering every non-transparent pixel, in document coordinates.

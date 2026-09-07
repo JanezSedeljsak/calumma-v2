@@ -1052,6 +1052,31 @@ fn transformed_flatten_leaves_pixels_outside_the_aabb_untouched() {
     assert_eq!(at(1000, 1000), [0, 0, 0, 0]);
 }
 
+/// The live GPU view samples a transformed layer's tiles through a linear-filtered sampler, so
+/// a rotated hard edge shows up antialiased on screen. Flattening it with `get_pixel`'s nearest
+/// texel used to disagree — every edge pixel came out either fully opaque or fully transparent,
+/// never in between — which is exactly the "the PNG doesn't match what I saw" bug `layer_rgba`'s
+/// bilinear sampling (`TileGrid::sample_bilinear`) fixes.
+#[test]
+fn a_rotated_layer_flattens_with_bilinear_antialiasing_at_its_edge() {
+    let mut doc = Document::new("p".into(), "t", 100, 100);
+    let idx = doc.active_layer;
+    doc.layers[idx].tiles_mut().unwrap().fill_uniform(
+        calumma_core::tile::DocRect::new(20, 20, 59, 59),
+        [200, 30, 30, 255],
+    );
+    doc.layers[idx].transform = Some(LayerTransform {
+        rotation: 0.3,
+        ..LayerTransform::default()
+    });
+    let (_, _, rgba) = doc.layer_rgba(idx).expect("paint layer");
+    let has_partial_alpha = rgba.chunks_exact(4).any(|px| px[3] > 0 && px[3] < 255);
+    assert!(
+        has_partial_alpha,
+        "a rotated hard edge must blend across pixels instead of snapping to nearest-neighbor"
+    );
+}
+
 #[test]
 fn identity_transform_flattens_like_an_untransformed_layer() {
     let mut doc = Document::new("p".into(), "t", 64, 64);

@@ -283,11 +283,13 @@ level — and remembered on the others until they are shown. A stack change (vis
 blend, mask, transform, adjustments, vector bounds) mismatches a stamp and rebuilds the
 displayed level in full. Memory pressure ≥ Warn drops the textures that are not on screen.
 
-The enter/exit gate is still a **sum across layers**. That is leftover from the single-level
-path, measured 2026-08-25, and is why a 10-layer 8K document can stay on the overview out to
-the zoom cap even though the pyramid would now have a sharp enough level. Making the threshold
-per-layer is the remaining cheap knob (todo #01); it is not required for the pyramid to pick
-the right resolution once the path is on.
+The enter/exit gate reads the busiest single layer's tile count, not a sum across the stack
+(`Renderer::busiest_layer_tile_count`, shipped 2026-09-04 as todo #01) — a document with many
+sparse layers no longer gets stuck on the overview past a zoom the pyramid could already draw
+sharply. Before that fix the gate summed tiles across every layer, which is why a 10-layer 8K
+document used to stay on the overview out to the zoom cap regardless of how sharp the pyramid
+had gotten; the historical table below is what that summed gate produced on the single-level
+flatten that preceded the pyramid, and reflects neither fix.
 
 Historical single-level numbers, kept so the magnification trap is not rediscovered:
 

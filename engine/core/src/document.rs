@@ -237,6 +237,11 @@ pub(crate) fn copy_layer_into_rgba(layer: &Layer, buf: &mut [u8], w: u32, h: u32
     let y0 = y0 as usize;
     let x0 = x0 as usize;
     let x1 = x1 as usize;
+    // Bilinear, not `get_pixel`'s nearest texel: the live GPU view samples a transformed
+    // layer's tile atlas through a linear-filtered sampler (`board.wgsl`'s `fs_tile`), so a
+    // flatten that snapped to the nearest source pixel would visibly disagree with what was
+    // on screen at any rotation or non-integer scale — the export has to match what the user
+    // was looking at.
     buf[y0 * row_bytes..y1 as usize * row_bytes]
         .par_chunks_mut(row_bytes)
         .enumerate()
@@ -244,7 +249,7 @@ pub(crate) fn copy_layer_into_rgba(layer: &Layer, buf: &mut [u8], w: u32, h: u32
             let y = y0 + i;
             for x in x0..x1 {
                 let (rx, ry) = t.inverse(pivot, (x as f32 + 0.5, y as f32 + 0.5));
-                let px = tiles.get_pixel(rx.floor() as i32, ry.floor() as i32);
+                let px = tiles.sample_bilinear(rx - 0.5, ry - 0.5);
                 if px[3] == 0 {
                     continue;
                 }
