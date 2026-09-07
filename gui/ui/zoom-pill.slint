@@ -5,6 +5,7 @@ import { CalmPointer } from "calm/CalmPointer.slint";
 import { CalmIconButton } from "calm/CalmToolButton.slint";
 import { CalmSlider } from "calm/CalmSlider.slint";
 import { CalmMuted } from "calm/CalmText.slint";
+import { Tip } from "calm/CalmTip.slint";
 
 component ZoomStep inherits Rectangle {
     in property <string> glyph;
@@ -17,7 +18,23 @@ component ZoomStep inherits Rectangle {
 
     touch := CalmPointer {
         clicked => {
+            Tip.armed = false;
+            Tip.open = false;
             root.clicked();
+        }
+        changed has-hover => {
+            if (self.has-hover && root.tip != "") {
+                Tip.text = root.tip;
+                Tip.shortcut = "";
+                Tip.leading = true;
+                Tip.x = root.absolute-position.x - Tokens.space-sm;
+                Tip.y = root.absolute-position.y + root.height / 2;
+                Tip.open = false;
+                Tip.armed = true;
+            } else if (Tip.text == root.tip) {
+                Tip.armed = false;
+                Tip.open = false;
+            }
         }
     }
 

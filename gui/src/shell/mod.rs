@@ -4,6 +4,7 @@ mod export;
 mod format;
 mod l10n;
 mod layers;
+mod meow;
 mod prefs;
 mod theme;
 mod tool_labels;
@@ -14,6 +15,11 @@ pub use export::pick_artwork_file;
 pub use format::{format_bytes, relative_time};
 pub use l10n::Catalog;
 pub use layers::LayerThumbCache;
+pub use meow::play as play_meow;
 pub use prefs::ShellPrefs;
 pub use theme::Theme;
-pub use tool_labels::{grid_slot_selected, grid_slot_tip_key, tool_family_key, TOOL_GRID};
+pub use tool_labels::{
+    brush_icon_index, brush_label_key, grid_slot_selected, grid_slot_tip_key, grid_slot_tool,
+    tool_family_key, tool_icon_index, tool_label_key, BRUSHES, SELECT_TOOLS, SHAPE_TOOLS,
+    TOOL_GRID,
+};

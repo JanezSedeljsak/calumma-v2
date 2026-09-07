@@ -1,53 +1,106 @@
 import { Theme } from "calm/CalmTheme.slint";
 import { Tokens } from "calm/CalmTokens.slint";
-import { CalmModal, CalmModalCard } from "calm/CalmModal.slint";
 import { CalmDivider } from "calm/CalmDivider.slint";
 import { CalmButton } from "calm/CalmButton.slint";
 import { CalmToggle } from "calm/CalmToggle.slint";
+import { CalmSliderRow } from "calm/CalmSliderRow.slint";
 import { CalmBody, CalmMuted } from "calm/CalmText.slint";
+import { CalmScrollView } from "calm/CalmScrollView.slint";
+import { CalmPointer } from "calm/CalmPointer.slint";
 
 export component LayerSettingsModal inherits Rectangle {
     in-out property <bool> open;
     in property <string> layer-name;
+    in property <image> preview;
     in property <bool> layer-visible;
+    in property <bool> layer-locked;
     in property <bool> can-delete;
-
+    in-out property <float> layer-opacity;
+    in property <string> opacity-text;
     in property <string> visibility-label;
+    in property <string> lock-label;
+    in property <string> opacity-label;
     in property <string> export-label;
     in property <string> duplicate-label;
     in property <string> delete-label;
 
     callback dismissed();
     callback toggle-visibility();
+    callback toggle-lock();
+    callback opacity-changed(float);
     callback export-layer();
     callback duplicate-layer();
     callback delete-layer();
 
     width: 100%;
     height: 100%;
-    visible: open;
+    visible: root.open;
 
-    CalmModal {
-        open <=> root.open;
-        dismissed => {
-            root.dismissed();
+    scrim := Rectangle {
+        width: 100%;
+        height: 100%;
+        background: Theme.scrim;
+        opacity: root.open ? 1.0 : 0.0;
+        visible: root.open;
+
+        animate opacity {
+            duration: 160ms;
+            easing: ease-out;
         }
 
-        CalmModalCard {
-            width: 260px;
-            height: card.preferred-height;
-            background: Theme.surface;
-            x: (parent.width - self.width) / 2;
-            y: (parent.height - self.height) / 2;
+        CalmPointer {
+            clicked => {
+                root.open = false;
+                root.dismissed();
+            }
+        }
+    }
 
-            card := VerticalLayout {
-                padding: Tokens.space-md;
+    sheet := Rectangle {
+        width: Tokens.layers-panel-width;
+        height: parent.height - Tokens.space-xs * 2;
+        y: Tokens.space-xs;
+        x: root.open ? parent.width - self.width - Tokens.space-xs : parent.width;
+        background: Theme.surface;
+        border-radius: Tokens.radius-island;
+        border-width: 1px;
+        border-color: Theme.island-border;
+
+        animate x {
+            duration: 180ms;
+            easing: ease-out;
+        }
+
+        swallow := CalmPointer { }
+
+        CalmScrollView {
+            x: Tokens.space-md;
+            y: Tokens.space-md;
+            width: parent.width - Tokens.space-md * 2;
+            height: parent.height - Tokens.space-md * 2;
+
+            VerticalLayout {
                 spacing: Tokens.space-md;
+                alignment: start;
 
                 CalmBody {
                     text: root.layer-name;
                     strong: true;
                     overflow: elide;
+                }
+
+                Rectangle {
+                    height: 120px;
+                    border-radius: Tokens.radius-sm;
+                    background: Theme.surface-hover;
+                    clip: true;
+
+                    Image {
+                        source: root.preview;
+                        width: 100%;
+                        height: 100%;
+                        image-fit: contain;
+                    }
                 }
 
                 HorizontalLayout {
@@ -64,25 +117,44 @@ export component LayerSettingsModal inherits Rectangle {
                     }
                 }
 
-                CalmDivider { }
-
                 HorizontalLayout {
-                    spacing: Tokens.space-sm;
-
-                    CalmButton {
-                        text: root.export-label;
-                        fill: true;
-                        clicked => {
-                            root.export-layer();
+                    CalmMuted {
+                        text: root.lock-label;
+                        horizontal-stretch: 1;
+                    }
+                    CalmToggle {
+                        checked: root.layer-locked;
+                        y: (parent.height - self.height) / 2;
+                        toggled => {
+                            root.toggle-lock();
                         }
                     }
+                }
 
-                    CalmButton {
-                        text: root.duplicate-label;
-                        fill: true;
-                        clicked => {
-                            root.duplicate-layer();
-                        }
+                CalmSliderRow {
+                    label: root.opacity-label;
+                    value-text: root.opacity-text;
+                    value <=> root.layer-opacity;
+                    moved(v) => {
+                        root.opacity-changed(v);
+                    }
+                }
+
+                CalmDivider { }
+
+                CalmButton {
+                    text: root.export-label;
+                    fill: true;
+                    clicked => {
+                        root.export-layer();
+                    }
+                }
+
+                CalmButton {
+                    text: root.duplicate-label;
+                    fill: true;
+                    clicked => {
+                        root.duplicate-layer();
                     }
                 }
 

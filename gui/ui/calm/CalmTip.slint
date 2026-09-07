@@ -1,10 +1,21 @@
 import { Theme } from "CalmTheme.slint";
 import { Tokens } from "CalmTokens.slint";
 
+export global Tip {
+    in-out property <bool> armed: false;
+    in-out property <bool> open: false;
+    in-out property <string> text;
+    in-out property <string> shortcut;
+    in-out property <length> x;
+    in-out property <length> y;
+    in-out property <bool> leading: false;
+}
+
 export component CalmTip inherits Rectangle {
     in property <string> tip;
     in property <string> shortcut;
 
+    z: 200;
     background: Theme.surface-hover;
     border-radius: Tokens.radius-sm;
     border-width: 1px;

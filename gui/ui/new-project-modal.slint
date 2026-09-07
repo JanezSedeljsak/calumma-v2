@@ -35,6 +35,7 @@ export component NewProjectModal inherits Rectangle {
     callback delete-recent(string);
     callback clear-all-clicked();
     callback paste-artwork-clicked();
+    callback app-icon-clicked();
 
     width: 100%;
     height: 100%;
@@ -92,6 +93,9 @@ export component NewProjectModal inherits Rectangle {
                 }
                 paste-artwork-clicked => {
                     root.paste-artwork-clicked();
+                }
+                app-icon-clicked => {
+                    root.app-icon-clicked();
                 }
             }
         }

@@ -1,7 +1,7 @@
 use super::{AppWindow, PresetRow, Theme as UiTheme, Tokens as UiTokens};
+use crate::app_icon;
 use crate::shell::Theme;
 use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
-use std::path::Path;
 
 pub fn apply_theme(ui: &AppWindow, theme: &Theme) {
     let palette = ui.global::<UiTheme>();
@@ -56,11 +56,5 @@ pub fn apply_theme(ui: &AppWindow, theme: &Theme) {
         })
         .collect();
     ui.set_presets(ModelRc::new(VecModel::from(presets)));
-}
-
-pub fn load_app_icon(ui: &AppWindow, root: &Path) {
-    let path = root.join("design").join("icon.png");
-    if let Ok(image) = slint::Image::load_from_path(&path) {
-        ui.set_app_icon(image);
-    }
+    ui.set_app_icon(app_icon::mark_image());
 }

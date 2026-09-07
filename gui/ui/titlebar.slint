@@ -1,0 +1,60 @@
+import { Theme } from "calm/CalmTheme.slint";
+import { Tokens } from "calm/CalmTokens.slint";
+import { ProjectTabs } from "project-tabs.slint";
+
+export component Titlebar inherits Rectangle {
+    in property <bool> editor-open;
+    in property <string> project-name;
+    in property <color> project-accent;
+    in property <string> new-project-tip;
+    in property <string> close-tip;
+
+    callback close-tab();
+    callback new-project();
+    callback drag();
+    callback zoom();
+
+    height: Tokens.titlebar-height;
+    background: Theme.bg;
+
+    HorizontalLayout {
+        alignment: stretch;
+        spacing: Tokens.space-xs;
+        padding-right: Tokens.space-xs;
+
+        Rectangle {
+            width: Tokens.titlebar-leading;
+        }
+
+        if root.editor-open: Rectangle {
+            width: tabs.preferred-width;
+
+            tabs := ProjectTabs {
+                y: (parent.height - self.height) / 2;
+                project-name: root.project-name;
+                project-accent: root.project-accent;
+                new-project-tip: root.new-project-tip;
+                close-tip: root.close-tip;
+                close-tab => {
+                    root.close-tab();
+                }
+                new-project => {
+                    root.new-project();
+                }
+            }
+        }
+
+        TouchArea {
+            horizontal-stretch: 1;
+            mouse-cursor: default;
+            pointer-event(event) => {
+                if (event.kind == PointerEventKind.down && event.button == PointerEventButton.left) {
+                    root.drag();
+                }
+            }
+            double-clicked => {
+                root.zoom();
+            }
+        }
+    }
+}

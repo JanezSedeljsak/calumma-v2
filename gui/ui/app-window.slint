@@ -1,15 +1,19 @@
 import { Landing } from "landing.slint";
 import { Editor } from "editor.slint";
-import { RecentRow, PresetRow, LayerRow } from "models.slint";
-import { ToolEntry } from "tools-panel.slint";
+import { RecentRow, PresetRow, LayerRow, ToolEntry, BrushEntry } from "models.slint";
+import { RulerTickRow } from "ruler.slint";
+import { Titlebar } from "titlebar.slint";
 import { SettingsModal } from "settings-modal.slint";
 import { NewProjectModal } from "new-project-modal.slint";
 import { ToastBanner } from "toast-banner.slint";
 import { LayerSettingsModal } from "layer-settings-modal.slint";
 import { Theme } from "calm/CalmTheme.slint";
 import { Tokens } from "calm/CalmTokens.slint";
+import { CalmTip, Tip } from "calm/CalmTip.slint";
+import { ToolChrome } from "tool-chrome.slint";
+import { SmartMenu, SmartMenuOverlay } from "smart-menu.slint";
 
-export { Theme, Tokens, RecentRow, PresetRow, LayerRow, ToolEntry }
+export { Theme, Tokens, RecentRow, PresetRow, LayerRow, ToolEntry, BrushEntry, RulerTickRow, ToolChrome, Tip, SmartMenu }
 
 export component AppWindow inherits Window {
     in-out property <bool> editor-open: false;
@@ -18,26 +22,44 @@ export component AppWindow inherits Window {
     in-out property <bool> layers-open: true;
     in-out property <bool> layer-settings-open: false;
 
+    changed editor-open => {
+        if (!root.editor-open) {
+            SmartMenu.open = false;
+            Tip.open = false;
+        }
+    }
+
     callback create-project();
     callback open-recent(string);
     callback delete-recent(string);
     callback clear-recents();
     callback preset-size(int, int);
     callback paste-artwork-clicked();
+    callback app-icon-clicked();
     callback back-to-landing();
     callback create-from-modal();
 
-    callback pointer-pressed(float, float, bool);
+    callback pointer-pressed(float, float, bool, bool, bool, bool);
     callback pointer-moved(float, float);
     callback pointer-released(float, float);
     callback pointer-enter();
     callback pointer-exit();
-    callback scrolled(float, float, float);
+    callback scrolled(float, float, float, float, bool, bool);
 
     callback pick-tool(int);
+    callback pick-brush(int);
     callback brush-size-changed(float);
     callback brush-size-committed(string);
     callback ink-opacity-changed(float);
+    callback blur-changed(float);
+    callback hardness-changed(float);
+    callback tolerance-changed(float);
+    callback eyedropper-changed(float);
+    callback fill-toggled();
+    callback stroke-toggled();
+    callback vector-toggled();
+    callback aligned-toggled();
+    callback transform-toggled();
     callback zoom-changed(float);
     callback step-zoom(bool);
     callback fit-zoom();
@@ -53,9 +75,10 @@ export component AppWindow inherits Window {
     callback toggle-layer-visible(int);
     callback open-layer-settings(int);
     callback delete-layer(int);
-    callback hover-layer(int);
+    callback hover-layer(int, float);
     callback clear-layer-hover();
-    callback toggle-tools-menu();
+    callback commit-layer-bounds(string, string, string, string);
+    callback commit-canvas-size(string, string);
     callback run-upscale();
     callback run-smart-matte();
     callback run-seam-carve();
@@ -69,14 +92,22 @@ export component AppWindow inherits Window {
     callback export-pdf();
     callback layer-settings-dismissed();
     callback layer-settings-toggle-visibility();
+    callback layer-settings-toggle-lock();
+    callback layer-settings-opacity-changed(float);
     callback layer-settings-export-layer();
     callback layer-settings-duplicate();
     callback layer-settings-delete();
+    callback titlebar-drag();
+    callback titlebar-zoom();
 
     callback select-color-swatch(int);
     callback color-sb-changed(float, float);
     callback color-hue-changed(float);
     callback color-hex-changed(string);
+
+    callback guide-pressed(bool, float, float);
+    callback guide-moved(float, float);
+    callback guide-released();
 
     callback shell-key-pressed(string, bool, bool, bool, bool);
     callback shell-key-released(string, bool, bool, bool, bool);
@@ -97,21 +128,19 @@ export component AppWindow inherits Window {
     in-out property <int> active-tool;
     in property <[ToolEntry]> tools;
     in property <string> active-tool-label;
-    in-out property <bool> show-brush-size;
-    in-out property <bool> show-ink-opacity;
-    in-out property <string> brush-size-label;
-    in-out property <string> ink-opacity-label;
-    in-out property <string> brush-size-text;
-    in-out property <string> ink-opacity-text;
-    in-out property <float> brush-size-unit;
-    in-out property <float> ink-opacity;
     in-out property <float> zoom-unit;
     in property <string> zoom-text;
     in property <bool> is-fit;
-    in property <string> doc-width-text;
-    in property <string> doc-height-text;
+    in-out property <string> doc-width-text;
+    in-out property <string> doc-height-text;
+    in-out property <string> layer-x-text;
+    in-out property <string> layer-y-text;
+    in-out property <string> layer-w-text;
+    in-out property <string> layer-h-text;
+    in property <string> bounds-label;
+    in property <string> bounds-x-label;
+    in property <string> bounds-y-label;
 
-    in-out property <bool> tools-menu-open;
     in property <bool> tools-busy;
     in property <string> tools-menu-title;
     in property <string> upscale-label;
@@ -124,6 +153,7 @@ export component AppWindow inherits Window {
     in property <bool> hover-preview-visible;
     in property <string> hover-preview-name;
     in property <image> hover-preview-image;
+    in property <float> hover-preview-y;
 
     in property <string> layer-settings-label;
     in property <string> layer-settings-name;
@@ -135,7 +165,13 @@ export component AppWindow inherits Window {
     in property <string> width-short-label;
     in property <string> height-short-label;
     in property <bool> layer-settings-visible;
+    in property <bool> layer-settings-locked;
     in property <bool> layer-settings-can-delete;
+    in property <image> layer-settings-preview;
+    in-out property <float> layer-settings-opacity;
+    in property <string> layer-settings-opacity-text;
+    in property <string> layer-lock-label;
+    in property <string> opacity-label;
     in property <string> layer-visibility-label;
     in property <string> layer-export-label;
     in property <string> layer-duplicate-label;
@@ -215,12 +251,14 @@ export component AppWindow inherits Window {
 
     in property <[PresetRow]> presets;
     in property <[RecentRow]> recents;
+    in property <[RulerTickRow]> ruler-ticks-x;
+    in property <[RulerTickRow]> ruler-ticks-y;
 
     init => {
         focus-scope.focus();
     }
 
-    title: "Calumma";
+    title: "";
     preferred-width: 960px;
     preferred-height: 520px;
     min-width: Tokens.main-min-width;
@@ -366,7 +404,33 @@ export component AppWindow inherits Window {
             accept;
         }
 
+        VerticalLayout {
+            Titlebar {
+                editor-open: root.editor-open;
+                project-name: root.active-project-name;
+                project-accent: root.active-project-accent;
+                new-project-tip: root.new-project-menu-title;
+                close-tip: root.back-to-landing-tip;
+                close-tab => {
+                    root.back-to-landing();
+                }
+                new-project => {
+                    root.menu-new-project();
+                }
+                drag => {
+                    root.titlebar-drag();
+                }
+                zoom => {
+                    root.titlebar-zoom();
+                }
+            }
+
+            Rectangle {
+                vertical-stretch: 1;
+
         Landing {
+            width: 100%;
+            height: 100%;
             visible: !root.editor-open;
             brand-text: root.brand-text;
             tagline-text: root.tagline-text;
@@ -405,14 +469,26 @@ export component AppWindow inherits Window {
             paste-artwork-clicked => {
                 root.paste-artwork-clicked();
             }
+            app-icon-clicked => {
+                root.app-icon-clicked();
+            }
         }
 
         editor := Editor {
+            width: 100%;
+            height: 100%;
             visible: root.editor-open;
-            project-name: root.active-project-name;
-            project-accent: root.active-project-accent;
-            new-project-tip: root.new-project-menu-title;
-            close-tab-tip: root.back-to-landing-tip;
+            ruler-ticks-x: root.ruler-ticks-x;
+            ruler-ticks-y: root.ruler-ticks-y;
+            guide-pressed(horizontal, x, y) => {
+                root.guide-pressed(horizontal, x, y);
+            }
+            guide-moved(x, y) => {
+                root.guide-moved(x, y);
+            }
+            guide-released => {
+                root.guide-released();
+            }
             layers-open: root.layers-open;
             layers-title: root.layers-title;
             add-layer-tip: root.add-layer-label;
@@ -421,30 +497,22 @@ export component AppWindow inherits Window {
             delete-layer-tip: root.layer-delete-label;
             width-label: root.width-short-label;
             height-label: root.height-short-label;
-            doc-width-text: root.doc-width-text;
-            doc-height-text: root.doc-height-text;
+            doc-width-text <=> root.doc-width-text;
+            doc-height-text <=> root.doc-height-text;
             layers: root.layers;
             hover-preview-visible: root.hover-preview-visible;
             hover-preview-name: root.hover-preview-name;
             hover-preview-image: root.hover-preview-image;
+            hover-preview-y: root.hover-preview-y;
             active-tool: root.active-tool;
             tools: root.tools;
             active-tool-label: root.active-tool-label;
-            show-brush-size: root.show-brush-size;
-            show-ink-opacity: root.show-ink-opacity;
-            brush-size-label: root.brush-size-label;
-            ink-opacity-label: root.ink-opacity-label;
-            brush-size-text <=> root.brush-size-text;
-            ink-opacity-text: root.ink-opacity-text;
-            brush-size-unit <=> root.brush-size-unit;
-            ink-opacity <=> root.ink-opacity;
             zoom-unit <=> root.zoom-unit;
             zoom-text: root.zoom-text;
             is-fit: root.is-fit;
             zoom-in-tip: root.zoom-in-label;
             zoom-out-tip: root.zoom-out-label;
             fit-tip: root.fit-view-label;
-            tools-menu-open: root.tools-menu-open;
             tools-busy: root.tools-busy;
             tools-menu-title: root.tools-menu-title;
             upscale-label: root.upscale-label;
@@ -466,14 +534,18 @@ export component AppWindow inherits Window {
             color-sb-y <=> root.color-sb-y;
             color-hue-x <=> root.color-hue-x;
             color-hex-text <=> root.color-hex-text;
-            close-tab => {
-                root.back-to-landing();
-            }
-            new-project => {
-                root.menu-new-project();
-            }
+            bounds-label: root.bounds-label;
+            bounds-x-label: root.bounds-x-label;
+            bounds-y-label: root.bounds-y-label;
+            layer-x-text <=> root.layer-x-text;
+            layer-y-text <=> root.layer-y-text;
+            layer-w-text <=> root.layer-w-text;
+            layer-h-text <=> root.layer-h-text;
             pick-tool(id) => {
                 root.pick-tool(id);
+            }
+            pick-brush(id) => {
+                root.pick-brush(id);
             }
             brush-size-changed(v) => {
                 root.brush-size-changed(v);
@@ -483,6 +555,33 @@ export component AppWindow inherits Window {
             }
             ink-opacity-changed(v) => {
                 root.ink-opacity-changed(v);
+            }
+            blur-changed(v) => {
+                root.blur-changed(v);
+            }
+            hardness-changed(v) => {
+                root.hardness-changed(v);
+            }
+            tolerance-changed(v) => {
+                root.tolerance-changed(v);
+            }
+            eyedropper-changed(v) => {
+                root.eyedropper-changed(v);
+            }
+            fill-toggled => {
+                root.fill-toggled();
+            }
+            stroke-toggled => {
+                root.stroke-toggled();
+            }
+            vector-toggled => {
+                root.vector-toggled();
+            }
+            aligned-toggled => {
+                root.aligned-toggled();
+            }
+            transform-toggled => {
+                root.transform-toggled();
             }
             zoom-changed(v) => {
                 root.zoom-changed(v);
@@ -508,14 +607,17 @@ export component AppWindow inherits Window {
             delete-layer(index) => {
                 root.delete-layer(index);
             }
-            hover-layer(index) => {
-                root.hover-layer(index);
+            hover-layer(index, y) => {
+                root.hover-layer(index, y);
             }
             clear-layer-hover => {
                 root.clear-layer-hover();
             }
-            toggle-tools-menu => {
-                root.toggle-tools-menu();
+            commit-layer-bounds(x, y, w, h) => {
+                root.commit-layer-bounds(x, y, w, h);
+            }
+            commit-canvas-size(w, h) => {
+                root.commit-canvas-size(w, h);
             }
             run-upscale => {
                 root.run-upscale();
@@ -538,8 +640,8 @@ export component AppWindow inherits Window {
             color-hex-changed(text) => {
                 root.color-hex-changed(text);
             }
-            pointer-pressed(x, y, middle) => {
-                root.pointer-pressed(x, y, middle);
+            pointer-pressed(x, y, middle, meta, alt, shift) => {
+                root.pointer-pressed(x, y, middle, meta, alt, shift);
             }
             pointer-moved(x, y) => {
                 root.pointer-moved(x, y);
@@ -553,8 +655,10 @@ export component AppWindow inherits Window {
             pointer-exit => {
                 root.pointer-exit();
             }
-            scrolled(x, y, delta) => {
-                root.scrolled(x, y, delta);
+            scrolled(x, y, dx, dy, alt, meta) => {
+                root.scrolled(x, y, dx, dy, alt, meta);
+            }
+        }
             }
         }
 
@@ -628,14 +732,23 @@ export component AppWindow inherits Window {
             paste-artwork-clicked => {
                 root.paste-artwork-clicked();
             }
+            app-icon-clicked => {
+                root.app-icon-clicked();
+            }
         }
 
         LayerSettingsModal {
             open <=> root.layer-settings-open;
             layer-name: root.layer-settings-name;
+            preview: root.layer-settings-preview;
             layer-visible: root.layer-settings-visible;
+            layer-locked: root.layer-settings-locked;
             can-delete: root.layer-settings-can-delete;
+            layer-opacity <=> root.layer-settings-opacity;
+            opacity-text: root.layer-settings-opacity-text;
             visibility-label: root.layer-visibility-label;
+            lock-label: root.layer-lock-label;
+            opacity-label: root.opacity-label;
             export-label: root.layer-export-label;
             duplicate-label: root.layer-duplicate-label;
             delete-label: root.layer-delete-label;
@@ -644,6 +757,12 @@ export component AppWindow inherits Window {
             }
             toggle-visibility => {
                 root.layer-settings-toggle-visibility();
+            }
+            toggle-lock => {
+                root.layer-settings-toggle-lock();
+            }
+            opacity-changed(v) => {
+                root.layer-settings-opacity-changed(v);
             }
             export-layer => {
                 root.layer-settings-export-layer();
@@ -664,5 +783,38 @@ export component AppWindow inherits Window {
                 root.toast-dismissed();
             }
         }
+
+        if SmartMenu.open && root.editor-open: SmartMenuOverlay {
+            upscale-label: root.upscale-label;
+            smart-matte-label: root.smart-matte-label;
+            seam-carve-label: root.seam-carve-label;
+            can-upscale: root.can-upscale && !root.tools-busy;
+            can-smart-matte: root.can-smart-matte && !root.tools-busy;
+            can-seam-carve: root.can-seam-carve && !root.tools-busy;
+            run-upscale => {
+                root.run-upscale();
+            }
+            run-smart-matte => {
+                root.run-smart-matte();
+            }
+            run-seam-carve => {
+                root.run-seam-carve();
+            }
+        }
+    }
+
+    tip-delay := Timer {
+        interval: 450ms;
+        running: Tip.armed && !Tip.open;
+        triggered => {
+            Tip.open = true;
+        }
+    }
+
+    if Tip.open && Tip.text != "": CalmTip {
+        x: Tip.leading ? Tip.x - self.width : Tip.x;
+        y: Tip.y - self.height / 2;
+        tip: Tip.text;
+        shortcut: Tip.shortcut;
     }
 }

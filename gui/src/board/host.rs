@@ -1,7 +1,6 @@
 use calumma_app::Engine;
 use std::cell::RefCell;
 use std::rc::Rc;
-use std::time::Duration;
 
 use super::cursor::{
     should_pan, should_track_hover, BoardCursorInput, CursorController, ModifierState,
@@ -44,10 +43,6 @@ impl BoardHost {
         }
     }
 
-    pub fn engine(&self) -> Rc<RefCell<Engine>> {
-        self.engine.clone()
-    }
-
     pub fn set_active(&mut self, active: bool) {
         self.active = active;
         if !active {
@@ -60,18 +55,6 @@ impl BoardHost {
                 surface.set_hidden(true);
             }
         }
-    }
-
-    pub fn is_active(&self) -> bool {
-        self.active
-    }
-
-    pub fn is_attached(&self) -> bool {
-        self.attached
-    }
-
-    pub fn is_painting(&self) -> bool {
-        self.stroke_active
     }
 
     pub fn set_pointer_inside(&mut self, inside: bool) {
@@ -171,25 +154,9 @@ impl BoardHost {
         }
     }
 
-    pub fn resize(&mut self, width: u32, height: u32, scale: f32) {
-        if !self.attached {
-            return;
-        }
-        self.engine.borrow_mut().resize(width, height, scale);
-    }
-
     pub fn render(&mut self) {
         if self.active && self.attached {
             self.engine.borrow_mut().render();
-        }
-    }
-
-    pub fn frame_interval(&self) -> Duration {
-        let hint = self.engine.borrow().frame_hint();
-        if hint == 0 {
-            Duration::from_millis(8)
-        } else {
-            Duration::from_millis((1000 / hint.max(1)) as u64)
         }
     }
 
@@ -302,12 +269,28 @@ impl BoardHost {
         self.refresh_cursor(modal_open, mods);
     }
 
-    pub fn scroll(&mut self, x: f32, y: f32, delta_y: f32, precise: bool, alt_held: bool) {
-        if alt_held {
+    pub fn scroll(
+        &mut self,
+        x: f32,
+        y: f32,
+        delta_x: f32,
+        delta_y: f32,
+        alt_held: bool,
+        meta_held: bool,
+    ) {
+        let precise = scroll_is_precise(delta_x, delta_y);
+        if alt_held || meta_held {
             self.engine.borrow_mut().zoom_scroll(x, y, delta_y, precise);
         } else {
-            self.engine.borrow_mut().pan_scroll(0.0, delta_y, precise);
+            self.engine
+                .borrow_mut()
+                .pan_scroll(delta_x, delta_y, precise);
         }
         self.engine.borrow_mut().end_camera_motion();
     }
+}
+
+fn scroll_is_precise(dx: f32, dy: f32) -> bool {
+    let mag = dx.abs().max(dy.abs());
+    mag > 0.0 && (mag < 1.0 || mag > 10.0 || mag.fract().abs() > 0.05)
 }

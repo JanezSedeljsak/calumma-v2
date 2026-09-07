@@ -2,7 +2,7 @@ use super::export::{project_basename, save_bytes, save_text};
 use super::{format_bytes, Catalog, LayerThumbCache, QuickColors, ShellPrefs, Theme};
 use anyhow::Result;
 use calumma_app::{pick_tool, Engine, LayerSummary, ProjectSummary};
-use calumma_core::Tool;
+use calumma_core::{guide::GuideAxis, Tool};
 use calumma_io::RasterFormat;
 use std::cell::RefCell;
 use std::path::PathBuf;
@@ -19,9 +19,9 @@ pub struct AppController {
     pub new_project_open: bool,
     pub layer_settings_open: bool,
     pub layer_settings_index: usize,
-    pub tools_menu_open: bool,
     pub tools_busy: bool,
     pub layer_hover_index: Option<usize>,
+    pub layer_hover_y: f32,
     pub thumb_cache: LayerThumbCache,
     pub quick_colors: QuickColors,
     pub toast_text: String,
@@ -46,9 +46,9 @@ impl AppController {
             new_project_open: false,
             layer_settings_open: false,
             layer_settings_index: 0,
-            tools_menu_open: false,
             tools_busy: false,
             layer_hover_index: None,
+            layer_hover_y: 0.0,
             thumb_cache: LayerThumbCache::new(),
             quick_colors: QuickColors::new(),
             toast_text: String::new(),
@@ -94,11 +94,6 @@ impl AppController {
 
     pub fn select_quick_color(&mut self, index: usize) {
         self.quick_colors.select(index);
-        self.push_quick_colors_to_engine();
-    }
-
-    pub fn set_color_hsb(&mut self, hue: f32, saturation: f32, brightness: f32) {
-        self.quick_colors.set_hsb(hue, saturation, brightness);
         self.push_quick_colors_to_engine();
     }
 
@@ -268,6 +263,25 @@ impl AppController {
         self.engine.borrow_mut().step_zoom(zoom_in);
     }
 
+    pub fn begin_guide_drag(&mut self, horizontal: bool, x: f32, y: f32) {
+        let axis = if horizontal {
+            GuideAxis::Horizontal
+        } else {
+            GuideAxis::Vertical
+        };
+        self.engine
+            .borrow_mut()
+            .begin_guide_drag_from_ruler(axis, x, y);
+    }
+
+    pub fn update_guide_drag(&mut self, x: f32, y: f32) {
+        self.engine.borrow_mut().update_guide_drag(x, y);
+    }
+
+    pub fn end_guide_drag(&mut self) {
+        self.engine.borrow_mut().end_guide_drag();
+    }
+
     pub fn fit_to_view(&mut self) {
         self.engine.borrow_mut().fit_to_view();
     }
@@ -374,16 +388,20 @@ impl AppController {
         self.engine.borrow_mut().set_layer_visible(index, visible);
     }
 
+    pub fn set_layer_locked(&mut self, index: usize, locked: bool) {
+        self.engine.borrow_mut().set_layer_locked(index, locked);
+    }
+
+    pub fn set_layer_opacity(&mut self, index: usize, opacity: f32) {
+        self.engine.borrow_mut().set_layer_opacity(index, opacity);
+    }
+
     pub fn duplicate_layer(&mut self, index: usize) -> bool {
         self.engine.borrow_mut().duplicate_layer(index)
     }
 
     pub fn remove_layer(&mut self, index: usize) -> bool {
         self.engine.borrow_mut().remove_layer(index)
-    }
-
-    pub fn toggle_tools_menu(&mut self) {
-        self.tools_menu_open = !self.tools_menu_open;
     }
 
     pub fn smart_matte_label(&self) -> String {
@@ -419,12 +437,37 @@ impl AppController {
         result
     }
 
-    pub fn set_layer_hover(&mut self, index: usize) {
+    pub fn set_layer_hover(&mut self, index: usize, y: f32) {
         self.layer_hover_index = Some(index);
+        self.layer_hover_y = y;
+        self.engine.borrow_mut().set_hover_layer(Some(index));
     }
 
     pub fn clear_layer_hover(&mut self) {
         self.layer_hover_index = None;
+        self.engine.borrow_mut().set_hover_layer(None);
+    }
+
+    pub fn commit_layer_bounds(&mut self, x: &str, y: &str, w: &str, h: &str) {
+        let parse = |text: &str| text.trim().parse::<f32>().ok();
+        let (Some(x), Some(y), Some(w), Some(h)) = (parse(x), parse(y), parse(w), parse(h)) else {
+            return;
+        };
+        let Some(index) = self.engine.borrow().active_layer_index() else {
+            return;
+        };
+        self.engine.borrow_mut().set_layer_bounds(index, x, y, w, h);
+    }
+
+    pub fn commit_canvas_size(&mut self, width: &str, height: &str) {
+        let parse = |text: &str| text.trim().parse::<u32>().ok();
+        let (Some(width), Some(height)) = (parse(width), parse(height)) else {
+            return;
+        };
+        if width == 0 || height == 0 {
+            return;
+        }
+        self.engine.borrow_mut().resize_document(width, height);
     }
 
     pub fn try_save_composite(&self, format: RasterFormat, ext: &str) -> Result<bool> {
@@ -478,7 +521,19 @@ impl AppController {
 }
 
 pub fn workspace_root() -> PathBuf {
-    std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
+    let mut dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    for _ in 0..8 {
+        if dir.join("design").join("icon.png").is_file() && dir.join("translations").is_dir() {
+            return dir;
+        }
+        if !dir.pop() {
+            break;
+        }
+    }
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("."))
 }
 
 pub type SharedController = Rc<RefCell<AppController>>;

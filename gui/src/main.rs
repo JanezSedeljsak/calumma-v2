@@ -1,7 +1,9 @@
+mod app_icon;
 mod board;
 mod input;
 mod shell;
 mod ui_bridge;
+mod window_chrome;
 
 use board::{board_layout, BoardHost, ModifierState};
 use calumma_io::RasterFormat;
@@ -12,13 +14,13 @@ use input::{
 };
 use shell::{pick_artwork_file, shared, workspace_root, SharedController, Theme};
 use slint::ComponentHandle;
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::time::Duration;
 use ui_bridge::{
-    init_form_defaults, load_app_icon, parse_dimension, refresh_landing, set_editor_open,
-    sync_editor, sync_layer_settings, sync_layers, sync_shell, AppWindow, SharedUi, DEFAULT_HEIGHT,
-    DEFAULT_WIDTH,
+    camera_signature, init_form_defaults, parse_dimension, refresh_landing, set_editor_open,
+    sync_editor, sync_layer_rows, sync_layer_settings, sync_layers, sync_rulers, sync_shell,
+    AppWindow, SharedUi, DEFAULT_HEIGHT, DEFAULT_WIDTH,
 };
 
 struct InputState {
@@ -49,8 +51,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     )));
 
     let ui = AppWindow::new()?;
-    set_window_icon(&ui, &root);
-    load_app_icon(&ui, &root);
+    set_window_icon(&ui);
+    window_chrome::apply(&ui);
     {
         ui.window().set_size(slint::LogicalSize::new(
             window_metrics.width as f32,
@@ -118,8 +120,8 @@ fn wire_landing_callbacks(
         move || {
             let ui = ui_weak.upgrade().unwrap();
             let name = ui.get_project_name().to_string();
-            let width = parse_dimension(&ui.get_width_text().to_string(), DEFAULT_WIDTH);
-            let height = parse_dimension(&ui.get_height_text().to_string(), DEFAULT_HEIGHT);
+            let width = parse_dimension(ui.get_width_text().as_ref(), DEFAULT_WIDTH);
+            let height = parse_dimension(ui.get_height_text().as_ref(), DEFAULT_HEIGHT);
             let mut ctrl = controller.borrow_mut();
             if ctrl.create_project(&name, width, height).is_ok() {
                 set_editor_open(&ui, &mut ctrl, true);
@@ -184,6 +186,8 @@ fn wire_landing_callbacks(
         }
     });
 
+    ui.on_app_icon_clicked(shell::play_meow);
+
     ui.on_paste_artwork_clicked({
         let controller = controller.clone();
         let ui_weak = ui_weak.clone();
@@ -237,13 +241,8 @@ fn wire_editor_callbacks(
         let ui_weak = ui_weak.clone();
         move |tool| {
             if let Some(tool) = calumma_core::Tool::from_u32(tool as u32) {
-                let mut ctrl = controller.borrow_mut();
-                ctrl.pick_tool(tool);
-                if let Some(ui) = ui_weak.upgrade() {
-                    let mut ctrl = controller.borrow_mut();
-                    sync_editor(&ui, &mut ctrl);
-                    refresh_board_cursor(&host, &controller, &input);
-                }
+                controller.borrow_mut().pick_tool(tool);
+                defer_sync_editor(&ui_weak, &controller, &host, &input);
             }
         }
     });
@@ -265,7 +264,7 @@ fn wire_editor_callbacks(
         let ui_weak = ui_weak.clone();
         move |text| {
             let mut ctrl = controller.borrow_mut();
-            ctrl.commit_brush_size(&text.to_string());
+            ctrl.commit_brush_size(text.as_ref());
             if let Some(ui) = ui_weak.upgrade() {
                 sync_editor(&ui, &mut ctrl);
             }
@@ -282,6 +281,191 @@ fn wire_editor_callbacks(
             if let Some(ui) = ui_weak.upgrade() {
                 sync_editor(&ui, &mut ctrl);
             }
+        }
+    });
+
+    ui.on_pick_brush({
+        let controller = controller.clone();
+        let ui_weak = ui_weak.clone();
+        move |id| {
+            if let Some(brush) = calumma_core::Brush::from_u32(id as u32) {
+                controller.borrow_mut().engine.borrow_mut().set_brush(brush);
+                defer_sync_editor_only(&ui_weak, &controller);
+            }
+        }
+    });
+    ui.on_blur_changed({
+        let controller = controller.clone();
+        let ui_weak = ui_weak.clone();
+        move |value| {
+            controller
+                .borrow_mut()
+                .engine
+                .borrow_mut()
+                .set_blur_strength(value);
+            if let Some(ui) = ui_weak.upgrade() {
+                let mut ctrl = controller.borrow_mut();
+                sync_editor(&ui, &mut ctrl);
+            }
+        }
+    });
+    ui.on_hardness_changed({
+        let controller = controller.clone();
+        let ui_weak = ui_weak.clone();
+        move |value| {
+            controller
+                .borrow_mut()
+                .engine
+                .borrow_mut()
+                .set_eraser_hardness(value);
+            if let Some(ui) = ui_weak.upgrade() {
+                let mut ctrl = controller.borrow_mut();
+                sync_editor(&ui, &mut ctrl);
+            }
+        }
+    });
+    ui.on_tolerance_changed({
+        let controller = controller.clone();
+        let ui_weak = ui_weak.clone();
+        move |value| {
+            controller
+                .borrow_mut()
+                .engine
+                .borrow_mut()
+                .set_tolerance(value);
+            if let Some(ui) = ui_weak.upgrade() {
+                let mut ctrl = controller.borrow_mut();
+                sync_editor(&ui, &mut ctrl);
+            }
+        }
+    });
+    ui.on_eyedropper_changed({
+        let controller = controller.clone();
+        let ui_weak = ui_weak.clone();
+        move |value| {
+            controller
+                .borrow_mut()
+                .engine
+                .borrow_mut()
+                .set_eyedropper_radius(value);
+            if let Some(ui) = ui_weak.upgrade() {
+                let mut ctrl = controller.borrow_mut();
+                sync_editor(&ui, &mut ctrl);
+            }
+        }
+    });
+    ui.on_fill_toggled({
+        let controller = controller.clone();
+        let ui_weak = ui_weak.clone();
+        move || {
+            let next = !controller.borrow().engine.borrow().shape_fill();
+            controller
+                .borrow_mut()
+                .engine
+                .borrow_mut()
+                .set_shape_fill(next);
+            if let Some(ui) = ui_weak.upgrade() {
+                let mut ctrl = controller.borrow_mut();
+                sync_editor(&ui, &mut ctrl);
+            }
+        }
+    });
+    ui.on_stroke_toggled({
+        let controller = controller.clone();
+        let ui_weak = ui_weak.clone();
+        move || {
+            let next = !controller.borrow().engine.borrow().shape_stroke();
+            controller
+                .borrow_mut()
+                .engine
+                .borrow_mut()
+                .set_shape_stroke(next);
+            if let Some(ui) = ui_weak.upgrade() {
+                let mut ctrl = controller.borrow_mut();
+                sync_editor(&ui, &mut ctrl);
+            }
+        }
+    });
+    ui.on_vector_toggled({
+        let controller = controller.clone();
+        let ui_weak = ui_weak.clone();
+        move || {
+            let next = !controller.borrow().engine.borrow().vector_mode();
+            controller
+                .borrow_mut()
+                .engine
+                .borrow_mut()
+                .set_vector_mode(next);
+            if let Some(ui) = ui_weak.upgrade() {
+                let mut ctrl = controller.borrow_mut();
+                sync_editor(&ui, &mut ctrl);
+            }
+        }
+    });
+    ui.on_aligned_toggled({
+        let controller = controller.clone();
+        let ui_weak = ui_weak.clone();
+        move || {
+            let next = !controller.borrow().engine.borrow().clone_aligned();
+            controller
+                .borrow_mut()
+                .engine
+                .borrow_mut()
+                .set_clone_aligned(next);
+            if let Some(ui) = ui_weak.upgrade() {
+                let mut ctrl = controller.borrow_mut();
+                sync_editor(&ui, &mut ctrl);
+            }
+        }
+    });
+    ui.on_transform_toggled({
+        let controller = controller.clone();
+        let host = host.clone();
+        let input = input.clone();
+        let ui_weak = ui_weak.clone();
+        move || {
+            let next = !controller.borrow().engine.borrow().transform_active();
+            controller
+                .borrow_mut()
+                .engine
+                .borrow_mut()
+                .set_move_transform(next);
+            if let Some(ui) = ui_weak.upgrade() {
+                let mut ctrl = controller.borrow_mut();
+                sync_editor(&ui, &mut ctrl);
+                refresh_board_cursor(&host, &controller, &input);
+            }
+        }
+    });
+    ui.on_commit_layer_bounds({
+        let controller = controller.clone();
+        let ui_weak = ui_weak.clone();
+        move |x, y, w, h| {
+            controller.borrow_mut().commit_layer_bounds(
+                &x.to_string(),
+                &y.to_string(),
+                &w.to_string(),
+                &h.to_string(),
+            );
+            if let Some(ui) = ui_weak.upgrade() {
+                let mut ctrl = controller.borrow_mut();
+                sync_layers(&ui, &mut ctrl);
+            }
+            wake(&ui_weak);
+        }
+    });
+    ui.on_commit_canvas_size({
+        let controller = controller.clone();
+        let ui_weak = ui_weak.clone();
+        move |w, h| {
+            controller
+                .borrow_mut()
+                .commit_canvas_size(&w.to_string(), &h.to_string());
+            if let Some(ui) = ui_weak.upgrade() {
+                let mut ctrl = controller.borrow_mut();
+                sync_editor(&ui, &mut ctrl);
+            }
+            wake(&ui_weak);
         }
     });
 
@@ -320,13 +504,44 @@ fn wire_editor_callbacks(
         }
     });
 
+    ui.on_guide_pressed({
+        let controller = controller.clone();
+        let ui_weak = ui_weak.clone();
+        move |horizontal, x, y| {
+            controller.borrow_mut().begin_guide_drag(horizontal, x, y);
+            wake(&ui_weak);
+        }
+    });
+    ui.on_guide_moved({
+        let controller = controller.clone();
+        let ui_weak = ui_weak.clone();
+        move |x, y| {
+            controller.borrow_mut().update_guide_drag(x, y);
+            wake(&ui_weak);
+        }
+    });
+    ui.on_guide_released({
+        let controller = controller.clone();
+        let ui_weak = ui_weak.clone();
+        move || {
+            controller.borrow_mut().end_guide_drag();
+            wake(&ui_weak);
+        }
+    });
+
     ui.on_pointer_pressed({
         let host = host.clone();
         let input = input.clone();
         let controller = controller.clone();
         let ui_weak = ui_weak.clone();
-        move |x, y, middle| {
-            let mods = input.borrow().mods;
+        move |x, y, middle, meta, alt, shift| {
+            let mods = {
+                let mut state = input.borrow_mut();
+                state.mods.meta_held = meta;
+                state.mods.alt_held = alt;
+                state.mods.shift_held = shift;
+                state.mods
+            };
             host.borrow_mut().pointer_pressed(x, y, mods, middle);
             refresh_board_cursor(&host, &controller, &input);
             wake(&ui_weak);
@@ -380,9 +595,10 @@ fn wire_editor_callbacks(
         let host = host.clone();
         let input = input.clone();
         let ui_weak = ui_weak.clone();
-        move |x, y, delta| {
-            let alt = input.borrow().mods.alt_held;
-            host.borrow_mut().scroll(x, y, delta, false, alt);
+        move |x, y, dx, dy, alt, meta| {
+            input.borrow_mut().mods.alt_held = alt;
+            input.borrow_mut().mods.meta_held = meta;
+            host.borrow_mut().scroll(x, y, dx, dy, alt, meta);
             wake(&ui_weak);
         }
     });
@@ -403,6 +619,39 @@ fn refresh_board_cursor(
 ) {
     let (mods, modal) = cursor_context(controller, input);
     host.borrow_mut().refresh_cursor(modal, mods);
+}
+
+fn defer_sync_editor(
+    ui_weak: &SharedUi,
+    controller: &SharedController,
+    host: &Rc<RefCell<BoardHost>>,
+    input: &Rc<RefCell<InputState>>,
+) {
+    let ui_weak = ui_weak.clone();
+    let controller = controller.clone();
+    let host = host.clone();
+    let input = input.clone();
+    slint::Timer::single_shot(Duration::ZERO, move || {
+        if let Some(ui) = ui_weak.upgrade() {
+            let mut ctrl = controller.borrow_mut();
+            sync_editor(&ui, &mut ctrl);
+            drop(ctrl);
+            refresh_board_cursor(&host, &controller, &input);
+            wake(&ui_weak);
+        }
+    });
+}
+
+fn defer_sync_editor_only(ui_weak: &SharedUi, controller: &SharedController) {
+    let ui_weak = ui_weak.clone();
+    let controller = controller.clone();
+    slint::Timer::single_shot(Duration::ZERO, move || {
+        if let Some(ui) = ui_weak.upgrade() {
+            let mut ctrl = controller.borrow_mut();
+            sync_editor(&ui, &mut ctrl);
+            wake(&ui_weak);
+        }
+    });
 }
 
 fn wire_menus(ui: &AppWindow, controller: SharedController, ui_weak: SharedUi) {
@@ -459,14 +708,22 @@ fn wire_menus(ui: &AppWindow, controller: SharedController, ui_weak: SharedUi) {
     });
     ui.on_menu_new_project({
         let controller = controller.clone();
+        let ui_weak = ui_weak.clone();
         move || {
             controller.borrow_mut().new_project_open = true;
+            if let Some(ui) = ui_weak.upgrade() {
+                sync_shell(&ui, &controller.borrow());
+            }
         }
     });
     ui.on_menu_settings({
         let controller = controller.clone();
+        let ui_weak = ui_weak.clone();
         move || {
             controller.borrow_mut().settings_open = true;
+            if let Some(ui) = ui_weak.upgrade() {
+                sync_shell(&ui, &controller.borrow());
+            }
         }
     });
     ui.on_menu_undo({
@@ -506,6 +763,22 @@ fn wire_menus(ui: &AppWindow, controller: SharedController, ui_weak: SharedUi) {
                         window.set_fullscreen(Some(winit::window::Fullscreen::Borderless(None)));
                     }
                 });
+            }
+        }
+    });
+    ui.on_titlebar_drag({
+        let ui_weak = ui_weak.clone();
+        move || {
+            if let Some(ui) = ui_weak.upgrade() {
+                window_chrome::drag(&ui);
+            }
+        }
+    });
+    ui.on_titlebar_zoom({
+        let ui_weak = ui_weak.clone();
+        move || {
+            if let Some(ui) = ui_weak.upgrade() {
+                window_chrome::zoom(&ui);
             }
         }
     });
@@ -622,8 +895,8 @@ fn wire_layer_actions(ui: &AppWindow, controller: SharedController, ui_weak: Sha
     ui.on_hover_layer({
         let controller = controller.clone();
         let ui_weak = ui_weak.clone();
-        move |index| {
-            controller.borrow_mut().set_layer_hover(index as usize);
+        move |index, y| {
+            controller.borrow_mut().set_layer_hover(index as usize, y);
             if let Some(ui) = ui_weak.upgrade() {
                 let ctrl = controller.borrow();
                 sync_layer_settings(&ui, &ctrl);
@@ -665,6 +938,37 @@ fn wire_layer_actions(ui: &AppWindow, controller: SharedController, ui_weak: Sha
             if let Some(ui) = ui_weak.upgrade() {
                 sync_shell(&ui, &ctrl);
                 sync_layers(&ui, &mut ctrl);
+            }
+            wake(&ui_weak);
+        }
+    });
+    ui.on_layer_settings_toggle_lock({
+        let controller = controller.clone();
+        let ui_weak = ui_weak.clone();
+        move || {
+            let mut ctrl = controller.borrow_mut();
+            let index = ctrl.layer_settings_index;
+            let locked = ctrl
+                .layer_settings_summary()
+                .map(|layer| layer.locked)
+                .unwrap_or(false);
+            ctrl.set_layer_locked(index, !locked);
+            if let Some(ui) = ui_weak.upgrade() {
+                sync_shell(&ui, &ctrl);
+                sync_layers(&ui, &mut ctrl);
+            }
+            wake(&ui_weak);
+        }
+    });
+    ui.on_layer_settings_opacity_changed({
+        let controller = controller.clone();
+        let ui_weak = ui_weak.clone();
+        move |opacity| {
+            let mut ctrl = controller.borrow_mut();
+            let index = ctrl.layer_settings_index;
+            ctrl.set_layer_opacity(index, opacity);
+            if let Some(ui) = ui_weak.upgrade() {
+                sync_layer_settings(&ui, &ctrl);
             }
             wake(&ui_weak);
         }
@@ -719,17 +1023,6 @@ fn wire_layer_actions(ui: &AppWindow, controller: SharedController, ui_weak: Sha
 }
 
 fn wire_tools(ui: &AppWindow, controller: SharedController, ui_weak: SharedUi) {
-    ui.on_toggle_tools_menu({
-        let controller = controller.clone();
-        let ui_weak = ui_weak.clone();
-        move || {
-            controller.borrow_mut().toggle_tools_menu();
-            if let Some(ui) = ui_weak.upgrade() {
-                let mut ctrl = controller.borrow_mut();
-                sync_editor(&ui, &mut ctrl);
-            }
-        }
-    });
     ui.on_run_upscale({
         let controller = controller.clone();
         let ui_weak = ui_weak.clone();
@@ -737,7 +1030,6 @@ fn wire_tools(ui: &AppWindow, controller: SharedController, ui_weak: SharedUi) {
             let mut ctrl = controller.borrow_mut();
             let result = ctrl.run_upscale();
             ctrl.complete_smart_op("upscaleSuccess", "upscaleFailed", result);
-            ctrl.tools_menu_open = false;
             if let Some(ui) = ui_weak.upgrade() {
                 sync_shell(&ui, &ctrl);
                 sync_editor(&ui, &mut ctrl);
@@ -753,7 +1045,6 @@ fn wire_tools(ui: &AppWindow, controller: SharedController, ui_weak: SharedUi) {
             let mut ctrl = controller.borrow_mut();
             let result = ctrl.run_smart_matte();
             ctrl.complete_smart_op("smartMatteSuccess", "smartMatteFailed", result);
-            ctrl.tools_menu_open = false;
             if let Some(ui) = ui_weak.upgrade() {
                 sync_shell(&ui, &ctrl);
                 sync_editor(&ui, &mut ctrl);
@@ -769,7 +1060,6 @@ fn wire_tools(ui: &AppWindow, controller: SharedController, ui_weak: SharedUi) {
             let mut ctrl = controller.borrow_mut();
             let result = ctrl.run_seam_carve();
             ctrl.complete_smart_op("seamCarveSuccess", "seamCarveFailed", result);
-            ctrl.tools_menu_open = false;
             if let Some(ui) = ui_weak.upgrade() {
                 sync_shell(&ui, &ctrl);
                 sync_editor(&ui, &mut ctrl);
@@ -822,7 +1112,7 @@ fn wire_color_picker(ui: &AppWindow, controller: SharedController, ui_weak: Shar
         let ui_weak = ui_weak.clone();
         move |text| {
             let mut ctrl = controller.borrow_mut();
-            let hex = ctrl.commit_color_hex(&text.to_string());
+            let hex = ctrl.commit_color_hex(text.as_ref());
             if let Some(ui) = ui_weak.upgrade() {
                 ui.set_color_hex_text(hex.into());
                 sync_editor(&ui, &mut ctrl);
@@ -903,8 +1193,8 @@ fn wire_modals(
         move || {
             let ui = ui_weak.upgrade().unwrap();
             let name = ui.get_project_name().to_string();
-            let width = parse_dimension(&ui.get_width_text().to_string(), DEFAULT_WIDTH);
-            let height = parse_dimension(&ui.get_height_text().to_string(), DEFAULT_HEIGHT);
+            let width = parse_dimension(ui.get_width_text().as_ref(), DEFAULT_WIDTH);
+            let height = parse_dimension(ui.get_height_text().as_ref(), DEFAULT_HEIGHT);
             let mut ctrl = controller.borrow_mut();
             ctrl.new_project_open = false;
             if ctrl.create_project(&name, width, height).is_ok() {
@@ -1087,26 +1377,19 @@ fn sync_board_geometry(ui: &AppWindow, host: &Rc<RefCell<BoardHost>>) {
     });
 }
 
-fn set_window_icon(ui: &AppWindow, root: &std::path::Path) {
-    let path = root.join("design").join("icon.png");
-    let bytes = std::fs::read(&path).ok();
-    ui.window().with_winit_window(|window| {
-        if let Some(bytes) = &bytes {
-            if let Ok(image) = image::load_from_memory(bytes) {
-                let rgba = image.to_rgba8();
-                let (width, height) = rgba.dimensions();
-                if let Ok(icon) = winit::window::Icon::from_rgba(rgba.into_raw(), width, height) {
-                    window.set_window_icon(Some(icon));
-                }
+fn set_window_icon(ui: &AppWindow) {
+    if let Ok(loaded) = image::load_from_memory(app_icon::dock_png()) {
+        let rgba = loaded.to_rgba8();
+        let (width, height) = rgba.dimensions();
+        let raw = rgba.into_raw();
+        ui.window().with_winit_window(|window| {
+            if let Ok(icon) = winit::window::Icon::from_rgba(raw.clone(), width, height) {
+                window.set_window_icon(Some(icon));
             }
-        }
-    });
-    // winit's window icon is a no-op on macOS (title bars don't carry one) — the Dock icon is
-    // a separate, process-wide setting only AppKit exposes.
-    #[cfg(target_os = "macos")]
-    if let Some(bytes) = bytes {
-        set_dock_icon(&bytes);
+        });
     }
+    #[cfg(target_os = "macos")]
+    set_dock_icon(app_icon::dock_png());
 }
 
 #[cfg(target_os = "macos")]
@@ -1120,10 +1403,10 @@ fn set_dock_icon(png_bytes: &[u8]) {
         return;
     };
     let data = NSData::with_bytes(png_bytes);
-    let image: Option<Retained<NSImage>> =
-        unsafe { NSImage::initWithData(NSImage::alloc(), &data) };
+    let image: Option<Retained<NSImage>> = NSImage::initWithData(NSImage::alloc(), &data);
     if let Some(image) = image {
         let app = NSApplication::sharedApplication(mtm);
+        app.setActivationPolicy(objc2_app_kit::NSApplicationActivationPolicy::Regular);
         unsafe { app.setApplicationIconImage(Some(&image)) };
     }
 }
@@ -1133,17 +1416,33 @@ fn start_frame_loop(
     host: Rc<RefCell<BoardHost>>,
     controller: SharedController,
 ) -> Vec<slint::Timer> {
+    let icon_done = Rc::new(Cell::new(false));
     let board = slint::Timer::default();
+    let camera = Rc::new(RefCell::new((f32::NAN, f32::NAN, f32::NAN)));
     board.start(slint::TimerMode::Repeated, Duration::from_millis(16), {
         let ui_weak = ui_weak.clone();
         let host = host.clone();
         let controller = controller.clone();
+        let icon_done = icon_done.clone();
         move || {
+            if !icon_done.get() {
+                if let Some(ui) = ui_weak.upgrade() {
+                    set_window_icon(&ui);
+                    window_chrome::apply(&ui);
+                    icon_done.set(true);
+                }
+            }
             if !controller.borrow().editor_open {
                 return;
             }
             if let Some(ui) = ui_weak.upgrade() {
                 sync_board_geometry(&ui, &host);
+                let ctrl = controller.borrow();
+                let next = camera_signature(&ctrl);
+                if *camera.borrow() != next {
+                    *camera.borrow_mut() = next;
+                    sync_rulers(&ui, &ctrl);
+                }
             }
         }
     });
@@ -1161,7 +1460,7 @@ fn start_frame_loop(
                 ui.set_memory_value(
                     shell::format_bytes(ctrl.engine.borrow().resident_memory_bytes()).into(),
                 );
-                sync_layers(&ui, &mut ctrl);
+                sync_layer_rows(&ui, &mut ctrl);
             }
         }
     });

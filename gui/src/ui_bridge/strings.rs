@@ -1,6 +1,6 @@
-use super::AppWindow;
+use super::{AppWindow, ToolChrome};
 use crate::shell::Catalog;
-use slint::SharedString;
+use slint::{ComponentHandle, SharedString};
 
 pub const DEFAULT_WIDTH: u32 = 1280;
 pub const DEFAULT_HEIGHT: u32 = 720;
@@ -28,8 +28,6 @@ pub fn sync_strings(ui: &AppWindow, l10n: &Catalog) {
     ui.set_paste_artwork_hint(put(l10n.get("pasteArtworkHint")));
     ui.set_artwork_formats(put(l10n.get("artworkFormats")));
     ui.set_back_to_landing_tip(put(l10n.get("backToProjects")));
-    ui.set_brush_size_label(put(l10n.get("brushSize")));
-    ui.set_ink_opacity_label(put(l10n.get("inkOpacity")));
     ui.set_settings_title(put(l10n.get("settings")));
     ui.set_theme_label(put(l10n.get("theme")));
     ui.set_theme_light_label(put(l10n.get("themeLight")));
@@ -56,6 +54,9 @@ pub fn sync_strings(ui: &AppWindow, l10n: &Catalog) {
     ui.set_fullscreen_menu_title(put(l10n.get("enterFullScreen")));
     ui.set_layers_title(put(l10n.get("layers")));
     ui.set_add_layer_label(put(l10n.get("addLayer")));
+    ui.set_bounds_label(put(l10n.get("layerBounds")));
+    ui.set_bounds_x_label(put(l10n.get("layerBoundsX")));
+    ui.set_bounds_y_label(put(l10n.get("layerBoundsY")));
     ui.set_width_short_label(put(l10n.get("canvasWidth")));
     ui.set_height_short_label(put(l10n.get("canvasHeight")));
     ui.set_export_menu_title(put(l10n.get("exportMenu")));
@@ -74,4 +75,19 @@ pub fn sync_strings(ui: &AppWindow, l10n: &Catalog) {
     ui.set_layer_export_label(put(l10n.get("exportLayer")));
     ui.set_layer_duplicate_label(put(l10n.get("duplicateLayer")));
     ui.set_layer_delete_label(put(l10n.get("deleteLayer")));
+    ui.set_layer_visibility_label(put(l10n.get("layerVisibility")));
+    ui.set_opacity_label(put(l10n.get("opacity")));
+
+    let chrome = ui.global::<ToolChrome>();
+    chrome.set_brush_size_label(put(l10n.get("brushSize")));
+    chrome.set_ink_opacity_label(put(l10n.get("inkOpacity")));
+    chrome.set_blur_label(put(l10n.get("blurStrength")));
+    chrome.set_hardness_label(put(l10n.get("eraserHardness")));
+    chrome.set_tolerance_label(put(l10n.get("tolerance")));
+    chrome.set_sample_label(put(l10n.get("sampleSize")));
+    chrome.set_fill_label(put(l10n.get("fill")));
+    chrome.set_stroke_label(put(l10n.get("stroke")));
+    chrome.set_vector_label(put(l10n.get("vectorMode")));
+    chrome.set_aligned_label(put(l10n.get("cloneAligned")));
+    chrome.set_transform_label(put(l10n.get("toolTransform")));
 }

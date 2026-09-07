@@ -2,13 +2,15 @@ slint::include_modules!();
 
 mod editor;
 mod landing;
+mod rulers;
 mod strings;
 mod theme;
 
-pub use editor::{set_editor_open, sync_editor, sync_layer_settings, sync_layers};
+pub use editor::{set_editor_open, sync_editor, sync_layer_rows, sync_layer_settings, sync_layers};
 pub use landing::{parse_dimension, refresh_landing, sync_recents};
+pub use rulers::{camera_signature, sync_rulers};
 pub use strings::{init_form_defaults, sync_strings, DEFAULT_HEIGHT, DEFAULT_WIDTH};
-pub use theme::{apply_theme, load_app_icon};
+pub use theme::apply_theme;
 
 use crate::shell::AppController;
 use slint::SharedString;

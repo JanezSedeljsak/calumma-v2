@@ -68,7 +68,8 @@ bits use `{0}`, `{1}`, … filled by `l10n.formatKey(...)`. Visual tokens stay i
    and even that only where the shell owns the pixels. In `gui/` the board is a native
    `CAMetalLayer` subview, which draws *over* every Slint element inside its rect, so no chrome
    may overlap the board rectangle at all: the zoom pill sits in a strip along the bottom of the
-   canvas island rather than floating over the paper. The exception below is Swift-shell
+   canvas island rather than floating over the paper, and the **rulers** are inset strips along
+   the island's top and left rather than an overlay. The exception below is Swift-shell
    behavior:
    `CanvasSkeleton` covers the Metal view while a project loads, on the rectangle
    `calumma_core::camera::fit_size` says the paper will occupy (frozen Swift-shell behavior —

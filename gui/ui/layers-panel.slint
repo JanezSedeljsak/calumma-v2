@@ -7,25 +7,17 @@ import { CalmIsland } from "calm/CalmIsland.slint";
 import { CalmDivider } from "calm/CalmDivider.slint";
 import { CalmSurface } from "calm/CalmSurface.slint";
 import { CalmIconButton } from "calm/CalmToolButton.slint";
-import { CalmBody, CalmLabel, CalmMuted } from "calm/CalmText.slint";
+import { CalmField } from "calm/CalmField.slint";
+import { CalmBody, CalmLabel } from "calm/CalmText.slint";
 
 component LayerThumb inherits Rectangle {
     in property <image> thumb;
-    in property <int> position;
 
     width: Tokens.layer-thumb-width;
     height: Tokens.layer-thumb-height;
     border-radius: Tokens.radius-sm;
     background: Theme.surface-hover;
     clip: true;
-
-    CalmMuted {
-        width: 100%;
-        height: 100%;
-        text: root.position;
-        font-weight: 700;
-        horizontal-alignment: center;
-    }
 
     Image {
         source: root.thumb;
@@ -49,7 +41,7 @@ component LayerListRow inherits HorizontalLayout {
     callback toggle-visible();
     callback open-settings();
     callback delete-layer();
-    callback hover-enter();
+    callback hover-enter(length);
     callback hover-leave();
 
     spacing: Tokens.space-sm;
@@ -58,7 +50,7 @@ component LayerListRow inherits HorizontalLayout {
 
     changed row-hovered => {
         if (root.row-hovered) {
-            root.hover-enter();
+            root.hover-enter(root.absolute-position.y);
         } else {
             root.hover-leave();
         }
@@ -86,7 +78,6 @@ component LayerListRow inherits HorizontalLayout {
 
             LayerThumb {
                 thumb: root.layer-row.thumb;
-                position: root.layer-row.index + 1;
                 y: (parent.height - self.height) / 2;
             }
 
@@ -137,27 +128,35 @@ component LayerListRow inherits HorizontalLayout {
 
 component BoundsField inherits HorizontalLayout {
     in property <string> label;
-    in property <string> value;
+    in-out property <string> value;
+
+    callback committed(string);
 
     spacing: Tokens.space-sm;
     horizontal-stretch: 1;
 
     CalmLabel {
         label: root.label;
+        width: 12px;
     }
 
-    CalmSurface {
+    field := CalmField {
         horizontal-stretch: 1;
-        bordered: true;
         height: Tokens.control-height;
+        radius: Tokens.radius-sm;
+        pad: Tokens.space-sm;
+        text-size: Tokens.body-size;
+        mono: true;
+        text <=> root.value;
+        accepted(text) => {
+            root.committed(text);
+        }
+    }
 
-        CalmMuted {
-            x: Tokens.space-sm;
-            height: 100%;
-            text: root.value;
-            mono: true;
-            color: Theme.text;
-            font-size: Tokens.body-size;
+    property <bool> field-focused: field.focused;
+    changed field-focused => {
+        if (!root.field-focused) {
+            root.committed(root.value);
         }
     }
 }
@@ -165,10 +164,17 @@ component BoundsField inherits HorizontalLayout {
 export component LayersPanel inherits CalmIsland {
     in property <string> title-text;
     in property <string> add-tip;
+    in property <string> bounds-label;
+    in property <string> bounds-x-label;
+    in property <string> bounds-y-label;
     in property <string> width-label;
     in property <string> height-label;
-    in property <string> doc-width-text;
-    in property <string> doc-height-text;
+    in-out property <string> doc-width-text;
+    in-out property <string> doc-height-text;
+    in-out property <string> layer-x-text;
+    in-out property <string> layer-y-text;
+    in-out property <string> layer-w-text;
+    in-out property <string> layer-h-text;
     in property <string> visibility-tip;
     in property <string> settings-tip;
     in property <string> delete-tip;
@@ -179,8 +185,10 @@ export component LayersPanel inherits CalmIsland {
     callback toggle-layer-visible(int);
     callback open-layer-settings(int);
     callback delete-layer(int);
-    callback hover-layer(int);
+    callback hover-layer(int, length);
     callback clear-layer-hover();
+    callback commit-layer-bounds(string, string, string, string);
+    callback commit-canvas-size(string, string);
 
     private property <image> icon-eye-open: @image-url("eye-open.svg");
     private property <image> icon-eye-closed: @image-url("eye-closed.svg");
@@ -240,12 +248,58 @@ export component LayersPanel inherits CalmIsland {
                     delete-layer => {
                         root.delete-layer(layer.index);
                     }
-                    hover-enter => {
-                        root.hover-layer(layer.index);
+                    hover-enter(y) => {
+                        root.hover-layer(layer.index, y - root.absolute-position.y);
                     }
                     hover-leave => {
                         root.clear-layer-hover();
                     }
+                }
+            }
+        }
+
+        CalmDivider { }
+
+        CalmLabel {
+            label: root.bounds-label;
+        }
+
+        HorizontalLayout {
+            spacing: Tokens.space-sm;
+
+            BoundsField {
+                label: root.bounds-x-label;
+                value <=> root.layer-x-text;
+                committed(_) => {
+                    root.commit-layer-bounds(root.layer-x-text, root.layer-y-text, root.layer-w-text, root.layer-h-text);
+                }
+            }
+
+            BoundsField {
+                label: root.bounds-y-label;
+                value <=> root.layer-y-text;
+                committed(_) => {
+                    root.commit-layer-bounds(root.layer-x-text, root.layer-y-text, root.layer-w-text, root.layer-h-text);
+                }
+            }
+        }
+
+        HorizontalLayout {
+            spacing: Tokens.space-sm;
+
+            BoundsField {
+                label: root.width-label;
+                value <=> root.layer-w-text;
+                committed(_) => {
+                    root.commit-layer-bounds(root.layer-x-text, root.layer-y-text, root.layer-w-text, root.layer-h-text);
+                }
+            }
+
+            BoundsField {
+                label: root.height-label;
+                value <=> root.layer-h-text;
+                committed(_) => {
+                    root.commit-layer-bounds(root.layer-x-text, root.layer-y-text, root.layer-w-text, root.layer-h-text);
                 }
             }
         }
@@ -257,12 +311,18 @@ export component LayersPanel inherits CalmIsland {
 
             BoundsField {
                 label: root.width-label;
-                value: root.doc-width-text;
+                value <=> root.doc-width-text;
+                committed(_) => {
+                    root.commit-canvas-size(root.doc-width-text, root.doc-height-text);
+                }
             }
 
             BoundsField {
                 label: root.height-label;
-                value: root.doc-height-text;
+                value <=> root.doc-height-text;
+                committed(_) => {
+                    root.commit-canvas-size(root.doc-width-text, root.doc-height-text);
+                }
             }
         }
     }

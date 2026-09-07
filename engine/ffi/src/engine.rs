@@ -259,12 +259,9 @@ impl Inner {
         }
         #[cfg(not(test))]
         {
-            let target = unsafe { crate::surface::surface_target(surface)? };
-            let surface = unsafe {
-                self.instance
-                    .create_surface_unsafe(target)
-                    .context("creating a wgpu surface for the shell's window")?
-            };
+            let target = unsafe { crate::surface::surface_target(surface) }?;
+            let surface = unsafe { self.instance.create_surface_unsafe(target) }
+                .context("creating a wgpu surface for the shell's window")?;
             let renderer = calumma_render::Renderer::from_surface(surface, &self.instance, pw, ph)
                 .map_err(|e| anyhow!("creating the renderer: {e}"))?;
             self.renderer = Some(ActiveRenderer::Gpu(renderer));

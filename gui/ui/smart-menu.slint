@@ -1,0 +1,100 @@
+import { Theme } from "calm/CalmTheme.slint";
+import { Tokens } from "calm/CalmTokens.slint";
+import { CalmPointer } from "calm/CalmPointer.slint";
+
+export global SmartMenu {
+    in-out property <bool> open: false;
+    in-out property <length> x;
+    in-out property <length> y;
+    in-out property <length> width;
+}
+
+component SmartMenuRow inherits Rectangle {
+    in property <string> label;
+    in property <bool> enabled: true;
+
+    callback activated();
+
+    height: Tokens.control-height;
+    border-radius: Tokens.radius-sm;
+    background: touch.has-hover && root.enabled ? Theme.surface-hover : transparent;
+    opacity: root.enabled ? 1.0 : Tokens.disabled-opacity;
+
+    touch := CalmPointer {
+        enabled: root.enabled;
+        clicked => {
+            SmartMenu.open = false;
+            root.activated();
+        }
+    }
+
+    Text {
+        x: Tokens.space-xs;
+        width: parent.width - Tokens.space-xs * 2;
+        height: 100%;
+        text: root.label;
+        color: Theme.text;
+        font-size: Tokens.label-size;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+}
+
+export component SmartMenuOverlay inherits Rectangle {
+    in property <string> upscale-label;
+    in property <string> smart-matte-label;
+    in property <string> seam-carve-label;
+    in property <bool> can-upscale;
+    in property <bool> can-smart-matte;
+    in property <bool> can-seam-carve;
+
+    callback run-upscale();
+    callback run-smart-matte();
+    callback run-seam-carve();
+
+    width: 100%;
+    height: 100%;
+
+    catcher := TouchArea {
+        clicked => {
+            SmartMenu.open = false;
+        }
+    }
+
+    Rectangle {
+        x: SmartMenu.x;
+        y: SmartMenu.y - self.height - Tokens.space-xs;
+        width: SmartMenu.width;
+        background: Theme.surface;
+        border-radius: Tokens.radius-sm;
+        border-width: 1px;
+        border-color: Theme.island-border;
+
+        VerticalLayout {
+            padding: Tokens.space-xs;
+            spacing: 2px;
+
+            SmartMenuRow {
+                label: root.upscale-label;
+                enabled: root.can-upscale;
+                activated => {
+                    root.run-upscale();
+                }
+            }
+            SmartMenuRow {
+                label: root.smart-matte-label;
+                enabled: root.can-smart-matte;
+                activated => {
+                    root.run-smart-matte();
+                }
+            }
+            SmartMenuRow {
+                label: root.seam-carve-label;
+                enabled: root.can-seam-carve;
+                activated => {
+                    root.run-seam-carve();
+                }
+            }
+        }
+    }
+}

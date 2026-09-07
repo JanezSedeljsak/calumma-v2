@@ -1,7 +1,7 @@
 import { Theme } from "CalmTheme.slint";
 import { Tokens } from "CalmTokens.slint";
 import { CalmPointer } from "CalmPointer.slint";
-import { CalmTip } from "CalmTip.slint";
+import { Tip } from "CalmTip.slint";
 
 export component CalmToolButton inherits Rectangle {
     in property <bool> selected;
@@ -24,7 +24,25 @@ export component CalmToolButton inherits Rectangle {
     touch := CalmPointer {
         enabled: root.enabled;
         clicked => {
+            Tip.armed = false;
+            Tip.open = false;
             root.clicked();
+        }
+        changed has-hover => {
+            if (self.has-hover && root.tip != "") {
+                Tip.text = root.tip;
+                Tip.shortcut = root.shortcut;
+                Tip.leading = root.tip-leading;
+                Tip.x = root.tip-leading
+                    ? root.absolute-position.x - Tokens.space-sm
+                    : root.absolute-position.x + root.width + Tokens.space-sm;
+                Tip.y = root.absolute-position.y + root.height / 2;
+                Tip.open = false;
+                Tip.armed = true;
+            } else if (Tip.text == root.tip) {
+                Tip.armed = false;
+                Tip.open = false;
+            }
         }
     }
 
@@ -36,34 +54,6 @@ export component CalmToolButton inherits Rectangle {
         y: (parent.height - self.height) / 2;
         colorize: has-icon-tint ? icon-tint : (selected ? Theme.accent-teal : Theme.text-muted);
         image-fit: contain;
-    }
-
-    delay := Timer {
-        interval: 450ms;
-        running: touch.has-hover && root.tip != "";
-        triggered => {
-            tip-popup.show();
-            self.running = false;
-        }
-    }
-
-    changed has-hover-tip => {
-        if (!root.has-hover-tip) {
-            tip-popup.close();
-        }
-    }
-
-    property <bool> has-hover-tip: touch.has-hover;
-
-    tip-popup := PopupWindow {
-        x: root.tip-leading ? -self.width - Tokens.space-sm : root.width + Tokens.space-sm;
-        y: (root.height - self.height) / 2;
-        close-policy: no-auto-close;
-
-        CalmTip {
-            tip: root.tip;
-            shortcut: root.shortcut;
-        }
     }
 }
 
@@ -83,7 +73,25 @@ export component CalmIconButton inherits Rectangle {
     touch := CalmPointer {
         enabled: root.enabled;
         clicked => {
+            Tip.armed = false;
+            Tip.open = false;
             root.clicked();
+        }
+        changed has-hover => {
+            if (self.has-hover && root.tip != "") {
+                Tip.text = root.tip;
+                Tip.shortcut = "";
+                Tip.leading = root.tip-leading;
+                Tip.x = root.tip-leading
+                    ? root.absolute-position.x - Tokens.space-sm
+                    : root.absolute-position.x + root.width + Tokens.space-sm;
+                Tip.y = root.absolute-position.y + root.height / 2;
+                Tip.open = false;
+                Tip.armed = true;
+            } else if (Tip.text == root.tip) {
+                Tip.armed = false;
+                Tip.open = false;
+            }
         }
     }
 
@@ -94,32 +102,5 @@ export component CalmIconButton inherits Rectangle {
         colorize: root.tint;
         image-fit: contain;
         opacity: touch.has-hover ? 1.0 : 0.86;
-    }
-
-    delay := Timer {
-        interval: 450ms;
-        running: touch.has-hover && root.tip != "";
-        triggered => {
-            tip-popup.show();
-            self.running = false;
-        }
-    }
-
-    property <bool> has-hover-tip: touch.has-hover;
-
-    changed has-hover-tip => {
-        if (!root.has-hover-tip) {
-            tip-popup.close();
-        }
-    }
-
-    tip-popup := PopupWindow {
-        x: root.tip-leading ? -self.width - Tokens.space-sm : root.width + Tokens.space-sm;
-        y: (root.height - self.height) / 2;
-        close-policy: no-auto-close;
-
-        CalmTip {
-            tip: root.tip;
-        }
     }
 }

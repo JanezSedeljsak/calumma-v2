@@ -257,7 +257,7 @@ impl Theme {
 fn parse_color(hex: &str) -> Result<Color> {
     let trimmed = hex.trim_start_matches('#');
     let len = trimmed.len().min(8);
-    let value = u32::from_str_radix(&trimmed[..len.min(6).max(2)], 16)
+    let value = u32::from_str_radix(&trimmed[..len.clamp(2, 6)], 16)
         .with_context(|| format!("parsing color {hex}"))?;
     let r = ((value >> 16) & 0xFF) as u8;
     let g = ((value >> 8) & 0xFF) as u8;

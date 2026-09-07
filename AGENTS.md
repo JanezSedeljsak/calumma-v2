@@ -675,11 +675,22 @@ LOD, motion mode) are documented in `docs/RENDERING.md`, not repeated here.
   layer, so the board's `NSView` sits on top of every Slint element inside its rect, whatever
   the subview ordering says. Nothing Slint draws may overlap the board rect — which is why the
   zoom pill has a strip of its own at the bottom of the canvas island rather than floating over
-  the paper the way the Swift shell's did. Slint owns the rect too: `Editor` publishes
+  the paper the way the Swift shell's did. It also means the board view would swallow every
+  pointer event over the canvas, so `CalummaBoardView` overrides `hitTest:` to return nil: the
+  layer presents, and the pointer falls through to Slint's `TouchArea`, which is the only thing
+  that forwards to `Engine::pointer_*`. Slint owns the rect too: `Editor` publishes
   `board-surface`'s `absolute-position` and size, `sync_board_geometry` feeds those straight to
   `BoardSurface::set_frame`, and nothing in Rust re-derives panel widths or paddings. The frame
   is set in *logical* points, and the host view is **flipped** (top-left origin), so `set_frame`
   asks `isFlipped` rather than assuming AppKit's bottom-left convention.
+- **Rulers** are Slint, not WGSL — they sit outside the board rect, inset along the island's top
+  and left (`gui/ui/ruler.slint`). Tick *positions* stay engine-owned (`Engine::ruler_ticks_x/y`,
+  adaptive 1/2/5×10ⁿ spacing from `core/src/ruler.rs`); the shell only maps `doc * zoom + pan` to
+  a strip offset, the same affine the board uses, and rebuilds the tick models from the frame
+  loop when the camera actually moved. Dragging off a strip pulls a guide
+  (`Engine::begin_guide_drag_from_ruler` / `update_guide_drag` / `end_guide_drag`) — where it
+  lands and whether it survives release is `core/src/guide.rs`'s call, and the guide itself is
+  drawn by `vs_guide`, never by the shell.
 - The frame loop is two `slint::Timer`s owned by `main` (`start_frame_loop` returns them). A
   `Timer` stops when it is dropped, so binding them to a local that lives until `ui.run()` is
   what keeps the board attaching, resizing and presenting at all.

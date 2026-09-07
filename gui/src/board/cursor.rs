@@ -200,8 +200,8 @@ mod cursor_macos {
             BoardCursor::ClosedHand => NSCursor::closedHandCursor(),
             BoardCursor::ZoomIn => NSCursor::zoomInCursor(),
             BoardCursor::IBeam => NSCursor::IBeamCursor(),
-            BoardCursor::ResizeVertical => NSCursor::resizeUpDownCursor(),
-            BoardCursor::ResizeHorizontal => NSCursor::resizeLeftRightCursor(),
+            BoardCursor::ResizeVertical => NSCursor::rowResizeCursor(),
+            BoardCursor::ResizeHorizontal => NSCursor::columnResizeCursor(),
             BoardCursor::BrushRing => cache.ring.clone(),
             BoardCursor::Crosshair => NSCursor::crosshairCursor(),
             BoardCursor::Tool(tool) => {
@@ -314,8 +314,7 @@ mod cursor_macos {
                     (color.blue() * 255.0) as u8,
                     px.alpha(),
                 )
-                .premultiply()
-                .into();
+                .premultiply();
             }
         }
     }
@@ -366,23 +365,20 @@ mod cursor_macos {
                 (width as isize) * 4,
                 32,
             )
-            .expect("bitmap cursor rep")
-        };
-        let planes = unsafe { rep.bitmapData() };
+        }
+        .expect("bitmap cursor rep");
+        let planes = rep.bitmapData();
         let len = width as usize * height as usize * 4;
         unsafe {
             std::ptr::copy_nonoverlapping(rgba.as_ptr(), planes, len.min(rgba.len()));
         }
-        let image = unsafe {
-            NSImage::initWithSize(NSImage::alloc(), NSSize::new(width as f64, height as f64))
-        };
-        unsafe { image.addRepresentation(&rep) };
-        unsafe {
-            NSCursor::initWithImage_hotSpot(
-                NSCursor::alloc(),
-                &image,
-                NSPoint::new(hotspot.0 as f64, hotspot.1 as f64),
-            )
-        }
+        let image =
+            NSImage::initWithSize(NSImage::alloc(), NSSize::new(width as f64, height as f64));
+        image.addRepresentation(&rep);
+        NSCursor::initWithImage_hotSpot(
+            NSCursor::alloc(),
+            &image,
+            NSPoint::new(hotspot.0 as f64, hotspot.1 as f64),
+        )
     }
 }

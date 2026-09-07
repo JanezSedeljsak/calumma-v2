@@ -2,8 +2,8 @@ use super::Inner;
 use crate::surface::{CalmNativeSurface, CalmSurfaceKind};
 use anyhow::{Context, Result};
 use calumma_core::{
-    brush_size_from_unit, brush_size_unit, guide::GuideAxis, pack_rgb, unpack_rgb, BoardColors,
-    Tool, ToolBlock,
+    brush_size_from_unit, brush_size_unit, guide::GuideAxis, pack_rgb, ruler::RulerTick,
+    unpack_rgb, BoardColors, Tool, ToolBlock,
 };
 use calumma_io::ProjectListItem;
 use parking_lot::Mutex;
@@ -83,10 +83,11 @@ pub struct Engine {
 
 impl Drop for Engine {
     fn drop(&mut self) {
-        let mut inner = self.inner.lock();
-        if let Some(thread) = inner.autosave_thread.take() {
+        let thread = self.inner.lock().autosave_thread.take();
+        if let Some(thread) = thread {
             thread.stop();
         }
+        let mut inner = self.inner.lock();
         if let Some(mut doc) = inner.doc.take() {
             let _ = inner.store.save(&mut doc);
         }
@@ -99,7 +100,7 @@ impl Engine {
         let inner = Arc::new(Mutex::new(
             Inner::new(path.as_deref()).map_err(|e| anyhow::anyhow!(e))?,
         ));
-        let thread = crate::autosave::spawn(Arc::as_ptr(&inner));
+        let thread = crate::autosave::spawn(Arc::downgrade(&inner));
         inner.lock().autosave_thread = Some(thread);
         Ok(Self { inner })
     }
@@ -378,6 +379,60 @@ impl Engine {
             .is_some_and(|doc| doc.brush_ring().is_some())
     }
 
+    pub fn ruler_ticks_x(&self) -> Vec<RulerTick> {
+        let inner = self.inner.lock();
+        inner
+            .doc
+            .as_ref()
+            .map(|doc| doc.camera.ruler_ticks_x())
+            .unwrap_or_default()
+    }
+
+    pub fn ruler_ticks_y(&self) -> Vec<RulerTick> {
+        let inner = self.inner.lock();
+        inner
+            .doc
+            .as_ref()
+            .map(|doc| doc.camera.ruler_ticks_y())
+            .unwrap_or_default()
+    }
+
+    pub fn camera_pan(&self) -> (f32, f32) {
+        let inner = self.inner.lock();
+        inner
+            .doc
+            .as_ref()
+            .map(|doc| (doc.camera.pan_x, doc.camera.pan_y))
+            .unwrap_or((0.0, 0.0))
+    }
+
+    pub fn begin_guide_drag_from_ruler(&mut self, axis: GuideAxis, x: f32, y: f32) {
+        let mut inner = self.inner.lock();
+        if let Some(doc) = &mut inner.doc {
+            if doc.begin_guide_drag_from_ruler(axis, x, y) {
+                inner.invalidate_overlay();
+            }
+        }
+    }
+
+    pub fn update_guide_drag(&mut self, x: f32, y: f32) {
+        let mut inner = self.inner.lock();
+        if let Some(doc) = &mut inner.doc {
+            if doc.update_guide_drag(x, y) {
+                inner.invalidate_overlay();
+            }
+        }
+    }
+
+    pub fn end_guide_drag(&mut self) {
+        let mut inner = self.inner.lock();
+        if let Some(doc) = &mut inner.doc {
+            if doc.end_guide_drag() {
+                inner.invalidate_overlay();
+            }
+        }
+    }
+
     pub fn guide_axis_at(&self, x: f32, y: f32) -> Option<GuideAxis> {
         self.inner.lock().doc.as_ref().and_then(|doc| {
             doc.guide_at(x, y)
@@ -454,6 +509,15 @@ impl Engine {
             .as_ref()
             .map(|doc| doc.last_select_tool)
             .unwrap_or(inner.last_select_tool)
+    }
+
+    pub fn last_shape_tool(&self) -> Tool {
+        let inner = self.inner.lock();
+        inner
+            .doc
+            .as_ref()
+            .map(|doc| doc.last_shape_tool)
+            .unwrap_or(inner.last_shape_tool)
     }
 
     pub fn zoom_unit(&self) -> f32 {
@@ -631,5 +695,6 @@ pub struct LayerSummary {
 }
 
 mod colors;
+mod knobs;
 mod ops;
 mod shell;

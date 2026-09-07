@@ -132,6 +132,7 @@ export component ProjectForm inherits Rectangle {
     callback delete-recent(string);
     callback clear-all-clicked();
     callback paste-artwork-clicked();
+    callback app-icon-clicked();
 
     private property <image> icon-plus: @image-url("plus.svg");
     private property <image> icon-trash: @image-url("trash.svg");
@@ -157,11 +158,30 @@ export component ProjectForm inherits Rectangle {
                     horizontal-stretch: 1;
                 }
 
-                Image {
-                    source: root.app-icon;
+                Rectangle {
                     width: Tokens.brand-size;
                     height: Tokens.brand-size;
-                    image-fit: contain;
+                    border-radius: Tokens.radius-md;
+                    clip: true;
+
+                    cat := CalmPointer {
+                        clicked => {
+                            root.app-icon-clicked();
+                        }
+                    }
+
+                    Image {
+                        source: root.app-icon;
+                        width: 100%;
+                        height: 100%;
+                        image-fit: contain;
+                        opacity: cat.pressed ? 0.65 : 1.0;
+
+                        animate opacity {
+                            duration: 90ms;
+                            easing: ease-out;
+                        }
+                    }
                 }
             }
 
@@ -240,6 +260,8 @@ export component ProjectForm inherits Rectangle {
 
                         VerticalLayout {
                             horizontal-stretch: 1;
+                            preferred-width: 0px;
+                            min-width: 0px;
                             spacing: Tokens.space-md;
                             alignment: start;
 
@@ -263,6 +285,8 @@ export component ProjectForm inherits Rectangle {
 
                         VerticalLayout {
                             horizontal-stretch: 1;
+                            preferred-width: 0px;
+                            min-width: 0px;
                             spacing: Tokens.space-md;
                             alignment: start;
 

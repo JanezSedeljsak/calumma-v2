@@ -267,6 +267,24 @@ fn scroll_zoom_follows_the_delta_and_holds_the_pointer() {
 }
 
 #[test]
+fn scroll_zoom_covers_the_same_range_fraction_on_small_and_large_boards() {
+    let mut small = cam(1000.0, 800.0);
+    small.fit(64.0, 64.0);
+    let mut large = cam(1000.0, 800.0);
+    large.fit(4000.0, 3000.0);
+    let start_small = small.zoom_unit(64.0, 64.0);
+    let start_large = large.zoom_unit(4000.0, 3000.0);
+    small.zoom_by_scroll(500.0, 400.0, -1.0, false, 64.0, 64.0);
+    large.zoom_by_scroll(500.0, 400.0, -1.0, false, 4000.0, 3000.0);
+    let ds = small.zoom_unit(64.0, 64.0) - start_small;
+    let dl = large.zoom_unit(4000.0, 3000.0) - start_large;
+    assert!(
+        (ds - dl).abs() < 1e-4,
+        "small {ds} and large {dl} should cover the same fraction of their range"
+    );
+}
+
+#[test]
 fn a_wheel_notch_zooms_further_than_a_trackpad_pixel() {
     let doc = (2000.0, 1500.0);
     let mut wheel = cam(1000.0, 800.0);

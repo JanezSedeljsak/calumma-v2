@@ -3,7 +3,7 @@ use anyhow::{Context, Result};
 use calumma_io::{encode_pdf, encode_psd, encode_rgba, encode_svg, RasterFormat};
 use calumma_ops::{run_op_on_document, OpKind, OpParams};
 
-const THUMB_MAX_SIDE: u32 = 40;
+const THUMB_MAX_SIDE: u32 = 160;
 
 impl Engine {
     pub fn layer_preview_revision(&self, index: usize) -> u64 {
@@ -46,6 +46,35 @@ impl Engine {
         let mut inner = self.inner.lock();
         if let Some(doc) = &mut inner.doc {
             doc.set_layer_visible(index, visible);
+            inner.dirty_save = true;
+            inner.invalidate_renderer();
+        }
+    }
+
+    pub fn set_layer_locked(&mut self, index: usize, locked: bool) {
+        let mut inner = self.inner.lock();
+        if let Some(doc) = &mut inner.doc {
+            if doc.set_layer_locked(index, locked) {
+                inner.dirty_save = true;
+                inner.invalidate_renderer();
+            }
+        }
+    }
+
+    pub fn layer_opacity(&self, index: usize) -> f32 {
+        self.inner
+            .lock()
+            .doc
+            .as_ref()
+            .and_then(|doc| doc.layers.get(index))
+            .map(|layer| layer.opacity)
+            .unwrap_or(1.0)
+    }
+
+    pub fn set_layer_opacity(&mut self, index: usize, opacity: f32) {
+        let mut inner = self.inner.lock();
+        if let Some(doc) = &mut inner.doc {
+            doc.set_layer_opacity(index, opacity);
             inner.dirty_save = true;
             inner.invalidate_renderer();
         }
@@ -212,5 +241,45 @@ impl Engine {
             .as_ref()
             .and_then(|doc| doc.layers.get(index))
             .is_some_and(|layer| layer.content.item().is_some())
+    }
+
+    pub fn layer_bounds(&self, index: usize) -> Option<(f32, f32, f32, f32)> {
+        self.inner
+            .lock()
+            .doc
+            .as_ref()
+            .and_then(|doc| doc.layer_bounds(index))
+    }
+
+    pub fn set_layer_bounds(&mut self, index: usize, x: f32, y: f32, w: f32, h: f32) -> bool {
+        let mut inner = self.inner.lock();
+        let Some(doc) = inner.doc.as_mut() else {
+            return false;
+        };
+        if !doc.set_layer_bounds(index, x, y, w, h) {
+            return false;
+        }
+        inner.dirty_save = true;
+        inner.invalidate_renderer();
+        true
+    }
+
+    pub fn resize_document(&mut self, width: u32, height: u32) {
+        let mut inner = self.inner.lock();
+        if let Some(doc) = &mut inner.doc {
+            doc.resize(width, height);
+            inner.dirty_save = true;
+            inner.invalidate_renderer();
+        }
+    }
+
+    pub fn set_hover_layer(&mut self, index: Option<usize>) {
+        let mut inner = self.inner.lock();
+        if let Some(doc) = &mut inner.doc {
+            if doc.hover_layer != index {
+                doc.hover_layer = index;
+                inner.invalidate_overlay();
+            }
+        }
     }
 }

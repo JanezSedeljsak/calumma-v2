@@ -1,18 +1,13 @@
-import { LayerRow } from "models.slint";
+import { LayerRow, ToolEntry } from "models.slint";
 import { Theme } from "calm/CalmTheme.slint";
 import { Tokens } from "calm/CalmTokens.slint";
 import { CalmIsland } from "calm/CalmIsland.slint";
-import { ToolsPanel, ToolEntry } from "tools-panel.slint";
+import { ToolsPanel } from "tools-panel.slint";
 import { LayersPanel, LayerHoverCard } from "layers-panel.slint";
-import { ProjectTabs } from "project-tabs.slint";
 import { ZoomPill } from "zoom-pill.slint";
+import { RulerStrip, RulerTickRow } from "ruler.slint";
 
 export component Editor inherits Rectangle {
-    in property <string> project-name;
-    in property <color> project-accent;
-    in property <string> new-project-tip;
-    in property <string> close-tab-tip;
-
     in property <bool> layers-open;
     in property <string> layers-title;
     in property <string> add-layer-tip;
@@ -21,25 +16,25 @@ export component Editor inherits Rectangle {
     in property <string> delete-layer-tip;
     in property <string> width-label;
     in property <string> height-label;
-    in property <string> doc-width-text;
-    in property <string> doc-height-text;
+    in property <string> bounds-label;
+    in property <string> bounds-x-label;
+    in property <string> bounds-y-label;
+    in-out property <string> doc-width-text;
+    in-out property <string> doc-height-text;
+    in-out property <string> layer-x-text;
+    in-out property <string> layer-y-text;
+    in-out property <string> layer-w-text;
+    in-out property <string> layer-h-text;
     in property <[LayerRow]> layers;
 
     in property <bool> hover-preview-visible;
     in property <string> hover-preview-name;
     in property <image> hover-preview-image;
+    in property <float> hover-preview-y;
 
     in property <int> active-tool;
     in property <[ToolEntry]> tools;
     in property <string> active-tool-label;
-    in property <bool> show-brush-size;
-    in property <bool> show-ink-opacity;
-    in property <string> brush-size-label;
-    in property <string> ink-opacity-label;
-    in-out property <string> brush-size-text;
-    in property <string> ink-opacity-text;
-    in-out property <float> brush-size-unit;
-    in-out property <float> ink-opacity;
 
     in-out property <float> zoom-unit;
     in property <string> zoom-text;
@@ -48,7 +43,6 @@ export component Editor inherits Rectangle {
     in property <string> zoom-out-tip;
     in property <string> fit-tip;
 
-    in property <bool> tools-menu-open;
     in property <bool> tools-busy;
     in property <string> tools-menu-title;
     in property <string> upscale-label;
@@ -77,12 +71,26 @@ export component Editor inherits Rectangle {
     out property <length> board-width: board-surface.width;
     out property <length> board-height: board-surface.height;
 
-    callback close-tab();
-    callback new-project();
+    in property <[RulerTickRow]> ruler-ticks-x;
+    in property <[RulerTickRow]> ruler-ticks-y;
+
+    callback guide-pressed(bool, float, float);
+    callback guide-moved(float, float);
+    callback guide-released();
     callback pick-tool(int);
+    callback pick-brush(int);
     callback brush-size-changed(float);
     callback brush-size-committed(string);
     callback ink-opacity-changed(float);
+    callback blur-changed(float);
+    callback hardness-changed(float);
+    callback tolerance-changed(float);
+    callback eyedropper-changed(float);
+    callback fill-toggled();
+    callback stroke-toggled();
+    callback vector-toggled();
+    callback aligned-toggled();
+    callback transform-toggled();
     callback zoom-changed(float);
     callback step-zoom(bool);
     callback fit-zoom();
@@ -91,9 +99,10 @@ export component Editor inherits Rectangle {
     callback toggle-layer-visible(int);
     callback open-layer-settings(int);
     callback delete-layer(int);
-    callback hover-layer(int);
+    callback hover-layer(int, float);
     callback clear-layer-hover();
-    callback toggle-tools-menu();
+    callback commit-layer-bounds(string, string, string, string);
+    callback commit-canvas-size(string, string);
     callback run-upscale();
     callback run-smart-matte();
     callback run-seam-carve();
@@ -101,12 +110,12 @@ export component Editor inherits Rectangle {
     callback color-sb-changed(float, float);
     callback color-hue-changed(float);
     callback color-hex-changed(string);
-    callback pointer-pressed(float, float, bool);
+    callback pointer-pressed(float, float, bool, bool, bool, bool);
     callback pointer-moved(float, float);
     callback pointer-released(float, float);
     callback pointer-enter();
     callback pointer-exit();
-    callback scrolled(float, float, float);
+    callback scrolled(float, float, float, float, bool, bool);
 
     background: Theme.bg;
 
@@ -115,42 +124,15 @@ export component Editor inherits Rectangle {
         spacing: Tokens.space-xs;
 
         HorizontalLayout {
-            alignment: start;
-
-            ProjectTabs {
-                project-name: root.project-name;
-                project-accent: root.project-accent;
-                new-project-tip: root.new-project-tip;
-                close-tip: root.close-tab-tip;
-                close-tab => {
-                    root.close-tab();
-                }
-                new-project => {
-                    root.new-project();
-                }
-            }
-        }
-
-        HorizontalLayout {
             spacing: Tokens.space-xs;
             vertical-stretch: 1;
 
             ToolsPanel {
                 vertical-stretch: 1;
-                active-tool: root.active-tool;
                 tools: root.tools;
                 active-tool-label: root.active-tool-label;
-                show-brush-size: root.show-brush-size;
-                show-ink-opacity: root.show-ink-opacity;
-                brush-size-label: root.brush-size-label;
-                ink-opacity-label: root.ink-opacity-label;
-                brush-size-text <=> root.brush-size-text;
-                ink-opacity-text: root.ink-opacity-text;
-                brush-size-unit <=> root.brush-size-unit;
-                ink-opacity <=> root.ink-opacity;
                 color-label: root.color-label;
                 tools-menu-title: root.tools-menu-title;
-                tools-menu-open: root.tools-menu-open;
                 tools-busy: root.tools-busy;
                 upscale-label: root.upscale-label;
                 smart-matte-label: root.smart-matte-label;
@@ -173,6 +155,9 @@ export component Editor inherits Rectangle {
                 pick-tool(id) => {
                     root.pick-tool(id);
                 }
+                pick-brush(id) => {
+                    root.pick-brush(id);
+                }
                 brush-size-changed(v) => {
                     root.brush-size-changed(v);
                 }
@@ -181,6 +166,33 @@ export component Editor inherits Rectangle {
                 }
                 ink-opacity-changed(v) => {
                     root.ink-opacity-changed(v);
+                }
+                blur-changed(v) => {
+                    root.blur-changed(v);
+                }
+                hardness-changed(v) => {
+                    root.hardness-changed(v);
+                }
+                tolerance-changed(v) => {
+                    root.tolerance-changed(v);
+                }
+                eyedropper-changed(v) => {
+                    root.eyedropper-changed(v);
+                }
+                fill-toggled => {
+                    root.fill-toggled();
+                }
+                stroke-toggled => {
+                    root.stroke-toggled();
+                }
+                vector-toggled => {
+                    root.vector-toggled();
+                }
+                aligned-toggled => {
+                    root.aligned-toggled();
+                }
+                transform-toggled => {
+                    root.transform-toggled();
                 }
                 select-color-swatch(i) => {
                     root.select-color-swatch(i);
@@ -193,9 +205,6 @@ export component Editor inherits Rectangle {
                 }
                 color-hex-changed(text) => {
                     root.color-hex-changed(text);
-                }
-                toggle-tools-menu => {
-                    root.toggle-tools-menu();
                 }
                 run-upscale => {
                     root.run-upscale();
@@ -215,68 +224,131 @@ export component Editor inherits Rectangle {
                 island-padding: 0px;
                 clip: true;
 
-                board-surface := Rectangle {
+                VerticalLayout {
                     x: 1px;
                     y: 1px;
                     width: parent.width - 2px;
-                    height: parent.height - zoom-pill.height - Tokens.space-md * 2;
-                }
+                    height: parent.height - 2px;
 
-                board-touch := TouchArea {
-                    width: 100%;
-                    height: 100%;
+                    HorizontalLayout {
+                        height: Tokens.ruler-thickness;
 
-                    pointer-event(event) => {
-                        if (event.button == PointerEventButton.left || event.button == PointerEventButton.middle) {
-                            if (event.kind == PointerEventKind.down) {
-                                root.pointer-pressed(
-                                    self.mouse-x / 1px,
-                                    self.mouse-y / 1px,
-                                    event.button == PointerEventButton.middle,
-                                );
-                            } else if (event.kind == PointerEventKind.up) {
-                                root.pointer-released(self.mouse-x / 1px, self.mouse-y / 1px);
+                        Rectangle {
+                            width: Tokens.ruler-thickness;
+                            background: Theme.surface;
+                        }
+
+                        RulerStrip {
+                            horizontal-stretch: 1;
+                            ticks: root.ruler-ticks-x;
+                            guide-pressed(x, y) => {
+                                root.guide-pressed(true, x / 1px, (y - Tokens.ruler-thickness) / 1px);
+                            }
+                            guide-moved(x, y) => {
+                                root.guide-moved(x / 1px, (y - Tokens.ruler-thickness) / 1px);
+                            }
+                            guide-released => {
+                                root.guide-released();
                             }
                         }
                     }
 
-                    moved => {
-                        root.pointer-moved(self.mouse-x / 1px, self.mouse-y / 1px);
-                    }
+                    HorizontalLayout {
+                        vertical-stretch: 1;
 
-                    scroll-event(event) => {
-                        root.scrolled(self.mouse-x / 1px, self.mouse-y / 1px, event.delta-y / 1px);
-                        accept;
-                    }
-                }
+                        RulerStrip {
+                            width: Tokens.ruler-thickness;
+                            vertical: true;
+                            ticks: root.ruler-ticks-y;
+                            guide-pressed(x, y) => {
+                                root.guide-pressed(false, (x - Tokens.ruler-thickness) / 1px, y / 1px);
+                            }
+                            guide-moved(x, y) => {
+                                root.guide-moved((x - Tokens.ruler-thickness) / 1px, y / 1px);
+                            }
+                            guide-released => {
+                                root.guide-released();
+                            }
+                        }
 
-                private property <bool> board-hovered: board-touch.has-hover;
+                        Rectangle {
+                            horizontal-stretch: 1;
 
-                changed board-hovered => {
-                    if (self.board-hovered) {
-                        root.pointer-enter();
-                    } else {
-                        root.pointer-exit();
-                    }
-                }
+                            board-surface := Rectangle {
+                                x: 0;
+                                y: 0;
+                                width: parent.width;
+                                height: parent.height - zoom-pill.height - Tokens.space-md * 2;
 
-                zoom-pill := ZoomPill {
-                    x: parent.width - self.width - Tokens.space-md;
-                    y: parent.height - self.height - Tokens.space-md;
-                    zoom-unit <=> root.zoom-unit;
-                    zoom-text: root.zoom-text;
-                    is-fit: root.is-fit;
-                    zoom-in-tip: root.zoom-in-tip;
-                    zoom-out-tip: root.zoom-out-tip;
-                    fit-tip: root.fit-tip;
-                    zoom-changed(v) => {
-                        root.zoom-changed(v);
-                    }
-                    step-zoom(zoom-in) => {
-                        root.step-zoom(zoom-in);
-                    }
-                    fit-zoom => {
-                        root.fit-zoom();
+                                board-touch := TouchArea {
+                                    width: 100%;
+                                    height: 100%;
+
+                                    pointer-event(event) => {
+                                        if (event.button == PointerEventButton.left || event.button == PointerEventButton.middle) {
+                                            if (event.kind == PointerEventKind.down) {
+                                                root.pointer-pressed(
+                                                    self.mouse-x / 1px,
+                                                    self.mouse-y / 1px,
+                                                    event.button == PointerEventButton.middle,
+                                                    event.modifiers.meta || event.modifiers.control,
+                                                    event.modifiers.alt,
+                                                    event.modifiers.shift,
+                                                );
+                                            } else if (event.kind == PointerEventKind.up) {
+                                                root.pointer-released(self.mouse-x / 1px, self.mouse-y / 1px);
+                                            }
+                                        }
+                                    }
+
+                                    moved => {
+                                        root.pointer-moved(self.mouse-x / 1px, self.mouse-y / 1px);
+                                    }
+
+                                    scroll-event(event) => {
+                                        root.scrolled(
+                                            self.mouse-x / 1px,
+                                            self.mouse-y / 1px,
+                                            event.delta-x / 1px,
+                                            event.delta-y / 1px,
+                                            event.modifiers.alt,
+                                            event.modifiers.meta || event.modifiers.control,
+                                        );
+                                        accept;
+                                    }
+                                }
+
+                                private property <bool> board-hovered: board-touch.has-hover;
+
+                                changed board-hovered => {
+                                    if (self.board-hovered) {
+                                        root.pointer-enter();
+                                    } else {
+                                        root.pointer-exit();
+                                    }
+                                }
+                            }
+
+                            zoom-pill := ZoomPill {
+                                x: parent.width - self.width - Tokens.space-md;
+                                y: parent.height - self.height - Tokens.space-md;
+                                zoom-unit <=> root.zoom-unit;
+                                zoom-text: root.zoom-text;
+                                is-fit: root.is-fit;
+                                zoom-in-tip: root.zoom-in-tip;
+                                zoom-out-tip: root.zoom-out-tip;
+                                fit-tip: root.fit-tip;
+                                zoom-changed(v) => {
+                                    root.zoom-changed(v);
+                                }
+                                step-zoom(zoom-in) => {
+                                    root.step-zoom(zoom-in);
+                                }
+                                fit-zoom => {
+                                    root.fit-zoom();
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -292,10 +364,17 @@ export component Editor inherits Rectangle {
                     visibility-tip: root.layer-visibility-tip;
                     settings-tip: root.layer-settings-tip;
                     delete-tip: root.delete-layer-tip;
+                    bounds-label: root.bounds-label;
+                    bounds-x-label: root.bounds-x-label;
+                    bounds-y-label: root.bounds-y-label;
                     width-label: root.width-label;
                     height-label: root.height-label;
-                    doc-width-text: root.doc-width-text;
-                    doc-height-text: root.doc-height-text;
+                    doc-width-text <=> root.doc-width-text;
+                    doc-height-text <=> root.doc-height-text;
+                    layer-x-text <=> root.layer-x-text;
+                    layer-y-text <=> root.layer-y-text;
+                    layer-w-text <=> root.layer-w-text;
+                    layer-h-text <=> root.layer-h-text;
                     layers: root.layers;
                     add-layer => {
                         root.add-layer();
@@ -312,17 +391,23 @@ export component Editor inherits Rectangle {
                     delete-layer(index) => {
                         root.delete-layer(index);
                     }
-                    hover-layer(index) => {
-                        root.hover-layer(index);
+                    hover-layer(index, y) => {
+                        root.hover-layer(index, y / 1px);
                     }
                     clear-layer-hover => {
                         root.clear-layer-hover();
+                    }
+                    commit-layer-bounds(x, y, w, h) => {
+                        root.commit-layer-bounds(x, y, w, h);
+                    }
+                    commit-canvas-size(w, h) => {
+                        root.commit-canvas-size(w, h);
                     }
                 }
 
                 if root.hover-preview-visible: LayerHoverCard {
                     x: -Tokens.hover-card-width - Tokens.space-md;
-                    y: (parent.height - self.height) / 2;
+                    y: min(max(0px, root.hover-preview-y * 1px), parent.height - self.height);
                     layer-name: root.hover-preview-name;
                     preview: root.hover-preview-image;
                 }

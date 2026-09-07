@@ -1,0 +1,54 @@
+import { ToolEntry, BrushEntry } from "models.slint";
+
+export global ToolChrome {
+    in-out property <bool> show-shapes: false;
+    in-out property <bool> show-selection: false;
+    in-out property <bool> show-brushes: false;
+    in-out property <[ToolEntry]> shape-tools;
+    in-out property <[ToolEntry]> select-tools;
+    in-out property <[BrushEntry]> brush-tools;
+
+    in-out property <bool> show-brush-size: false;
+    in-out property <bool> show-ink-opacity: false;
+    in-out property <bool> show-blur: false;
+    in-out property <bool> show-hardness: false;
+    in-out property <bool> show-tolerance: false;
+    in-out property <bool> show-eyedropper: false;
+    in-out property <bool> show-fill: false;
+    in-out property <bool> show-vector: false;
+    in-out property <bool> show-aligned: false;
+    in-out property <bool> show-transform: false;
+
+    in-out property <string> brush-size-label;
+    in-out property <string> ink-opacity-label;
+    in-out property <string> blur-label;
+    in-out property <string> hardness-label;
+    in-out property <string> tolerance-label;
+    in-out property <string> sample-label;
+    in-out property <string> fill-label;
+    in-out property <string> stroke-label;
+    in-out property <string> vector-label;
+    in-out property <string> aligned-label;
+    in-out property <string> transform-label;
+
+    in-out property <string> brush-size-text;
+    in-out property <string> ink-opacity-text;
+    in-out property <string> blur-text;
+    in-out property <string> hardness-text;
+    in-out property <string> tolerance-text;
+    in-out property <string> eyedropper-text;
+
+    in-out property <float> brush-size-unit;
+    in-out property <float> ink-opacity;
+    in-out property <float> blur-strength;
+    in-out property <float> eraser-hardness;
+    in-out property <float> tolerance-unit;
+    in-out property <float> eyedropper-radius;
+
+    in-out property <bool> fill-on: false;
+    in-out property <bool> stroke-on: true;
+    in-out property <bool> vector-on: false;
+    in-out property <bool> vector-locked: false;
+    in-out property <bool> clone-aligned: false;
+    in-out property <bool> transform-on: false;
+}

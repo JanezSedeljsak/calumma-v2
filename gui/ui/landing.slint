@@ -31,6 +31,7 @@ export component Landing inherits Rectangle {
     callback delete-recent(string);
     callback clear-all-clicked();
     callback paste-artwork-clicked();
+    callback app-icon-clicked();
 
     background: Theme.bg;
 
@@ -73,6 +74,9 @@ export component Landing inherits Rectangle {
         }
         paste-artwork-clicked => {
             root.paste-artwork-clicked();
+        }
+        app-icon-clicked => {
+            root.app-icon-clicked();
         }
     }
 }

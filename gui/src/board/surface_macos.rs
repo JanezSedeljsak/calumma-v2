@@ -1,7 +1,6 @@
 use anyhow::{Context, Result};
 use objc2::rc::Retained;
-use objc2::MainThreadMarker;
-use objc2::MainThreadOnly;
+use objc2::{define_class, MainThreadMarker, MainThreadOnly};
 use objc2_app_kit::{NSAutoresizingMaskOptions, NSView, NSWindowOrderingMode};
 use objc2_foundation::{NSPoint, NSRect, NSSize};
 use objc2_quartz_core::CAMetalLayer;
@@ -9,8 +8,22 @@ use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use std::ffi::c_void;
 use std::ptr::NonNull;
 
+define_class!(
+    #[unsafe(super(NSView))]
+    #[thread_kind = MainThreadOnly]
+    #[name = "CalummaBoardView"]
+    pub struct BoardView;
+
+    impl BoardView {
+        #[unsafe(method(hitTest:))]
+        fn hit_test(&self, _point: NSPoint) -> *mut NSView {
+            std::ptr::null_mut()
+        }
+    }
+);
+
 pub struct BoardSurface {
-    view: Retained<NSView>,
+    view: Retained<BoardView>,
     layer: Retained<CAMetalLayer>,
     scale: f64,
 }
@@ -21,32 +34,29 @@ impl BoardSurface {
             .window_handle()
             .context("the Slint window has no native handle yet")?;
         let ns_view: Retained<NSView> = match handle.as_raw() {
-            RawWindowHandle::AppKit(appkit) => unsafe {
-                Retained::retain(appkit.ns_view.as_ptr().cast()).context("retaining NSView")?
-            },
+            RawWindowHandle::AppKit(appkit) => {
+                unsafe { Retained::retain(appkit.ns_view.as_ptr().cast()) }
+                    .context("retaining NSView")?
+            }
             other => anyhow::bail!("expected an AppKit window handle, got {other:?}"),
         };
         let scale = winit_window.scale_factor();
         let mtm = MainThreadMarker::new()
             .context("the board surface must be installed on the main thread")?;
-        let board = unsafe {
-            NSView::initWithFrame(
-                NSView::alloc(mtm),
-                NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(1.0, 1.0)),
-            )
+        let board: Retained<BoardView> = unsafe {
+            objc2::msg_send![
+                BoardView::alloc(mtm),
+                initWithFrame: NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(1.0, 1.0))
+            ]
         };
-        unsafe {
-            board.setAutoresizingMask(NSAutoresizingMaskOptions::empty());
-            board.setHidden(true);
-            ns_view.addSubview_positioned_relativeTo(&board, NSWindowOrderingMode::Below, None);
-        }
+        board.setAutoresizingMask(NSAutoresizingMaskOptions::empty());
+        board.setHidden(true);
+        ns_view.addSubview_positioned_relativeTo(&board, NSWindowOrderingMode::Below, None);
         board.setWantsLayer(true);
-        let layer = unsafe { CAMetalLayer::layer() };
-        unsafe {
-            board.setLayer(Some(&layer));
-            layer.setContentsScale(scale);
-            layer.setDrawableSize(NSSize::new(scale, scale));
-        }
+        let layer = CAMetalLayer::layer();
+        board.setLayer(Some(&layer));
+        layer.setContentsScale(scale);
+        layer.setDrawableSize(NSSize::new(scale, scale));
         Ok(Self {
             view: board,
             layer,
