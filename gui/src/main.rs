@@ -66,7 +66,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let ui = AppWindow::new()?;
     set_window_icon(&ui);
-    window_chrome::apply(&ui);
+    window_chrome::apply(&ui, controller.borrow().prefs.is_dark());
     {
         ui.window().set_size(slint::LogicalSize::new(
             window_metrics.width as f32,
@@ -1482,6 +1482,7 @@ fn wire_modals(
                 if ctrl.editor_open {
                     sync_editor(&ui, &mut ctrl);
                 }
+                window_chrome::apply_appearance(&ui, false);
             }
             wake(&ui_weak);
         }
@@ -1498,6 +1499,7 @@ fn wire_modals(
                 if ctrl.editor_open {
                     sync_editor(&ui, &mut ctrl);
                 }
+                window_chrome::apply_appearance(&ui, true);
             }
             wake(&ui_weak);
         }
@@ -1994,7 +1996,7 @@ fn start_frame_loop(
             if !icon_done.get() {
                 if let Some(ui) = ui_weak.upgrade() {
                     set_window_icon(&ui);
-                    window_chrome::apply(&ui);
+                    window_chrome::apply(&ui, controller.borrow().prefs.is_dark());
                     icon_done.set(true);
                 }
             }
