@@ -16,12 +16,14 @@ export component CalmTip inherits Rectangle {
     in property <string> shortcut;
 
     z: 200;
+    width: content.preferred-width;
+    height: content.preferred-height;
     background: Theme.surface-hover;
     border-radius: Tokens.radius-sm;
     border-width: 1px;
     border-color: Theme.island-border;
 
-    HorizontalLayout {
+    content := HorizontalLayout {
         padding-left: Tokens.space-sm;
         padding-right: Tokens.space-sm;
         padding-top: Tokens.space-xs;

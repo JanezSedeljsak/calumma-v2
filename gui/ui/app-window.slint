@@ -1,6 +1,6 @@
 import { Landing } from "landing.slint";
 import { Editor } from "editor.slint";
-import { RecentRow, PresetRow, LayerRow, ToolEntry, BrushEntry, GuideRow } from "models.slint";
+import { RecentRow, PresetRow, LayerRow, ToolEntry, BrushEntry, GuideRow, ProjectTabRow } from "models.slint";
 import { RulerTickRow } from "ruler.slint";
 import { Titlebar } from "titlebar.slint";
 import { SettingsModal } from "settings-modal.slint";
@@ -15,10 +15,13 @@ import { ToolChrome } from "tool-chrome.slint";
 import { LayerChrome } from "layer-chrome.slint";
 import { SmartMenu, SmartMenuOverlay } from "smart-menu.slint";
 
-export { Theme, Tokens, RecentRow, PresetRow, LayerRow, ToolEntry, BrushEntry, GuideRow, RulerTickRow, ToolChrome, LayerChrome, Tip, SmartMenu }
+export { Theme, Tokens, RecentRow, PresetRow, LayerRow, ToolEntry, BrushEntry, GuideRow, RulerTickRow, ToolChrome, LayerChrome, Tip, SmartMenu, ProjectTabRow }
 
 export component AppWindow inherits Window {
     in-out property <bool> editor-open: false;
+    in-out property <bool> loading: false;
+    in property <float> loading-doc-width: 1;
+    in property <float> loading-doc-height: 1;
     in-out property <bool> settings-open: false;
     in-out property <bool> new-project-open: false;
     in-out property <bool> layers-open: true;
@@ -41,6 +44,8 @@ export component AppWindow inherits Window {
     callback paste-artwork-clicked();
     callback app-icon-clicked();
     callback back-to-landing();
+    callback switch-project-tab(string);
+    callback close-project-tab(string);
     callback create-from-modal();
 
     callback pointer-pressed(float, float, bool, bool, bool, bool);
@@ -152,8 +157,8 @@ export component AppWindow inherits Window {
     in-out property <string> project-name;
     in-out property <string> width-text;
     in-out property <string> height-text;
-    in property <string> active-project-name;
-    in property <color> active-project-accent;
+    in property <[ProjectTabRow]> project-tabs;
+    in property <string> close-project-tab-tip;
 
     in-out property <int> active-tool;
     in property <[ToolEntry]> tools;
@@ -485,6 +490,7 @@ export component AppWindow inherits Window {
             }
             preset-clicked(width, height) => {
                 root.preset-size(width, height);
+                root.create-project();
             }
             recent-clicked(id) => {
                 root.open-recent(id);
@@ -507,6 +513,9 @@ export component AppWindow inherits Window {
             width: 100%;
             height: 100%;
             visible: root.editor-open;
+            loading: root.loading;
+            loading-doc-width: root.loading-doc-width;
+            loading-doc-height: root.loading-doc-height;
             ruler-ticks-x: root.ruler-ticks-x;
             ruler-ticks-y: root.ruler-ticks-y;
             guides-tip: root.guides-tip;
@@ -720,15 +729,18 @@ export component AppWindow inherits Window {
         }
 
         Titlebar {
+            z: 10;
             y: 0;
             width: 100%;
             editor-open: root.editor-open;
-            project-name: root.active-project-name;
-            project-accent: root.active-project-accent;
+            project-tabs: root.project-tabs;
             new-project-tip: root.new-project-menu-title;
-            close-tip: root.back-to-landing-tip;
-            close-tab => {
-                root.back-to-landing();
+            close-tip: root.close-project-tab-tip;
+            switch-project-tab(id) => {
+                root.switch-project-tab(id);
+            }
+            close-project-tab(id) => {
+                root.close-project-tab(id);
             }
             new-project => {
                 root.menu-new-project();
@@ -800,6 +812,7 @@ export component AppWindow inherits Window {
             }
             preset-clicked(width, height) => {
                 root.preset-size(width, height);
+                root.create-from-modal();
             }
             recent-clicked(id) => {
                 root.open-recent(id);

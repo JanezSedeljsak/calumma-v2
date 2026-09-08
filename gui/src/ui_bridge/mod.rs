@@ -7,7 +7,7 @@ mod rulers;
 mod strings;
 mod theme;
 
-pub use editor::{set_editor_open, sync_editor, sync_layer_rows, sync_layer_settings, sync_layers};
+pub use editor::{set_editor_open, sync_editor, sync_layer_rows, sync_layer_settings, sync_layers, sync_project_tabs};
 pub use guides::{sync_guide_readout, sync_guides};
 pub use landing::{parse_dimension, refresh_landing, sync_recents};
 pub use rulers::{camera_signature, sync_rulers, sync_zoom_chrome};
@@ -39,6 +39,9 @@ pub fn sync_shell(ui: &AppWindow, controller: &AppController) {
     ui.set_toast_text(SharedString::from(controller.toast_text.as_str()));
     ui.set_toast_is_error(controller.toast_is_error);
     ui.set_layers_open(controller.prefs.layers_panel_open);
+    if controller.editor_open {
+        editor::sync_project_tabs(ui, controller);
+    }
     ui.set_can_undo(controller.can_undo());
     ui.set_can_redo(controller.can_redo());
     sync_layer_settings(ui, controller);

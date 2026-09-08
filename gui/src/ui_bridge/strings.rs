@@ -30,6 +30,7 @@ pub fn sync_strings(ui: &AppWindow, l10n: &Catalog) {
     ui.set_paste_artwork_hint(put(l10n.get("pasteArtworkHint")));
     ui.set_artwork_formats(put(l10n.get("artworkFormats")));
     ui.set_back_to_landing_tip(put(l10n.get("backToProjects")));
+    ui.set_close_project_tab_tip(put(l10n.get("closeProjectTab")));
     ui.set_settings_title(put(l10n.get("settings")));
     ui.set_theme_label(put(l10n.get("theme")));
     ui.set_theme_light_label(put(l10n.get("themeLight")));

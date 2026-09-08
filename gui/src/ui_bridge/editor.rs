@@ -1,5 +1,5 @@
 use super::landing::accent_color;
-use super::{brush, AppWindow, BrushEntry, LayerChrome, LayerRow, ToolChrome, ToolEntry};
+use super::{brush, AppWindow, BrushEntry, LayerChrome, LayerRow, ProjectTabRow, ToolChrome, ToolEntry};
 use crate::shell::{
     brush_icon_index, brush_label_key, format_bytes, grid_slot_selected, grid_slot_tip_key,
     grid_slot_tool, hue_color, slint_color, tool_family_key, tool_icon_index, tool_label_key,
@@ -118,6 +118,16 @@ fn put_rows<T: Clone + 'static>(current: ModelRc<T>, rows: Vec<T>) -> ModelRc<T>
         return current;
     }
     ModelRc::new(VecModel::from(rows))
+}
+
+pub fn sync_tool_gate(ui: &AppWindow, controller: &AppController) {
+    let tool = controller
+        .engine
+        .borrow()
+        .active_tool()
+        .unwrap_or(Tool::Pen);
+    ui.set_tools(put_rows(ui.get_tools(), tool_entries(controller, tool)));
+    sync_tool_chrome(ui, controller, tool);
 }
 
 fn sync_tool_chrome(ui: &AppWindow, controller: &AppController, tool: Tool) {
@@ -347,27 +357,28 @@ pub fn sync_layer_rows(ui: &AppWindow, controller: &mut AppController) {
 pub fn sync_layers(ui: &AppWindow, controller: &mut AppController) {
     sync_layer_rows(ui, controller);
     sync_layer_bounds(ui, controller);
+    sync_tool_gate(ui, controller);
 }
 
-fn sync_active_project(ui: &AppWindow, controller: &AppController) {
-    let name = controller
-        .engine
-        .borrow()
-        .project_name()
-        .unwrap_or_else(|| controller.l10n.get("untitled"));
-    ui.set_active_project_name(SharedString::from(name.as_str()));
-
-    let id = controller.prefs.last_active_project_id.clone();
-    let accent = id
-        .and_then(|id| {
+pub fn sync_project_tabs(ui: &AppWindow, controller: &AppController) {
+    let active = controller.active_project_id.as_deref();
+    let rows: Vec<ProjectTabRow> = controller
+        .open_tabs
+        .iter()
+        .filter_map(|id| {
             controller
-                .refresh_recents()
-                .into_iter()
-                .find(|item| item.id == id)
+                .engine
+                .borrow()
+                .project_summary(id)
+                .map(|summary| ProjectTabRow {
+                    id: SharedString::from(summary.id.as_str()),
+                    name: SharedString::from(summary.name.as_str()),
+                    accent: accent_color(&summary),
+                    active: active == Some(id.as_str()),
+                })
         })
-        .map(|item| accent_color(&item))
-        .unwrap_or(controller.theme.accent_teal);
-    ui.set_active_project_accent(accent);
+        .collect();
+    ui.set_project_tabs(ModelRc::new(VecModel::from(rows)));
 }
 
 pub fn sync_editor(ui: &AppWindow, controller: &mut AppController) {
@@ -383,10 +394,9 @@ pub fn sync_editor(ui: &AppWindow, controller: &mut AppController) {
         )
     };
     ui.set_active_tool(tool as i32);
-    ui.set_tools(put_rows(ui.get_tools(), tool_entries(controller, tool)));
+    sync_tool_gate(ui, controller);
     let label = controller.l10n.get(tool_family_key(tool));
     ui.set_active_tool_label(SharedString::from(label.as_str()));
-    sync_tool_chrome(ui, controller, tool);
     ui.set_zoom_unit(zoom_unit);
     ui.set_zoom_text(SharedString::from(format!(
         "{}%",
@@ -398,7 +408,7 @@ pub fn sync_editor(ui: &AppWindow, controller: &mut AppController) {
         ui.set_doc_width_text(SharedString::from(format!("{width}")));
         ui.set_doc_height_text(SharedString::from(format!("{height}")));
     }
-    sync_active_project(ui, controller);
+    sync_project_tabs(ui, controller);
     ui.set_tools_busy(controller.tools_busy);
     ui.set_smart_matte_label(SharedString::from(controller.smart_matte_label().as_str()));
     let can_tools = controller.can_run_smart_tools();

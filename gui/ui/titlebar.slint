@@ -1,14 +1,15 @@
 import { Tokens } from "calm/CalmTokens.slint";
 import { ProjectTabs } from "project-tabs.slint";
+import { ProjectTabRow } from "models.slint";
 
 export component Titlebar inherits Rectangle {
     in property <bool> editor-open;
-    in property <string> project-name;
-    in property <color> project-accent;
-    in property <string> new-project-tip;
+    in property <[ProjectTabRow]> project-tabs;
     in property <string> close-tip;
+    in property <string> new-project-tip;
 
-    callback close-tab();
+    callback switch-project-tab(string);
+    callback close-project-tab(string);
     callback new-project();
     callback drag();
     callback zoom();
@@ -25,21 +26,19 @@ export component Titlebar inherits Rectangle {
             width: Tokens.titlebar-leading;
         }
 
-        if root.editor-open: Rectangle {
-            width: tabs.preferred-width;
-
-            tabs := ProjectTabs {
-                y: (parent.height - self.height) / 2;
-                project-name: root.project-name;
-                project-accent: root.project-accent;
-                new-project-tip: root.new-project-tip;
-                close-tip: root.close-tip;
-                close-tab => {
-                    root.close-tab();
-                }
-                new-project => {
-                    root.new-project();
-                }
+        if root.editor-open: ProjectTabs {
+            y: (parent.height - self.height) / 2;
+            tabs: root.project-tabs;
+            close-tip: root.close-tip;
+            new-project-tip: root.new-project-tip;
+            switch-tab(id) => {
+                root.switch-project-tab(id);
+            }
+            close-tab(id) => {
+                root.close-project-tab(id);
+            }
+            new-project => {
+                root.new-project();
             }
         }
 

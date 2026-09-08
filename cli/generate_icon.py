@@ -11,51 +11,50 @@ from PIL import Image, ImageDraw
 ICON_SOURCE = DESIGN / "icon.png"
 ICON_OUTPUT = DESIGN / "icon-rounded.png"
 ICON_SIZE = 256
-ICON_RADIUS = 48
 COMPOSE_SIZE = 1024
 BACKGROUND = (0x22, 0x22, 0x22, 255)
-PAD_FRACTION = 0.18
+MARK_PAD_FRACTION = 0.18
+MARK_SCALE_BOOST = 1.3
+MARK_HEIGHT_BOOST = 1.1
+BADGE_INSET_FRACTION = 0.065
+BADGE_RADIUS_FRACTION = 0.22
 
 
-def rounded_mask(size: int, radius: int) -> Image.Image:
-    mask = Image.new("L", (size, size), 0)
-    ImageDraw.Draw(mask).rounded_rectangle((0, 0, size - 1, size - 1), radius=radius, fill=255)
-    return mask
+def compose_icon(mark: Image.Image, size: int) -> Image.Image:
+    canvas = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    margin = round(size * BADGE_INSET_FRACTION)
+    badge_side = size - margin * 2
+    radius = round(badge_side * BADGE_RADIUS_FRACTION)
 
+    draw = ImageDraw.Draw(canvas)
+    draw.rounded_rectangle(
+        (margin, margin, margin + badge_side - 1, margin + badge_side - 1),
+        radius=radius,
+        fill=BACKGROUND,
+    )
 
-def compose_mark(
-    mark: Image.Image, size: int, background: tuple[int, int, int, int], pad_fraction: float
-) -> Image.Image:
-    canvas = Image.new("RGBA", (size, size), background)
-    max_dim = size * (1 - pad_fraction * 2)
-    scale = min(max_dim / mark.width, max_dim / mark.height)
+    max_dim = badge_side * (1 - MARK_PAD_FRACTION * 2)
+    scale = min(max_dim / mark.width, max_dim / mark.height) * MARK_SCALE_BOOST
     new_w = round(mark.width * scale)
-    new_h = round(mark.height * scale)
-    resized = mark.resize((new_w, new_h), Image.Resampling.LANCZOS)
+    new_h = round(mark.height * scale * MARK_HEIGHT_BOOST)
+    resized_mark = mark.resize((new_w, new_h), Image.Resampling.LANCZOS)
     ox = (size - new_w) // 2
     oy = (size - new_h) // 2
-    canvas.alpha_composite(resized, (ox, oy))
+    canvas.alpha_composite(resized_mark, (ox, oy))
     return canvas
 
 
 def generate_icon(
-    source: Path = ICON_SOURCE,
-    dest: Path = ICON_OUTPUT,
-    size: int = ICON_SIZE,
-    radius: int = ICON_RADIUS,
+    source: Path = ICON_SOURCE, dest: Path = ICON_OUTPUT, size: int = ICON_SIZE
 ) -> Path:
     with Image.open(source) as img:
         mark = img.convert("RGBA")
 
-    composed = compose_mark(mark, COMPOSE_SIZE, BACKGROUND, PAD_FRACTION)
+    composed = compose_icon(mark, COMPOSE_SIZE)
     resized = composed.resize((size, size), Image.Resampling.LANCZOS)
 
-    mask = rounded_mask(size, radius)
-    rounded = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    rounded.paste(resized, (0, 0), mask)
-
     dest.parent.mkdir(parents=True, exist_ok=True)
-    rounded.save(dest, format="PNG", optimize=True, compress_level=9)
+    resized.save(dest, format="PNG", optimize=True, compress_level=9)
     return dest
 
 
@@ -66,9 +65,7 @@ def main() -> int:
 
     dest = generate_icon()
     size_kb = dest.stat().st_size // 1024
-    print(
-        f"{MSG_WROTE} {dest.relative_to(ROOT)} ({ICON_SIZE}x{ICON_SIZE}, {size_kb} KB, {ICON_RADIUS}px radius)"
-    )
+    print(f"{MSG_WROTE} {dest.relative_to(ROOT)} ({ICON_SIZE}x{ICON_SIZE}, {size_kb} KB)")
     return 0
 
 

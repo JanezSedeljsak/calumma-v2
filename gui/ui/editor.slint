@@ -8,6 +8,7 @@ import { Tip } from "calm/CalmTip.slint";
 import { ToolsPanel } from "tools-panel.slint";
 import { LayersPanel, LayerHoverCard } from "layers-panel.slint";
 import { ZoomPill } from "zoom-pill.slint";
+import { CanvasSkeleton } from "canvas-skeleton.slint";
 import { RulerStrip, RulerTickRow } from "ruler.slint";
 
 export component Editor inherits Rectangle {
@@ -45,6 +46,10 @@ export component Editor inherits Rectangle {
     in property <string> zoom-in-tip;
     in property <string> zoom-out-tip;
     in property <string> fit-tip;
+
+    in property <bool> loading;
+    in property <float> loading-doc-width;
+    in property <float> loading-doc-height;
 
     in property <bool> tools-busy;
     in property <string> tools-menu-title;
@@ -413,6 +418,13 @@ export component Editor inherits Rectangle {
                                         root.pointer-exit();
                                     }
                                 }
+                            }
+
+                            if root.loading: CanvasSkeleton {
+                                width: 100%;
+                                height: 100%;
+                                doc-width: root.loading-doc-width;
+                                doc-height: root.loading-doc-height;
                             }
                         }
                     }

@@ -12,7 +12,7 @@ use input::{
     handle_key_press_for_modifiers, handle_key_release, handle_shell_key, EditorKeyAction,
     KeyPressModifierAction, KeyReleaseAction, Modifiers, ShellKeyAction,
 };
-use shell::{pick_artwork_file, shared, workspace_root, SharedController, Theme};
+use shell::{pick_artwork_file, shared, workspace_root, SharedController, TabCloseResult, Theme};
 use slint::ComponentHandle;
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
@@ -20,8 +20,8 @@ use std::time::Duration;
 use ui_bridge::{
     camera_signature, init_form_defaults, parse_dimension, refresh_landing, set_editor_open,
     sync_editor, sync_guide_readout, sync_guides, sync_layer_rows, sync_layer_settings,
-    sync_layers, sync_rulers, sync_shell, sync_zoom_chrome, AppWindow, SharedUi, DEFAULT_HEIGHT,
-    DEFAULT_WIDTH,
+    sync_layers, sync_project_tabs, sync_rulers, sync_shell, sync_zoom_chrome, AppWindow,
+    SharedUi, DEFAULT_HEIGHT, DEFAULT_WIDTH,
 };
 
 struct InputState {
@@ -75,19 +75,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     let ui_weak = ui.as_weak();
 
-    {
+    let restored = {
         let mut ctrl = controller.borrow_mut();
         refresh_landing(&ui, &ctrl);
         init_form_defaults(&ui, &ctrl.l10n);
         ui.set_layers_open(ctrl.prefs.layers_panel_open);
-        if !ctrl.try_restore_last() {
+        let restored = ctrl.restore_open_tabs();
+        if restored.is_some() {
+            ctrl.editor_open = true;
+            ui.set_editor_open(true);
+            host.borrow_mut().set_active(true);
+        } else {
             ctrl.editor_open = false;
+            ui.set_editor_open(false);
+            host.borrow_mut().set_active(false);
         }
-        ui.set_editor_open(ctrl.editor_open);
-        host.borrow_mut().set_active(ctrl.editor_open);
-        if ctrl.editor_open {
-            sync_editor(&ui, &mut ctrl);
-        }
+        restored
+    };
+    if let Some(summary) = restored {
+        deferred_load_project(summary, controller.clone(), ui_weak.clone(), host.clone());
     }
 
     wire_landing_callbacks(&ui, controller.clone(), host.clone(), ui_weak.clone());
@@ -162,11 +168,15 @@ fn wire_landing_callbacks(
         move |id| {
             let ui = ui_weak.upgrade().unwrap();
             let id = id.to_string();
-            let mut ctrl = controller.borrow_mut();
-            if ctrl.open_project(&id).is_ok() {
-                set_editor_open(&ui, &mut ctrl, true);
-                host.borrow_mut().set_active(true);
-                setup_board(&ui_weak, &host);
+            let summary = {
+                let mut ctrl = controller.borrow_mut();
+                ctrl.prepare_switch_to(&id)
+            };
+            if let Some(summary) = summary {
+                deferred_load_project(summary, controller.clone(), ui_weak.clone(), host.clone());
+            } else {
+                let ctrl = controller.borrow();
+                sync_project_tabs(&ui, &ctrl);
             }
         }
     });
@@ -178,11 +188,8 @@ fn wire_landing_callbacks(
         move |id| {
             let ui = ui_weak.upgrade().unwrap();
             let id = id.to_string();
-            let mut ctrl = controller.borrow_mut();
-            let _ = ctrl.delete_project(&id);
-            host.borrow_mut().set_active(ctrl.editor_open);
-            ui.set_editor_open(ctrl.editor_open);
-            sync_shell(&ui, &ctrl);
+            let result = controller.borrow_mut().delete_project(&id);
+            handle_tab_close_result(result, controller.clone(), ui_weak.clone(), host.clone(), &ui);
         }
     });
 
@@ -193,10 +200,21 @@ fn wire_landing_callbacks(
         move || {
             let ui = ui_weak.upgrade().unwrap();
             let mut ctrl = controller.borrow_mut();
-            let _ = ctrl.clear_recents();
-            host.borrow_mut().set_active(false);
-            ui.set_editor_open(false);
-            sync_shell(&ui, &ctrl);
+            let title = ctrl.l10n.get("clearAllRecentsTitle");
+            let message = ctrl.l10n.get("clearAllRecentsMessage");
+            let ok = ctrl.l10n.get("clearAllRecents");
+            let cancel = ctrl.l10n.get("cancel");
+            let cleared = ctrl
+                .clear_recents_confirmed(&title, &message, &ok, &cancel)
+                .unwrap_or(false);
+            if cleared {
+                host.borrow_mut().set_active(false);
+                ui.set_editor_open(false);
+                ui.set_loading(false);
+                refresh_landing(&ui, &ctrl);
+            } else {
+                sync_shell(&ui, &ctrl);
+            }
         }
     });
 
@@ -244,7 +262,37 @@ fn wire_editor_callbacks(
             ctrl.close_editor();
             host.borrow_mut().set_active(false);
             ui.set_editor_open(false);
+            ui.set_loading(false);
             refresh_landing(&ui, &ctrl);
+        }
+    });
+
+    ui.on_switch_project_tab({
+        let controller = controller.clone();
+        let ui_weak = ui_weak.clone();
+        let host = host.clone();
+        move |id| {
+            let id = id.to_string();
+            let summary = {
+                let mut ctrl = controller.borrow_mut();
+                ctrl.bump_load_generation();
+                ctrl.prepare_switch_to(&id)
+            };
+            if let Some(summary) = summary {
+                deferred_load_project(summary, controller.clone(), ui_weak.clone(), host.clone());
+            }
+        }
+    });
+
+    ui.on_close_project_tab({
+        let controller = controller.clone();
+        let ui_weak = ui_weak.clone();
+        let host = host.clone();
+        move |id| {
+            let ui = ui_weak.upgrade().unwrap();
+            let id = id.to_string();
+            let result = controller.borrow_mut().close_project_tab(&id);
+            handle_tab_close_result(result, controller.clone(), ui_weak.clone(), host.clone(), &ui);
         }
     });
 
@@ -626,6 +674,14 @@ fn wire_editor_callbacks(
             };
             host.borrow_mut().pointer_pressed(x, y, mods, middle);
             refresh_board_cursor(&host, &controller, &input);
+            if let Some(ui) = ui_weak.upgrade() {
+                let mut ctrl = controller.borrow_mut();
+                ctrl.announce_tool_block_if_any();
+                if ctrl.toast_visible {
+                    sync_shell(&ui, &ctrl);
+                    schedule_toast_hide(&ui_weak, controller.clone());
+                }
+            }
             wake(&ui_weak);
         }
     });
@@ -839,9 +895,10 @@ fn wire_menus(ui: &AppWindow, controller: SharedController, ui_weak: SharedUi) {
         let controller = controller.clone();
         let ui_weak = ui_weak.clone();
         move || {
-            controller.borrow_mut().settings_open = true;
+            let mut ctrl = controller.borrow_mut();
+            ctrl.open_settings();
             if let Some(ui) = ui_weak.upgrade() {
-                sync_shell(&ui, &controller.borrow());
+                sync_shell(&ui, &ctrl);
             }
         }
     });
@@ -1422,7 +1479,11 @@ fn wire_modals(
             let _ = ctrl.set_theme_dark(false);
             if let Some(ui) = ui_weak.upgrade() {
                 sync_shell(&ui, &ctrl);
+                if ctrl.editor_open {
+                    sync_editor(&ui, &mut ctrl);
+                }
             }
+            wake(&ui_weak);
         }
     });
 
@@ -1434,7 +1495,11 @@ fn wire_modals(
             let _ = ctrl.set_theme_dark(true);
             if let Some(ui) = ui_weak.upgrade() {
                 sync_shell(&ui, &ctrl);
+                if ctrl.editor_open {
+                    sync_editor(&ui, &mut ctrl);
+                }
             }
+            wake(&ui_weak);
         }
     });
 
@@ -1446,7 +1511,11 @@ fn wire_modals(
             let _ = ctrl.set_language("en");
             if let Some(ui) = ui_weak.upgrade() {
                 sync_shell(&ui, &ctrl);
+                if ctrl.editor_open {
+                    sync_editor(&ui, &mut ctrl);
+                }
             }
+            wake(&ui_weak);
         }
     });
 
@@ -1681,7 +1750,7 @@ fn wire_shell_keys(
                     }
                 }
                 ShellKeyAction::OpenSettings => {
-                    controller.borrow_mut().settings_open = true;
+                    controller.borrow_mut().open_settings();
                 }
                 ShellKeyAction::NewProject => {
                     controller.borrow_mut().new_project_open = true;
@@ -1771,6 +1840,80 @@ fn wire_shell_keys(
     });
 }
 
+fn deferred_load_project(
+    summary: calumma_app::ProjectSummary,
+    controller: SharedController,
+    ui_weak: SharedUi,
+    host: Rc<RefCell<BoardHost>>,
+) {
+    let id = summary.id.clone();
+    let ui = ui_weak.upgrade().unwrap();
+    ui.set_editor_open(true);
+    ui.set_loading(true);
+    ui.set_loading_doc_width(summary.width as f32);
+    ui.set_loading_doc_height(summary.height as f32);
+    host.borrow_mut().set_active(true);
+    setup_board(&ui_weak, &host);
+    sync_project_tabs(&ui, &controller.borrow());
+
+    let gen = controller.borrow_mut().bump_load_generation();
+    let controller = controller.clone();
+    let ui_weak = ui_weak.clone();
+    let host = host.clone();
+    slint::Timer::single_shot(Duration::ZERO, move || {
+        let Some(ui) = ui_weak.upgrade() else {
+            return;
+        };
+        let mut ctrl = controller.borrow_mut();
+        if ctrl.load_generation != gen {
+            return;
+        }
+        if ctrl.load_project(&id).is_ok() {
+            set_editor_open(&ui, &mut ctrl, true);
+        } else {
+            ui.set_editor_open(false);
+            host.borrow_mut().set_active(false);
+        }
+        sync_shell(&ui, &ctrl);
+        drop(ctrl);
+
+        let ui_weak = ui_weak.clone();
+        slint::Timer::single_shot(Duration::from_millis(200), move || {
+            if let Some(ui) = ui_weak.upgrade() {
+                ui.set_loading(false);
+            }
+        });
+    });
+}
+
+fn handle_tab_close_result(
+    result: TabCloseResult,
+    controller: SharedController,
+    ui_weak: SharedUi,
+    host: Rc<RefCell<BoardHost>>,
+    ui: &AppWindow,
+) {
+    match result {
+        TabCloseResult::Unchanged => {
+            let ctrl = controller.borrow();
+            sync_project_tabs(ui, &ctrl);
+            sync_shell(ui, &ctrl);
+        }
+        TabCloseResult::SwitchTo(next) => {
+            let summary = controller.borrow_mut().prepare_switch_to(&next);
+            if let Some(summary) = summary {
+                deferred_load_project(summary, controller, ui_weak, host);
+            }
+        }
+        TabCloseResult::ShowLanding => {
+            host.borrow_mut().set_active(false);
+            ui.set_editor_open(false);
+            ui.set_loading(false);
+            refresh_landing(ui, &controller.borrow());
+        }
+    }
+}
+
 fn setup_board(ui_weak: &SharedUi, host: &Rc<RefCell<BoardHost>>) {
     if let Some(ui) = ui_weak.upgrade() {
         sync_board_geometry(&ui, host);
@@ -1783,7 +1926,8 @@ fn sync_board_geometry(ui: &AppWindow, host: &Rc<RefCell<BoardHost>>) {
     let overlay = ui.get_settings_open()
         || ui.get_new_project_open()
         || ui.get_guides_open()
-        || ui.get_layer_settings_open();
+        || ui.get_layer_settings_open()
+        || ui.get_loading();
     let layout = board_layout(
         ui.get_board_x(),
         ui.get_board_y(),

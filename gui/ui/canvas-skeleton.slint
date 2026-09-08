@@ -1,0 +1,42 @@
+import { Theme } from "calm/CalmTheme.slint";
+import { Tokens } from "calm/CalmTokens.slint";
+
+export component CanvasSkeleton inherits Rectangle {
+    in property <float> doc-width: 1;
+    in property <float> doc-height: 1;
+
+    background: Theme.desk;
+    clip: true;
+
+    private property <float> phase: 0;
+
+    sweep-timer := Timer {
+        interval: 16ms;
+        running: true;
+        triggered => {
+            root.phase = root.phase >= 1 ? 0 : root.phase + 0.014;
+        }
+    }
+
+    private property <float> fit-scale: min(
+        (root.width / 1px * Tokens.fit-padding) / max(root.doc-width, 1),
+        (root.height / 1px * Tokens.fit-padding) / max(root.doc-height, 1));
+
+    paper := Rectangle {
+        width: root.doc-width * root.fit-scale * 1px;
+        height: root.doc-height * root.fit-scale * 1px;
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        background: Theme.paper;
+        border-width: 1px;
+        border-color: Theme.paper-border;
+        clip: true;
+
+        Rectangle {
+            width: parent.width * 0.4;
+            height: parent.height;
+            x: root.phase * (parent.width + self.width) - self.width;
+            background: @linear-gradient(90deg, transparent 0%, Theme.surface-hover 50%, transparent 100%);
+        }
+    }
+}

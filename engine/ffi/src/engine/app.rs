@@ -199,6 +199,27 @@ impl Engine {
         Ok(())
     }
 
+    pub fn project_summary(&self, id: &str) -> Option<ProjectSummary> {
+        self.inner
+            .lock()
+            .store
+            .project(id)
+            .ok()
+            .map(|item| ProjectSummary::from(&item))
+    }
+
+    pub fn open_project_tab_ids(&self) -> Vec<String> {
+        self.inner
+            .lock()
+            .store
+            .open_project_tabs()
+            .unwrap_or_default()
+    }
+
+    pub fn persist_open_project_tabs(&self, ids: &[String]) {
+        let _ = self.inner.lock().store.set_open_project_tabs(ids);
+    }
+
     pub fn close_project(&mut self) {
         self.inner.lock().close_document();
     }
@@ -510,6 +531,14 @@ impl Engine {
             .as_ref()
             .map(|doc| doc.tool_block(tool))
             .unwrap_or(ToolBlock::None)
+    }
+
+    pub fn take_tool_block_notice(&mut self) -> Option<ToolBlock> {
+        self.inner
+            .lock()
+            .doc
+            .as_mut()
+            .and_then(|doc| doc.take_tool_block_notice())
     }
 
     pub fn last_select_tool(&self) -> Tool {

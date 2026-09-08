@@ -1,7 +1,8 @@
 use super::export::{project_basename, save_bytes, save_text};
+use super::dialogs::confirm;
 use super::{format_bytes, Catalog, LayerThumbCache, QuickColors, ShellPrefs, Theme};
 use anyhow::Result;
-use calumma_app::{pick_tool, Engine, LayerSummary, ProjectSummary};
+use calumma_app::{pick_tool, Engine, LayerSummary, ProjectSummary, ToolBlock};
 use calumma_core::{guide::GuideAxis, BlendMode, CropOverlayStyle, Tool};
 use calumma_io::RasterFormat;
 use std::cell::RefCell;
@@ -15,6 +16,9 @@ pub struct AppController {
     pub l10n: Catalog,
     pub root: PathBuf,
     pub editor_open: bool,
+    pub open_tabs: Vec<String>,
+    pub active_project_id: Option<String>,
+    pub load_generation: u64,
     pub settings_open: bool,
     pub new_project_open: bool,
     pub layer_settings_open: bool,
@@ -32,6 +36,12 @@ pub struct AppController {
     pub toast_is_error: bool,
 }
 
+pub enum TabCloseResult {
+    Unchanged,
+    SwitchTo(String),
+    ShowLanding,
+}
+
 impl AppController {
     pub fn new(root: PathBuf) -> Result<Self> {
         let prefs = ShellPrefs::load();
@@ -45,6 +55,9 @@ impl AppController {
             l10n,
             root,
             editor_open: false,
+            open_tabs: Vec::new(),
+            active_project_id: None,
+            load_generation: 0,
             settings_open: false,
             new_project_open: false,
             layer_settings_open: false,
@@ -164,19 +177,116 @@ impl AppController {
         self.engine.borrow().list_recent_projects(32)
     }
 
-    pub fn try_restore_last(&mut self) -> bool {
-        let Some(id) = self.prefs.last_active_project_id.clone() else {
-            return false;
-        };
-        if self.engine.borrow_mut().open_project(&id).is_err() {
-            self.prefs.set_last_active_project(None);
-            return false;
+    pub fn bump_load_generation(&mut self) -> u64 {
+        self.load_generation += 1;
+        self.load_generation
+    }
+
+    fn persist_tabs(&self) {
+        self.engine
+            .borrow()
+            .persist_open_project_tabs(&self.open_tabs);
+    }
+
+    fn add_open_tab(&mut self, id: &str) {
+        if !self.open_tabs.iter().any(|tab| tab == id) {
+            self.open_tabs.push(id.to_string());
+            self.persist_tabs();
         }
+    }
+
+    fn project_summary(&self, id: &str) -> Option<ProjectSummary> {
+        self.engine.borrow().project_summary(id)
+    }
+
+    pub fn restore_open_tabs(&mut self) -> Option<ProjectSummary> {
+        let stored = self.engine.borrow().open_project_tab_ids();
+        let mut tabs: Vec<String> = stored
+            .into_iter()
+            .filter(|id| self.project_summary(id).is_some())
+            .collect();
+        if tabs.is_empty() {
+            if let Some(id) = self.prefs.last_active_project_id.clone() {
+                if self.project_summary(&id).is_some() {
+                    tabs.push(id);
+                }
+            }
+        }
+        if tabs.is_empty() {
+            return None;
+        }
+        self.open_tabs = tabs;
+        self.persist_tabs();
+        let active_id = self
+            .prefs
+            .last_active_project_id
+            .clone()
+            .filter(|id| self.open_tabs.iter().any(|tab| tab == id))
+            .or_else(|| {
+                self.open_tabs
+                    .iter()
+                    .filter_map(|id| self.project_summary(id))
+                    .max_by_key(|summary| summary.opened_at)
+                    .map(|summary| summary.id.clone())
+            })
+            .unwrap_or_else(|| self.open_tabs[0].clone());
+        self.active_project_id = Some(active_id.clone());
+        self.project_summary(&active_id)
+    }
+
+    pub fn prepare_switch_to(&mut self, id: &str) -> Option<ProjectSummary> {
+        if self.active_project_id.as_deref() == Some(id)
+            && self.editor_open
+            && self.engine.borrow().has_project()
+        {
+            return None;
+        }
+        let summary = self.project_summary(id)?;
+        self.add_open_tab(id);
+        self.active_project_id = Some(id.to_string());
+        self.prefs.set_last_active_project(Some(id));
+        let _ = self.prefs.save();
+        self.dismiss_modals();
+        Some(summary)
+    }
+
+    pub fn load_project(&mut self, id: &str) -> Result<()> {
+        self.engine.borrow_mut().open_project(id)?;
         self.engine.borrow_mut().prepare_editor();
         self.push_board_colors();
         self.load_quick_colors_from_engine();
+        self.active_project_id = Some(id.to_string());
+        self.prefs.set_last_active_project(Some(id));
+        let _ = self.prefs.save();
         self.editor_open = true;
-        true
+        Ok(())
+    }
+
+    fn reset_editor_state(&mut self) {
+        self.active_project_id = None;
+        self.prefs.set_last_active_project(None);
+        let _ = self.prefs.save();
+        self.editor_open = false;
+        self.guides_open = false;
+        self.guide_drag_pos = None;
+        self.pinch_zoom = None;
+    }
+
+    pub fn close_project_tab(&mut self, id: &str) -> TabCloseResult {
+        self.bump_load_generation();
+        self.open_tabs.retain(|tab| tab != id);
+        self.persist_tabs();
+        if self.active_project_id.as_deref() != Some(id) {
+            return TabCloseResult::Unchanged;
+        }
+        self.engine.borrow_mut().flush_save();
+        self.engine.borrow_mut().close_project();
+        if let Some(next) = self.open_tabs.last().cloned() {
+            TabCloseResult::SwitchTo(next)
+        } else {
+            self.reset_editor_state();
+            TabCloseResult::ShowLanding
+        }
     }
 
     pub fn create_project(&mut self, name: &str, width: u32, height: u32) -> Result<()> {
@@ -184,6 +294,8 @@ impl AppController {
             .engine
             .borrow_mut()
             .create_project(name, width, height)?;
+        self.add_open_tab(&id);
+        self.active_project_id = Some(id.clone());
         self.prefs.set_last_active_project(Some(&id));
         self.prefs.save()?;
         self.engine.borrow_mut().prepare_editor();
@@ -199,6 +311,8 @@ impl AppController {
             .engine
             .borrow_mut()
             .create_project_from_encoded(&name, bytes)?;
+        self.add_open_tab(&id);
+        self.active_project_id = Some(id.clone());
         self.prefs.set_last_active_project(Some(&id));
         self.prefs.save()?;
         self.engine.borrow_mut().prepare_editor();
@@ -208,47 +322,76 @@ impl AppController {
         Ok(())
     }
 
-    pub fn open_project(&mut self, id: &str) -> Result<()> {
-        self.engine.borrow_mut().open_project(id)?;
-        self.prefs.set_last_active_project(Some(id));
-        self.prefs.save()?;
-        self.engine.borrow_mut().prepare_editor();
-        self.push_board_colors();
-        self.load_quick_colors_from_engine();
-        self.editor_open = true;
-        Ok(())
-    }
-
     pub fn close_editor(&mut self) {
+        self.bump_load_generation();
+        self.engine.borrow_mut().flush_save();
         self.engine.borrow_mut().close_project();
-        self.prefs.set_last_active_project(None);
-        let _ = self.prefs.save();
-        self.editor_open = false;
-        self.guides_open = false;
-        self.guide_drag_pos = None;
-        self.pinch_zoom = None;
+        self.open_tabs.clear();
+        self.persist_tabs();
+        self.reset_editor_state();
     }
 
-    pub fn delete_project(&mut self, id: &str) -> Result<()> {
-        self.engine.borrow_mut().delete_project(id)?;
-        if self.prefs.last_active_project_id.as_deref() == Some(id) {
-            self.prefs.set_last_active_project(None);
-            self.prefs.save()?;
-            self.editor_open = false;
+    pub fn delete_project(&mut self, id: &str) -> TabCloseResult {
+        self.bump_load_generation();
+        self.open_tabs.retain(|tab| tab != id);
+        self.persist_tabs();
+        let was_active = self.active_project_id.as_deref() == Some(id);
+        if was_active {
+            self.engine.borrow_mut().flush_save();
         }
-        Ok(())
+        let _ = self.engine.borrow_mut().delete_project(id);
+        if !was_active {
+            return TabCloseResult::Unchanged;
+        }
+        self.active_project_id = None;
+        if let Some(next) = self.open_tabs.last().cloned() {
+            TabCloseResult::SwitchTo(next)
+        } else {
+            self.reset_editor_state();
+            TabCloseResult::ShowLanding
+        }
     }
 
     pub fn clear_recents(&mut self) -> Result<()> {
+        self.bump_load_generation();
         self.engine.borrow_mut().delete_all_projects()?;
-        self.prefs.set_last_active_project(None);
-        self.prefs.save()?;
-        self.editor_open = false;
+        self.open_tabs.clear();
+        self.persist_tabs();
+        self.reset_editor_state();
         Ok(())
     }
 
+    pub fn open_settings(&mut self) {
+        self.settings_open = true;
+    }
+
+    pub fn clear_recents_confirmed(&mut self, title: &str, message: &str, ok: &str, cancel: &str) -> Result<bool> {
+        if !confirm(title, message, ok, cancel) {
+            return Ok(false);
+        }
+        self.clear_recents()?;
+        Ok(true)
+    }
+
     pub fn pick_tool(&mut self, tool: Tool) {
+        if self.engine.borrow().tool_block(tool) != ToolBlock::None {
+            return;
+        }
         pick_tool(&mut self.engine.borrow_mut(), tool);
+    }
+
+    pub fn announce_tool_block_if_any(&mut self) {
+        let block = self.engine.borrow_mut().take_tool_block_notice();
+        let key = match block {
+            Some(ToolBlock::LayerLocked) => Some("toolBlockedLocked"),
+            Some(ToolBlock::TextLayer) => Some("toolBlockedText"),
+            Some(ToolBlock::VectorLayer) => Some("toolBlockedVector"),
+            Some(ToolBlock::NoContent) => Some("toolBlockedEmpty"),
+            _ => None,
+        };
+        if let Some(key) = key {
+            self.show_toast_key(key, true);
+        }
     }
 
     pub fn set_brush_size_unit(&mut self, unit: f32) {

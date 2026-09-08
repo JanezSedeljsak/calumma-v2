@@ -17,6 +17,8 @@ pub fn apply_theme(ui: &AppWindow, theme: &Theme) {
     palette.set_control_focus_border(theme.control_focus_border);
     palette.set_danger(theme.danger);
     palette.set_paper(theme.paper);
+    palette.set_paper_border(theme.paper_border);
+    palette.set_desk(theme.desk);
 
     let metrics = &theme.metrics;
     let tokens = ui.global::<UiTokens>();
@@ -45,6 +47,7 @@ pub fn apply_theme(ui: &AppWindow, theme: &Theme) {
     tokens.set_paste_max_width(metrics.paste_max_width);
     tokens.set_paste_min_height(metrics.paste_min_height);
     tokens.set_paste_width_ratio(metrics.paste_width_ratio);
+    tokens.set_fit_padding(calumma_core::limits::FIT_PADDING);
 
     let presets: Vec<PresetRow> = theme
         .presets
