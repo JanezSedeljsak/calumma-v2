@@ -41,6 +41,9 @@ GUI = ROOT / DIR_GUI_ROOT
 GUI_MANIFEST = GUI / FILE_CARGO_TOML
 CALUMMA_HEADER_DIR = ENGINE / "ffi" / "include"
 
+MCP_DEVTOOLS_FEATURE = "mcp-devtools"
+MCP_DEVTOOLS_PORT = 7883
+
 DIST = ROOT / DIR_DIST
 
 CRATE_DIRS = ("core", "io", "ops", "render", "ffi")

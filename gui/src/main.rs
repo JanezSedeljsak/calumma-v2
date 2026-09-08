@@ -20,8 +20,8 @@ use std::time::Duration;
 use ui_bridge::{
     camera_signature, init_form_defaults, parse_dimension, refresh_landing, set_editor_open,
     sync_editor, sync_guide_readout, sync_guides, sync_layer_rows, sync_layer_settings,
-    sync_layers, sync_project_tabs, sync_rulers, sync_shell, sync_zoom_chrome, AppWindow,
-    SharedUi, DEFAULT_HEIGHT, DEFAULT_WIDTH,
+    sync_layers, sync_project_tabs, sync_rulers, sync_shell, sync_zoom_chrome, AppWindow, SharedUi,
+    DEFAULT_HEIGHT, DEFAULT_WIDTH,
 };
 
 struct InputState {
@@ -49,6 +49,10 @@ fn init_platform() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
     slint::platform::set_platform(Box::new(builder.build()?))?;
+    #[cfg(feature = "mcp-devtools")]
+    if let Err(err) = i_slint_backend_testing::mcp_server::init() {
+        eprintln!("mcp-devtools: failed to start Slint MCP server: {err:?}");
+    }
     Ok(())
 }
 
@@ -189,7 +193,13 @@ fn wire_landing_callbacks(
             let ui = ui_weak.upgrade().unwrap();
             let id = id.to_string();
             let result = controller.borrow_mut().delete_project(&id);
-            handle_tab_close_result(result, controller.clone(), ui_weak.clone(), host.clone(), &ui);
+            handle_tab_close_result(
+                result,
+                controller.clone(),
+                ui_weak.clone(),
+                host.clone(),
+                &ui,
+            );
         }
     });
 
@@ -292,7 +302,13 @@ fn wire_editor_callbacks(
             let ui = ui_weak.upgrade().unwrap();
             let id = id.to_string();
             let result = controller.borrow_mut().close_project_tab(&id);
-            handle_tab_close_result(result, controller.clone(), ui_weak.clone(), host.clone(), &ui);
+            handle_tab_close_result(
+                result,
+                controller.clone(),
+                ui_weak.clone(),
+                host.clone(),
+                &ui,
+            );
         }
     });
 

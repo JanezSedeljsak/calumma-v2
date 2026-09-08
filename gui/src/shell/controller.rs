@@ -1,5 +1,5 @@
-use super::export::{project_basename, save_bytes, save_text};
 use super::dialogs::confirm;
+use super::export::{project_basename, save_bytes, save_text};
 use super::{format_bytes, Catalog, LayerThumbCache, QuickColors, ShellPrefs, Theme};
 use anyhow::Result;
 use calumma_app::{pick_tool, Engine, LayerSummary, ProjectSummary, ToolBlock};
@@ -365,7 +365,13 @@ impl AppController {
         self.settings_open = true;
     }
 
-    pub fn clear_recents_confirmed(&mut self, title: &str, message: &str, ok: &str, cancel: &str) -> Result<bool> {
+    pub fn clear_recents_confirmed(
+        &mut self,
+        title: &str,
+        message: &str,
+        ok: &str,
+        cancel: &str,
+    ) -> Result<bool> {
         if !confirm(title, message, ok, cancel) {
             return Ok(false);
         }

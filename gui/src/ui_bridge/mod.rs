@@ -7,7 +7,10 @@ mod rulers;
 mod strings;
 mod theme;
 
-pub use editor::{set_editor_open, sync_editor, sync_layer_rows, sync_layer_settings, sync_layers, sync_project_tabs};
+pub use editor::{
+    set_editor_open, sync_editor, sync_layer_rows, sync_layer_settings, sync_layers,
+    sync_project_tabs,
+};
 pub use guides::{sync_guide_readout, sync_guides};
 pub use landing::{parse_dimension, refresh_landing, sync_recents};
 pub use rulers::{camera_signature, sync_rulers, sync_zoom_chrome};

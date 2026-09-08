@@ -131,7 +131,12 @@ gui shell  ← calumma-app
    or tool discriminant in Rust (`engine/core/src/shape.rs`). Build validates shaders via
    naga in `build.rs`.
 3. **Change chrome in Slint** (`gui/ui/`) using calm components under `gui/ui/calm/` and
-   theme values from `gui/src/shell/theme.rs` (loaded from `design/tokens.json`).
+   theme values from `gui/src/shell/theme.rs` (loaded from `design/tokens.json`). Verify modal,
+   overlay, and panel positioning against the *running* app rather than eyeballing `x`/`y`/`z`
+   math — `./manage.py dev --mcp` runs the shell with Slint 1.17's embedded MCP server
+   (registered with Claude Code as `slint-devtools`; needs a session restart the first time), which
+   gives an agent a live element tree with real component names/ids/positions plus screenshots and
+   click/drag/type against the actual window.
 4. **After `design/tokens.json` edits:** update `gui/src/shell/theme.rs` token mapping (or
    extend `./manage.py tokens` when **D7** lands — see `docs/plans/02-slint-shell.md`).
 5. **After Rust engine edits that affect the app:** `./manage.py test` and
@@ -725,6 +730,7 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 ./manage.py test # cargo test --workspace; --ci matches the GHA test job on Linux
 ./manage.py gui-check # compile-check the GUI shell (no window)
 ./manage.py dev # build and run the GUI shell
+./manage.py dev --mcp # same, plus Slint's embedded MCP server on :7883 for live UI introspection
 ./manage.py build # release build of the GUI shell
 ./manage.py coverage # llvm-cov + per-crate %% table in the log
 ./manage.py check # lint + gui-check + test

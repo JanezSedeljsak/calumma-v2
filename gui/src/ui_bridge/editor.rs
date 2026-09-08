@@ -1,5 +1,7 @@
 use super::landing::accent_color;
-use super::{brush, AppWindow, BrushEntry, LayerChrome, LayerRow, ProjectTabRow, ToolChrome, ToolEntry};
+use super::{
+    brush, AppWindow, BrushEntry, LayerChrome, LayerRow, ProjectTabRow, ToolChrome, ToolEntry,
+};
 use crate::shell::{
     brush_icon_index, brush_label_key, format_bytes, grid_slot_selected, grid_slot_tip_key,
     grid_slot_tool, hue_color, slint_color, tool_family_key, tool_icon_index, tool_label_key,

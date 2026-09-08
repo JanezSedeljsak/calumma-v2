@@ -58,6 +58,8 @@ from constants import (
     FILE_CARGO_TOML,
     GUI,
     GUI_MANIFEST,
+    MCP_DEVTOOLS_FEATURE,
+    MCP_DEVTOOLS_PORT,
     MSG_COVERAGE_TOTAL,
     MSG_DENY_SKIP,
     MSG_INSTALL_LLVM_COV,
@@ -88,8 +90,13 @@ def cmd_icon(_: argparse.Namespace) -> int:
     return generate_icon_main()
 
 
-def cmd_dev(_: argparse.Namespace) -> int:
-    run(["cargo", "run", "--manifest-path", str(GUI_MANIFEST)])
+def cmd_dev(args: argparse.Namespace) -> int:
+    cmd = ["cargo", "run", "--manifest-path", str(GUI_MANIFEST)]
+    env = None
+    if getattr(args, "mcp", False):
+        cmd += ["--features", MCP_DEVTOOLS_FEATURE]
+        env = {"SLINT_MCP_PORT": str(MCP_DEVTOOLS_PORT)}
+    run(cmd, env=env)
     return 0
 
 
@@ -300,7 +307,13 @@ def build_parser() -> argparse.ArgumentParser:
         "icon",
         help="generate a 256x256 rounded-corner app icon from design/icon.png",
     ).set_defaults(func=cmd_icon)
-    sub.add_parser("dev", help="build and run the GUI shell").set_defaults(func=cmd_dev)
+    dev_parser = sub.add_parser("dev", help="build and run the GUI shell")
+    dev_parser.add_argument(
+        "--mcp",
+        action="store_true",
+        help=f"enable Slint's embedded MCP server on port {MCP_DEVTOOLS_PORT}",
+    )
+    dev_parser.set_defaults(func=cmd_dev)
     sub.add_parser("gui-check", help="compile-check the GUI shell (no window)").set_defaults(
         func=cmd_gui_check
     )

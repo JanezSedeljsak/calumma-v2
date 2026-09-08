@@ -27,7 +27,13 @@ slint = { version = "1.17", default-features = false, features = [
     "compat-1-2",
 ] }
 i-slint-backend-winit = "=1.17.1"
+i-slint-backend-testing = { version = "=1.17.1", optional = true, features = [
+    "mcp",
+] }
 raw-window-handle = "0.6"
+
+[features]
+mcp-devtools = ["dep:i-slint-backend-testing"]
 
 [dependencies.winit]
 version = "0.30"
