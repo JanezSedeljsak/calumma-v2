@@ -63,6 +63,8 @@ export component ZoomPill inherits Rectangle {
 
     private property <image> icon-fit: @image-url("fit-to-view.svg");
 
+    width: pill.preferred-width;
+    height: pill.preferred-height;
     background: Theme.surface;
     border-width: 1px;
     border-color: Theme.island-border;
@@ -71,13 +73,12 @@ export component ZoomPill inherits Rectangle {
     drop-shadow-offset-y: 2px;
     drop-shadow-color: Theme.shadow;
 
-    HorizontalLayout {
+    pill := HorizontalLayout {
         padding-left: Tokens.space-sm;
         padding-right: Tokens.space-sm;
         padding-top: Tokens.space-xs;
         padding-bottom: Tokens.space-xs;
         spacing: Tokens.space-xs;
-        alignment: center;
 
         ZoomStep {
             glyph: "−";

@@ -468,6 +468,7 @@ export component LayerHoverCard inherits Rectangle {
     in property <image> preview;
 
     width: Tokens.hover-card-width;
+    height: card.preferred-height;
     background: Theme.surface;
     border-radius: Tokens.radius-md;
     border-width: 1px;
@@ -476,7 +477,7 @@ export component LayerHoverCard inherits Rectangle {
     drop-shadow-offset-y: 4px;
     drop-shadow-color: Theme.shadow;
 
-    VerticalLayout {
+    card := VerticalLayout {
         padding: Tokens.space-md;
         spacing: Tokens.space-sm;
 
