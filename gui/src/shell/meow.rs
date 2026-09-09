@@ -24,9 +24,17 @@ mod imp {
         })
     }
 
-    /// Decodes the meow up front so the first real `play()` is instant.
+    /// The real cost isn't decoding the wav, it's CoreAudio spinning up its
+    /// engine on the very first `play()` in the process. Eat that hit here,
+    /// muted, so the first real click is instant.
     pub fn preload() {
-        with_sound(|_| ());
+        with_sound(|sound| {
+            let original_volume = sound.volume();
+            sound.setVolume(0.0);
+            sound.play();
+            sound.stop();
+            sound.setVolume(original_volume);
+        });
     }
 
     pub fn play() {
