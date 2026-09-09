@@ -43,8 +43,10 @@ export component LayerSettingsModal inherits Rectangle {
     visible: root.open;
 
     if root.open: CalmPointer {
-        width: 100%;
-        height: 100%;
+        x: root.board-x;
+        y: root.board-y;
+        width: root.board-width;
+        height: root.board-height;
         clicked => {
             root.open = false;
             root.dismissed();

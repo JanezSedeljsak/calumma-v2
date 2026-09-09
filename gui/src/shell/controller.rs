@@ -522,6 +522,22 @@ impl AppController {
 
     pub fn pick_layer(&mut self, index: usize) {
         self.engine.borrow_mut().set_active_layer(index);
+        self.retarget_layer_settings(index);
+    }
+
+    pub fn retarget_layer_settings_to_active(&mut self) {
+        if !self.layer_settings_open {
+            return;
+        }
+        if let Some(index) = self.engine.borrow().active_layer_index() {
+            self.layer_settings_index = index;
+        }
+    }
+
+    fn retarget_layer_settings(&mut self, index: usize) {
+        if self.layer_settings_open {
+            self.layer_settings_index = index;
+        }
     }
 
     pub fn add_layer(&mut self) {

@@ -847,6 +847,7 @@ fn wire_editor_callbacks(
             if let Some(ui) = ui_weak.upgrade() {
                 let mut ctrl = controller.borrow_mut();
                 ctrl.announce_tool_block_if_any();
+                ctrl.retarget_layer_settings_to_active();
                 sync_layers(&ui, &mut ctrl);
                 if ctrl.toast_visible {
                     sync_shell(&ui, &ctrl);
@@ -885,6 +886,7 @@ fn wire_editor_callbacks(
             host.borrow_mut().pointer_released(x, y, mods, modal);
             if let Some(ui) = ui_weak.upgrade() {
                 let mut ctrl = controller.borrow_mut();
+                ctrl.retarget_layer_settings_to_active();
                 sync_layers(&ui, &mut ctrl);
                 sync_guide_readout(&ui, &ctrl);
                 sync_guides(&ui, &ctrl);
