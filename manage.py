@@ -92,6 +92,8 @@ def cmd_icon(_: argparse.Namespace) -> int:
 
 def cmd_dev(args: argparse.Namespace) -> int:
     cmd = ["cargo", "run", "--manifest-path", str(GUI_MANIFEST)]
+    if getattr(args, "release", False):
+        cmd.append("--release")
     env = None
     if getattr(args, "mcp", False):
         cmd += ["--features", MCP_DEVTOOLS_FEATURE]
@@ -307,11 +309,19 @@ def build_parser() -> argparse.ArgumentParser:
         "icon",
         help="generate a 256x256 rounded-corner app icon from design/icon.png",
     ).set_defaults(func=cmd_icon)
-    dev_parser = sub.add_parser("dev", help="build and run the GUI shell")
+    dev_parser = sub.add_parser(
+        "dev",
+        help="build and run the GUI shell (optimized debug; --release for a shipped-like binary)",
+    )
     dev_parser.add_argument(
         "--mcp",
         action="store_true",
         help=f"enable Slint's embedded MCP server on port {MCP_DEVTOOLS_PORT}",
+    )
+    dev_parser.add_argument(
+        "--release",
+        action="store_true",
+        help="run a release binary (no debug assertions; closer to a bundled app)",
     )
     dev_parser.set_defaults(func=cmd_dev)
     sub.add_parser("gui-check", help="compile-check the GUI shell (no window)").set_defaults(

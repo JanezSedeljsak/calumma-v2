@@ -81,9 +81,15 @@ scalar loops end to end (tile compositing, mip downsampling, blur, flood fill), 
 measurement taken against a dev build meaningless. Debug info is `line-tables-only` so
 backtraces still work without paying for full DWARF on every link.
 
-Release is `opt-level = 3, lto = "fat", codegen-units = 1, strip = "symbols"` — the pixel
-helpers are small functions called from million-iteration loops, and cross-crate inlining
-is the whole game.
+`gui/` is a **separate Cargo root** (`gui/Cargo.toml`), so the engine workspace profiles do
+not apply to `./manage.py dev` on their own. `gui/` repeats the same `opt-level = 3` /
+`line-tables-only` `profile.dev` so a debug `cargo run` of the shell is not an unoptimized
+pixel loop. `./manage.py build` / `./manage.py dev --release` are `--release` (no debug
+assertions); a `.dmg` would use that, but there is no packaging pipeline yet.
+
+Release (engine workspace) is `opt-level = 3, lto = "fat", codegen-units = 1, strip = "symbols"`
+— the pixel helpers are small functions called from million-iteration loops, and
+cross-crate inlining is the whole game.
 
 ---
 

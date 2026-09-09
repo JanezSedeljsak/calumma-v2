@@ -5,7 +5,7 @@ mod shell;
 mod ui_bridge;
 mod window_chrome;
 
-use board::{board_layout, hole_in_board, BoardHost, BoardRect, ModifierState};
+use board::{board_layout, hole_in_board, BoardHost, BoardLayout, BoardRect, ModifierState};
 use calumma_io::RasterFormat;
 use i_slint_backend_winit::WinitWindowAccessor;
 use input::{
@@ -876,15 +876,11 @@ fn wire_editor_callbacks(
         move |x, y| {
             let (mods, modal) = cursor_context(&controller, &input);
             host.borrow_mut().pointer_moved(x, y, mods, modal);
-            if controller.borrow().editor_open {
-                host.borrow_mut().render();
-            }
             if controller.borrow().engine.borrow().is_dragging_guide() {
                 if let Some(ui) = ui_weak.upgrade() {
                     sync_guide_readout(&ui, &controller.borrow());
                 }
             }
-            wake(&ui_weak);
         }
     });
     ui.on_pointer_released({
@@ -927,7 +923,6 @@ fn wire_editor_callbacks(
         let host = host.clone();
         let controller = controller.clone();
         let input = input.clone();
-        let ui_weak = ui_weak.clone();
         move |x, y, dx, dy, alt, meta| {
             if controller.borrow().pinch_zoom.is_some() {
                 return;
@@ -935,10 +930,6 @@ fn wire_editor_callbacks(
             input.borrow_mut().mods.alt_held = alt;
             input.borrow_mut().mods.meta_held = meta;
             host.borrow_mut().scroll(x, y, dx, dy, alt, meta);
-            if controller.borrow().editor_open {
-                host.borrow_mut().render();
-            }
-            wake(&ui_weak);
         }
     });
     ui.on_pinch_started({
@@ -949,14 +940,8 @@ fn wire_editor_callbacks(
     });
     ui.on_pinch_updated({
         let controller = controller.clone();
-        let host = host.clone();
-        let ui_weak = ui_weak.clone();
         move |x, y, scale| {
             controller.borrow_mut().pinch_updated(x, y, scale);
-            if controller.borrow().editor_open {
-                host.borrow_mut().render();
-            }
-            wake(&ui_weak);
         }
     });
     ui.on_pinch_ended({
@@ -2218,11 +2203,34 @@ fn handle_tab_close_result(
 
 fn setup_board(ui_weak: &SharedUi, host: &Rc<RefCell<BoardHost>>) {
     if let Some(ui) = ui_weak.upgrade() {
-        sync_board_geometry(&ui, host, true);
+        let snapshot = board_geo(&ui);
+        sync_board_geometry(&ui, host, &snapshot);
+        if !snapshot.overlay {
+            host.borrow_mut().render();
+        }
     }
 }
 
-fn sync_board_geometry(ui: &AppWindow, host: &Rc<RefCell<BoardHost>>, present: bool) {
+#[derive(Clone, Copy, PartialEq)]
+struct BoardGeo {
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+    content_height: i32,
+    scale: u32,
+    overlay: bool,
+}
+
+struct BoardGeoSnapshot {
+    layout: BoardLayout,
+    content_height: f32,
+    scale: f32,
+    overlay: bool,
+    key: BoardGeo,
+}
+
+fn board_geo(ui: &AppWindow) -> BoardGeoSnapshot {
     let scale = ui.window().scale_factor();
     let content_height = ui.window().size().to_logical(scale).height;
     let overlay = ui.get_overlay_chrome_open();
@@ -2232,9 +2240,27 @@ fn sync_board_geometry(ui: &AppWindow, host: &Rc<RefCell<BoardHost>>, present: b
         ui.get_board_width(),
         ui.get_board_height(),
     );
+    BoardGeoSnapshot {
+        key: BoardGeo {
+            x: (layout.x * 100.0).round() as i32,
+            y: (layout.y * 100.0).round() as i32,
+            width: layout.width,
+            height: layout.height,
+            content_height: (content_height * 100.0).round() as i32,
+            scale: (scale * 1000.0).round() as u32,
+            overlay,
+        },
+        layout,
+        content_height,
+        scale,
+        overlay,
+    }
+}
+
+fn collect_board_holes(ui: &AppWindow, layout: &BoardLayout) -> Vec<BoardRect> {
     let mut holes = Vec::new();
     let mut punch = |chrome: BoardRect| {
-        if let Some(hole) = hole_in_board(&layout, chrome) {
+        if let Some(hole) = hole_in_board(layout, chrome) {
             holes.push(hole);
         }
     };
@@ -2301,18 +2327,20 @@ fn sync_board_geometry(ui: &AppWindow, host: &Rc<RefCell<BoardHost>>, present: b
             radius: ui.get_tip_chrome_radius(),
         });
     }
+    holes
+}
+
+fn sync_board_geometry(ui: &AppWindow, host: &Rc<RefCell<BoardHost>>, snapshot: &BoardGeoSnapshot) {
+    let holes = collect_board_holes(ui, &snapshot.layout);
     ui.window().with_winit_window(|winit_window| {
         host.borrow_mut().sync_geometry(
             winit_window,
-            &layout,
-            content_height,
-            scale,
-            overlay,
+            &snapshot.layout,
+            snapshot.content_height,
+            snapshot.scale,
+            snapshot.overlay,
             &holes,
         );
-        if present && !overlay {
-            host.borrow_mut().render();
-        }
     });
 }
 
@@ -2358,6 +2386,7 @@ fn start_frame_loop(
     let icon_done = Rc::new(Cell::new(false));
     let board = slint::Timer::default();
     let camera = Rc::new(RefCell::new((f32::NAN, f32::NAN, f32::NAN)));
+    let last_geo = Rc::new(Cell::new(None::<BoardGeo>));
     let last_present = Rc::new(Cell::new(Instant::now() - Duration::from_secs(1)));
     board.start(slint::TimerMode::Repeated, Duration::from_millis(8), {
         let ui_weak = ui_weak.clone();
@@ -2365,6 +2394,7 @@ fn start_frame_loop(
         let controller = controller.clone();
         let icon_done = icon_done.clone();
         let last_present = last_present.clone();
+        let last_geo = last_geo.clone();
         move || {
             if !icon_done.get() {
                 if let Some(ui) = ui_weak.upgrade() {
@@ -2374,6 +2404,7 @@ fn start_frame_loop(
                 }
             }
             if !controller.borrow().editor_open {
+                last_geo.set(None);
                 return;
             }
             let hint = controller.borrow().engine.borrow().frame_hint();
@@ -2387,15 +2418,26 @@ fn start_frame_loop(
             if present {
                 last_present.set(now);
             }
-            if let Some(ui) = ui_weak.upgrade() {
-                sync_board_geometry(&ui, &host, present);
-                let ctrl = controller.borrow();
-                let next = camera_signature(&ctrl);
-                if *camera.borrow() != next {
-                    *camera.borrow_mut() = next;
-                    sync_rulers(&ui, &ctrl);
-                    sync_zoom_chrome(&ui, &ctrl);
-                }
+            let Some(ui) = ui_weak.upgrade() else {
+                return;
+            };
+            let snapshot = board_geo(&ui);
+            if present || last_geo.get() != Some(snapshot.key) {
+                sync_board_geometry(&ui, &host, &snapshot);
+                last_geo.set(Some(snapshot.key));
+            }
+            if present && !snapshot.overlay {
+                host.borrow_mut().render();
+            }
+            if !present {
+                return;
+            }
+            let ctrl = controller.borrow();
+            let next = camera_signature(&ctrl);
+            if *camera.borrow() != next {
+                *camera.borrow_mut() = next;
+                sync_rulers(&ui, &ctrl);
+                sync_zoom_chrome(&ui, &ctrl);
             }
         }
     });

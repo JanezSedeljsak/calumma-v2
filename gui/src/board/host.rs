@@ -21,7 +21,7 @@ pub struct BoardHost {
     hover: (f32, f32),
     last_pan: (f32, f32),
     cursor: CursorController,
-    last_sync: Option<(i32, i32, u32, u32, u32, bool, u64)>,
+    last_sync: Option<(i32, i32, u32, u32, i32, u32, bool, u64)>,
     #[cfg(target_os = "macos")]
     surface: Option<BoardSurface>,
 }
@@ -138,6 +138,7 @@ impl BoardHost {
             (layout.y * 100.0).round() as i32,
             layout.width,
             layout.height,
+            (content_height * 100.0).round() as i32,
             (scale * 1000.0).round() as u32,
             overlay,
             hole_sig,

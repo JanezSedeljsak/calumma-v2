@@ -8,43 +8,44 @@ only owns the native surface and calls into `calumma-app`.
 **A note on the history in this file.** Most of the optimization work described below —
 dirty flags, `PanCache`, motion mode, the overview pyramid, frame-hint pacing — lives in
 `engine/render`/`engine/core` and is exactly as true for `gui/` as it was for the frozen
-Swift shell. But several passages (the "Frame loop" diagram below, "Frame pacing", and the
-Tier B/C/D optimization log) describe *specifically how the Swift shell consumed* those
-engine mechanisms, down to real `MTKView`/AppKit API names — that consumption was never
-ported to `gui/`, whose render loop is a much simpler fixed-interval timer today (see "Frame
-loop" and "Frame pacing" for exactly what that means). Read those passages as the historical
-record of what shipped and why, not as a description of `gui/`'s current behavior.
+Swift shell. The "Frame loop" and "Frame pacing" sections describe how `gui/` consumes those
+mechanisms today (8 ms poll, hint-gated presents). Passages that name `MTKView` / AppKit
+are the historical record of the Swift shell, not current `gui/` API.
 
 ---
 
 ## Frame loop
 
-`gui/`'s loop today (`gui/src/main.rs`'s `start_frame_loop`) is a flat Slint `Timer` firing
-every 16 ms while the editor is open — not display-linked, and not yet gated on the engine's
-frame-hint (see "Frame pacing" below):
+`gui/`'s loop (`gui/src/main.rs`'s `start_frame_loop`) is a Slint `Timer` firing every 8 ms
+while the editor is open — not display-linked. `Engine::frame_hint` gates whether that tick
+*presents*; idle ticks skip Metal hole-punching, `Engine::render`, and ruler rebuilds when
+the board layout has not changed:
 
 ```
-Slint Timer, every 16 ms (gui/src/main.rs::start_frame_loop)
-  └─ sync_editor()                  // ui_bridge: read CalmState, set Slint properties
-  └─ BoardHost::render()            // gui/src/board/host.rs
-       └─ Engine::render()          // calumma-app → calumma-ffi
-            ├─ flush_pending_camera()    // coalesced pan/scroll deltas
-            └─ Renderer::render(doc)
-                 ├─ early-out if Clean && no live preview
-                 ├─ decide overview vs tile path
-                 ├─ sync GPU tiles / overview texture (if needed)
-                 ├─ rebuild draw lists (if needed)
-                 ├─ write uniforms (paper, tile camera, preview — camera-only skips preview)
-                 ├─ content pass: PanCache full redraw, or shift + patch on a camera-only frame
-                 └─ one render pass: desk → PanCache blit quad (or overview) → overlays
+Slint Timer, every 8 ms (gui/src/main.rs::start_frame_loop)
+  └─ Engine::frame_hint()           // 0 = display ceiling, else fps (idle = 10)
+  └─ if layout/overlay changed: sync_board_geometry (Metal holes + resize)
+  └─ if present && !overlay:
+       BoardHost::render()        // gui/src/board/host.rs
+         └─ Engine::render()        // calumma-app → calumma-ffi
+              ├─ flush_pending_camera()    // coalesced pan/scroll deltas
+              └─ Renderer::render(doc)
+                   ├─ early-out if Clean && no live preview
+                   ├─ decide overview vs tile path
+                   ├─ sync GPU tiles / overview texture (if needed)
+                   ├─ rebuild draw lists (if needed)
+                   ├─ write uniforms (paper, tile camera, preview — camera-only skips preview)
+                   ├─ content pass: PanCache full redraw, or shift + patch on a camera-only frame
+                   └─ one render pass: desk → PanCache blit quad (or overview) → overlays
+  └─ if present && camera moved: sync_rulers + sync_zoom_chrome
 ```
 
-Input during pan does **not** call `render()` directly. `Engine::pan`
-queues deltas and marks the renderer **camera-dirty**; the next timer tick flushes and draws.
-The early-out inside `Renderer::render` is what keeps an idle tick cheap even though the timer
-itself keeps firing at a fixed rate — the frozen Swift shell instead varied *how often* the
-tick fired (display-linked, hint-paced); `gui/` only has the cheap-early-out half of that so
-far.
+Pointer move, scroll, and pinch queue work on the engine (`Engine::pan` / `pointer_move`) and
+do **not** call `render()` or Slint `request_redraw` themselves. The next presenting timer tick
+flushes and draws. Pointer-down still presents immediately so the first dab is not waiting on
+the 8 ms poll. The frozen Swift shell instead varied *how often* the tick fired (display-linked,
+hint-paced); `gui/` keeps a short poll so the first frame after idle is not an idle-interval
+away, and uses the hint only to skip present work.
 
 Autosave no longer lives on this path — see "Autosave" below.
 
@@ -138,12 +139,11 @@ return `true` and invalidate content.
 ### Shell state sync
 
 The frozen Swift shell debounced its state sync (`syncStateSoon()` vs. `syncState()`) so
-SwiftUI would not diff the whole editor on every mouse-drag event. `gui/`'s `sync_editor`
-(`gui/src/ui_bridge.rs`) has no such debounce yet — the 16 ms timer calls it unconditionally
-every tick while the editor is open, reading `CalmState` fresh each time. Whether that matters
-for Slint's own property-change model the way it did for SwiftUI's diffing is unmeasured;
-treat it as an open question, not a solved one, if frame time on a busy editor ever needs
-trimming.
+SwiftUI would not diff the whole editor on every mouse-drag event. `gui/` does **not** call
+`sync_editor` from the 8 ms timer — that path is callback-driven (`defer_sync_editor` on
+tool picks, and direct `sync_editor` on the chrome that actually changed). Pointer-move does
+not rebuild editor chrome. The 500 ms timer only refreshes layer-row thumbnails and the
+memory label.
 
 ### Save `dirty_save` (`Inner`, in `engine/ffi`)
 
@@ -174,12 +174,15 @@ disk. A skipped tick costs 800 ms of staleness; a blocked frame is visible.
 
 ## Frame pacing
 
-**`gui/` does not consume this yet.** Its 16 ms `Timer` (see "Frame loop") runs at a flat rate
-regardless of what the engine would prefer; `BoardHost::frame_interval()`
-(`gui/src/board/host.rs`) already computes the hint-derived interval below, but nothing calls
-it. Wiring it into `start_frame_loop` — recreating the timer at the returned interval instead
-of a fixed 16 ms — is open work. The mechanism it would consume is real and engine-side
-today, and is exactly what the frozen Swift shell wired up, described below as it shipped:
+**`gui/` consumes the hint as a present gate, not by recreating the timer.** The 8 ms poll
+(see "Frame loop") still fires so a pointer event after idle is at most one tick away; each
+tick reads `Engine::frame_hint` and skips `render` / hole-punch / ruler sync until the hint's
+interval has elapsed (`FRAME_HINT_IDLE_FPS` = 10 → ~100 ms between presents). Recreating a
+slower timer on idle is still avoided on purpose: without a Swift-style `wake()` that sped
+the view back up on input, the first frame after a rest would wait out the idle interval.
+
+The mechanism itself is engine-side and is exactly what the frozen Swift shell wired up,
+described below as it shipped:
 
 The Swift shell's `MTKView` ran free (`isPaused = false`, `enableSetNeedsDisplay = false`) at
 whatever the screen it was on could do. What it drew at was the engine's call:

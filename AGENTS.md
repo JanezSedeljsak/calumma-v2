@@ -733,7 +733,7 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 ./manage.py lint # fmt --check + clippy + purity (ubuntu lint job; + darwin clippy on macOS)
 ./manage.py test # cargo test --workspace; --ci matches the GHA test job on Linux
 ./manage.py gui-check # compile-check the GUI shell (no window)
-./manage.py dev # build and run the GUI shell
+./manage.py dev # build and run the GUI shell (optimized debug; --release for a shipped-like binary)
 ./manage.py dev --mcp # same, plus Slint's embedded MCP server on :7883 for live UI introspection
 ./manage.py build # release build of the GUI shell
 ./manage.py coverage # llvm-cov + per-crate %% table in the log
