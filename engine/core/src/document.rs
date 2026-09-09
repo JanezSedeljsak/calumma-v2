@@ -2564,10 +2564,8 @@ impl Document {
             layer_buf.fill(0);
             copy_layer_into_rgba(layer, &mut layer_buf, w, h);
             apply_mask(&mut layer_buf, layer.mask());
-            if let Some(base_id) = layer.clips_to.as_deref() {
-                if let Some(base) = self.layers.iter().find(|l| l.id == base_id) {
-                    crate::clip::apply_clip_alpha_to_buffer(&mut layer_buf, base, w, h);
-                }
+            if let Some(base) = self.clip_base_for_layer(layer) {
+                crate::clip::apply_clip_alpha_to_buffer(&mut layer_buf, base, w, h);
             }
             let lut = layer.adjustments.map(|a| a.lut());
             apply_layer_effects(&mut layer_buf, layer, lut.as_ref());
@@ -2873,6 +2871,9 @@ impl Document {
         let mut buf = vec![0u8; (w as usize) * (h as usize) * 4];
         copy_layer_into_rgba(layer, &mut buf, w, h);
         apply_mask(&mut buf, layer.mask());
+        if let Some(base) = self.clip_base_for_layer(layer) {
+            crate::clip::apply_clip_alpha_to_buffer(&mut buf, base, w, h);
+        }
         if let Some(adj) = &layer.adjustments {
             let lut = adj.lut();
             buf.par_chunks_mut(EFFECT_CHUNK_BYTES)

@@ -34,6 +34,7 @@ export component Editor inherits Rectangle {
     in property <bool> hover-preview-visible;
     in property <string> hover-preview-name;
     in property <image> hover-preview-image;
+    in property <bool> layer-settings-open;
 
     in property <int> active-tool;
     in property <[ToolEntry]> tools;
@@ -407,6 +408,7 @@ export component Editor inherits Rectangle {
                             }
 
                             zoom-pill := ZoomPill {
+                                visible: !root.layer-settings-open;
                                 x: parent.width - self.width - Tokens.space-md;
                                 y: parent.height - self.height - Tokens.space-md;
                                 z: 2;
@@ -565,7 +567,7 @@ export component Editor inherits Rectangle {
     }
 
     hover-card := LayerHoverCard {
-        visible: root.layers-open && root.hover-preview-visible;
+        visible: root.layers-open && root.hover-preview-visible && !root.layer-settings-open;
         x: board-surface.absolute-position.x - root.absolute-position.x + board-surface.width - self.width - Tokens.space-md;
         y: board-surface.absolute-position.y - root.absolute-position.y + (board-surface.height - self.height) / 2;
         z: 8;

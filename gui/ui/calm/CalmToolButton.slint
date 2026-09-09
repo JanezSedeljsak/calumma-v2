@@ -18,7 +18,7 @@ export component CalmToolButton inherits Rectangle {
     width: Tokens.tool-button-size;
     height: Tokens.tool-button-size;
     border-radius: Tokens.radius-sm;
-    background: selected ? Theme.surface-hover : transparent;
+    background: selected && enabled ? Theme.surface-hover : transparent;
     opacity: enabled ? 1.0 : Tokens.disabled-opacity;
 
     touch := CalmPointer {
@@ -52,7 +52,7 @@ export component CalmToolButton inherits Rectangle {
         height: Tokens.tool-icon-size;
         x: (parent.width - self.width) / 2;
         y: (parent.height - self.height) / 2;
-        colorize: has-icon-tint ? icon-tint : (selected ? Theme.accent-teal : Theme.text-muted);
+        colorize: has-icon-tint ? icon-tint : (selected && enabled ? Theme.accent-teal : Theme.text-muted);
         image-fit: contain;
     }
 }

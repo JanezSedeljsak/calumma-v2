@@ -849,3 +849,32 @@ fn shrinking_the_crop_covers_discarded_paper_with_opaque_desk() {
         assert!(instance.brush[2] > 0.0);
     }
 }
+
+#[test]
+fn clip_bakes_tiles_that_sit_outside_the_document_origin() {
+    let mut base = Layer::new("Base", 64, 64);
+    base.tiles_mut().unwrap().set_pixel(10, 10, [0, 0, 0, 255]);
+
+    let mut top = Layer::new("Top", 64, 64);
+    let grid = top.tiles_mut().unwrap();
+    grid.grow_extent(calumma_core::tile::DocRect::new(-20, 0, 63, 63));
+    grid.set_pixel(-5, 10, [255, 0, 0, 255]);
+    grid.set_pixel(10, 10, [255, 0, 0, 255]);
+
+    let coord = TileCoord::from_doc_i32(-5, 10);
+    let pixels = top.tiles().unwrap().get(coord).expect("overflow tile");
+    let baked = composited_tile_payload(pixels, coord, &top, Some(&base), 64).expect("baked");
+    let (ox, oy) = coord.origin();
+    let local = |x: i32, y: i32| {
+        let i = (((y - oy) as u32 * TILE_SIZE + (x - ox) as u32) * 4) as usize;
+        baked[i + 3]
+    };
+    assert_eq!(local(-5, 10), 0, "overflow outside the silhouette is cut");
+    let on_paper = TileCoord::from_doc_i32(10, 10);
+    let on_pixels = top.tiles().unwrap().get(on_paper).expect("on-paper tile");
+    let on_baked =
+        composited_tile_payload(on_pixels, on_paper, &top, Some(&base), 64).expect("baked");
+    let (px, py) = on_paper.origin();
+    let i = (((10 - py) as u32 * TILE_SIZE + (10 - px) as u32) * 4) as usize;
+    assert!(on_baked[i + 3] > 0, "ink over the base stays");
+}

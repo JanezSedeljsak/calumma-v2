@@ -224,6 +224,7 @@
   "tertiaryColor": "Tertiary Color",
   "quaternaryColor": "Color 4",
   "strokeColor": "Outline Color",
+  "fillColor": "Fill Color",
   "hex": "Hex",
   "imagesFilter": "Images",
   "justNow": "Just now",

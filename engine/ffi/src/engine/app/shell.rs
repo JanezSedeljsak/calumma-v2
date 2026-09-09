@@ -16,15 +16,26 @@ impl Engine {
             Some(layer) => layer,
             None => return 0,
         };
-        match layer.tiles() {
+        let mut rev = match layer.tiles() {
             Some(grid) => grid.content_revision(),
             None => u64::from(layer.content.item().is_some()),
+        };
+        if layer.clips_to.is_some() {
+            rev = rev.wrapping_mul(0x9E37_79B9).wrapping_add(1);
         }
+        if let Some(t) = layer.transform {
+            rev ^= u64::from(t.offset_x.to_bits());
+            rev ^= u64::from(t.offset_y.to_bits()).rotate_left(16);
+        }
+        rev
     }
 
     pub fn layer_thumbnail_rgba(&self, index: usize) -> Option<(u32, u32, Vec<u8>)> {
         let mut inner = self.inner.lock();
         let doc = inner.doc.as_mut()?;
+        if doc.is_layer_clipped(index) {
+            return doc.clipped_layer_thumbnail(index, THUMB_MAX_SIDE);
+        }
         let layer = doc.layers.get_mut(index)?;
         if let Some(tiles) = layer.tiles_mut() {
             let (w, h, rgba) = tiles.preview().scaled(THUMB_MAX_SIDE.max(1));

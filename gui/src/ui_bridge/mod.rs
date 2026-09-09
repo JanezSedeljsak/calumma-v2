@@ -39,9 +39,6 @@ pub fn sync_shell(ui: &AppWindow, controller: &AppController) {
     ui.set_settings_open(controller.settings_open);
     ui.set_new_project_open(controller.new_project_open);
     ui.set_layer_settings_open(controller.layer_settings_open);
-    ui.set_layer_settings_expanded(controller.layer_settings_expanded);
-    ui.set_layer_settings_anchor_x(controller.layer_settings_anchor_x);
-    ui.set_layer_settings_anchor_y(controller.layer_settings_anchor_y);
     ui.set_guides_open(controller.guides_open);
     ui.set_project_settings_open(controller.project_settings_open);
     ui.set_project_settings_anchor_x(controller.project_settings_anchor_x);

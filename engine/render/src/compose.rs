@@ -645,17 +645,16 @@ pub fn composited_tile_payload(
         for tx in 0..TILE_SIZE {
             let x = ox + tx as i32;
             let y = oy + ty as i32;
-            if x < 0 || y < 0 {
-                continue;
-            }
             let i = ((ty * TILE_SIZE + tx) * 4) as usize;
             if let Some(mask) = mask {
-                let mi = (y as u32)
-                    .saturating_mul(doc_width)
-                    .saturating_add(x as u32) as usize;
-                if let Some(&m) = mask.get(mi) {
-                    let a = out[i + 3] as u16 * m as u16 / 255;
-                    out[i + 3] = a as u8;
+                if x >= 0 && y >= 0 {
+                    let mi = (y as u32)
+                        .saturating_mul(doc_width)
+                        .saturating_add(x as u32) as usize;
+                    if let Some(&m) = mask.get(mi) {
+                        let a = out[i + 3] as u16 * m as u16 / 255;
+                        out[i + 3] = a as u8;
+                    }
                 }
             }
             if let Some(base) = clip_base {

@@ -284,7 +284,7 @@ pub(crate) fn base_op_registry() -> OpRegistry {
 }
 
 mod app;
-pub use app::{Engine, GuideInfo, LayerSummary, NativeSurface, ProjectSummary};
+pub use app::{Engine, FontFamilyInfo, GuideInfo, LayerSummary, NativeSurface, ProjectSummary};
 
 #[cfg(test)]
 mod stub_renderer_tests {

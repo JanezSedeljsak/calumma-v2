@@ -7,6 +7,7 @@ import { CalmMuted } from "calm/CalmText.slint";
 import { CalmPointer } from "calm/CalmPointer.slint";
 import { ToolEntry } from "models.slint";
 import { ToolChrome } from "tool-chrome.slint";
+import { TextOptions } from "text-options.slint";
 
 component OptionChip inherits Rectangle {
     in property <string> label;
@@ -431,4 +432,6 @@ export component ToolOptions inherits VerticalLayout {
             }
         }
     }
+
+    if ToolChrome.show-text: TextOptions { }
 }

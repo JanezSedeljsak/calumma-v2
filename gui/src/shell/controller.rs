@@ -22,10 +22,7 @@ pub struct AppController {
     pub settings_open: bool,
     pub new_project_open: bool,
     pub layer_settings_open: bool,
-    pub layer_settings_expanded: bool,
     pub layer_settings_index: usize,
-    pub layer_settings_anchor_x: f32,
-    pub layer_settings_anchor_y: f32,
     pub guides_open: bool,
     pub project_settings_open: bool,
     pub project_settings_id: String,
@@ -67,10 +64,7 @@ impl AppController {
             settings_open: false,
             new_project_open: false,
             layer_settings_open: false,
-            layer_settings_expanded: false,
             layer_settings_index: 0,
-            layer_settings_anchor_x: 0.0,
-            layer_settings_anchor_y: 0.0,
             guides_open: false,
             project_settings_open: false,
             project_settings_id: String::new(),
@@ -100,7 +94,6 @@ impl AppController {
         self.settings_open = false;
         self.new_project_open = false;
         self.layer_settings_open = false;
-        self.layer_settings_expanded = false;
         self.guides_open = false;
         self.project_settings_open = false;
     }
@@ -608,11 +601,8 @@ impl AppController {
             .find(|layer| layer.index == self.layer_settings_index)
     }
 
-    pub fn open_layer_settings(&mut self, index: usize, anchor_x: f32, anchor_y: f32) {
+    pub fn open_layer_settings(&mut self, index: usize, _anchor_x: f32, _anchor_y: f32) {
         self.layer_settings_index = index;
-        self.layer_settings_anchor_x = anchor_x;
-        self.layer_settings_anchor_y = anchor_y;
-        self.layer_settings_expanded = false;
         self.layer_settings_open = true;
     }
 

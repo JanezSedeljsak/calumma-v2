@@ -27,9 +27,6 @@ export component AppWindow inherits Window {
     in-out property <bool> new-project-open: false;
     in-out property <bool> layers-open: true;
     in-out property <bool> layer-settings-open: false;
-    in-out property <bool> layer-settings-expanded: false;
-    in-out property <float> layer-settings-anchor-x;
-    in-out property <float> layer-settings-anchor-y;
     in-out property <bool> guides-open: false;
     in-out property <bool> project-settings-open: false;
     in-out property <float> project-settings-anchor-x;
@@ -120,7 +117,6 @@ export component AppWindow inherits Window {
     callback export-svg();
     callback export-pdf();
     callback layer-settings-dismissed();
-    callback layer-settings-expand();
     callback layer-settings-toggle-visibility();
     callback layer-settings-toggle-lock();
     callback layer-settings-opacity-changed(float);
@@ -208,7 +204,6 @@ export component AppWindow inherits Window {
     in property <image> hover-preview-image;
 
     in property <string> layer-settings-label;
-    in property <string> layer-settings-expand-label;
     out property <length> board-x: editor.board-x;
     out property <length> board-y: editor.board-y;
     out property <length> board-width: editor.board-width;
@@ -600,6 +595,7 @@ export component AppWindow inherits Window {
             hover-preview-visible: root.hover-preview-visible;
             hover-preview-name: root.hover-preview-name;
             hover-preview-image: root.hover-preview-image;
+            layer-settings-open: root.layer-settings-open;
             active-tool: root.active-tool;
             tools: root.tools;
             active-tool-label: root.active-tool-label;
@@ -940,15 +936,12 @@ export component AppWindow inherits Window {
         layer-settings := LayerSettingsModal {
             z: 20;
             open <=> root.layer-settings-open;
-            expanded <=> root.layer-settings-expanded;
-            anchor-x: root.layer-settings-anchor-x;
-            anchor-y: root.layer-settings-anchor-y;
-            expand-label: root.layer-settings-expand-label;
+            board-x: editor.board-x;
+            board-y: editor.board-y;
+            board-width: editor.board-width;
+            board-height: editor.board-height;
             dismissed => {
                 root.layer-settings-dismissed();
-            }
-            expand => {
-                root.layer-settings-expand();
             }
             toggle-visibility => {
                 root.layer-settings-toggle-visibility();

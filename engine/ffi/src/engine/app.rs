@@ -784,5 +784,7 @@ mod knobs;
 mod layers;
 mod ops;
 mod shell;
+mod text;
 
 pub use guides::GuideInfo;
+pub use text::FontFamilyInfo;

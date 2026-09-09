@@ -86,7 +86,6 @@ pub fn sync_strings(ui: &AppWindow, l10n: &Catalog) {
     ui.set_upscale_label(put(l10n.get("upscale")));
     ui.set_seam_carve_label(put(l10n.get("seamCarve")));
     ui.set_layer_settings_label(put(l10n.get("layerSettings")));
-    ui.set_layer_settings_expand_label(put(l10n.get("layerSettingsExpand")));
     ui.set_layer_delete_label(put(l10n.get("deleteLayer")));
     ui.set_layer_visibility_label(put(l10n.get("layerVisibility")));
 
@@ -117,6 +116,16 @@ pub fn sync_strings(ui: &AppWindow, l10n: &Catalog) {
     chrome.set_crop_overlay_golden_label(put(l10n.get("cropOverlayGoldenRatio")));
     chrome.set_crop_cancel_label(put(l10n.get("cropCancel")));
     chrome.set_crop_commit_label(put(l10n.get("cropCommit")));
+    chrome.set_text_font_label(put(l10n.get("textFont")));
+    chrome.set_text_size_label(put(l10n.get("textSize")));
+    chrome.set_text_line_height_label(put(l10n.get("textLineHeight")));
+    chrome.set_text_wrap_label(put(l10n.get("textWrapWidth")));
+    chrome.set_text_bold_label(put(l10n.get("textBold")));
+    chrome.set_text_italic_label(put(l10n.get("textItalic")));
+    chrome.set_text_align_left_label(put(l10n.get("textAlignLeft")));
+    chrome.set_text_align_center_label(put(l10n.get("textAlignCenter")));
+    chrome.set_text_align_right_label(put(l10n.get("textAlignRight")));
+    chrome.set_text_no_fonts_label(put(l10n.get("textNoFonts")));
 
     let layers = ui.global::<LayerChrome>();
     layers.set_visibility_label(put(l10n.get("layerVisibility")));

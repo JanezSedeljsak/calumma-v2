@@ -2,6 +2,7 @@ import { Theme } from "calm/CalmTheme.slint";
 import { Tokens } from "calm/CalmTokens.slint";
 import { CalmPointer } from "calm/CalmPointer.slint";
 import { CalmMuted } from "calm/CalmText.slint";
+import { Tip } from "calm/CalmTip.slint";
 
 component ColorSwatch inherits Rectangle {
     in property <brush> swatch-color;
@@ -11,6 +12,7 @@ component ColorSwatch inherits Rectangle {
     callback clicked();
 
     height: 20px;
+    min-width: 20px;
     horizontal-stretch: 1;
     border-radius: Tokens.radius-sm;
     background: swatch-color;
@@ -19,7 +21,23 @@ component ColorSwatch inherits Rectangle {
 
     touch := CalmPointer {
         clicked => {
+            Tip.armed = false;
+            Tip.open = false;
             root.clicked();
+        }
+        changed has-hover => {
+            if (self.has-hover && root.tip != "") {
+                Tip.text = root.tip;
+                Tip.shortcut = "";
+                Tip.leading = false;
+                Tip.x = root.absolute-position.x + root.width + Tokens.space-sm;
+                Tip.y = root.absolute-position.y + root.height / 2;
+                Tip.open = false;
+                Tip.armed = true;
+            } else if (Tip.text == root.tip) {
+                Tip.armed = false;
+                Tip.open = false;
+            }
         }
     }
 }
@@ -58,6 +76,8 @@ export component QuickColorPicker inherits VerticalLayout {
     spacing: Tokens.space-xs;
 
     HorizontalLayout {
+        width: 100%;
+        height: 20px;
         spacing: Tokens.space-xs;
 
         ColorSwatch {

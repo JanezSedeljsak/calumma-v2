@@ -6,13 +6,12 @@ import { LayerSettingsBody } from "layer-settings-body.slint";
 
 export component LayerSettingsModal inherits Rectangle {
     in-out property <bool> open;
-    in-out property <bool> expanded;
-    in property <float> anchor-x;
-    in property <float> anchor-y;
-    in property <string> expand-label;
+    in property <length> board-x;
+    in property <length> board-y;
+    in property <length> board-width;
+    in property <length> board-height;
 
     callback dismissed();
-    callback expand();
     callback toggle-visibility();
     callback toggle-lock();
     callback opacity-changed(float);
@@ -31,18 +30,13 @@ export component LayerSettingsModal inherits Rectangle {
     callback duplicate-layer();
     callback delete-layer();
 
-    private property <length> popover-width: 260px;
-    private property <length> popover-max-height: min(root.height - anchor-y * 1px - Tokens.space-md, 480px);
-    private property <length> sheet-x: root.width - Tokens.layers-panel-width - Tokens.space-xs;
-    private property <length> sheet-y: Tokens.space-xs;
-    private property <length> sheet-width: Tokens.layers-panel-width;
-    private property <length> sheet-height: root.height - Tokens.space-xs * 2;
+    private property <length> card-max-height: max(Tokens.control-height * 8, root.board-height - Tokens.space-md * 2);
 
-    out property <length> card-x: root.expanded ? root.sheet-x : popover.x;
-    out property <length> card-y: root.expanded ? root.sheet-y : popover.y;
-    out property <length> card-width: root.expanded ? root.sheet-width : popover.width;
-    out property <length> card-height: root.expanded ? root.sheet-height : popover.height;
-    out property <length> card-radius: root.expanded ? Tokens.radius-island : popover.border-radius;
+    out property <length> card-x: card.absolute-position.x;
+    out property <length> card-y: card.absolute-position.y;
+    out property <length> card-width: card.width;
+    out property <length> card-height: card.height;
+    out property <length> card-radius: card.border-radius;
 
     width: 100%;
     height: 100%;
@@ -53,18 +47,17 @@ export component LayerSettingsModal inherits Rectangle {
         height: 100%;
         clicked => {
             root.open = false;
-            root.expanded = false;
             root.dismissed();
         }
     }
 
-    popover := Rectangle {
-        visible: root.open && !root.expanded;
+    card := Rectangle {
+        visible: root.open;
         z: 2;
-        width: popover-width;
-        height: min(card.preferred-height, popover-max-height);
-        x: max(Tokens.space-xs, min(anchor-x * 1px - self.width + Tokens.row-icon-size, parent.width - self.width - Tokens.space-xs));
-        y: min(anchor-y * 1px + Tokens.space-xs, parent.height - self.height - Tokens.space-xs);
+        width: Tokens.layer-settings-card-width;
+        height: min(body.preferred-height + Tokens.space-md * 2, root.card-max-height);
+        x: root.board-x + root.board-width - self.width - Tokens.space-md;
+        y: root.board-y + (root.board-height - self.height) / 2;
         background: Theme.surface;
         border-radius: Tokens.radius-md;
         border-width: 1px;
@@ -76,112 +69,13 @@ export component LayerSettingsModal inherits Rectangle {
 
         dismiss-swallow := CalmPointer { }
 
-        card := VerticalLayout {
-            padding: Tokens.space-md;
-            spacing: Tokens.space-sm;
-
-            HorizontalLayout {
-                Rectangle {
-                    horizontal-stretch: 1;
-                }
-                expand-touch := CalmPointer {
-                    height: Tokens.control-height;
-                    Text {
-                        text: root.expand-label;
-                        color: expand-touch.has-hover ? Theme.accent-teal : Theme.text-muted;
-                        font-size: Tokens.label-size;
-                        font-weight: 600;
-                        horizontal-alignment: right;
-                        vertical-alignment: center;
-                    }
-                    clicked => {
-                        root.expanded = true;
-                        root.expand();
-                    }
-                }
-            }
-
-            LayerSettingsBody {
-                compact: true;
-                toggle-visibility => {
-                    root.toggle-visibility();
-                }
-                toggle-lock => {
-                    root.toggle-lock();
-                }
-                opacity-changed(v) => {
-                    root.opacity-changed(v);
-                }
-                blend-changed(mode) => {
-                    root.blend-changed(mode);
-                }
-                filter-changed(kind, value) => {
-                    root.filter-changed(kind, value);
-                }
-                reset-filters => {
-                    root.reset-filters();
-                }
-                rename-layer(text) => {
-                    root.rename-layer(text);
-                }
-                toggle-clip => {
-                    root.toggle-clip();
-                }
-                flatten-clip => {
-                    root.flatten-clip();
-                }
-                merge-down => {
-                    root.merge-down();
-                }
-                reset-transform => {
-                    root.reset-transform();
-                }
-                move-up => {
-                    root.move-up();
-                }
-                move-down => {
-                    root.move-down();
-                }
-                rasterize-layer => {
-                    root.rasterize-layer();
-                }
-                export-layer => {
-                    root.export-layer();
-                }
-                duplicate-layer => {
-                    root.duplicate-layer();
-                }
-                delete-layer => {
-                    root.delete-layer();
-                }
-            }
-        }
-    }
-
-    if root.open && root.expanded: Rectangle {
-        z: 1;
-        width: root.sheet-width;
-        height: root.sheet-height;
-        y: root.sheet-y;
-        x: root.sheet-x;
-        background: Theme.surface;
-        border-radius: Tokens.radius-island;
-        border-width: 1px;
-        border-color: Theme.island-border;
-        drop-shadow-blur: 24px;
-        drop-shadow-offset-x: -4px;
-        drop-shadow-color: Theme.shadow;
-        clip: true;
-
-        sheet-swallow := CalmPointer { }
-
         CalmScrollView {
             x: Tokens.space-md;
             y: Tokens.space-md;
             width: parent.width - Tokens.space-md * 2;
             height: parent.height - Tokens.space-md * 2;
 
-            LayerSettingsBody {
+            body := LayerSettingsBody {
                 compact: false;
                 toggle-visibility => {
                     root.toggle-visibility();

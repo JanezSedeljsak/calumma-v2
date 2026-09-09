@@ -21,7 +21,7 @@ use ui_bridge::{
     camera_signature, form_accent, init_form_defaults, parse_dimension, random_accent_index,
     refresh_landing, set_editor_open, sync_editor, sync_guide_readout, sync_guides,
     sync_layer_rows, sync_layer_settings, sync_layers, sync_project_tabs, sync_rulers, sync_shell,
-    sync_zoom_chrome, AppWindow, SharedUi, DEFAULT_HEIGHT, DEFAULT_WIDTH,
+    sync_zoom_chrome, AppWindow, SharedUi, ToolChrome, DEFAULT_HEIGHT, DEFAULT_WIDTH,
 };
 
 struct InputState {
@@ -475,6 +475,145 @@ fn wire_editor_callbacks(
             }
         }
     });
+    ui.global::<ToolChrome>().on_text_family_changed({
+        let controller = controller.clone();
+        let ui_weak = ui_weak.clone();
+        move |family| {
+            controller
+                .borrow_mut()
+                .engine
+                .borrow_mut()
+                .set_text_family(family.as_str());
+            if let Some(ui) = ui_weak.upgrade() {
+                ui.global::<ToolChrome>()
+                    .set_text_font_query(slint::SharedString::from(""));
+                let mut ctrl = controller.borrow_mut();
+                sync_editor(&ui, &mut ctrl);
+            }
+        }
+    });
+    ui.global::<ToolChrome>().on_text_size_changed({
+        let controller = controller.clone();
+        let ui_weak = ui_weak.clone();
+        move |unit| {
+            controller
+                .borrow_mut()
+                .engine
+                .borrow_mut()
+                .set_text_size_unit(unit);
+            if let Some(ui) = ui_weak.upgrade() {
+                let mut ctrl = controller.borrow_mut();
+                sync_editor(&ui, &mut ctrl);
+            }
+        }
+    });
+    ui.global::<ToolChrome>().on_text_size_committed({
+        let controller = controller.clone();
+        let ui_weak = ui_weak.clone();
+        move |text| {
+            if let Ok(size) = text.trim().parse::<f32>() {
+                controller
+                    .borrow_mut()
+                    .engine
+                    .borrow_mut()
+                    .set_text_size(size);
+            }
+            if let Some(ui) = ui_weak.upgrade() {
+                let mut ctrl = controller.borrow_mut();
+                sync_editor(&ui, &mut ctrl);
+            }
+            wake(&ui_weak);
+        }
+    });
+    ui.global::<ToolChrome>().on_text_line_height_changed({
+        let controller = controller.clone();
+        let ui_weak = ui_weak.clone();
+        move |value| {
+            controller
+                .borrow_mut()
+                .engine
+                .borrow_mut()
+                .set_text_line_height(value);
+            if let Some(ui) = ui_weak.upgrade() {
+                let mut ctrl = controller.borrow_mut();
+                sync_editor(&ui, &mut ctrl);
+            }
+        }
+    });
+    ui.global::<ToolChrome>().on_text_wrap_changed({
+        let controller = controller.clone();
+        let ui_weak = ui_weak.clone();
+        move |width| {
+            controller
+                .borrow_mut()
+                .engine
+                .borrow_mut()
+                .set_text_wrap_width(width);
+            if let Some(ui) = ui_weak.upgrade() {
+                let mut ctrl = controller.borrow_mut();
+                sync_editor(&ui, &mut ctrl);
+            }
+        }
+    });
+    ui.global::<ToolChrome>().on_text_bold_toggled({
+        let controller = controller.clone();
+        let ui_weak = ui_weak.clone();
+        move || {
+            let next = !controller.borrow().engine.borrow().text_bold();
+            controller
+                .borrow_mut()
+                .engine
+                .borrow_mut()
+                .set_text_bold(next);
+            if let Some(ui) = ui_weak.upgrade() {
+                let mut ctrl = controller.borrow_mut();
+                sync_editor(&ui, &mut ctrl);
+            }
+        }
+    });
+    ui.global::<ToolChrome>().on_text_italic_toggled({
+        let controller = controller.clone();
+        let ui_weak = ui_weak.clone();
+        move || {
+            let next = !controller.borrow().engine.borrow().text_italic();
+            controller
+                .borrow_mut()
+                .engine
+                .borrow_mut()
+                .set_text_italic(next);
+            if let Some(ui) = ui_weak.upgrade() {
+                let mut ctrl = controller.borrow_mut();
+                sync_editor(&ui, &mut ctrl);
+            }
+        }
+    });
+    ui.global::<ToolChrome>().on_text_align_changed({
+        let controller = controller.clone();
+        let ui_weak = ui_weak.clone();
+        move |align| {
+            if let Some(align) = calumma_core::TextAlign::from_u32(align as u32) {
+                controller
+                    .borrow_mut()
+                    .engine
+                    .borrow_mut()
+                    .set_text_align(align);
+            }
+            if let Some(ui) = ui_weak.upgrade() {
+                let mut ctrl = controller.borrow_mut();
+                sync_editor(&ui, &mut ctrl);
+            }
+        }
+    });
+    ui.global::<ToolChrome>().on_text_font_search({
+        let controller = controller.clone();
+        let ui_weak = ui_weak.clone();
+        move |_| {
+            if let Some(ui) = ui_weak.upgrade() {
+                let mut ctrl = controller.borrow_mut();
+                sync_editor(&ui, &mut ctrl);
+            }
+        }
+    });
     ui.on_vector_toggled({
         let controller = controller.clone();
         let ui_weak = ui_weak.clone();
@@ -708,6 +847,7 @@ fn wire_editor_callbacks(
             if let Some(ui) = ui_weak.upgrade() {
                 let mut ctrl = controller.borrow_mut();
                 ctrl.announce_tool_block_if_any();
+                sync_layers(&ui, &mut ctrl);
                 if ctrl.toast_visible {
                     sync_shell(&ui, &ctrl);
                     schedule_toast_hide(&ui_weak, controller.clone());
@@ -1166,20 +1306,8 @@ fn wire_layer_actions(ui: &AppWindow, controller: SharedController, ui_weak: Sha
         move || {
             let mut ctrl = controller.borrow_mut();
             ctrl.layer_settings_open = false;
-            ctrl.layer_settings_expanded = false;
             if let Some(ui) = ui_weak.upgrade() {
                 sync_shell(&ui, &ctrl);
-            }
-            wake(&ui_weak);
-        }
-    });
-    ui.on_layer_settings_expand({
-        let controller = controller.clone();
-        let ui_weak = ui_weak.clone();
-        move || {
-            controller.borrow_mut().layer_settings_expanded = true;
-            if let Some(ui) = ui_weak.upgrade() {
-                sync_shell(&ui, &controller.borrow());
             }
             wake(&ui_weak);
         }
@@ -2075,14 +2203,16 @@ fn sync_board_geometry(ui: &AppWindow, host: &Rc<RefCell<BoardHost>>, present: b
             holes.push(hole);
         }
     };
-    punch(BoardRect {
-        x: ui.get_zoom_chrome_x(),
-        y: ui.get_zoom_chrome_y(),
-        width: ui.get_zoom_chrome_width(),
-        height: ui.get_zoom_chrome_height(),
-        radius: ui.get_zoom_chrome_radius(),
-    });
-    if ui.get_hover_preview_visible() {
+    if !ui.get_layer_settings_open() {
+        punch(BoardRect {
+            x: ui.get_zoom_chrome_x(),
+            y: ui.get_zoom_chrome_y(),
+            width: ui.get_zoom_chrome_width(),
+            height: ui.get_zoom_chrome_height(),
+            radius: ui.get_zoom_chrome_radius(),
+        });
+    }
+    if ui.get_hover_preview_visible() && !ui.get_layer_settings_open() {
         punch(BoardRect {
             x: ui.get_hover_chrome_x(),
             y: ui.get_hover_chrome_y(),

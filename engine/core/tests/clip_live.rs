@@ -252,6 +252,27 @@ fn cannot_clip_when_either_layer_in_the_pair_is_locked() {
 }
 
 #[test]
+fn a_clipped_thumbnail_crops_to_the_canvas_and_the_silhouette() {
+    let mut doc = two_layer_doc();
+    doc.layers[2]
+        .tiles_mut()
+        .unwrap()
+        .grow_extent(calumma_core::tile::DocRect::new(-20, 0, 63, 63));
+    doc.layers[2]
+        .tiles_mut()
+        .unwrap()
+        .set_pixel(-8, 10, [255, 0, 0, 255]);
+    assert!(doc.create_clipping_mask(2));
+    let (w, h, rgba) = doc.clipped_layer_thumbnail(2, 64).expect("thumb");
+    assert!(
+        (w * h) < 64 * 64,
+        "overflow and off-silhouette pixels are cropped out of the thumb"
+    );
+    let painted = rgba.chunks_exact(4).filter(|px| px[3] > 0).count();
+    assert!(painted > 0, "the silhouette still shows");
+}
+
+#[test]
 fn locking_either_member_of_a_live_clip_pair_locks_tools_on_both() {
     let mut doc = two_layer_doc();
     assert!(doc.create_clipping_mask(2));

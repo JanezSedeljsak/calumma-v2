@@ -1,4 +1,4 @@
-import { ToolEntry, BrushEntry } from "models.slint";
+import { ToolEntry, BrushEntry, FontFamilyRow } from "models.slint";
 
 export global ToolChrome {
     in-out property <bool> show-shapes: false;
@@ -19,6 +19,7 @@ export global ToolChrome {
     in-out property <bool> show-aligned: false;
     in-out property <bool> show-transform: false;
     in-out property <bool> show-crop: false;
+    in-out property <bool> show-text: false;
 
     in-out property <string> brush-size-label;
     in-out property <string> ink-opacity-label;
@@ -69,4 +70,43 @@ export global ToolChrome {
     in-out property <bool> transform-on: false;
     in-out property <int> crop-aspect: 0;
     in-out property <int> crop-overlay: 1;
+
+    in-out property <string> text-font-label;
+    in-out property <string> text-size-label;
+    in-out property <string> text-line-height-label;
+    in-out property <string> text-wrap-label;
+    in-out property <string> text-bold-label;
+    in-out property <string> text-italic-label;
+    in-out property <string> text-align-left-label;
+    in-out property <string> text-align-center-label;
+    in-out property <string> text-align-right-label;
+    in-out property <string> text-no-fonts-label;
+
+    in-out property <string> text-family;
+    in-out property <string> text-size-text;
+    in-out property <string> text-line-height-text;
+    in-out property <string> text-wrap-text;
+    in-out property <float> text-size-unit;
+    in-out property <float> text-line-height;
+    in-out property <float> text-line-height-min: 0.5;
+    in-out property <float> text-line-height-max: 4.0;
+    in-out property <float> text-wrap-width;
+    in-out property <float> text-wrap-max;
+    in-out property <bool> text-bold: false;
+    in-out property <bool> text-italic: false;
+    in-out property <bool> text-can-bold: false;
+    in-out property <bool> text-can-italic: false;
+    in-out property <int> text-align: 0;
+    in-out property <string> text-font-query;
+    in-out property <[FontFamilyRow]> font-families;
+
+    callback text-family-changed(string);
+    callback text-size-changed(float);
+    callback text-size-committed(string);
+    callback text-line-height-changed(float);
+    callback text-wrap-changed(float);
+    callback text-bold-toggled();
+    callback text-italic-toggled();
+    callback text-align-changed(int);
+    callback text-font-search(string);
 }
