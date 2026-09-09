@@ -300,6 +300,23 @@ fn signed_percent(value: f32) -> String {
     format!("{:+}", (value * 100.0).round() as i32)
 }
 
+pub fn apply_filter_readout(ui: &AppWindow, kind: i32, value: f32) {
+    let chrome = ui.global::<LayerChrome>();
+    match kind {
+        0 => chrome.set_brightness_text(put(signed_percent(value))),
+        1 => chrome.set_contrast_text(put(signed_percent(value))),
+        2 => chrome.set_vibrance_text(put(signed_percent(value))),
+        3 => chrome.set_saturation_text(put(signed_percent(value))),
+        4 => chrome.set_gamma_text(put(format!("{value:.2}"))),
+        _ => {}
+    }
+}
+
+pub fn apply_opacity_readout(ui: &AppWindow, value: f32) {
+    let chrome = ui.global::<LayerChrome>();
+    chrome.set_opacity_text(put(format!("{}", (value * 100.0).round() as i32)));
+}
+
 pub fn sync_layer_settings(ui: &AppWindow, controller: &AppController) {
     let chrome = ui.global::<LayerChrome>();
     if let Some(layer) = controller.layer_settings_summary() {

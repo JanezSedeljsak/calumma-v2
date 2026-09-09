@@ -18,10 +18,11 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 use ui_bridge::{
-    camera_signature, form_accent, init_form_defaults, parse_dimension, random_accent_index,
-    refresh_landing, set_editor_open, sync_editor, sync_guide_readout, sync_guides,
-    sync_layer_rows, sync_layer_settings, sync_layers, sync_project_tabs, sync_rulers, sync_shell,
-    sync_zoom_chrome, AppWindow, SharedUi, ToolChrome, DEFAULT_HEIGHT, DEFAULT_WIDTH,
+    apply_filter_readout, apply_opacity_readout, camera_signature, form_accent, init_form_defaults,
+    parse_dimension, random_accent_index, refresh_landing, set_editor_open, sync_editor,
+    sync_guide_readout, sync_guides, sync_layer_rows, sync_layer_settings, sync_layers,
+    sync_project_tabs, sync_rulers, sync_shell, sync_zoom_chrome, AppWindow, FilterDebounce,
+    SharedUi, ToolChrome, DEFAULT_HEIGHT, DEFAULT_WIDTH,
 };
 
 struct InputState {
@@ -104,17 +105,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let input = Rc::new(RefCell::new(InputState {
         mods: ModifierState::default(),
     }));
+    let filter_debounce = FilterDebounce::new();
     wire_editor_callbacks(
         &ui,
         controller.clone(),
         host.clone(),
         ui_weak.clone(),
         input.clone(),
+        filter_debounce.clone(),
     );
     wire_modals(&ui, controller.clone(), host.clone(), ui_weak.clone());
-    wire_menus(&ui, controller.clone(), ui_weak.clone());
+    wire_menus(
+        &ui,
+        controller.clone(),
+        ui_weak.clone(),
+        filter_debounce.clone(),
+    );
     wire_exports(&ui, controller.clone(), ui_weak.clone());
-    wire_layer_actions(&ui, controller.clone(), ui_weak.clone());
+    wire_layer_actions(&ui, controller.clone(), ui_weak.clone(), filter_debounce);
     wire_tools(&ui, controller.clone(), ui_weak.clone());
     wire_color_picker(&ui, controller.clone(), ui_weak.clone());
     wire_shell_keys(
@@ -267,6 +275,7 @@ fn wire_editor_callbacks(
     host: Rc<RefCell<BoardHost>>,
     ui_weak: SharedUi,
     input: Rc<RefCell<InputState>>,
+    filter_debounce: Rc<FilterDebounce>,
 ) {
     ui.on_switch_project_tab({
         let controller = controller.clone();
@@ -831,6 +840,7 @@ fn wire_editor_callbacks(
         let input = input.clone();
         let controller = controller.clone();
         let ui_weak = ui_weak.clone();
+        let filter_debounce = filter_debounce.clone();
         move |x, y, middle, meta, alt, shift| {
             let mods = {
                 let mut state = input.borrow_mut();
@@ -845,6 +855,7 @@ fn wire_editor_callbacks(
                 host.borrow_mut().render();
             }
             if let Some(ui) = ui_weak.upgrade() {
+                filter_debounce.commit(&controller, &ui);
                 let mut ctrl = controller.borrow_mut();
                 ctrl.announce_tool_block_if_any();
                 ctrl.retarget_layer_settings_to_active();
@@ -1011,7 +1022,12 @@ fn defer_sync_editor_only(ui_weak: &SharedUi, controller: &SharedController) {
     });
 }
 
-fn wire_menus(ui: &AppWindow, controller: SharedController, ui_weak: SharedUi) {
+fn wire_menus(
+    ui: &AppWindow,
+    controller: SharedController,
+    ui_weak: SharedUi,
+    filter_debounce: Rc<FilterDebounce>,
+) {
     let toggle_layers = {
         let controller = controller.clone();
         let ui_weak = ui_weak.clone();
@@ -1042,7 +1058,11 @@ fn wire_menus(ui: &AppWindow, controller: SharedController, ui_weak: SharedUi) {
     ui.on_pick_layer({
         let controller = controller.clone();
         let ui_weak = ui_weak.clone();
+        let filter_debounce = filter_debounce.clone();
         move |index| {
+            if let Some(ui) = ui_weak.upgrade() {
+                filter_debounce.commit(&controller, &ui);
+            }
             controller.borrow_mut().pick_layer(index as usize);
             if let Some(ui) = ui_weak.upgrade() {
                 let mut ctrl = controller.borrow_mut();
@@ -1213,7 +1233,12 @@ fn wire_exports(ui: &AppWindow, controller: SharedController, ui_weak: SharedUi)
     });
 }
 
-fn wire_layer_actions(ui: &AppWindow, controller: SharedController, ui_weak: SharedUi) {
+fn wire_layer_actions(
+    ui: &AppWindow,
+    controller: SharedController,
+    ui_weak: SharedUi,
+    filter_debounce: Rc<FilterDebounce>,
+) {
     ui.on_toggle_layer_visible({
         let controller = controller.clone();
         let ui_weak = ui_weak.clone();
@@ -1229,7 +1254,11 @@ fn wire_layer_actions(ui: &AppWindow, controller: SharedController, ui_weak: Sha
     ui.on_open_layer_settings({
         let controller = controller.clone();
         let ui_weak = ui_weak.clone();
+        let filter_debounce = filter_debounce.clone();
         move |index, anchor_x, anchor_y| {
+            if let Some(ui) = ui_weak.upgrade() {
+                filter_debounce.commit(&controller, &ui);
+            }
             controller
                 .borrow_mut()
                 .open_layer_settings(index as usize, anchor_x, anchor_y);
@@ -1305,7 +1334,11 @@ fn wire_layer_actions(ui: &AppWindow, controller: SharedController, ui_weak: Sha
     ui.on_layer_settings_dismissed({
         let controller = controller.clone();
         let ui_weak = ui_weak.clone();
+        let filter_debounce = filter_debounce.clone();
         move || {
+            if let Some(ui) = ui_weak.upgrade() {
+                filter_debounce.commit(&controller, &ui);
+            }
             let mut ctrl = controller.borrow_mut();
             ctrl.layer_settings_open = false;
             if let Some(ui) = ui_weak.upgrade() {
@@ -1353,14 +1386,13 @@ fn wire_layer_actions(ui: &AppWindow, controller: SharedController, ui_weak: Sha
     ui.on_layer_settings_opacity_changed({
         let controller = controller.clone();
         let ui_weak = ui_weak.clone();
+        let filter_debounce = filter_debounce.clone();
         move |opacity| {
-            let mut ctrl = controller.borrow_mut();
-            let index = ctrl.layer_settings_index;
-            ctrl.set_layer_opacity(index, opacity);
+            let index = controller.borrow().layer_settings_index;
             if let Some(ui) = ui_weak.upgrade() {
-                sync_layer_settings(&ui, &ctrl);
+                apply_opacity_readout(&ui, opacity);
             }
-            wake(&ui_weak);
+            filter_debounce.schedule_opacity(index, opacity, &controller, &ui_weak);
         }
     });
     ui.on_layer_settings_export_layer({
@@ -1427,25 +1459,26 @@ fn wire_layer_actions(ui: &AppWindow, controller: SharedController, ui_weak: Sha
     ui.on_layer_settings_filter_changed({
         let controller = controller.clone();
         let ui_weak = ui_weak.clone();
+        let filter_debounce = filter_debounce.clone();
         move |kind, value| {
-            let mut ctrl = controller.borrow_mut();
-            let index = ctrl.layer_settings_index;
-            ctrl.set_layer_filter(index, kind, value);
+            let index = controller.borrow().layer_settings_index;
             if let Some(ui) = ui_weak.upgrade() {
-                sync_layer_settings(&ui, &ctrl);
+                apply_filter_readout(&ui, kind, value);
             }
-            wake(&ui_weak);
+            filter_debounce.schedule_filter(index, kind, value, &controller, &ui_weak);
         }
     });
     ui.on_layer_settings_reset_filters({
         let controller = controller.clone();
         let ui_weak = ui_weak.clone();
+        let filter_debounce = filter_debounce.clone();
         move || {
+            filter_debounce.cancel_filter();
             let mut ctrl = controller.borrow_mut();
             let index = ctrl.layer_settings_index;
             ctrl.reset_layer_filters(index);
             if let Some(ui) = ui_weak.upgrade() {
-                sync_layer_settings(&ui, &ctrl);
+                sync_layers(&ui, &mut ctrl);
             }
             wake(&ui_weak);
         }

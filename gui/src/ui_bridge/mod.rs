@@ -1,6 +1,7 @@
 slint::include_modules!();
 
 mod editor;
+mod filter_commit;
 mod guides;
 mod landing;
 mod rulers;
@@ -8,9 +9,10 @@ mod strings;
 mod theme;
 
 pub use editor::{
-    set_editor_open, sync_editor, sync_layer_rows, sync_layer_settings, sync_layers,
-    sync_project_tabs,
+    apply_filter_readout, apply_opacity_readout, set_editor_open, sync_editor, sync_layer_rows,
+    sync_layer_settings, sync_layers, sync_project_tabs,
 };
+pub use filter_commit::FilterDebounce;
 pub use guides::{sync_guide_readout, sync_guides};
 pub use landing::{
     form_accent, parse_dimension, random_accent_index, refresh_landing, sync_recents,

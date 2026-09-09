@@ -15,14 +15,16 @@ const TRANSFORM_OUTLINE_COLOR: [f32; 4] = [0.24, 0.78, 0.84, 0.95];
 const TRANSFORM_OUTLINE_WIDTH_PX: f32 = 1.0;
 const TRANSFORM_HANDLE_COLOR: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
 const TRANSFORM_HANDLE_RADIUS_PX: f32 = 8.0;
+const OVERLAY_BORDER_COLOR: [f32; 4] = [0.35, 0.38, 0.42, 0.9];
+const OVERLAY_BORDER_PX: f32 = 1.0;
 /// A white grip on white paper is not a grip. The ring is drawn as a slightly larger disc
 /// *under* the white one rather than as an outline of its own — the overlay pass has no stroked
 /// circle, and two discs is the same primitive twice instead of a new one. Grey rather than the
 /// frame's teal, so the thing you grab stays distinct from the frame it sits on, and thin enough
 /// that the grip still reads as white: the visual radius goes to 9px, which keeps it inside the
 /// 10px `HANDLE_HIT_RADIUS_PX` the grip is caught by.
-const TRANSFORM_HANDLE_BORDER_COLOR: [f32; 4] = [0.35, 0.38, 0.42, 0.9];
-const TRANSFORM_HANDLE_BORDER_PX: f32 = 1.0;
+const TRANSFORM_HANDLE_BORDER_COLOR: [f32; 4] = OVERLAY_BORDER_COLOR;
+const TRANSFORM_HANDLE_BORDER_PX: f32 = OVERLAY_BORDER_PX;
 
 const TEXT_BOX_COLOR: [f32; 4] = [0.24, 0.78, 0.84, 0.45];
 const TEXT_BOX_WIDTH_PX: f32 = 0.5;
@@ -125,16 +127,13 @@ fn dashed_edge(
         let start = t.max(0.0);
         let end = (t + dash).min(len);
         if end > start {
-            out.push(StrokeInstance {
-                segment: [
-                    a.0 + ux * start,
-                    a.1 + uy * start,
-                    a.0 + ux * end,
-                    a.1 + uy * end,
-                ],
+            push_outlined_segment(
+                &mut out,
+                (a.0 + ux * start, a.1 + uy * start),
+                (a.0 + ux * end, a.1 + uy * end),
                 color,
-                brush: brush_params(width, &BrushProfile::HARD),
-            });
+                width,
+            );
         }
         t += period;
     }
@@ -310,25 +309,52 @@ pub fn transform_overlay_instances(handles: TransformHandles) -> Vec<StrokeInsta
 /// turned. A vector item cannot — the shader's SDFs are axis-aligned — so its frame is this
 /// same furniture minus the stalk, rather than a second kind of box to learn. Only one frame
 /// is ever on screen: selecting an item is what takes it off the layer.
+fn push_outlined_segment(
+    out: &mut Vec<StrokeInstance>,
+    a: (f32, f32),
+    b: (f32, f32),
+    color: [f32; 4],
+    width: f32,
+) {
+    let segment = [a.0, a.1, b.0, b.1];
+    out.push(StrokeInstance {
+        segment,
+        color: OVERLAY_BORDER_COLOR,
+        brush: brush_params(width + OVERLAY_BORDER_PX, &BrushProfile::HARD),
+    });
+    out.push(StrokeInstance {
+        segment,
+        color,
+        brush: brush_params(width, &BrushProfile::HARD),
+    });
+}
+
 pub fn box_overlay_instances(
     corners: [(f32, f32); 4],
     rotate_handle: Option<(f32, f32)>,
 ) -> Vec<StrokeInstance> {
-    let mut out = Vec::with_capacity(4 + 1 + 5 * 2);
-    let outline = |a: (f32, f32), b: (f32, f32)| StrokeInstance {
-        segment: [a.0, a.1, b.0, b.1],
-        color: TRANSFORM_OUTLINE_COLOR,
-        brush: brush_params(TRANSFORM_OUTLINE_WIDTH_PX, &BrushProfile::HARD),
-    };
+    let mut out = Vec::with_capacity(4 * 2 + 1 * 2 + 5 * 2);
     for i in 0..4 {
-        out.push(outline(corners[i], corners[(i + 1) % 4]));
+        push_outlined_segment(
+            &mut out,
+            corners[i],
+            corners[(i + 1) % 4],
+            TRANSFORM_OUTLINE_COLOR,
+            TRANSFORM_OUTLINE_WIDTH_PX,
+        );
     }
     if let Some(rotate_handle) = rotate_handle {
         let top_mid = (
             (corners[0].0 + corners[1].0) * 0.5,
             (corners[0].1 + corners[1].1) * 0.5,
         );
-        out.push(outline(top_mid, rotate_handle));
+        push_outlined_segment(
+            &mut out,
+            top_mid,
+            rotate_handle,
+            TRANSFORM_OUTLINE_COLOR,
+            TRANSFORM_OUTLINE_WIDTH_PX,
+        );
     }
     for p in corners.iter().chain(rotate_handle.iter()) {
         // Border first, grip over it: instances paint in order, so the larger disc underneath
@@ -354,8 +380,8 @@ const CROP_OUTLINE_COLOR: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
 const CROP_OUTLINE_WIDTH_PX: f32 = 1.0;
 const CROP_HANDLE_COLOR: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
 const CROP_HANDLE_RADIUS_PX: f32 = 4.0;
-const CROP_HANDLE_BORDER_COLOR: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
-const CROP_HANDLE_BORDER_PX: f32 = 1.0;
+const CROP_HANDLE_BORDER_COLOR: [f32; 4] = OVERLAY_BORDER_COLOR;
+const CROP_HANDLE_BORDER_PX: f32 = OVERLAY_BORDER_PX;
 const CROP_GUIDE_COLOR: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
 const CROP_GUIDE_WIDTH_PX: f32 = 1.0;
 
@@ -412,27 +438,20 @@ pub fn crop_overlay_instances(doc: &Document) -> Vec<StrokeInstance> {
     };
     let guides = doc.crop_overlay_lines();
     let shade = crop_shade_instances(doc, (x0, y0, x1, y1));
-    let mut out = Vec::with_capacity(shade.len() + guides.len() + 4 + 8 * 2);
+    let mut out = Vec::with_capacity(shade.len() + guides.len() * 2 + 4 * 2 + 8 * 2);
     out.extend(shade);
     for (a, b) in guides {
-        out.push(StrokeInstance {
-            segment: [a.0, a.1, b.0, b.1],
-            color: CROP_GUIDE_COLOR,
-            brush: brush_params(CROP_GUIDE_WIDTH_PX, &BrushProfile::HARD),
-        });
+        push_outlined_segment(&mut out, a, b, CROP_GUIDE_COLOR, CROP_GUIDE_WIDTH_PX);
     }
     let corners = [(x0, y0), (x1, y0), (x1, y1), (x0, y1)];
     for i in 0..4 {
-        out.push(StrokeInstance {
-            segment: [
-                corners[i].0,
-                corners[i].1,
-                corners[(i + 1) % 4].0,
-                corners[(i + 1) % 4].1,
-            ],
-            color: CROP_OUTLINE_COLOR,
-            brush: brush_params(CROP_OUTLINE_WIDTH_PX, &BrushProfile::HARD),
-        });
+        push_outlined_segment(
+            &mut out,
+            corners[i],
+            corners[(i + 1) % 4],
+            CROP_OUTLINE_COLOR,
+            CROP_OUTLINE_WIDTH_PX,
+        );
     }
     let (mx, my) = ((x0 + x1) * 0.5, (y0 + y1) * 0.5);
     let handles = [
@@ -495,20 +514,22 @@ pub fn text_overlay_instances(doc: &Document, elapsed: f32) -> Vec<StrokeInstanc
     }
     let corners = [(x0, y0), (x1, y0), (x1, y1), (x0, y1)];
     for i in 0..4 {
-        let a = corners[i];
-        let b = corners[(i + 1) % 4];
-        out.push(StrokeInstance {
-            segment: [a.0, a.1, b.0, b.1],
-            color: TEXT_BOX_COLOR,
-            brush: brush_params(TEXT_BOX_WIDTH_PX, &BrushProfile::HARD),
-        });
+        push_outlined_segment(
+            &mut out,
+            corners[i],
+            corners[(i + 1) % 4],
+            TEXT_BOX_COLOR,
+            TEXT_BOX_WIDTH_PX,
+        );
     }
     if let (true, Some((a, b))) = (text_caret_visible(elapsed), doc.text_caret_segment()) {
-        out.push(StrokeInstance {
-            segment: [a.0, a.1, b.0, b.1],
-            color: rgba_unit(doc.text_caret_color()),
-            brush: brush_params(TEXT_CARET_WIDTH_PX, &BrushProfile::HARD),
-        });
+        push_outlined_segment(
+            &mut out,
+            a,
+            b,
+            rgba_unit(doc.text_caret_color()),
+            TEXT_CARET_WIDTH_PX,
+        );
     }
     out
 }

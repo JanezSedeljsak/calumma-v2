@@ -6,6 +6,7 @@ export component CalmSlider inherits Rectangle {
     in-out property <float> value: 0;
 
     callback moved(float);
+    callback released(float);
 
     height: 20px;
     min-width: 60px;
@@ -41,6 +42,9 @@ export component CalmSlider inherits Rectangle {
                 let next = clamp((self.mouse-x - root.knob / 2) / max(track, 1px), 0, 1);
                 root.value = root.minimum + next * (root.maximum - root.minimum);
                 root.moved(root.value);
+            }
+            if (event.kind == PointerEventKind.up) {
+                root.released(root.value);
             }
         }
     }

@@ -27,6 +27,14 @@ impl Engine {
             rev ^= u64::from(t.offset_x.to_bits());
             rev ^= u64::from(t.offset_y.to_bits()).rotate_left(16);
         }
+        if let Some(adj) = layer.adjustments {
+            rev ^= u64::from(adj.brightness.to_bits());
+            rev ^= u64::from(adj.contrast.to_bits()).rotate_left(8);
+            rev ^= u64::from(adj.vibrance.to_bits()).rotate_left(16);
+            rev ^= u64::from(adj.saturation.to_bits()).rotate_left(24);
+            rev ^= u64::from(adj.levels_gamma.to_bits()).rotate_left(32);
+        }
+        rev ^= u64::from(layer.opacity.to_bits()).rotate_left(40);
         rev
     }
 
@@ -37,20 +45,30 @@ impl Engine {
             return doc.clipped_layer_thumbnail(index, THUMB_MAX_SIDE);
         }
         let layer = doc.layers.get_mut(index)?;
-        if let Some(tiles) = layer.tiles_mut() {
-            let (w, h, rgba) = tiles.preview().scaled(THUMB_MAX_SIDE.max(1));
-            return Some((w, h, rgba));
-        }
-        if let Some(item) = layer.content.item() {
+        let adjustments = layer.adjustments;
+        let opacity = layer.opacity;
+        let (w, h, mut rgba) = if let Some(tiles) = layer.tiles_mut() {
+            tiles.preview().scaled(THUMB_MAX_SIDE.max(1))
+        } else if let Some(item) = layer.content.item() {
             let side = THUMB_MAX_SIDE.clamp(1, 64);
             let color = item.color();
             let mut rgba = vec![0u8; (side * side * 4) as usize];
             for px in rgba.chunks_exact_mut(4) {
                 px.copy_from_slice(&color);
             }
-            return Some((side, side, rgba));
+            (side, side, rgba)
+        } else {
+            return None;
+        };
+        if let Some(adj) = adjustments.filter(|a| !a.is_neutral()) {
+            adj.lut().apply_rgba(&mut rgba);
         }
-        None
+        if opacity < 1.0 {
+            for px in rgba.chunks_exact_mut(4) {
+                px[3] = ((px[3] as f32) * opacity).round().clamp(0.0, 255.0) as u8;
+            }
+        }
+        Some((w, h, rgba))
     }
 
     pub fn set_layer_visible(&mut self, index: usize, visible: bool) {

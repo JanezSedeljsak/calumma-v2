@@ -12,6 +12,7 @@ export component CalmSliderRow inherits VerticalLayout {
     in-out property <float> value;
 
     callback moved(float);
+    callback released(float);
     callback committed(string);
 
     spacing: 2px;
@@ -45,6 +46,9 @@ export component CalmSliderRow inherits VerticalLayout {
         maximum: root.maximum;
         moved(v) => {
             root.moved(v);
+        }
+        released(v) => {
+            root.released(v);
         }
     }
 }
