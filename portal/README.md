@@ -1,6 +1,6 @@
 # portal
 
-The Calumma landing page — a Bun + React + TypeScript single-page site that hands out the
+The Miw landing page — a Bun + React + TypeScript single-page site that hands out the
 installers, deployed to GitHub Pages.
 
 ```

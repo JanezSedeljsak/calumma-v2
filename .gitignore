@@ -6,11 +6,7 @@ __pycache__/
 venv/
 .ruff_cache/
 DerivedData/
-platform/macos/build/
-platform/qt/build/
-platform/macos/*.xcworkspace/xcuserdata/
-platform/macos/*.xcodeproj/xcuserdata/
-platform/macos/*.xcodeproj/project.xcworkspace/xcuserdata/
+gui/target/
 *.xcuserstate
 .swiftpm/
 lcov.info
@@ -21,3 +17,5 @@ lcov.info
 # agent plans
 docs/plans/*
 docs/todo.md
+
+legacy-macos-shell/**

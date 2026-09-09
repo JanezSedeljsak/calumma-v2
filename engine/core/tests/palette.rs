@@ -8,6 +8,15 @@ fn project_color_wraps_the_palette() {
 }
 
 #[test]
+fn project_color_index_round_trips_palette_entries() {
+    for (index, color) in PROJECT_COLORS.iter().enumerate() {
+        assert_eq!(project_color_index(*color), index);
+        assert_eq!(project_color(index), *color);
+    }
+    assert_eq!(project_color_index([1, 2, 3]), 0);
+}
+
+#[test]
 fn random_project_color_is_always_from_the_palette() {
     for _ in 0..64 {
         assert!(PROJECT_COLORS.contains(&random_project_color()));

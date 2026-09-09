@@ -1,7 +1,7 @@
 use crate::limits::{
     FIT_MATCH_PAN_TOLERANCE, FIT_MATCH_ZOOM_TOLERANCE, FIT_PADDING, MAX_ZOOM_HARD,
     MIN_VISIBLE_DOC_SIDE, MIN_ZOOM_FILL, PAN_KEEP_VISIBLE, SCROLL_LINE_PIXELS, SCROLL_PAN_MAX_GAIN,
-    ZOOM_PER_SCROLL_LINE, ZOOM_PER_SCROLL_PIXEL, ZOOM_STEP,
+    ZOOM_STEP, ZOOM_UNIT_PER_SCROLL_LINE, ZOOM_UNIT_PER_SCROLL_PIXEL,
 };
 
 /// Scroll deltas reach the camera in whatever unit the input device speaks: pixels from a
@@ -192,7 +192,11 @@ impl Camera {
         doc_width: f32,
         doc_height: f32,
     ) {
-        let gain = self.scroll_pan_gain(doc_width, doc_height);
+        let gain = if precise {
+            1.0
+        } else {
+            self.scroll_pan_gain(doc_width, doc_height)
+        };
         self.pan_by(
             scroll_pixels(dx, precise) * gain,
             scroll_pixels(dy, precise) * gain,
@@ -201,9 +205,6 @@ impl Camera {
         );
     }
 
-    /// Scroll-wheel zoom, anchored under the pointer. Exponential in the delta, so a notch
-    /// multiplies the zoom by a constant factor wherever you already are on the curve.
-    /// A positive delta (content pulled down) zooms out, matching the pan direction.
     pub fn zoom_by_scroll(
         &mut self,
         screen_x: f32,
@@ -214,21 +215,18 @@ impl Camera {
         doc_height: f32,
     ) {
         let weight = if precise {
-            ZOOM_PER_SCROLL_PIXEL
+            ZOOM_UNIT_PER_SCROLL_PIXEL
         } else {
-            ZOOM_PER_SCROLL_LINE
+            ZOOM_UNIT_PER_SCROLL_LINE
         };
-        let step = delta * weight;
+        let cap = ZOOM_UNIT_PER_SCROLL_LINE * 2.0;
+        let step = (delta * weight).clamp(-cap, cap);
         if step == 0.0 {
             return;
         }
-        self.zoom_at(
-            screen_x,
-            screen_y,
-            self.zoom * (-step).exp(),
-            doc_width,
-            doc_height,
-        );
+        let unit = self.zoom_unit(doc_width, doc_height);
+        let next = self.zoom_from_unit(unit - step, doc_width, doc_height);
+        self.zoom_at(screen_x, screen_y, next, doc_width, doc_height);
     }
 
     pub fn step_zoom(&mut self, zoom_in: bool, doc_width: f32, doc_height: f32) {

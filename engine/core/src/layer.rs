@@ -303,6 +303,10 @@ impl Layer {
         self.name == crate::names::PAPER
     }
 
+    pub fn is_raster(&self) -> bool {
+        self.content.is_raster()
+    }
+
     pub fn is_text(&self) -> bool {
         self.content.is_text()
     }

@@ -260,10 +260,10 @@ fn vector_selection_instances_draws_four_edges_and_four_corner_dots() {
     // Four edges, then two discs per corner: the grey border and the white grip over it.
     assert_eq!(
         out.len(),
-        4 + 4 * 2,
-        "four edges plus four bordered corner dots"
+        4 * 2 + 4 * 2,
+        "four outlined edges plus four bordered corner dots"
     );
-    for dot in &out[4..] {
+    for dot in &out[8..] {
         assert_eq!(
             (dot.segment[0], dot.segment[1]),
             (dot.segment[2], dot.segment[3]),
@@ -293,16 +293,16 @@ fn the_item_frame_is_the_layer_frame_without_the_rotate_stalk() {
         doc.selected_vector_item_corners().unwrap(),
         Some((0.0, -30.0)),
     );
-    assert_eq!(item.len(), 4 + 4 * 2);
+    assert_eq!(item.len(), 4 * 2 + 4 * 2);
     assert_eq!(
         layer.len(),
-        4 + 1 + 5 * 2,
-        "the stalk is one edge and one handle more"
+        (4 + 1 + 5) * 2,
+        "the stalk is one outlined edge and one handle more"
     );
     assert_eq!(
-        item[..4],
-        layer[..4],
-        "the four box edges are drawn identically at both levels"
+        item[..8],
+        layer[..8],
+        "the four outlined box edges are drawn identically at both levels"
     );
 }
 
@@ -317,8 +317,8 @@ fn a_corner_handle_looks_the_same_at_both_levels() {
     // Two discs per handle now, so the corner handles start one edge later on the layer frame
     // and run in pairs. Both halves have to match for the affordance to read the same.
     for i in 0..8 {
-        assert_eq!(item[4 + i].color, layer[5 + i].color);
-        assert_eq!(item[4 + i].brush, layer[5 + i].brush);
+        assert_eq!(item[8 + i].color, layer[10 + i].color);
+        assert_eq!(item[8 + i].brush, layer[10 + i].brush);
     }
 }
 
@@ -334,8 +334,8 @@ fn the_item_frame_sits_on_the_items_own_bounds() {
         .bounds()
         .unwrap();
     let out = vector_selection_instances(&doc);
-    let xs: Vec<f32> = out[4..].iter().map(|d| d.segment[0]).collect();
-    let ys: Vec<f32> = out[4..].iter().map(|d| d.segment[1]).collect();
+    let xs: Vec<f32> = out[8..].iter().map(|d| d.segment[0]).collect();
+    let ys: Vec<f32> = out[8..].iter().map(|d| d.segment[1]).collect();
     let min_x = xs.iter().cloned().fold(f32::INFINITY, f32::min);
     let max_x = xs.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
     let min_y = ys.iter().cloned().fold(f32::INFINITY, f32::min);
@@ -372,10 +372,9 @@ fn only_one_frame_is_ever_live_at_a_time() {
 fn a_box_with_no_rotate_handle_draws_only_its_own_corners() {
     let corners = [(0.0, 0.0), (10.0, 0.0), (10.0, 8.0), (0.0, 8.0)];
     let out = calumma_render::compose::box_overlay_instances(corners, None);
-    assert_eq!(out.len(), 4 + 4 * 2);
+    assert_eq!(out.len(), 4 * 2 + 4 * 2);
     for (i, corner) in corners.iter().enumerate() {
-        // Border and grip, both degenerate segments on the corner itself.
-        for dot in [out[4 + i * 2].segment, out[5 + i * 2].segment] {
+        for dot in [out[8 + i * 2].segment, out[9 + i * 2].segment] {
             assert_eq!((dot[0], dot[1]), (corner.0, corner.1));
             assert_eq!((dot[2], dot[3]), (corner.0, corner.1));
         }

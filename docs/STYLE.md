@@ -1,4 +1,4 @@
-# STYLE.md — Calumma design system
+# STYLE.md — Miw design system
 
 Single visual language for every shell. Tokens live in `design/tokens.json`.
 Platforms consume generated theme code — never hardcode hex in UI files.
@@ -47,7 +47,7 @@ bits use `{0}`, `{1}`, … filled by `l10n.formatKey(...)`. Visual tokens stay i
 3. **Custom SVG icons only.** Ship icons from `design/icons/`. No icon packs.
    SF Symbols are not the product icon set (system chrome may still use them).
 4. **Light and dark.** Every color has a light and dark value in tokens. The
-   shell toggles theme; the engine receives dark-paper via FFI.
+   shell toggles theme; the engine receives dark-paper via `Engine::set_board_colors`.
 5. **Filled controls, one height.** Inputs, buttons, and cards are solid surfaces.
    Hover and active states shift luminance, not outline weight — never the border.
    Every standard control is `control.height` tall (`Tokens.Control.height`), the one
@@ -56,19 +56,29 @@ bits use `{0}`, `{1}`, … filled by `l10n.formatKey(...)`. Visual tokens stay i
    their padding from the spacing scale horizontally only; the height is the token.
    The tools panel keeps its own denser scale (24pt controls, label type) — it is a
    packed island, not a form.
-6. **Inline color picker.** `QuickColorPicker` is the only color control: two equal
+6. **Inline color picker.** `QuickColorPicker` is the only color control: four equal
    quick swatches side by side, a saturation/brightness gradient field, a hue slider, and
-   a hex field. Both edit the *active* quick swatch. Hue/saturation/brightness are held as
+   a hex field. All four edit the *active* quick swatch. Hue/saturation/brightness are held as
    model state (`AppModel.hsb`), not re-derived from the RGB color on every read —
    deriving loses the hue as soon as saturation or brightness hits zero, which makes a
    gradient field jump under the cursor.
 7. **Canvas stays Rust.** Anything *drawn on the board* (paper, strokes, shapes, desk grid,
    layer hover outline) is WGSL — the shell never paints board content. The one thing the
-   shell may draw over the board is a **placeholder for a board with nothing to show yet**:
+   shell may draw over the board is a **placeholder for a board with nothing to show yet** —
+   and even that only where the shell owns the pixels. In `gui/` the board is a native
+   `CAMetalLayer` subview, which draws *over* every Slint element inside its rect. Rulers stay
+   *outside* that rectangle (inset strips along the island's top and left). The **zoom pill**
+   (bottom-trailing) and the **layer hover preview** (left of the layers island) float over the
+   board the way they did in the frozen Swift shell: the shell punches those rectangles out of
+   the Metal view with a layer mask so Slint paints above the paper. Overlay chrome (modals,
+   popovers, tooltips, toasts) *may* cover the whole board — the shell hides the Metal view
+   while `overlay-chrome-open` is true so those layers paint. The exception below is Swift-shell
+   behavior:
    `CanvasSkeleton` covers the Metal view while a project loads, on the rectangle
-   `calm_fit_size` says the paper will occupy. Standing in for the canvas, not styling it. Board colors are
+   `calumma_core::camera::fit_size` says the paper will occupy (frozen Swift-shell behavior —
+   `gui/` has no loading skeleton yet). Standing in for the canvas, not styling it. Board colors are
    pushed from tokens into the engine, never hardcoded in the shader. Small chrome controls
-   may float over the canvas island (zoom pill, bottom-trailing); panels do not.
+   belong to the canvas island (the zoom pill, bottom-trailing); panels do not.
 
 ## Hierarchy
 
@@ -91,11 +101,13 @@ bits use `{0}`, `{1}`, … filled by `l10n.formatKey(...)`. Visual tokens stay i
 | Control focus | `color.controlFocusBorder` | The same edge on a focused input; accent-tinted so focus stays visible against the resting border |
 
 Desk, desk grid, and paper border are the only tokens the engine consumes. They travel
-shell → `calm_engine_set_board_colors` → `PaperUniforms` → `board.wgsl`. Changing the board
+shell → `Engine::set_board_colors` → `PaperUniforms` → `board.wgsl`. Changing the board
 look is a `tokens.json` edit, never a shader edit.
 
 Project accent colors are **not** in this table — they are document data owned by
-`calumma_core::palette`, served to the shell through `calm_palette_color`.
+`calumma_core::palette`, assigned core/io-side at project creation. There is no
+shell-facing getter for a palette color today (nothing on `Engine` re-exposes one since the
+ffi rewrite).
 
 ## Type
 
@@ -118,18 +130,20 @@ the gradient brightens, no outline.
 
 ## Editor
 
-Project tabs sit in a **compact window titlebar** (right of the traffic lights) inside one
-shared capsule with the `+` control. Selected tab is a soft highlight clipped to
-that capsule — not a second nested pill. Each tab carries its own project's accent dot,
-then the name, then `×`; clicking the dot opens the rename / recolor card. Top padding is
-tight (`space.xs`) so the board starts close under the titlebar.
+Project tabs sit in one shared capsule with the `+` control — in the Swift shell that capsule
+lived in a **compact window titlebar** right of the traffic lights; `gui/` cannot put content
+in the OS titlebar, so the same capsule is the first row inside the window, above the islands.
+Selected tab is a soft highlight clipped to that capsule — not a second nested pill. Each tab
+carries its own project's accent dot, then the name, then `×`; clicking the dot opens the
+rename / recolor card (no `Engine` entry point for it in `gui/` yet, so the dot is a marker
+there). Top padding is tight (`space.xs`) so the board starts close under the titlebar.
 
 While a project loads, the canvas island holds a **skeleton** rather than the outgoing
 board: the desk with its squared paper, and one sweeping band across the rectangle the paper
 is about to fill (`CanvasSkeleton`, rule 7). Rulers stay up with ticks for the incoming
 project; only the canvas content is covered. Luminance only — no spinner, no label. Every
-measurement in it is the engine's — the rectangle from `calm_fit_size`, the grid from
-`calm_desk_metrics` — so the placeholder sits on the same lattice the shader draws on and the
+measurement in it is the engine's — the rectangle from `fit_size`, the grid from
+`calumma_core::DeskMetrics` — so the placeholder sits on the same lattice the shader draws on and the
 swap is invisible.
 
 Transform grips are white discs with a **thin grey ring** under them: a white grip on white
@@ -138,9 +152,10 @@ outline — the overlay pass has no stroked circle, and two discs is the same pr
 
 Tools, canvas, and layers are three **rounded, bordered islands**, full-height, separated
 by a minimal gap (`space.xs`) with a matching margin from the window edge on every side — no
-longer flush. The **zoom pill** floats bottom-trailing *inside* the canvas island: `−`, log
-slider, `+`, percentage, a fit-to-view icon (tooltip, no label). Layer list rows stay
-compact; hovering a row shows a thumbnail popover. Board hover outline remains a dashed
+longer flush. The **zoom pill** floats bottom-trailing *inside* the canvas island, over the
+board: `−`, log slider, `+`, percentage, a fit-to-view icon (tooltip, no label). Layer list
+rows stay compact; hovering a row shows a thumbnail popover to the left of the island, over
+the board. Board hover outline remains a dashed
 WGSL stroke, not a Swift overlay.
 
 A tools-panel slider row is a muted label, the value, and the track under both. Where the

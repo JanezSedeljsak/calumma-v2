@@ -26,11 +26,9 @@ from constants import (
     ENGINE_TARGET,
     ENV_CARGO_TARGET_DIR,
     ENV_GITHUB_STEP_SUMMARY,
-    MACOS,
     MSG_N_A,
     PKG_CORE,
     ROOT,
-    SWIFT_FORMAT_CONFIG,
     TOKEN_ACCENT_ORANGE,
     TOKEN_ACCENT_TEAL,
     TOKEN_KEY_ACCENT,
@@ -43,28 +41,20 @@ from constants import (
     TOKEN_KEY_WINDOW,
     TOKEN_MODE_DARK,
     TOKEN_MODE_LIGHT,
-    TOKENS_CPP_OUT,
     TOKENS_PATH,
-    TOKENS_SWIFT_OUT,
-    XCODE_PROJECT,
 )
 
 FORBIDDEN_CORE_DEPS = re.compile(r"wgpu|objc2|metal|windows", re.IGNORECASE)
 
 __all__ = [
     "COLOR_KEYS",
-    "TOKENS_CPP_OUT",
     "ENGINE",
     "ENGINE_LOCK",
     "ENGINE_MANIFEST",
     "ENGINE_TARGET",
-    "MACOS",
     "PKG_CORE",
     "ROOT",
-    "SWIFT_FORMAT_CONFIG",
     "TOKENS_PATH",
-    "TOKENS_SWIFT_OUT",
-    "XCODE_PROJECT",
     "cargo_cmd",
     "crate_for_path",
     "ensure_engine_env",
@@ -77,7 +67,6 @@ __all__ = [
     "python_module",
     "run",
     "write_github_summary",
-    "swift_color_lit",
     "token_colors",
     "token_presets",
     "token_radius",
@@ -189,11 +178,6 @@ def hex_to_srgb(h: str) -> tuple[float, float, float, float]:
         r, g, b, a = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16), int(h[6:8], 16)
         return r / 255, g / 255, b / 255, a / 255
     raise ValueError(h)
-
-
-def swift_color_lit(name: str, h: str) -> str:
-    r, g, b, a = hex_to_srgb(h)
-    return f"    static let {name} = Color(red: {r:.6f}, green: {g:.6f}, blue: {b:.6f}, opacity: {a:.6f})"
 
 
 def crate_for_path(path: str) -> str | None:

@@ -1,0 +1,99 @@
+import { Theme } from "CalmTheme.slint";
+import { Tokens } from "CalmTokens.slint";
+
+export component CalmField inherits Rectangle {
+    in-out property <string> text <=> input.text;
+    in property <length> text-size: Tokens.body-size;
+    in property <bool> mono: false;
+    in property <int> text-weight: 400;
+    in property <TextHorizontalAlignment> alignment: left;
+    in property <length> pad: Tokens.space-md;
+    in property <length> radius: Tokens.radius-md;
+
+    callback accepted(string);
+    callback edited(string);
+    callback cancelled();
+    callback focus-lost();
+
+    out property <bool> focused: input.has-focus;
+    in property <bool> auto-focus: false;
+
+    height: Tokens.control-height;
+    border-radius: radius;
+    background: Theme.surface;
+    border-width: 1px;
+    border-color: input.has-focus ? Theme.control-focus-border : Theme.control-border;
+
+    pad-touch := TouchArea {
+        mouse-cursor: MouseCursor.text;
+        clicked => {
+            input.focus();
+        }
+    }
+
+    input := TextInput {
+        x: root.pad;
+        width: parent.width - root.pad * 2;
+        height: 100%;
+        single-line: true;
+        vertical-alignment: center;
+        horizontal-alignment: root.alignment;
+        color: Theme.text;
+        font-size: root.text-size;
+        font-weight: root.text-weight;
+        font-family: root.mono ? "Menlo" : "";
+        selection-background-color: Theme.accent-teal;
+        selection-foreground-color: Theme.bg;
+        accepted => {
+            root.accepted(self.text);
+        }
+        edited => {
+            root.edited(self.text);
+        }
+        key-pressed(event) => {
+            if (event.text == "\u{001B}") {
+                root.cancelled();
+                accept;
+            }
+            if (event.text == "\u{000A}" || event.text == "\u{000D}" || event.text == Key.Return) {
+                root.accepted(self.text);
+                accept;
+            }
+            reject;
+        }
+    }
+
+    private property <bool> was-focused: false;
+
+    changed focused => {
+        if (root.was-focused && !root.focused) {
+            root.focus-lost();
+        }
+        root.was-focused = root.focused;
+    }
+
+    init => {
+        if (root.auto-focus) {
+            input.focus();
+            input.select-all();
+        }
+    }
+
+    changed auto-focus => {
+        if (root.auto-focus) {
+            input.focus();
+            input.select-all();
+        }
+    }
+}
+
+export component CalmSliderValueField inherits CalmField {
+    width: 38px;
+    height: Tokens.label-size * 2.2;
+    radius: Tokens.radius-sm;
+    pad: Tokens.space-xs;
+    text-size: Tokens.label-size;
+    text-weight: 500;
+    mono: true;
+    alignment: right;
+}

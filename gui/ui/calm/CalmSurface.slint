@@ -1,0 +1,16 @@
+import { Theme } from "CalmTheme.slint";
+import { Tokens } from "CalmTokens.slint";
+
+export component CalmSurface inherits Rectangle {
+    in property <bool> hover: false;
+    in property <bool> bordered: false;
+    in property <bool> focused: false;
+    in property <length> radius: Tokens.radius-md;
+
+    background: hover ? Theme.surface-hover : Theme.surface;
+    border-radius: radius;
+    border-width: bordered ? 1px : 0px;
+    border-color: focused ? Theme.control-focus-border : Theme.control-border;
+
+    @children
+}

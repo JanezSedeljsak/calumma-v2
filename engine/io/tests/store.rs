@@ -114,6 +114,17 @@ fn layer_effects_round_trip() {
 }
 
 #[test]
+fn create_with_accent_uses_the_given_color() {
+    let (_dir, store) = store();
+    let accent = calumma_core::PROJECT_COLORS[2];
+    let doc = store
+        .create_with_accent("Tinted", 16, 16, Some(accent))
+        .unwrap();
+    assert_eq!(doc.accent, accent);
+    assert_eq!(store.open_project(&doc.id).unwrap().accent, accent);
+}
+
+#[test]
 fn accent_round_trips_and_can_be_recolored() {
     let (_dir, store) = store();
     let mut doc = store.create("Tinted", 32, 32).unwrap();

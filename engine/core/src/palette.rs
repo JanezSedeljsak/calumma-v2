@@ -17,6 +17,13 @@ pub fn project_color(index: usize) -> [u8; 3] {
     PROJECT_COLORS[index % PROJECT_COLORS.len()]
 }
 
+pub fn project_color_index(rgb: [u8; 3]) -> usize {
+    PROJECT_COLORS
+        .iter()
+        .position(|color| *color == rgb)
+        .unwrap_or(0)
+}
+
 /// Which of [`PROJECT_COLORS`] a new guide takes. Orange rather than the teal every selection
 /// and transform overlay uses, so a rule the board snaps to never reads as something that is
 /// selected — the reason the guide color was picked in the first place, back when it was a

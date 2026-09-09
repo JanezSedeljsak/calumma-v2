@@ -4,6 +4,27 @@ const ERASER_PREVIEW_COLOR: [f32; 4] = [0.5, 0.5, 0.5, 0.5];
 const SELECTION_OUTLINE_COLOR: [f32; 4] = [1.0, 1.0, 1.0, 0.9];
 const SELECTION_OUTLINE_WIDTH: f32 = 1.5;
 
+fn collect_screen_overlays(doc: &Document, elapsed: f32, out: &mut Vec<StrokeInstance>) {
+    if doc.text_editing() {
+        out.extend(text_overlay_instances(doc, elapsed));
+    } else if doc.tool == Tool::Crop {
+        out.extend(crop_overlay_instances(doc));
+    } else if let Some(handles) = doc.transform_handles() {
+        out.extend(transform_overlay_instances(handles));
+    }
+    out.extend(vector_selection_instances(doc));
+    out.extend(brush_ring_instances(doc));
+    out.extend(clone_source_overlay_instances(doc));
+    for (index, corners) in doc.layer_highlights() {
+        let covered = doc
+            .transform_handles()
+            .is_some_and(|(handle_index, _, _)| handle_index == index);
+        if !covered {
+            out.extend(layer_highlight_instances(corners, elapsed, doc.camera.zoom));
+        }
+    }
+}
+
 impl Renderer {
     pub(super) fn sync_clip_for_transform_changes(&mut self, doc: &mut Document) {
         if self.layer_transform_stamp.len() != doc.layers.len() {
@@ -708,8 +729,8 @@ impl Renderer {
             .write_buffer(&self.preview_buf, 0, bytemuck::bytes_of(&preview));
 
         let guide_count = self.write_guides(doc);
-        let mut overlay_range = 0u32..0u32;
-        let mut screen_overlay_range = 0u32..0u32;
+        let overlay_range;
+        let screen_overlay_range;
         // `brush_range` is the segments to *union into* the coverage target this frame, which is
         // empty on any frame the pointer did not move; `brush_active` is whether there is a live
         // brush stroke to composite onto the board at all. They used to be the same question,
@@ -746,18 +767,9 @@ impl Renderer {
             let mut screen_instances = std::mem::take(&mut self.screen_overlay_scratch);
             screen_instances.clear();
             let overlay_start = prefix_len as u32;
-            if doc.text_editing() {
-                screen_instances.extend(text_overlay_instances(
-                    doc,
-                    self.started.elapsed().as_secs_f32(),
-                ));
-            } else if doc.tool == Tool::Crop {
-                screen_instances.extend(crop_overlay_instances(doc));
-            } else if doc.previews_brush_stroke() {
+            if doc.previews_brush_stroke() {
                 brush_active = true;
                 let profile = doc.active_brush_profile();
-                // Ahead of the append decision rather than after the ranges are built: a target
-                // the surface resize just recreated is empty, and only `ensure` knows that.
                 let recreated = self.stroke_coverage.ensure(
                     &self.device,
                     self.config.width,
@@ -794,43 +806,31 @@ impl Renderer {
                     stroke_color,
                     &BrushProfile::HARD,
                 ));
-            } else if let Some(handles) = doc.transform_handles() {
-                screen_instances.extend(transform_overlay_instances(handles));
-            } else if let Some(points) = selection_lasso_points(doc) {
-                instances.extend(stroke_instances(
-                    &points,
-                    SELECTION_OUTLINE_WIDTH,
-                    SELECTION_OUTLINE_COLOR,
-                    &BrushProfile::HARD,
-                ));
-            } else if let Some(edges) =
-                selection_mask_edges(doc, SELECTION_OUTLINE_WIDTH, SELECTION_OUTLINE_COLOR)
+            } else if !doc.text_editing()
+                && doc.tool != Tool::Crop
+                && doc.transform_handles().is_none()
             {
-                instances.extend(edges);
-            }
-            // Not part of the chain above: a selected item's frame is drawn under the Move
-            // tool too, where none of those branches is the one that ran. It costs nothing
-            // when nothing is selected, and `transform_handles` stands the layer frame down
-            // while it is on screen, so the two can never both draw.
-            screen_instances.extend(vector_selection_instances(doc));
-            // Unconditional for the same reason: the engine decides whether there is a brush
-            // cursor to draw, and answers with nothing when there is not.
-            screen_instances.extend(brush_ring_instances(doc));
-            screen_instances.extend(clone_source_overlay_instances(doc));
-            for (index, corners) in doc.layer_highlights() {
-                let covered = doc
-                    .transform_handles()
-                    .is_some_and(|(handle_index, _, _)| handle_index == index);
-                if !covered {
-                    screen_instances.extend(layer_highlight_instances(
-                        corners,
-                        self.started.elapsed().as_secs_f32(),
-                        doc.camera.zoom,
+                if let Some(points) = selection_lasso_points(doc) {
+                    instances.extend(stroke_instances(
+                        &points,
+                        SELECTION_OUTLINE_WIDTH,
+                        SELECTION_OUTLINE_COLOR,
+                        &BrushProfile::HARD,
                     ));
+                } else if let Some(edges) =
+                    selection_mask_edges(doc, SELECTION_OUTLINE_WIDTH, SELECTION_OUTLINE_COLOR)
+                {
+                    instances.extend(edges);
                 }
             }
+            collect_screen_overlays(
+                doc,
+                self.started.elapsed().as_secs_f32(),
+                &mut screen_instances,
+            );
             overlay_range = overlay_start..overlay_start + instances.len() as u32;
             let screen_start = overlay_range.end;
+            self.screen_overlay_scratch = screen_instances.clone();
             instances.append(&mut screen_instances);
             screen_overlay_range = screen_start..prefix_len as u32 + instances.len() as u32;
             let brush_start = screen_overlay_range.end;
@@ -853,8 +853,9 @@ impl Renderer {
                     bytemuck::cast_slice(&instances),
                 );
             }
+            self.last_overlay_range = overlay_range.clone();
+            self.screen_overlay_start = screen_start;
             self.overlay_scratch = instances;
-            self.screen_overlay_scratch = screen_instances;
             if need_draw_rebuild && !self.cached_shapes.is_empty() {
                 self.ensure_vector_shape_capacity(self.cached_shapes.len());
                 self.queue.write_buffer(
@@ -863,6 +864,44 @@ impl Renderer {
                     bytemuck::cast_slice(&self.cached_shapes),
                 );
             }
+        } else {
+            overlay_range = self.last_overlay_range.clone();
+            let mut screen_instances = std::mem::take(&mut self.screen_overlay_scratch);
+            screen_instances.clear();
+            collect_screen_overlays(
+                doc,
+                self.started.elapsed().as_secs_f32(),
+                &mut screen_instances,
+            );
+            let screen_start = if need_draw_rebuild {
+                if self.camera_motion {
+                    0
+                } else {
+                    self.cached_strokes.len() as u32
+                }
+            } else {
+                self.screen_overlay_start
+            };
+            let total = screen_start as usize + screen_instances.len();
+            let grew = self.ensure_stroke_capacity(total);
+            let stride = std::mem::size_of::<StrokeInstance>() as u64;
+            if (grew || need_draw_rebuild) && screen_start > 0 && !self.cached_strokes.is_empty() {
+                self.queue.write_buffer(
+                    &self.stroke_buf,
+                    0,
+                    bytemuck::cast_slice(&self.cached_strokes),
+                );
+            }
+            if !screen_instances.is_empty() {
+                self.queue.write_buffer(
+                    &self.stroke_buf,
+                    u64::from(screen_start) * stride,
+                    bytemuck::cast_slice(&screen_instances),
+                );
+            }
+            screen_overlay_range = screen_start..screen_start + screen_instances.len() as u32;
+            self.screen_overlay_start = screen_start;
+            self.screen_overlay_scratch = screen_instances;
         }
 
         if need_draw_rebuild && !self.cached_tile_instances.is_empty() {
@@ -1308,6 +1347,57 @@ mod headless_tests {
         doc.enter_transform();
         r.invalidate_overlay();
         r.render(&mut doc);
+    }
+
+    #[test]
+    fn crop_and_transform_chrome_survive_a_camera_only_pan() {
+        let Some(mut r) = renderer() else {
+            return;
+        };
+        let mut doc = doc(256, 256);
+        doc.set_tool(Tool::Crop);
+        r.invalidate();
+        r.render(&mut doc);
+        let crop_at_rest = r.screen_overlay_scratch.len();
+        assert!(
+            crop_at_rest > 0,
+            "crop chrome is on the board before the pan"
+        );
+
+        r.begin_camera_motion();
+        doc.camera.pan_x += 40.0;
+        r.invalidate_camera();
+        r.render(&mut doc);
+        assert_eq!(
+            r.screen_overlay_scratch.len(),
+            crop_at_rest,
+            "crop chrome is rewritten on a pan, not dropped"
+        );
+        r.end_camera_motion();
+
+        doc.set_tool(Tool::Pen);
+        doc.pointer_down(30.0, 30.0);
+        doc.pointer_move(80.0, 80.0);
+        doc.pointer_up(80.0, 80.0);
+        assert!(doc.enter_transform());
+        r.invalidate();
+        r.render(&mut doc);
+        let transform_at_rest = r.screen_overlay_scratch.len();
+        assert!(
+            transform_at_rest > 0,
+            "transform chrome is on the board before the pan"
+        );
+
+        r.begin_camera_motion();
+        doc.camera.pan_y += 24.0;
+        r.invalidate_camera();
+        r.render(&mut doc);
+        assert_eq!(
+            r.screen_overlay_scratch.len(),
+            transform_at_rest,
+            "transform chrome is rewritten on a pan, not dropped"
+        );
+        r.end_camera_motion();
     }
 
     #[test]

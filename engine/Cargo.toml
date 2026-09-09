@@ -1,12 +1,12 @@
 [workspace]
 resolver = "2"
-members = ["core", "io", "ops", "render", "text", "ffi"]
+members = ["core", "io", "ops", "render", "text", "ffi", "app"]
 default-members = ["core", "ffi"]
 
 [workspace.package]
-version = "0.21.3"
+version = "0.30.0"
 edition = "2021"
-license = "MIT"
+license = "AGPL-3.0-or-later"
 
 [workspace.dependencies]
 wgpu = { version = "30.0", default-features = false }

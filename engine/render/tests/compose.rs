@@ -88,17 +88,21 @@ fn transform_overlay_draws_four_edges_a_stem_and_five_handles() {
     let corners = [(0.0, 0.0), (10.0, 0.0), (10.0, 8.0), (0.0, 8.0)];
     let rotate = (5.0, -6.0);
     let out = transform_overlay_instances((0, corners, rotate));
-    // Four edges, the rotate stem, then two discs per grip — the border and the grip over it.
-    assert_eq!(out.len(), 4 + 1 + 5 * 2);
+    assert_eq!(out.len(), (4 + 1 + 5) * 2);
 
     for i in 0..4 {
         let a = corners[i];
         let b = corners[(i + 1) % 4];
-        assert_eq!(out[i].segment, [a.0, a.1, b.0, b.1]);
+        assert_eq!(out[i * 2].segment, [a.0, a.1, b.0, b.1]);
+        assert_eq!(out[i * 2 + 1].segment, [a.0, a.1, b.0, b.1]);
+        assert!(out[i * 2].brush[0] > out[i * 2 + 1].brush[0]);
+        assert_eq!(out[i * 2 + 1].color, [0.24, 0.78, 0.84, 0.95]);
+        assert_ne!(out[i * 2].color, out[i * 2 + 1].color);
     }
-    assert_eq!(out[4].segment, [5.0, 0.0, rotate.0, rotate.1]);
+    assert_eq!(out[8].segment, [5.0, 0.0, rotate.0, rotate.1]);
+    assert_eq!(out[9].segment, [5.0, 0.0, rotate.0, rotate.1]);
 
-    for handle in &out[5..] {
+    for handle in &out[10..] {
         assert_eq!(handle.segment[0], handle.segment[2]);
         assert_eq!(handle.segment[1], handle.segment[3]);
     }
@@ -114,7 +118,7 @@ fn every_grip_is_a_white_disc_over_a_larger_grey_one() {
     let corners = [(0.0, 0.0), (10.0, 0.0), (10.0, 8.0), (0.0, 8.0)];
     let out = transform_overlay_instances((0, corners, (5.0, -6.0)));
 
-    for pair in out[5..].chunks(2) {
+    for pair in out[10..].chunks(2) {
         let (border, grip) = (pair[0], pair[1]);
         assert_eq!(
             border.segment, grip.segment,
@@ -135,8 +139,8 @@ fn every_grip_is_a_white_disc_over_a_larger_grey_one() {
 fn the_rotate_stem_starts_at_the_midpoint_of_the_top_edge() {
     let corners = [(2.0, 4.0), (12.0, 4.0), (12.0, 20.0), (2.0, 20.0)];
     let out = transform_overlay_instances((0, corners, (7.0, -2.0)));
-    assert_eq!(out[4].segment[0], 7.0);
-    assert_eq!(out[4].segment[1], 4.0);
+    assert_eq!(out[8].segment[0], 7.0);
+    assert_eq!(out[8].segment[1], 4.0);
 }
 
 #[test]
@@ -408,14 +412,23 @@ fn text_overlay_draws_a_four_edge_box_and_a_caret_that_blinks() {
     );
 
     let visible = text_overlay_instances(&doc, 0.0);
-    assert_eq!(visible.len(), 5, "four box edges plus a visible caret");
-    for edge in &visible[0..4] {
-        assert_eq!(edge.brush[0], 0.5, "box edges use the hairline width");
+    assert_eq!(
+        visible.len(),
+        10,
+        "four outlined edges plus a visible caret"
+    );
+    for pair in visible[0..8].chunks(2) {
+        assert!(pair[0].brush[0] > pair[1].brush[0]);
+        assert_eq!(pair[1].brush[0], 0.5, "box edges use the hairline width");
     }
-    assert_eq!(visible[4].brush[0], 1.0, "the caret is drawn thicker");
+    assert_eq!(
+        visible[8].brush[0], 2.0,
+        "the caret border is the thicker stroke"
+    );
+    assert_eq!(visible[9].brush[0], 1.0, "the caret is drawn thicker");
 
     let hidden = text_overlay_instances(&doc, 0.7);
-    assert_eq!(hidden.len(), 4, "mid-cycle the caret blinks off");
+    assert_eq!(hidden.len(), 8, "mid-cycle the caret blinks off");
 }
 
 /// A selection row is a *filled box*, not a capsule, and `fs_overlay` tells the two apart by
@@ -434,11 +447,11 @@ fn a_text_selection_draws_a_filled_row_under_the_box_and_caret() {
     doc.text_insert("hello");
 
     let plain = text_overlay_instances(&doc, 0.0);
-    assert_eq!(plain.len(), 5, "four box edges plus the caret");
+    assert_eq!(plain.len(), 10, "four outlined edges plus the caret");
 
     doc.text_select_all();
     let selected = text_overlay_instances(&doc, 0.0);
-    assert_eq!(selected.len(), 6, "one row of highlight came first");
+    assert_eq!(selected.len(), 11, "one row of highlight came first");
     let row = selected[0];
     assert!(row.brush[2] > 0.0, "a non-zero half height means a box");
     assert_eq!(row.brush[0], 0.0, "and a box needs no capsule width");
@@ -671,8 +684,8 @@ fn the_text_box_is_drawn_as_a_closed_four_edge_loop() {
     let edges = text_overlay_instances(&doc, 0.7);
 
     for i in 0..4 {
-        let [_, _, x1, y1] = edges[i].segment;
-        let [x0, y0, _, _] = edges[(i + 1) % 4].segment;
+        let [_, _, x1, y1] = edges[i * 2 + 1].segment;
+        let [x0, y0, _, _] = edges[((i + 1) % 4) * 2 + 1].segment;
         assert_eq!(
             (x1, y1),
             (x0, y0),
@@ -808,21 +821,94 @@ fn no_crop_rect_means_no_overlay() {
     assert!(crop_overlay_instances(&doc).is_empty());
 }
 
-/// The rect's outline is 4 segments and every one of the 8 handles draws two discs (a border
-/// then a fill), so a rect with guides off is exactly 4 + 16 instances.
+/// The rect's outline is 4 outlined segments (border then fill) and every one of the 8
+/// handles draws two discs (a border then a fill), so a rect with guides off is exactly
+/// 8 + 16 instances.
 #[test]
 fn the_bare_rect_is_four_outline_segments_and_eight_two_disc_handles() {
     let mut doc = crop_board();
     doc.crop_overlay_style = calumma_core::CropOverlayStyle::Off;
     let instances = crop_overlay_instances(&doc);
-    assert_eq!(instances.len(), 4 + 8 * 2);
+    assert_eq!(instances.len(), 4 * 2 + 8 * 2);
 }
 
-/// Turning a guide style on adds exactly its line count on top of the fixed rect+handle chrome.
+/// Turning a guide style on adds exactly its line count, each as a grey border plus a white
+/// fill, on top of the fixed rect+handle chrome.
 #[test]
 fn overlay_guide_lines_add_to_the_fixed_rect_chrome() {
     let mut doc = crop_board();
     doc.crop_overlay_style = calumma_core::CropOverlayStyle::RuleOfThirds;
     let instances = crop_overlay_instances(&doc);
-    assert_eq!(instances.len(), doc.crop_overlay_lines().len() + 4 + 8 * 2);
+    assert_eq!(
+        instances.len(),
+        doc.crop_overlay_lines().len() * 2 + 4 * 2 + 8 * 2
+    );
+}
+
+#[test]
+fn crop_guides_and_outline_sit_on_a_grey_border() {
+    let mut doc = crop_board();
+    doc.crop_overlay_style = calumma_core::CropOverlayStyle::Grid;
+    let instances = crop_overlay_instances(&doc);
+    let guides = doc.crop_overlay_lines().len();
+    let chrome = &instances[..guides * 2 + 4 * 2];
+    for pair in chrome.chunks(2) {
+        let (border, fill) = (pair[0], pair[1]);
+        assert_eq!(border.segment, fill.segment);
+        assert!(border.brush[0] > fill.brush[0]);
+        assert_eq!(fill.color, [1.0, 1.0, 1.0, 1.0]);
+        assert!(border.color[0] < 1.0 && border.color[1] < 1.0 && border.color[2] < 1.0);
+    }
+}
+
+#[test]
+fn shrinking_the_crop_covers_discarded_paper_with_opaque_desk() {
+    let mut doc = crop_board();
+    doc.crop_overlay_style = calumma_core::CropOverlayStyle::Off;
+    let (sx, sy) = doc.camera.to_screen(200.0, 100.0);
+    doc.pointer_down(sx, sy);
+    let (sx, sy) = doc.camera.to_screen(160.0, 80.0);
+    doc.pointer_move(sx, sy);
+    let instances = crop_overlay_instances(&doc);
+    let chrome = 4 * 2 + 8 * 2;
+    assert!(
+        instances.len() > chrome,
+        "discarded paper is covered, not left as a transparent wash"
+    );
+    let desk = rgba_unit(doc.board_colors.desk);
+    assert_eq!(desk[3], 1.0);
+    let shade = instances.len() - chrome;
+    for instance in instances.iter().take(shade) {
+        assert_eq!(instance.color, desk);
+        assert!(instance.brush[2] > 0.0);
+    }
+}
+
+#[test]
+fn clip_bakes_tiles_that_sit_outside_the_document_origin() {
+    let mut base = Layer::new("Base", 64, 64);
+    base.tiles_mut().unwrap().set_pixel(10, 10, [0, 0, 0, 255]);
+
+    let mut top = Layer::new("Top", 64, 64);
+    let grid = top.tiles_mut().unwrap();
+    grid.grow_extent(calumma_core::tile::DocRect::new(-20, 0, 63, 63));
+    grid.set_pixel(-5, 10, [255, 0, 0, 255]);
+    grid.set_pixel(10, 10, [255, 0, 0, 255]);
+
+    let coord = TileCoord::from_doc_i32(-5, 10);
+    let pixels = top.tiles().unwrap().get(coord).expect("overflow tile");
+    let baked = composited_tile_payload(pixels, coord, &top, Some(&base), 64).expect("baked");
+    let (ox, oy) = coord.origin();
+    let local = |x: i32, y: i32| {
+        let i = (((y - oy) as u32 * TILE_SIZE + (x - ox) as u32) * 4) as usize;
+        baked[i + 3]
+    };
+    assert_eq!(local(-5, 10), 0, "overflow outside the silhouette is cut");
+    let on_paper = TileCoord::from_doc_i32(10, 10);
+    let on_pixels = top.tiles().unwrap().get(on_paper).expect("on-paper tile");
+    let on_baked =
+        composited_tile_payload(on_pixels, on_paper, &top, Some(&base), 64).expect("baked");
+    let (px, py) = on_paper.origin();
+    let i = (((10 - py) as u32 * TILE_SIZE + (10 - px) as u32) * 4) as usize;
+    assert!(on_baked[i + 3] > 0, "ink over the base stays");
 }

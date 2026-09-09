@@ -77,7 +77,7 @@ impl Document {
         // any: a marquee or a lasso on an empty layer is a region like any other, and refusing
         // it would make a fresh document's first gesture a toast.
         if tool.is_selection() {
-            return if layer.locked {
+            return if self.clip_pair_locked(self.active_layer) {
                 ToolBlock::LayerLocked
             } else if tool.samples_layer_pixels() && layer.content_bounds().is_none() {
                 ToolBlock::NoContent
@@ -85,7 +85,7 @@ impl Document {
                 ToolBlock::None
             };
         }
-        if layer.locked {
+        if self.clip_pair_locked(self.active_layer) {
             return ToolBlock::LayerLocked;
         }
         if tool == Tool::Transform {

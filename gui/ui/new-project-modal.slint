@@ -1,0 +1,116 @@
+import { RecentRow, PresetRow } from "models.slint";
+import { Tokens } from "calm/CalmTokens.slint";
+import { CalmModal, CalmModalCard } from "calm/CalmModal.slint";
+import { ProjectForm } from "project-form.slint";
+
+export component NewProjectModal inherits Rectangle {
+    in-out property <bool> open;
+    in property <bool> dim-scrim: true;
+
+    in property <string> brand-text;
+    in property <string> tagline-text;
+    in property <string> project-name-label;
+    in property <string> resolution-label;
+    in property <string> create-label;
+    in property <string> presets-label;
+    in property <string> recents-label;
+    in property <string> clear-all-label;
+    in property <string> no-recents-label;
+    in property <string> delete-project-label;
+    in property <string> paste-artwork-title;
+    in property <string> paste-artwork-hint;
+    in property <string> artwork-formats;
+    in property <image> app-icon;
+
+    in-out property <string> project-name;
+    in-out property <string> width-text;
+    in-out property <string> height-text;
+    in-out property <int> accent-index: 0;
+    in property <[color]> palette;
+
+    in property <[PresetRow]> presets;
+    in property <[RecentRow]> recents;
+
+    callback dismissed();
+    callback create-clicked();
+    callback preset-clicked(int, int);
+    callback recent-clicked(string);
+    callback delete-recent(string);
+    callback clear-all-clicked();
+    callback paste-artwork-clicked();
+    callback app-icon-clicked();
+
+    out property <length> card-x: card.absolute-position.x;
+    out property <length> card-y: card.absolute-position.y;
+    out property <length> card-width: card.width;
+    out property <length> card-height: card.height;
+    out property <length> card-radius: card.border-radius;
+
+    width: 100%;
+    height: 100%;
+    visible: open;
+
+    CalmModal {
+        open <=> root.open;
+        dim-scrim: root.dim-scrim;
+        dismissed => {
+            root.dismissed();
+        }
+
+        card := CalmModalCard {
+            z: 1;
+            width: min(Tokens.new-project-width, parent.width - Tokens.space-xl * 2);
+            height: min(Tokens.new-project-height, parent.height - Tokens.space-xl * 2);
+            clip: true;
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+
+            ProjectForm {
+                width: 100%;
+                height: 100%;
+                brand-text: root.brand-text;
+                tagline-text: root.tagline-text;
+                project-name-label: root.project-name-label;
+                resolution-label: root.resolution-label;
+                create-label: root.create-label;
+                presets-label: root.presets-label;
+                recents-label: root.recents-label;
+                clear-all-label: root.clear-all-label;
+                no-recents-label: root.no-recents-label;
+                delete-project-label: root.delete-project-label;
+                paste-artwork-title: root.paste-artwork-title;
+                paste-artwork-hint: root.paste-artwork-hint;
+                artwork-formats: root.artwork-formats;
+                app-icon: root.app-icon;
+                project-name <=> root.project-name;
+                width-text <=> root.width-text;
+                height-text <=> root.height-text;
+                accent-index <=> root.accent-index;
+                palette: root.palette;
+                presets: root.presets;
+                recents: root.recents;
+                create-clicked => {
+                    root.create-clicked();
+                }
+                preset-clicked(w, h) => {
+                    root.preset-clicked(w, h);
+                }
+                recent-clicked(id) => {
+                    root.recent-clicked(id);
+                }
+                delete-recent(id) => {
+                    root.delete-recent(id);
+                }
+                clear-all-clicked => {
+                    root.clear-all-clicked();
+                }
+                paste-artwork-clicked => {
+                    root.paste-artwork-clicked();
+                }
+                app-icon-clicked => {
+                    root.app-icon-clicked();
+                }
+            }
+        }
+    }
+}

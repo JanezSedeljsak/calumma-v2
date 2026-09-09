@@ -13,10 +13,13 @@ impl Document {
     pub fn offset_layers(&mut self, indices: &[usize], dx: f32, dy: f32) -> bool {
         let mut moved = false;
         for &index in indices {
+            if self.clip_pair_locked(index) {
+                continue;
+            }
             let Some(layer) = self.layers.get_mut(index) else {
                 continue;
             };
-            if layer.is_paper() || layer.locked {
+            if layer.is_paper() {
                 continue;
             }
             if layer.content_bounds().is_none() {
@@ -36,7 +39,7 @@ impl Document {
 
     pub(crate) fn layer_movable(&self, index: usize) -> bool {
         self.layers.get(index).is_some_and(|layer| {
-            !layer.is_paper() && !layer.locked && layer.content_bounds().is_some()
+            !layer.is_paper() && !self.clip_pair_locked(index) && layer.content_bounds().is_some()
         })
     }
 

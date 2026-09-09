@@ -553,6 +553,8 @@ impl Renderer {
             cached_strokes: Vec::new(),
             overlay_scratch: Vec::new(),
             screen_overlay_scratch: Vec::new(),
+            last_overlay_range: 0..0,
+            screen_overlay_start: 0,
             cached_shapes: Vec::new(),
             cached_draws: Vec::new(),
             overview,

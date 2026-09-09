@@ -1,4 +1,4 @@
-# FLOW.md — how Calumma works
+# FLOW.md — how Miw works
 
 Base product documentation: screens, what you can do, navigation, canvas interaction,
 shortcuts, persistence, and import/export. Companion to `AGENTS.md` (architecture) and
@@ -115,27 +115,32 @@ are not openable, they are open.
 - **Switching is instant; the board catches up.** The tab lights up on the click, and the
   canvas holds a **skeleton** — the desk plus one sweeping rectangle — while the project is
   read back out of SQLite (opening it inline is what used to freeze the window mid-click).
-  The rectangle is the *incoming* project fitted by `calm_fit_size`, the engine's own fit
+  The rectangle is the *incoming* project fitted by `calumma_core::camera::fit_size`, the engine's own fit
   geometry, so the placeholder sits exactly where the paper lands and the switch has nothing
   to jump. The rulers print the incoming project's ticks on that same fit camera; only the
-  canvas content is covered. `AppModel.skeletonMinSeconds` is the floor on how long it shows, so
-  a fast load reads as a load rather than as a flicker.
+  canvas content is covered. A minimum-hold floor keeps a fast load reading as a load rather
+  than a flicker. This skeleton is not yet ported to `gui/` — tracked in
+  `docs/plans/02-slint-shell.md`'s parity checklist — so a tab switch there reloads inline
+  today.
 - **Closing a tab is not deleting a project.** `×` takes the project off the tab bar and
   leaves it in SQLite, where Recents offers it again — the soft one. Deleting is the Landing
   / New Project recents row's trash button, it is confirmed, and it is permanent.
 - **+:** the New Project modal; whatever it creates opens in a new tab.
 - **Tools / layers / canvas:** three rounded, bordered islands, full-height, separated by a
-  minimal gap and window margin (`space.sm`) — each has its own `islandBorder` stroke.
+  minimal gap and window margin (`space.sm`) — each has its own `islandBorder` stroke. The
+  **layers island slides out** — hide it to give the canvas the full width between the tools
+  island and the window edge (`⌥⌘L`, Board → Toggle Layers). When hidden, a slim tab on the
+  right edge reopens it; the open/closed state persists in `prefs.toml`.
 - **Tools island** (top to bottom): a 2-column tool grid (Move, Select, Pen, Eraser, Blur,
   Clone, Heal, Shape, Fill, Eyedropper, Text). Every button's tooltip carries the tool's **name and its
   key**, muted mono beside the name — except where the active layer refuses the tool, where
-  the tooltip is the refusal and carries no key. When **Move** is selected the options panel
-  carries a **Transform** toggle — `⌘T` on the active layer, a *mode* not a tool, lit from
-  engine state (`CalmState.transform_active`). Off, Move only drags a layer around; on, the same
-  grab shows scale/rotate handles and clicking a layer's pixels selects it. Picking Move leaves
-  the mode as it was: transform is asked for, never assumed. Paste and drop are the exception —
-  they hand the new layer over already inside `⌘T`, because placing it is the next thing anyone
-  does. Then a
+  the tooltip is the refusal and carries no key.   When **Move** is selected the options panel
+  carries a **Transform** toggle — lit from engine state while transform is on. Off, Move
+  only drags a layer around; on, the same grab shows scale/rotate handles and clicking a
+  layer's pixels selects it. `⌘T` selects Move and turns the mode **on**. `V` (or picking
+  Move on the island) turns it **off** and leaves ordinary Move. Paste and drop are the
+  exception — they hand the new layer over already inside `⌘T`, because placing it is the
+  next thing anyone does. Then a
   contextual options section below the grid that changes with the selected tool
   (shape/selection sub-picker + independent **Fill** and **Stroke** toggles for
   the shape tools that enclose an area — Rect, Ellipse, Triangle, Pentagon; Line and Arrow are
@@ -145,37 +150,41 @@ are not openable, they are open.
   Eyedropper (a circle under the cursor shows the area) — ink opacity for Pen, shapes,
   and Fill, strength for Blur, an **Aligned** toggle for Clone and Heal (they share one
   source), and tolerance for Fill and the magic wand; Eraser stays a full
-  erase); a color section of **exactly three swatches — primary, secondary, tertiary — and
-  never more**, plus a saturation/brightness field, a hue strip, and a hex field, all three
+  erase); a color section of **four swatches — primary, secondary, tertiary, and a fourth
+  ink slot** — plus a saturation/brightness field, a hue strip, and a hex field, all
   editing whichever swatch is ringed; the AI menu pinned at the bottom.
 
-  The three are the whole colour surface. There is no separate outline swatch, because an area
+  Primary, secondary and tertiary keep their jobs. There is no separate outline swatch, because an area
   shape already reads two of them **by role**: **primary is its outline, secondary is its
   fill** (`Document::shape_paint`), whichever swatch happens to be ringed for editing — so a
   rectangle comes out the same way every time instead of depending on what was clicked last.
-  While a fill-capable shape tool is selected the first two tooltips say so. Line and Arrow
+  Tertiary is the select-by-colour match. The fourth is extra ink only. While a fill-capable shape tool is selected the first two tooltips say so. Line and Arrow
   have no interior and no second half: they are the ink, meaning the ringed swatch, as they
   always were.
 - **Board:** Metal surface clipped as its own island. Desk fill, grid, and the paper border
-  come from tokens via `calm_engine_set_board_colors` — in light mode the desk matches the
+  come from tokens via `Engine::set_board_colors` — in light mode the desk matches the
   island surface; in dark mode the desk is a step darker than the window background so the
   board field sits recessed against the raised side islands. The paper border inverts with the theme
   (dark ring on the light board, light ring on the dark board). Layer pixels, vectors,
   previews, and most chrome are scissored to the paper — content may sit off the board, but
-  only the overlap with the whiteboard is drawn. Guides, Crop's rect and the `⌘T` transform
+  only the overlap with the whiteboard is drawn.   Overlay chrome (modals, popovers, tooltips,
+  toasts) is allowed to cover the board: the shell hides the Metal view while it is open so
+  Slint paints over the hole. The zoom pill and layer hover preview float over the board
+  instead — the shell punches just those rectangles out of Metal so the chrome sits above the
+  paper, matching the frozen Swift shell. Guides, Crop's rect and the `⌘T` transform
   box are the exceptions and draw right up to the viewport edge instead — see Guides below
   and Transform (`⌘T`) under Layers and ops below.
 - **Layers:** add / select / visibility / delete; first layer is **Paper**, a normal
   white-filled raster layer — paintable/eraseable like any other layer, not a background
   decoration. The list shows the topmost (frontmost) layer first, matching stack order.
   Hover shows a thumbnail popover; each row also carries a persistent thumbnail.
-- **Smart Tools:** tools-island icon menu (renamed from "AI" — most of what lives here now is
-  deterministic core Rust, not a model). Four entries: Remove Background (macOS Vision) when
-  available, Cut Out Subject (graph cut, `engine/core/src/smarttools/grabcut.rs`), Upscale (Lanczos-3,
-  `engine/core/src/smarttools/resample.rs`) and Content-Aware Narrow (seam carving,
-  `engine/core/src/smarttools/seam_carving.rs`). The last three are `Backend::Core`: always available, no
-  platform dependency, no trained weights. The two matting tools bake into the active layer's
-  mask; the two resizing tools add their result as a new layer instead of replacing the source.
+- **Tools:** tools-island `✦` menu (labelled "Tools" — the sparkle is the hint). Upscale
+  (Lanczos-3), Cut Out Subject (graph cut, selection-aware label when a region is active),
+  and Content-Aware Narrow (seam carving, 10% width). All three are `Backend::Core`: always
+  available on raster layers, no platform dependency. Remove Background (macOS Vision) is
+  engine-shipped but not exposed in the Slint shell menu — desktop parity targets the three
+  core tools only. Matte bakes into the active layer's mask; the two resizing tools add a new
+  layer.
 - **Zoom:** a pill pinned **bottom-trailing inside the canvas island** — `−`, slider, `+`,
   percentage, Fit. The two ends are independent: zoom out until the paper fills ~20% of the
   viewport, and in until ~16 doc px span the short viewport side (or 64×, whichever comes
@@ -192,7 +201,8 @@ are not openable, they are open.
 New projects get a random color from the core palette (`palette::PROJECT_COLORS`), stored
 on the project row. It appears as the recents thumbnail tint (and as the artwork preview when
 a cached thumb exists), and as the dot on the project's titlebar tab; clicking that dot opens
-a card with the project's name and the palette (`ProjectSettingsCard`). Open project tabs
+a card with the project's name and the palette — not yet ported to `gui/` (the frozen Swift
+shell's `ProjectSettingsCard`), tracked in `docs/plans/02-slint-shell.md`. Open project tabs
 persist across launches.
 
 ---
@@ -203,7 +213,7 @@ persist across launches.
 | --- | --- |
 | Paint / place shape | Click-drag on the board (pointer down → move → up). Engine converts **screen** coords. |
 | Brush size floor | The slider's floor is `BRUSH_SIZE_MIN` (8 document pixels), but the brush carries a **second floor in screen pixels** that rises as the board is zoomed out: never under `BRUSH_MIN_SCREEN_PX` (3) across. On a 4096px board fitted to a window a whole document pixel is a fraction of a screen one, so the finest brush would be invisible — and a stroke you cannot see is one you cannot aim. Zooming *in* never shrinks it below the document floor: the floor is on what can be seen, and zoomed in it can be. `Document::effective_brush_size` is the one answer, read by the ring, the GPU preview and the commit alike — two of them disagreeing is exactly how a stroke moves when the preview hands over. A brush of size 0 stays 0 (no brush, not a small one), and **vector mode is exempt**: its width is stored in the item and redrawn at every zoom, so folding today's camera into it would bake the zoom into the document. |
-| See the brush | Pen, Eraser, Blur, Clone and Heal draw a **ring at the pointer, the size of the brush** — document geometry, so it scales with the zoom exactly as the stamp does, with the line held at one screen pixel by `vs_overlay`. Two rings a pixel apart, light inside dark, because one colour cannot stay legible over both white paper and black ink. Under ~3px across it collapses to a dot. It is withheld exactly where a stroke would be refused — a text, vector or locked layer, or inside `⌘T` — so no ring means no stroke. `Document::brush_ring` owns every one of those rules; the shell only forwards the pointer (`calm_engine_set_pointer_hover`) and takes it away while panning or zoom-chording. |
+| See the brush | Pen, Eraser, Blur, Clone and Heal draw a **ring at the pointer, the size of the brush** — document geometry, so it scales with the zoom exactly as the stamp does, with the line held at one screen pixel by `vs_overlay`. Two rings a pixel apart, light inside dark, because one colour cannot stay legible over both white paper and black ink. Under ~3px across it collapses to a dot. It is withheld exactly where a stroke would be refused — a text, vector or locked layer, or inside `⌘T` — so no ring means no stroke. `Document::brush_ring` owns every one of those rules; the shell only forwards the pointer (`Engine::set_pointer_hover`) and takes it away while panning or zoom-chording. |
 | Move a layer or vector item | Select **Move** on the tools island, then drag painted pixels or a vector item. Arrow keys nudge the same target. Turn **Transform** on (options toggle or `⌘T`) for scale/rotate of that layer; the same press selects it. Picking Move does *not* turn it on — it is a mode you ask for. |
 | Resize a vector item | Select it (Move or `⌘T`), then drag a corner of its box. Proportional by default, **Shift** frees the two axes — the same polarity as a `⌘T` corner. |
 | Constrain a shape | Hold **Shift** while dragging **Rect** or **Ellipse** (and their marquee twins) for a square or circle. Corner-anchored, and the *longer* side wins, so the shape fills the drag. Press or release Shift mid-drag and the board snaps immediately — the clamp is derived from the raw drag on every frame, not baked in on the last mouse-move. Line, Arrow, Triangle and Pentagon are unconstrained (angle snap and regular-polygon lock are different clamps, not built). |
@@ -251,11 +261,16 @@ from the card. Three things about how they are drawn:
   the ruler's path, used to call the full `Renderer::invalidate` instead and rebuilt the entire
   board on every pointer move, which is what made a guide pulled off a ruler lag the cursor.
   Anything else that moves board chrome belongs on the same side of that line.
-- **The readout is the one thing a drag publishes, and it publishes narrowly.** It lives on its
-  own `GuideReadoutStore` rather than on `Engine`, because an engine publish re-renders every
-  view watching `AppModel` — the whole editor — and this updates on every pointer move. Only
-  the readout label observes the store, so only the label redraws. `Engine.pointerMove` avoids
-  the same cost during a stroke by syncing nothing at all; this is that rule, kept.
+- **The readout is the one thing a drag publishes, and it publishes narrowly.** The frozen
+  Swift shell kept it on its own store rather than the shared editor state, because a shared
+  publish re-rendered the whole editor on every pointer move; only the readout label observed
+  it, so only the label redrew. The pointer-move handler avoids the same cost during a stroke
+  by syncing nothing at all — this is that rule, kept, whatever shell reads it.
+
+**Guides are in `gui/`**: rulers sit on the canvas island, a drag off a strip creates a
+guide, Move repositions one, the corner button opens the guides card, and the live readout
+rides the ruler the guide came from. The rest of this section is the product rules that
+implementation follows:
 
 **The guides card**, from the ruler corner, is the list view of the same guides:
 
@@ -302,19 +317,20 @@ and a step measured on screen would land somewhere different each time. The boar
 modifiers and never reaches that path, so `RulerView` reads the flag off the keyboard itself.
 
 Camera clamping, zoom floor, and dirty-flag render live in Rust — never reimplemented in
-Swift. Pan is clamped with slack rather than pinned: the paper can be dragged around at any
+the shell. Pan is clamped with slack rather than pinned: the paper can be dragged around at any
 zoom, including a fitted one, as long as half of it (`limits::PAN_KEEP_VISIBLE`) stays on
 screen. `Fit` still centres the paper.
 
 Space-pan is a hold, not a mode — it ends on key-up wherever focus is, and on app
 deactivation, so a Space held across ⌘-Tab cannot leave the board stuck panning.
 
-Scroll-wheel and trackpad panning pass `scrollingDelta` through **unnegated** — AppKit has
+Scroll-wheel and trackpad panning pass the scroll delta through **unnegated** — the OS has
 already applied the system's "natural scrolling" preference, so any sign flip in the shell
-would fight the user's setting rather than honour it. Scroll pan also carries a zoom-
+would fight the user's setting rather than honour it. A **wheel notch** also carries a zoom-
 dependent gain (`Camera::scroll_pan_gain`, `limits::SCROLL_PAN_MAX_GAIN`): a notch is a
 fixed pixel amount, so without it a zoomed-out board crawls. Gain is 1 at Fit and never
-drops below 1, so zooming in never makes scrolling slower. Pointer **drag** panning has no
+drops below 1, so zooming in never makes scrolling slower. **Trackpad** pixel deltas stay
+one-for-one with the finger; the gain is wheel-only. Pointer **drag** panning has no
 gain — it tracks the cursor one-for-one by definition.
 
 ---
@@ -323,7 +339,7 @@ gain — it tracks the cursor one-for-one by definition.
 
 | Concern | Behaviour |
 | --- | --- |
-| Store | OS-native app-data dir + `Calumma/calumma.sqlite` (macOS: `~/Library/Application Support/…`) |
+| Store | OS-native app-data dir + `Miw/miw.sqlite` (macOS: `~/Library/Application Support/…`) |
 | Autosave / explicit save | Engine dirty flag + `⌘S`; tab switch and close save first |
 | One board per project | Bounded document size chosen at create time |
 | Export image | **Shipped** — PNG / JPEG / WebP / AVIF / HEIC / PSD / SVG / PDF via File → Export, plus per-layer **Export…** in the layer card. Raster encode is engine-side. PSD, SVG and PDF are layered (PSD: real per-layer opacity/blend mode/pixels. SVG: vector layers stay geometry, painted layers embed a cropped PNG. PDF: vector layers become real PDF paths, opacity and blend mode ride an `/ExtGState`, transparency an `/SMask`). |
@@ -333,7 +349,7 @@ gain — it tracks the cursor one-for-one by definition.
 
 Composite flatten (`Document::composite_rgba`) and single-layer extraction (`Document::layer_rgba`)
 live in `engine/core`; PNG/JPEG/WebP/AVIF/HEIC encode and decode live in `engine/io`
-(`calm_engine_export_image` / `decode_encoded`). The shell only picks a file and writes bytes.
+(`Engine::export_raster` / `decode_encoded`). The shell only picks a file and writes bytes.
 
 ---
 
@@ -384,7 +400,7 @@ live in `engine/core`; PNG/JPEG/WebP/AVIF/HEIC encode and decode live in `engine
   raster region for a selection to scope.
 - **Eraser hardness** (Eraser only). The eraser carries an edge but not a whole brush: grain
   and flow describe ink going down, and it is taking ink away, so it gets one **Hardness**
-  slider instead of the picker. 100% is the complete, hard-edged erase Calumma has always had
+  slider instead of the picker. 100% is the complete, hard-edged erase Miw has always had
   and stays the default; lower feathers the rim, thinning alpha and leaving the color it is
   eating away at intact rather than cutting a stamped-out hole. Coverage maxes within a
   stroke, so one soft pass leaves the rim standing and going over it again eats further in —
@@ -533,8 +549,8 @@ live in `engine/core`; PNG/JPEG/WebP/AVIF/HEIC encode and decode live in `engine
   union box rather than per layer — snapping each layer separately would slide them relative to
   each other, which is the bug this feature exists to avoid. A locked or empty layer is skipped,
   not moved to 0,0. `⌘T` still belongs to a single layer; there is no multi-layer frame.
-- **A row is a thumbnail, a name, and one `…` button** (`AppIcon.more`) — nothing else. Every
-  layer action lives in the popover it opens (`LayerSettingsCard.swift`), including the three
+- **A row is a thumbnail, a name, and one `…` button** — nothing else. Every
+  layer action lives in the popover it opens (`LayerSettingsModal`, `gui/ui/layer-settings-modal.slint`), including the three
   that used to sit in the row: **Visibility** and **Lock** (toggles at the top of the card, so
   they show their state), and **Delete** (last, in `color.danger`, behind a divider so it is
   not adjacent to Duplicate). A hidden or locked layer still says so in its row, with a glyph
@@ -564,22 +580,28 @@ live in `engine/core`; PNG/JPEG/WebP/AVIF/HEIC encode and decode live in `engine
   the active layer's `clips_to` points at the layer directly below, and the texture is
   multiplied by the silhouette's **raw** tile alpha every frame on CPU composite and at GPU
   upload. **Release Clipping Mask** clears the link; `⌘Z` undoes the toggle. **Flatten Clip**
-  bakes the same multiply and merges the two, the old destructive path. The clipped texture
-  row indents in the layers panel so the silhouette it reads stays flush left. One link per
+  bakes the same multiply and merges the two, the old destructive path. The silhouette row
+  (the layer below) indents in the layers panel so the live clip pair is obvious; the
+  clipped texture stays flush left. One link per
   layer, no clip trees — a layer cannot clip to one that is already clipped.
-  Refuses Paper as base; reorder that separates the pair clears the link. Flatten still
-  stands down on a base carrying a transform.
+  Raster-to-raster only: text and vector must **Rasterize** first, on the clipped layer and
+  on the silhouette it reads. Refuses Paper as base; locking either member of a live pair
+  greys tools on both and stands Create / Release / Flatten down until the lock lifts.
+  Reorder that separates the pair clears the link. Flatten still stands down on a base
+  carrying a transform.
 - **The list uses the height it has:** the stack takes every point the header above it and the
   Layer bounds fields below it do not, and scrolls once it runs out, rather than stopping at a
   fixed share of the island with dead space underneath. A floor keeps it from collapsing
   entirely in a short window. Renaming is still a double-click on the name, or the row's
   context menu, or Rename in the card.
+**Drag-reorder is in `gui/`** (`gui/ui/layers-panel.slint` — drop a row onto another row; Paper stays pinned). **Rename is not yet ported.**
+
 - **Drag-reorder:** drag a row onto another row to put it there. Dropping *onto* a row rather
   than between rows is the whole contract — there is no insertion point to get off by one at
   either end. Move Up / Move Down stay in the `…` popover as the keyboard-reachable path. The
   panel draws the stack top-first while the document stores it bottom-first, so the shell
   hands `calm_engine_move_layer_row` the row it dragged and the row it dropped on and the
-  engine owns the flip — Swift never computes a layer index. Order already persisted via
+  engine owns the flip — the shell never computes a layer index. Order already persisted via
   `z_index`, so nothing new is saved.
 - **Rename:** double-click a layer's name for an inline field, or Rename from its context
   menu. Double-click on a *text* layer still opens the text for editing (that came first), so
@@ -613,9 +635,8 @@ live in `engine/core`; PNG/JPEG/WebP/AVIF/HEIC encode and decode live in `engine
   scale or rotation moves but does not crop. The fields always mirror what the engine took,
   not what was typed. Values follow selection at pointer-up granularity, not live through a
   transform drag.
-- **Transform (`⌘T`):** a transient *mode* on the active layer. Picking **Move** enters it,
-  and Move's options toggle or `⌘T` (which selects Move so the toggle is visible) turns it
-  off and on again from there. Not a tools-island button
+- **Transform (`⌘T`):** a transient *mode* on Move. `⌘T` selects Move and turns it
+  **on**; the options toggle or `V` turns it **off**. Not a tools-island button
   of its own (Select tools stay for region marquee/lasso; transforming a selection region
   is separate). Shows scale/rotate handles around the *active* layer. Drag a corner to
   scale — proportional by default, hold **Shift** for free (non-uniform) scale, the same
@@ -701,7 +722,7 @@ live in `engine/core`; PNG/JPEG/WebP/AVIF/HEIC encode and decode live in `engine
   overloading marquee-click to also pick would make an empty-space click ambiguous when it
   currently starts a region drag.
 - **Remove Background:** Smart Tools menu on the tools island → macOS Vision via
-  `calm_engine_run_op` when available. Shell never mutates the stack after the op. Details:
+  `Engine::run_op` when available. Shell never mutates the stack after the op. Details:
   `AGENTS.md` → AI ops. It needs **a raster layer** — the engine's `Layer::is_raster()`, which
   is deliberately false for a text layer as well as a vector one — and says so in a toast
   rather than running Vision over a text layer's tile cache or a vector layer that has no
@@ -709,7 +730,7 @@ live in `engine/core`; PNG/JPEG/WebP/AVIF/HEIC encode and decode live in `engine
   the tool-block notice; it is not greyed out, because the reason is worth reading once rather
   than guessing at.
 - **Upscale:** Smart Tools menu → Lanczos-3 resampling (`engine/core/src/smarttools/resample.rs`), 2× the
-  active layer's own size, via `calm_engine_upscale_layer`. Deterministic core Rust —
+  active layer's own size, via `Engine::run_upscale`. Deterministic core Rust —
   `OpKind::Upscale` is `Backend::Core` and always available, unlike Remove Background's Vision
   dependency — so the menu item is never greyed out for platform reasons, only while another
   Smart Tool is already running or the active layer is not raster. Adds the result as a new
@@ -717,7 +738,7 @@ live in `engine/core`; PNG/JPEG/WebP/AVIF/HEIC encode and decode live in `engine
   a future generative op would use, so the original is always still there to compare against or
   discard.
 - **Cut Out Subject:** Smart Tools menu → GrabCut-style graph cut (`engine/core/src/smarttools/grabcut.rs`
-  over `engine/core/src/smarttools/maxflow.rs`), via `calm_engine_smart_matte`. Two k-means-fit colour
+  over `engine/core/src/smarttools/maxflow.rs`), via `Engine::run_smart_matte`. Two k-means-fit colour
   GMMs, a contrast-sensitive 8-connected grid graph, and a min cut. Runs at a capped work resolution
   (512 px long edge): the work image is box-downsampled so colour models are not fed Lanczos
   ringing, and the matte is bilinearly upsampled back. That is what keeps an exact min
@@ -737,7 +758,7 @@ live in `engine/core`; PNG/JPEG/WebP/AVIF/HEIC encode and decode live in `engine
     around the whole canvas leaves no background to model and falls back the same way.
 - **Content-Aware Narrow:** Smart Tools menu → seam carving
   (`engine/core/src/smarttools/seam_carving.rs`), 10% off the active layer's width, via
-  `calm_engine_seam_carve_layer`. Sobel energy over luminance *and* alpha (so a layer's
+  `Engine::run_seam_carve_narrow`. Sobel energy over luminance *and* alpha (so a layer's
   silhouette counts as an edge, not as free space), forward-energy DP so each removal prices
   the edges it would create, and one seam removed or inserted at a time with energy updated
   only around the seam. Width and height carve independently — the second axis is the first one
@@ -908,12 +929,11 @@ selection's origin the way it always has.
 
 ## Export
 
-File → Export → PNG / JPEG / WebP / AVIF / HEIC / PSD / SVG (moved out of the toolbar into the
-native menu bar, alongside Settings under the app menu — `CalummaApp.swift`'s `.commands`, not
-a toolbar button anymore). The raster formats flatten the full layer stack
+File → Export → PNG / JPEG / WebP / AVIF / HEIC / PSD / SVG / PDF (native menu bar in the
+Slint shell on every desktop OS, alongside Settings under the app menu). The raster formats flatten the full layer stack
 (`Document::composite_rgba`, respecting
 visibility, masks, opacity, blend mode, and adjustments) and opens a native save panel.
-Raster encode is engine-side (`calm_engine_export_image`): PNG and WebP lossless, JPEG / AVIF
+Raster encode is engine-side (`Engine::export_raster`): PNG and WebP lossless, JPEG / AVIF
 / HEIC lossy at `LOSSY_EXPORT_QUALITY`.
 
 **PSD and SVG are layered** rather than flattened. Each raster layer becomes a real PSD layer
@@ -930,14 +950,14 @@ and blend mode ride along as `opacity` / `mix-blend-mode`; masks and adjustments
 the pixels, as everywhere else. Text exports as pixels, not `<text>` — the font it needs is not
 in the file.
 
-**PDF** is the same layered walk written to a different format, and the one Calumma's layer
+**PDF** is the same layered walk written to a different format, and the one Miw's layer
 model maps onto most exactly: `layer.opacity` is `/ca` and `/CA`, the three blend modes are
 `/BM` names that match one for one, a vector layer becomes real path operators (`re`, `c`,
 `m`/`l`) rather than a picture of itself, and a painted layer becomes a cropped image XObject
 with its alpha in a `/SMask` — PDF images carry no alpha channel of their own. One flip
-matrix at the top of the page reconciles PDF's bottom-left origin with Calumma's top-left.
+matrix at the top of the page reconciles PDF's bottom-left origin with Miw's top-left.
 Masks and adjustments are still baked. Page size is document pixels at 72 dpi by default
-(`calm_pdf_default_dpi`), and the encoder is Rust (`engine/io/src/pdf.rs`) for the same reason
+(`calumma_io::PDF_DEFAULT_DPI`), and the encoder is Rust (`engine/io/src/pdf.rs`) for the same reason
 PSD and SVG are: `CGPDFContext` would need the shell to re-emit every shape.
 
 A text layer exports as **real, selectable, searchable text**, not a picture of itself. Every
@@ -960,16 +980,20 @@ the clipboard) does the same split: SVG for vector layers, PNG for everything el
 
 ## Menu bar
 
-`CalummaApp.swift`'s `.commands` owns the whole menu bar. Beyond File → Export and the app
-menu's Settings above:
+**`gui/` has no OS menu bar today** — no File/Edit/Board top menu, no app-menu Settings item.
+Everything below describes the frozen Swift shell's menu (`CalummaApp.swift`'s `.commands`)
+and the product decisions behind it, kept for when a `gui/` menu bar is built. Beyond File →
+Export and the app menu's Settings above:
 
-- **Board** — Fit to View (`0`), Toggle Layers (`⌥⌘L`), Enter Full Screen (`⌃⌘F`).
+- **Board** — Fit to View (`0`), Toggle Layers (`⌥⌘L`), Enter Full Screen (`⌃⌘F`). Menu
+  titles are capitalized (File, Edit, Board).
 - **Filters is removed.** It carried an Increase / Decrease pair per filter plus Reset,
   which is a discrete menu standing next to a panel of continuous sliders that already
   said the same thing — clutter, against the minimal-chrome rule, and the sliders were
-  always the surface people used. The engine half it drove (`nudge_layer_adjustment`,
-  `limits::ADJUSTMENT_NUDGE_STEP` / `GAMMA_NUDGE_STEP`, `calm_engine_nudge_layer_adjustment`)
-  is still there and still tested; nothing in the shell calls it today. Its `⌥⌘G` is now
+  always the surface people used. The engine half it drove (`Document::nudge_layer_adjustment`,
+  `limits::ADJUSTMENT_NUDGE_STEP` / `GAMMA_NUDGE_STEP`)
+  is still there and still tested; nothing on `Engine` re-exposes it and nothing in any shell
+  calls it today. Its `⌥⌘G` is now
   Clip to Below.
 - **View is removed.** AppKit synthesises it for every app and SwiftUI cannot declare it
   away, so `MenuBarPruner` (`UI/MenuBarChrome.swift`) deletes it from `NSApp.mainMenu`
@@ -983,7 +1007,7 @@ menu's Settings above:
 
 ## Shortcuts (macOS today)
 
-Align new bindings with Photoshop where possible. Engine actions go through FFI; tool /
+Align new bindings with Photoshop where possible. Engine actions go through `calumma-app`; tool /
 panel toggles are shell knobs.
 
 ### Global / menu
@@ -1009,7 +1033,7 @@ panel toggles are shell knobs.
 | `L` | Line | Close to line/shape tools |
 | `R` | Rectangle | Ps rectangle is often `U` (shape); `R` is fine for now |
 | `O` | Ellipse | Ps ellipse under shape (`U`) |
-| `A` | Arrow | Calumma-specific |
+| `A` | Arrow | Miw-specific |
 | `3` | Triangle (side count; `T` moved to Text) | — |
 | `5` | Pentagon (side count; was `Y`) | — |
 | `T` | Text — click the board to type inline | Yes |
@@ -1022,9 +1046,9 @@ panel toggles are shell knobs.
 | `⇧W` | Select by colour — Photoshop's Color Range, with the tertiary swatch as the match colour and Tolerance as its Fuzziness | Yes (Ps Color Range, which is a dialog rather than a tool) |
 | `G` | Fill (bucket) | Yes (Ps Paint Bucket, shared with Gradient) |
 | `I` | Eyedropper (live sample under the cursor into the active primary/secondary swatch; loupe shows color + hex; a circle shows the sample area) | Yes |
-| `V` | Move tool — click a layer's pixels or a vector item to drag it; Transform off, that is all it does. Transform on (options toggle or `⌘T`) adds scale/rotate handles and selecting a layer's pixels makes it active. Empty space is a no-op. The key only changes which tool is in hand: it never touches the transform state, so `V` while transform is on leaves it on. | Yes (Ps `V` is Move) |
+| `V` | Move tool — click a layer's pixels or a vector item to drag it. Transform off, that is all it does. The key selects Move and **leaves** transform, so `V` is ordinary move even if `⌘T` was on. Transform on (options toggle or `⌘T`) adds scale/rotate handles. Empty space is a no-op. | Yes (Ps `V` is Move) |
 | `K` | Crop — drag any of the rect's 8 handles to shrink or expand the canvas from that edge or corner (not just bottom-right); the options bar carries the aspect-ratio lock and the composition-guide overlay (Rule of Thirds / Grid / Diagonal / Golden Ratio, defaulting to Rule of Thirds). `Return` commits the rect and stays on Crop with a fresh full-canvas rect; `Esc` cancels back to Move. Cropped-away pixels are never deleted — same non-destructive resize the layers panel's canvas-size fields already do, just from a draggable rect instead of two numbers | Yes (Ps Crop is `C`, already Clone Stamp here) |
-| `⌘T` | Select Move and toggle transform mode on the active layer (scale/rotate/move); click another layer's pixels to retarget, click empty space, `Return` or `Esc` to exit | Yes (Ps Free Transform) |
+| `⌘T` | Select Move and turn transform mode **on** (scale/rotate/move); click another layer's pixels to retarget, click empty space, `Return`, `V`, or `Esc` to exit | Yes (Ps Free Transform) |
 | `Return` | Exit transform mode, leaving the selection and the layer's transform alone. Does nothing outside transform, and types a newline while a text layer is open | Yes (Ps commits Free Transform on Return) |
 | `⌥⌘G` | Clip to Below on the active layer — see Layers | Yes (Ps Create Clipping Mask, though ours merges rather than clipping live) |
 | `⌃⌘F` | Enter / exit full screen (re-homed from the removed View menu) | macOS standard |
@@ -1064,6 +1088,12 @@ panel toggles are shell knobs.
 | ⌘ + scroll or Option + scroll | Zoom toward cursor |
 | Pinch | Zoom |
 
+**Most of this section's custom cursor dressing is not yet ported to `gui/`** — no tool
+glyph, no modal cursor reset. The brush ring cursor is the exception: `gui/src/board/cursor.rs`
+already checks `Engine::brush_ring_visible` and switches to it. `design/icons` and
+`brush_ring_visible` are real, current engine-side facts either way; what follows otherwise
+describes how the frozen Swift shell consumed them, kept for the product rules it encodes.
+
 Cursors: **the tool in hand** on the board — a crosshair at the hotspot with the tool's own
 glyph beside it, drawn from `design/icons` through `CalmTool.iconName` so a tool is the same
 picture under the pointer as in the tools panel (`ToolCursor`). The glyph sits down and right
@@ -1082,7 +1112,7 @@ Vector mode is exempt — it commits into a layer of its own and has no grid to 
 **Where the board already rings the pointer, the shell shows nothing at all.** Pen, Eraser and
 Blur draw a ring the size of the stroke, in document units so it scales with the zoom — that
 *is* the cursor, and a glyph beside it would be a second pointer answering a question the ring
-answers better. The shell asks `calm_engine_brush_ring_visible` rather than testing the tool
+answers better. The shell asks `Engine::brush_ring_visible` rather than testing the tool
 itself, so wherever the ring is withheld — a locked, text or vector layer, or inside `⌘T` — the
 glyph comes straight back, which is exactly where you need telling what you are holding. The
 blank cursor is an empty image, not `NSCursor.hide()`: that call is counted, and one unbalanced
@@ -1111,11 +1141,12 @@ zoom-in while ⌘/Option held over the board, pointing hand on chrome controls.
 
 1. Prefer Photoshop / industry defaults when adding shortcuts (`B` brush, `E` eraser,
    `V` move, `Space` temporary pan, `⌘0` fit, `⌘1` 100%, etc.).
-2. Keep bindings in the **platform** shell (`CalummaApp` commands + editor key catcher).
-   Bare tool keys live in exactly one table, `CalmTool.byKey` in `UI/ToolLabels.swift` —
-   the key catcher picks tools through it and the tools panel prints them in tooltips, so a
-   key and the key a tooltip promises cannot drift apart. Add a tool key there, not in a
-   `switch`. Document every user-facing chord in this file in the same change.
+2. Bare tool keys live in exactly one table, `TOOL_KEYS` / `tool_for_key` in
+   `engine/app/src/shortcuts.rs` — engine-side now, not per-shell, so `gui/`'s key handler
+   (`gui/src/input/shortcuts.rs`) and any future shell read the same table instead of each
+   keeping its own copy. Add a tool key there, not in a `switch`, and wire a tooltip that
+   prints it once the tools panel has tooltips (`gui/ui/tools-panel.slint` does not yet).
+   Document every user-facing chord in this file in the same change.
 3. Do not invent conflicting chords for engine vs chrome; one map, one place to look.
 4. Windows / future shells: same *actions*, OS-native modifiers (`Ctrl` vs `⌘`).
 

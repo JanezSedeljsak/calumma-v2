@@ -28,41 +28,20 @@ repos:
     hooks:
       - id: cargo-fmt
         name: cargo fmt
-        entry: cargo fmt --manifest-path engine/Cargo.toml --all
+        entry: python3 ./manage.py fmt --write
         language: system
         files: \.rs$
         pass_filenames: false
 
       - id: cargo-clippy
         name: cargo clippy
-        entry: cargo clippy --manifest-path engine/Cargo.toml --workspace --all-targets -- -D warnings
+        entry: python3 ./manage.py clippy
         language: system
         files: \.rs$
-        pass_filenames: false
-
-      - id: swift-format
-        name: swift-format
-        entry: swift-format format --configuration platform/macos/.swift-format -i -r platform/macos/Calumma
-        language: system
-        files: \.swift$
         pass_filenames: false
 
       - id: core-purity
         name: core has no platform deps
         entry: python3 ./manage.py purity
         language: system
-        pass_filenames: false
-
-      - id: app-icon
-        name: regenerate AppIcon.appiconset from design/icon.png
-        entry: python3 ./manage.py icon
-        language: system
-        files: ^design/icon\.png$
-        pass_filenames: false
-
-      - id: xcodegen-version
-        name: regenerate Calumma.xcodeproj on a Cargo.toml version bump
-        entry: python3 ./manage.py xcodegen
-        language: system
-        files: ^engine/Cargo\.toml$
         pass_filenames: false

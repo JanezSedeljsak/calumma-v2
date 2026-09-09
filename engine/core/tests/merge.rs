@@ -275,6 +275,8 @@ fn a_vector_source_rasterizes_then_clips() {
         "Shape",
         filled_rect(0.0, SIDE as f32 - 1.0, [255, 0, 0, 255]),
     );
+    assert!(!doc.can_clip_layer_down(top));
+    assert!(doc.rasterize_layer(top));
     assert!(doc.clip_layer_down(top));
     let base = doc.active_layer;
     assert_eq!(doc.layers.len(), before);

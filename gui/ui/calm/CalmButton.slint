@@ -1,0 +1,44 @@
+import { Theme } from "CalmTheme.slint";
+import { Tokens } from "CalmTokens.slint";
+import { CalmPointer } from "CalmPointer.slint";
+
+export component CalmButton inherits Rectangle {
+    in property <string> text;
+    in property <bool> enabled: true;
+    in property <bool> accent: false;
+    in property <brush> tint;
+    in property <bool> has-tint: false;
+    in property <bool> fill: false;
+    in property <length> pad: Tokens.space-md;
+
+    callback clicked();
+
+    height: Tokens.control-height;
+    min-width: label.width + root.pad * 2;
+    horizontal-stretch: fill ? 1 : 0;
+    border-radius: Tokens.radius-md;
+    border-width: 1px;
+    border-color: Theme.control-border;
+    background: touch.has-hover && enabled ? Theme.surface-hover : Theme.surface;
+
+    touch := CalmPointer {
+        enabled: root.enabled;
+        clicked => {
+            root.clicked();
+        }
+    }
+
+    label := Text {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        text: root.text;
+        color: has-tint ? tint : (accent ? Theme.accent-teal : (enabled ? Theme.text : Theme.text-muted));
+        font-size: Tokens.body-size;
+        font-weight: accent ? 700 : 400;
+    }
+}
+
+export component CalmAccentButton inherits CalmButton {
+    accent: true;
+    pad: Tokens.space-lg;
+}

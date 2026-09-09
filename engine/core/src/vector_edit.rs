@@ -150,7 +150,7 @@ impl Document {
         handle: TransformHandle,
         pointer: (f32, f32),
     ) -> bool {
-        if self.layer_locked(pick.layer) {
+        if self.clip_pair_locked(pick.layer) {
             return false;
         }
         let Some(item) = self.item_for_pick(pick).cloned() else {

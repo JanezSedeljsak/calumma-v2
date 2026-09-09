@@ -1,10 +1,10 @@
 name: main
 
-# Four stages, in order: lint, then security, then per-OS tests, then the macOS installable.
-# Each gate is cheap and runs on the cheapest machine that can answer it, so a formatting slip
-# or a vulnerable dependency is reported in a couple of minutes and never spends a macOS runner.
+# Three stages, in order: lint, then security, then per-OS tests. Each gate is cheap and runs
+# on the cheapest machine that can answer it, so a formatting slip or a vulnerable dependency
+# is reported in a couple of minutes and never spends a macOS runner.
 #
-#   lint (ubuntu)  ->  security (ubuntu)  ->  test-linux / test-windows / test-macos  ->  dmg
+#   lint (ubuntu)  ->  security (ubuntu)  ->  test-linux / test-windows / test-macos
 #
 # `pre-commit-autofix` deliberately sits outside that chain: it is the *fixer*, and gating it
 # behind `lint` would deadlock — lint fails, the autofix that would have healed it never runs.
@@ -22,16 +22,7 @@ on:
       - 'portal/**'
       - '**.yml'
       - '**/.gitignore'
-  workflow_dispatch:
-    inputs:
-      version:
-        description: 'version to stamp (default: engine workspace version)'
-        type: string
-        default: ''
-      publish:
-        description: 'also publish a GitHub prerelease'
-        type: boolean
-        default: false
+  workflow_dispatch: {}
 
 env:
   CARGO_TARGET_DIR: engine/target
@@ -92,28 +83,8 @@ jobs:
           workspaces: "engine -> target"
       - name: native codec build deps
         run: sudo apt-get update && sudo apt-get install -y libclang-dev cmake ninja-build nasm
-      # Formatting reads source and compiles nothing, so this covers the whole workspace —
-      # `calumma-ffi` included, even though clippy below cannot reach it here.
-      - name: fmt
-        run: cargo fmt --manifest-path engine/Cargo.toml --all -- --check
-      - name: ruff
-        run: |
-          python -m ruff format --check manage.py cli
-          python -m ruff check manage.py cli
-      # Every crate except `calumma-ffi`, which is macOS-only *at compile time* and not merely
-      # by convention: it builds a surface from `wgpu::SurfaceTargetUnsafe::CoreAnimationLayer`
-      # (`engine/ffi/src/engine.rs`), and that enum variant is `#[cfg(metal)]` — on Linux it
-      # does not exist. `test-macos` lints it instead, which is the only place that can.
-      #
-      # `calumma-render` *is* portable: it holds a `wgpu::Surface` the shell handed it and
-      # touches no Apple-gated API, so it lints here along with the rest.
-      - name: clippy
-        run: |
-          cargo clippy --manifest-path engine/Cargo.toml --all-targets \
-            -p calumma-core -p calumma-text -p calumma-io -p calumma-ops -p calumma-render \
-            -- -D warnings
-      - name: core purity
-        run: ./manage.py purity
+      - name: lint
+        run: ./manage.py lint
 
   # Stage 2. Three scanners, layered on purpose rather than by accident — see the Trivy step
   # for what each one covers that the others do not.
@@ -140,7 +111,7 @@ jobs:
       - run: python -m pip install pip-audit
       # `--requirement`, not an audit of the installed environment. Auditing the environment
       # sounds stricter and is worse: it reports advisories against the runner's own `pip` and
-      # `setuptools`, which are the tools running the audit rather than anything Calumma
+      # `setuptools`, which are the tools running the audit rather than anything Miw
       # depends on — so the gate would fail on day one, and then flake with whatever pip the
       # runner image happens to ship. `--requirement` still resolves transitively (12 packages
       # from the three pinned lines), so nothing real is skipped.
@@ -241,91 +212,13 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: "engine -> target"
-      - name: install xcodegen
-        run: command -v xcodegen || brew install xcodegen
       - name: cmake for libaom
         run: command -v cmake || brew install cmake
-      # The one lint that cannot live in the `lint` job: see the clippy step there for why
-      # `calumma-ffi` only compiles on an Apple target.
-      - name: clippy calumma-ffi
-        run: cargo clippy --manifest-path engine/Cargo.toml -p calumma-ffi --all-targets -- -D warnings
+      - name: clippy darwin crates
+        run: ./manage.py clippy --darwin-only
       - name: test
         run: ./manage.py test
       - name: coverage
         run: ./manage.py coverage
       - name: build ffi
         run: cargo build --manifest-path engine/Cargo.toml -p calumma-ffi
-      - name: test swift
-        run: ./manage.py test-swift
-
-  version-check:
-    name: check for a workspace version bump
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    outputs:
-      changed: ${{ steps.check.outputs.changed }}
-      version: ${{ steps.check.outputs.version }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 2
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.14"
-          cache: pip
-      - run: python -m pip install -r requirements.txt
-      - name: diff engine/Cargo.toml version against the previous commit
-        id: check
-        run: ./manage.py version-check
-
-  # Stage 4. Only macOS produces an installable, and only once every OS agreed the engine works.
-  macos-dmg:
-    name: macos installable (.dmg)
-    needs: [version-check, test-linux, test-windows, test-macos]
-    if: |
-      always() &&
-      (github.event_name == 'workflow_dispatch' ||
-       github.ref_type == 'tag' ||
-       needs.version-check.outputs.changed == 'true') &&
-      needs.test-linux.result == 'success' &&
-      needs.test-macos.result == 'success' &&
-      (needs.test-windows.result == 'success' || needs.test-windows.result == 'skipped')
-    # No `./manage.py test` here — `test-macos` above already ran the whole workspace suite on
-    # this exact commit and this job is gated on it passing (`needs.test-macos.result ==
-    # 'success'`). `package_pipeline` never reads anything a test run produced, so re-running it
-    # was a second full compile-and-test cycle for no additional signal.
-    runs-on: macos-26
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.14"
-          cache: pip
-      - run: python -m pip install -r requirements.txt
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: "engine -> target"
-      - name: install xcodegen
-        run: command -v xcodegen || brew install xcodegen
-      - name: package
-        id: package
-        env:
-          VERSION_INPUT: ${{ inputs.version }}
-        run: ./manage.py ci-release package
-      - uses: actions/upload-artifact@v4
-        with:
-          name: calumma-macos-dmg
-          path: |
-            dist/*.dmg
-            dist/*.sha256
-      - name: publish release
-        if: github.ref_type == 'tag' || inputs.publish || needs.version-check.outputs.changed == 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          AUTO_RELEASE: ${{ needs.version-check.outputs.changed }}
-          VERSION: ${{ steps.package.outputs.version }}
-          DMG: ${{ steps.package.outputs.dmg }}
-        run: ./manage.py ci-release publish

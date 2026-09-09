@@ -188,11 +188,10 @@ fn transform_retargets_past_an_invisible_active_layer_to_the_visible_one_below()
     );
 }
 
-/// `⌘T` is a *mode*, not a tool that stays selected: asking for it toggles transform and
-/// leaves the previous tool in place, so releasing the mode does not strand the user with no
-/// tool at all.
+/// `⌘T` is a mode on Move: asking for it selects Move and turns transform on. Asking again
+/// leaves it on — `V` or the options toggle is what stands it down.
 #[test]
-fn selecting_transform_toggles_the_mode_and_leaves_the_tool_alone() {
+fn selecting_transform_enters_the_mode_on_move() {
     let mut doc = doc_with_viewport();
     doc.add_layer("Ink");
     let layer = doc.active_layer;
@@ -206,11 +205,12 @@ fn selecting_transform_toggles_the_mode_and_leaves_the_tool_alone() {
 
     assert!(doc.set_tool(Tool::Transform), "entered transform");
     assert!(doc.transform_handles().is_some());
-    assert_eq!(doc.tool, Tool::Rect, "the shape tool is still selected");
+    assert_eq!(doc.tool, Tool::Move);
+    assert!(doc.transform_active);
 
-    assert!(!doc.set_tool(Tool::Transform), "asking again leaves it");
-    assert!(doc.transform_handles().is_none());
-    assert_eq!(doc.tool, Tool::Rect);
+    assert!(doc.set_tool(Tool::Transform), "already on stays on");
+    assert!(doc.transform_active);
+    assert_eq!(doc.tool, Tool::Move);
 }
 
 #[test]
@@ -233,7 +233,7 @@ fn move_transform_stays_on_until_manually_turned_off() {
         "empty clicks on Move must not drop transform mode"
     );
     assert!(doc.transform_handles().is_some());
-    assert!(!doc.set_tool(Tool::Transform));
+    doc.exit_transform();
     assert!(!doc.transform_active);
 }
 
@@ -256,7 +256,7 @@ fn selecting_move_does_not_enter_transform() {
 }
 
 #[test]
-fn switching_to_move_keeps_transform_mode() {
+fn selecting_move_leaves_transform_mode() {
     let mut doc = doc_with_viewport();
     doc.add_layer("Ink");
     let layer = doc.active_layer;
@@ -269,15 +269,15 @@ fn switching_to_move_keeps_transform_mode() {
     doc.set_tool(Tool::Rect);
     assert!(doc.set_tool(Tool::Transform));
     assert!(doc.transform_active);
-    assert_eq!(doc.tool, Tool::Rect);
+    assert_eq!(doc.tool, Tool::Move);
 
     assert!(doc.set_tool(Tool::Move));
     assert_eq!(doc.tool, Tool::Move);
     assert!(
-        doc.transform_active,
-        "Move keeps the handles it is about to use"
+        !doc.transform_active,
+        "V is ordinary Move, not a second transform"
     );
-    assert!(doc.transform_handles().is_some());
+    assert!(doc.transform_handles().is_none());
 }
 
 #[test]
@@ -399,8 +399,9 @@ fn a_nudge_outside_move_and_transform_does_nothing() {
     assert!(doc.set_tool(Tool::Transform));
     assert!(
         doc.nudge_move_target(1.0, 0.0),
-        "transform mode nudges even though the tool is still the pen"
+        "transform mode nudges the active layer"
     );
+    assert_eq!(doc.tool, Tool::Move);
 }
 
 /// A selected vector item outranks the layer: the arrow keys move the item, and the layer's

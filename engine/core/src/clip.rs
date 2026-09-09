@@ -52,9 +52,15 @@ pub fn apply_clip_alpha_to_buffer(buf: &mut [u8], base: &Layer, w: u32, _h: u32)
 }
 
 impl Document {
-    pub fn clip_base_layer(&self, index: usize) -> Option<&Layer> {
-        let base_id = self.layers.get(index).and_then(|l| l.clips_to.as_deref())?;
+    pub fn clip_base_for_layer<'a>(&'a self, layer: &'a Layer) -> Option<&'a Layer> {
+        let base_id = layer.clips_to.as_deref()?;
         self.layers.iter().find(|l| l.id == base_id)
+    }
+
+    pub fn clip_base_layer(&self, index: usize) -> Option<&Layer> {
+        self.layers
+            .get(index)
+            .and_then(|layer| self.clip_base_for_layer(layer))
     }
 
     pub fn is_layer_clipped(&self, index: usize) -> bool {
@@ -72,6 +78,27 @@ impl Document {
             .is_some_and(|id| id == base_id)
     }
 
+    pub fn clip_pair_locked(&self, index: usize) -> bool {
+        let Some(layer) = self.layers.get(index) else {
+            return false;
+        };
+        if layer.locked {
+            return true;
+        }
+        if index > 0 {
+            let base = &self.layers[index - 1];
+            if layer.clips_to.as_deref() == Some(base.id.as_str()) && base.locked {
+                return true;
+            }
+        }
+        if let Some(above) = self.layers.get(index + 1) {
+            if above.clips_to.as_deref() == Some(layer.id.as_str()) && above.locked {
+                return true;
+            }
+        }
+        false
+    }
+
     pub fn can_create_clipping_mask(&self, index: usize) -> bool {
         if index == 0 || index >= self.layers.len() {
             return false;
@@ -83,15 +110,15 @@ impl Document {
             return false;
         }
         let base = &self.layers[index - 1];
-        if base.is_paper() || base.tiles().is_none() {
+        if base.is_paper() || !base.is_raster() || base.locked {
             return false;
         }
         let source = &self.layers[index];
-        source.tiles().is_some() || source.content.item().is_some()
+        source.is_raster() && !source.locked
     }
 
     pub fn can_release_clipping_mask(&self, index: usize) -> bool {
-        self.is_layer_clipped(index)
+        self.is_layer_clipped(index) && !self.clip_pair_locked(index)
     }
 
     pub fn create_clipping_mask(&mut self, index: usize) -> bool {
@@ -140,6 +167,67 @@ impl Document {
                 mark_layer_clip_render_dirty(layer);
             }
         }
+    }
+
+    pub fn clipped_layer_thumbnail(
+        &self,
+        index: usize,
+        max_side: u32,
+    ) -> Option<(u32, u32, Vec<u8>)> {
+        let layer = self.layers.get(index)?;
+        layer.clips_to.as_ref()?;
+        let dw = self.width.max(1);
+        let dh = self.height.max(1);
+        let max_side = max_side.max(1);
+        let scale = (max_side as f32 / dw as f32)
+            .min(max_side as f32 / dh as f32)
+            .min(1.0);
+        let tw = ((dw as f32) * scale).round().max(1.0) as u32;
+        let th = ((dh as f32) * scale).round().max(1.0) as u32;
+        let mut rgba = vec![0u8; (tw as usize) * (th as usize) * 4];
+        let mut min_x = tw;
+        let mut min_y = th;
+        let mut max_x = 0u32;
+        let mut max_y = 0u32;
+        let base = self.clip_base_for_layer(layer);
+        for ty in 0..th {
+            let doc_y = (ty as f32 + 0.5) * (dh as f32 / th as f32);
+            for tx in 0..tw {
+                let doc_x = (tx as f32 + 0.5) * (dw as f32 / tw as f32);
+                let mut px = crate::document::layer_source_pixel(layer, doc_x, doc_y);
+                if px[3] == 0 {
+                    continue;
+                }
+                if let Some(base) = base {
+                    px[3] = multiply_clip_alpha(px[3], base_raw_alpha_at(base, doc_x, doc_y));
+                }
+                if px[3] == 0 {
+                    continue;
+                }
+                let i = ((ty * tw + tx) * 4) as usize;
+                rgba[i..i + 4].copy_from_slice(&px);
+                min_x = min_x.min(tx);
+                min_y = min_y.min(ty);
+                max_x = max_x.max(tx);
+                max_y = max_y.max(ty);
+            }
+        }
+        if min_x > max_x {
+            return Some((1, 1, vec![0; 4]));
+        }
+        let cw = max_x - min_x + 1;
+        let ch = max_y - min_y + 1;
+        if cw == tw && ch == th {
+            return Some((tw, th, rgba));
+        }
+        let mut cropped = vec![0u8; (cw as usize) * (ch as usize) * 4];
+        let row = (cw * 4) as usize;
+        for y in 0..ch {
+            let src = (((min_y + y) * tw + min_x) * 4) as usize;
+            let dst = (y as usize) * row;
+            cropped[dst..dst + row].copy_from_slice(&rgba[src..src + row]);
+        }
+        Some((cw, ch, cropped))
     }
 
     pub fn schedule_clip_recalc_for_indices(&mut self, indices: &[usize]) {

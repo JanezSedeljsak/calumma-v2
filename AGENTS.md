@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Calumma is a personal whiteboard: bounded project canvases you draw on with a pen or
+Miw is a personal whiteboard: bounded project canvases you draw on with a pen or
 shapes. Titlebar tabs are the open **projects** — one tab is one project, with no grouping
 above it — and switching tabs clean-loads that project from SQLite.
 
@@ -27,17 +27,23 @@ brush-size, vector-mode visibility), hex RGB, copy/cut bytes, and opening/closin
 live in the engine. Coordinate math, clamping, pixels, camera, history, ops dispatch,
 and board visuals live in Rust/WGSL.
 
-If you are about to do pan/zoom arithmetic, tile math, or layer-stack mutation in Swift —
-stop. Call an FFI method instead and keep the logic in `engine/`.
+If you are about to do pan/zoom arithmetic, tile math, or layer-stack mutation in the shell —
+stop. Call into `calumma-app` instead and keep the logic in `engine/`.
 
 This extends to product rules, not just math. Zoom steps, the log zoom curve, fit padding,
 the project-color palette and which color a new project gets, import limits, lossy export
-quality — all core constants and core functions, reached over FFI. Swift renders what the
-engine reports (`CalmState.zoom_unit`, `CalmState.accent`, `CalmState.last_shape_tool`,
-`CalmState.is_fit`, `calm_palette_color`) and never recomputes it — the zoom pill's Fit
-button lights up on `is_fit` rather than on Swift comparing a zoom against a fit zoom.
+quality — all core constants and core functions, reached through `calumma-app`. The shell
+renders what the engine reports (`Engine::zoom_unit`) and never recomputes it. There is no
+`CalmState` struct any more — the old C-ABI one-struct-per-frame snapshot is gone, and
+`Engine` exposes granular getters instead. `Engine::zoom_factor` and `Engine::is_fit` answer
+"how far is the board zoomed" and "is it already at fit" — the zoom pill reads both. "What
+was the last shape tool" is still not re-exposed since the ffi rewrite: `gui/`'s shape and
+marquee grid slots always pick `Rect` / `SelectRect` rather than the member last used, an
+engine-API gap to close, not a dropped product rule. Same for the palette: a project's
+accent is still assigned core/io-side at `create_project` (`engine/io`), but no `Engine`
+call hands a shell a palette color to preview before creating one.
 Theme **values** are the exception that proves the rule: they come from `design/tokens.json`
-and are pushed *into* the engine (`calm_engine_set_board_colors`) so no color is ever
+and are pushed *into* the engine (`Engine::set_board_colors`) so no color is ever
 hardcoded in Rust or WGSL.
 
 ---
@@ -90,12 +96,12 @@ bind groups — is shipped; see `docs/ENGINE.md` § Bind groups.
 | `engine/render` | wgpu; surface created by the shell; applies layer masks at upload |
 | `engine/io` | SQLite projects + encode/decode |
 | `engine/ops` | `Op` / `OpRegistry` dispatch; apply results into the document |
-| `engine/ffi` | C ABI; **only** crate Swift links; platform op vtable |
-| `platform/shared` | `Calumma.hpp` — the one C ABI header both shells `#include`, plus the canonical wire-value enums (`CalmTool`, `CalmBlendMode`, …) neither shell hand-duplicates any more |
-| `platform/macos` | SwiftUI landing, tabs, editor chrome, Metal canvas, Vision ops, i18n loader |
-| `platform/qt` | Windows + Linux shell, C++20/Qt 6 over the same C ABI. Board only so far — see `docs/plans/01-qt-shell.md`. The engine wrapper holds no Qt and is checked by `./manage.py qt-smoke`; the GUI needs Qt and does not build on macOS |
+| `engine/app` | **`calumma-app`** — the Rust API (`Engine`, `NativeSurface`) the Slint shell links |
+| `engine/ffi` | The real `Engine`/`Inner`/platform-op-vtable implementation. No C ABI any more — `crate-type = ["rlib"]` only, no header, nothing links it except `calumma-app`. Named `ffi` for history, not for what it does today |
+| `gui/` | **Desktop shell** — Rust + Slint UI (macOS 26, Windows 11, current Linux). Plan: `docs/plans/02-slint-shell.md` |
+| `legacy-macos-shell/` | SwiftUI reference shell (frozen) — macOS-only details, Vision ops |
 | `translations/` | Locale JSON (`en.json` today). Not code — edit strings here |
-| `design/` | Visual tokens only (`tokens.json`), SVG icons, `icon.png` (app icon master, `./manage.py icon`) |
+| `design/` | Visual tokens only (`tokens.json`), SVG icons, `icon.png` (app icon master; not wired into `gui/` yet — no icon generation step exists today) |
 | `docs/` | All prose docs: `FLOW.md` (product flow), `STYLE.md` (design system), `ENGINE.md`, `RENDERING.md`, plus the gitignored `todo.md` + `plans/`. Only `README.md`, `AGENTS.md`, `CLAUDE.md` stay at the root |
 | `cli/` | Python helpers + leaf tools (`_helpers.py`, tokens, purity, …). Deps in `requirements.txt` |
 | `manage.py` | Task runner (Python 3.14). Prefer this over Make. |
@@ -106,8 +112,9 @@ Dependency direction:
 text  ← std + cosmic-text (leaf)
 core  ← std + small utils + text
 render / io / ops  ← core
-ffi  ← core, render, io, ops
-Swift shell  ← ffi only (via platform/shared/Calumma.hpp)
+ffi  ← core, render, io, ops    (plain Rust `Engine`/`Inner` — no C ABI any more)
+app  ← ffi (re-exports `Engine`/`NativeSurface` as-is)
+gui shell  ← calumma-app
 ```
 
 `calumma-core` must stay free of wgpu / objc / metal / windows. Enforce with
@@ -117,21 +124,25 @@ Swift shell  ← ffi only (via platform/shared/Calumma.hpp)
 
 ## How to work in this repo
 
-1. **Change engine behaviour in Rust.** Add or extend `#[no_mangle]` FFI in `engine/ffi`,
-   update `platform/shared/Calumma.hpp` and the Swift `Engine` wrapper in the
-   same change. They are not cross-checked automatically.
+1. **Change engine behaviour in Rust.** Shell calls `calumma-app` (`engine/app`), which
+   re-exports `engine/ffi`'s `Engine` directly — a plain Rust method call, no C ABI to keep
+   in sync any more.
 2. **Change visuals in WGSL** (`engine/render/src/shaders/board.wgsl`) and mirror any SDF
    or tool discriminant in Rust (`engine/core/src/shape.rs`). Build validates shaders via
    naga in `build.rs`.
-3. **Change chrome in Swift** using shared components in `UI/Components.swift` and tokens
-   from `Tokens.generated.swift`. Do not sprinkle one-off fonts/colors/padding.
-4. **After `design/tokens.json` edits:** `./manage.py tokens` — writes both
-   `Tokens.generated.swift` and `platform/qt/src/theme/Tokens.generated.hpp`.
-5. **After Rust engine edits that affect the app:** `./manage.py test` (and rebuild ffi /
-   open Xcode via `./manage.py dev` when touching the shell).
-6. **No comments** in `.rs`, `.swift`, `.wgsl`. Name things clearly instead.
-7. **Do not edit generated** `Tokens.generated.swift` / `Tokens.generated.hpp` by hand.
-8. **Keep files small and single-topic** (below).
+3. **Change chrome in Slint** (`gui/ui/`) using calm components under `gui/ui/calm/` and
+   theme values from `gui/src/shell/theme.rs` (loaded from `design/tokens.json`). Verify modal,
+   overlay, and panel positioning against the *running* app rather than eyeballing `x`/`y`/`z`
+   math — `./manage.py dev --mcp` runs the shell with Slint 1.17's embedded MCP server
+   (registered with Claude Code as `slint-devtools`; needs a session restart the first time), which
+   gives an agent a live element tree with real component names/ids/positions plus screenshots and
+   click/drag/type against the actual window.
+4. **After `design/tokens.json` edits:** update `gui/src/shell/theme.rs` token mapping (or
+   extend `./manage.py tokens` when **D7** lands — see `docs/plans/02-slint-shell.md`).
+5. **After Rust engine edits that affect the app:** `./manage.py test` and
+   `./manage.py gui-check` (or `./manage.py dev` to run the shell).
+6. **No comments** in `.rs`, `.slint`, `.wgsl`. Name things clearly instead.
+7. **Keep files small and single-topic** (below).
 
 ---
 
@@ -147,11 +158,11 @@ The test is topical, not numeric: if you can name two things a file does, that i
 | --- | --- |
 | Two concerns share a file | `camera.rs` (zoom / pan / fit) vs `viewport.rs` (culling, device size, projection) |
 | A type's helpers outgrow it | `palette.rs` holds project colors + `BoardColors`, not `document.rs` |
-| A view file mixes screens | `ProjectSettingsCard.swift`, `PasteArtworkIsland.swift`, `WindowChrome.swift` split out of the screens that use them |
+| A view file mixes screens | `new-project-modal.slint`, `layer-settings-modal.slint`, `toast-banner.slint` split out of `editor.slint` / `landing.slint` |
 
 Rust: prefer a new module in the same crate over a new crate; `impl` blocks may live in a
-different module than the `struct` (that is how `viewport.rs` extends `Camera`). Swift: one
-screen or one reusable component per file; shared primitives stay in `UI/Components.swift`.
+different module than the `struct` (that is how `viewport.rs` extends `Camera`). Slint: one
+screen or one reusable component per `.slint` file; shared primitives stay in `gui/ui/calm/`.
 
 Do not split a file just to hit a number — a cohesive 450-line file beats three files that
 have to be read together.
@@ -160,18 +171,20 @@ have to be read together.
 
 ## Projects and navigation
 
-- DB path: OS-native app-data directory + `Calumma/calumma.sqlite`, resolved by
+- DB path: OS-native app-data directory + `Miw/miw.sqlite`, resolved by
   `ProjectStore::default_path` (`engine/io/src/store.rs`) via the `dirs` crate —
-  never a hardcoded Unix path. macOS: `~/Library/Application Support/Calumma/…`;
-  Linux: `~/.local/share/Calumma/…`; Windows: `%APPDATA%\Calumma\…`.
+  never a hardcoded Unix path. macOS: `~/Library/Application Support/Miw/…`;
+  Linux: `~/.local/share/Miw/…`; Windows: `%APPDATA%\Miw\…`.
 - Landing: name + resolution, presets from tokens, recents list, Paste Artwork island.
-  Same view (`NewProjectView`) serves the separate, smaller **New Project** window opened
-  by the editor `+` / `⌘N`; it reflows to one column below `Tokens.Window.wideLayoutWidth`.
+  The same **New Project** modal (`NewProjectModal`, `gui/ui/new-project-modal.slint`) opens
+  from both the landing screen's Create button and the editor's `+` / `⌘N` — a modal
+  overlay now, not a separate OS window the way the frozen Swift shell opened one.
 - Artwork import: drop / `⌘V` / click on the Paste Artwork island creates a project sized to
   the image with the pixels in the first paint layer. The shell passes **file bytes**;
-  `engine/io` decodes them (`calm_project_create_from_encoded`) and fits to
-  `limits::IMPORT_MAX_SIDE`. The older `calm_project_create_from_image` path still accepts
-  premultiplied RGBA for tests.
+  `engine/io` decodes them (`decode_encoded`) and fits to `limits::IMPORT_MAX_SIDE`. This is
+  product spec, not current `gui/` behavior — `Engine` has no artwork-import entry point yet
+  since the ffi rewrite (only `create_project(name, width, height)` exists), so the Paste
+  Artwork island itself is not yet wired up in `gui/`.
 - Pasting into an *open* project is a different path (`engine/core/src/paste.rs`): an image
   bigger than the paper is placed at **native size, centred, and the layer overflows**. It is
   never cropped (that was the bug) and the canvas is never resized. `TileGrid` carries an
@@ -189,14 +202,18 @@ have to be read together.
   overflow.
 - Every project carries an **accent color** (`Document.accent`, `projects.accent` in SQLite).
   Core picks one from `palette::PROJECT_COLORS` at create time; the shell shows it on
-  landing recents, project thumbs, and the dot on that project's titlebar tab. Rename /
-  recolor via `calm_project_rename` / `calm_project_set_accent`. The palette itself
-  is document data served from core (`calm_palette_color`), not a theme token.
+  landing recents, project thumbs, and the dot on that project's titlebar tab — the palette
+  itself is document data served from core, not a theme token. Renaming and recoloring an
+  existing project have no `Engine` entry point yet since the ffi rewrite; the underlying
+  SQLite columns and core `Document.accent` field are unchanged, `gui/` just doesn't reach
+  them yet (no equivalent to the old `ProjectSettingsCard` popover).
 - Editor: **titlebar project tabs** (right of traffic lights). Switch = save/close current →
-  open that project (full reload), which the shell defers by a runloop turn behind a canvas
-  skeleton so the click never blocks (`AppModel.beginLoading`, `docs/FLOW.md` → Editor
-  layout). `+` opens the New Project modal. `×` closes a tab and leaves the project in
-  SQLite; deleting one is the recents row's trash button, and it is permanent.
+  open that project (full reload), which the shell should defer a frame behind a canvas
+  skeleton so the click never blocks (`docs/FLOW.md` → Editor layout) — the deferred-load
+  skeleton is a Swift-shell behavior not yet ported to `gui/`, tracked in
+  `docs/plans/02-slint-shell.md`'s parity checklist. `+` opens the New Project modal. `×`
+  closes a tab and leaves the project in SQLite; deleting one is the recents row's trash
+  button, and it is permanent.
 - **Workspaces are gone**, code, schema and all. Projects used to be grouped into them, with
   the titlebar tabs switching *workspaces* and an extend overlay to manage them; the feature
   was cut back to one tab per project and the `calm_workspace_*` FFI, its `Engine` wrappers,
@@ -239,9 +256,9 @@ pub enum LayerContent {
 - Glyph work lives in **`engine/text`**, a leaf crate over `cosmic-text` (system font
   discovery via `fontdb`, shaping, layout, caret and hit-testing, rasterizing to RGBA).
   `calumma-core` depends on it. Font enumeration is engine-side on purpose — the shell must
-  never ask AppKit for a font list it might not be able to draw. `fonts.rs` resolves the
+  never ask the OS directly for a font list it might not be able to draw. `fonts.rs` resolves the
   installed families **once** into a sorted, case-folded registry that also records which
-  bold/italic cuts each family really ships (`calm_font_family_styles`), so `family_exists`
+  bold/italic cuts each family really ships (`fonts::family_styles`), so `family_exists`
   is a binary search and `set_text_family` can refuse a name nothing can shape.
 - Caret questions are answered against the **shaped layout**, never against the string:
   a wrapped paragraph is one `BufferLine` laid out as several rows, so `layout.rs` picks the
@@ -306,10 +323,10 @@ pub enum LayerContent {
   drag. Empty space and Paper are no-ops. Arrow keys call
   `nudge_move_target` — selected vector item first, otherwise the active
   layer's `transform.offset` when Move or transform mode is on. Transform is
-  a *toggle on Move* (options panel / `⌘T`): on, the same grab shows
-  scale/rotate handles and selects the layer; off, it only drags. `V` picks
-  Move and nothing else — it never turns transform on or off — and vector
-  mode moved to `⇧V`.
+  a *mode on Move* (options panel / `⌘T`): on, the same grab shows
+  scale/rotate handles and selects the layer; off, it only drags. `⌘T`
+  selects Move and turns the mode on; `V` (or picking Move) turns it off.
+  Vector mode moved to `⇧V`.
 - **Paper** (`Layer::paper`) is an ordinary raster layer, name-matched via
   `Layer::is_paper()`, pre-filled fully opaque white at creation — not a
   cheap vector fill. It is paintable/eraseable/editable like any other
@@ -336,13 +353,15 @@ pub enum LayerContent {
   so it still multiplies alpha at upload time (`compose::composited_tile_payload`) on whatever
   tiles actually painted. Flatten, export and picking keep the **CPU-at-flatten** path
   (`filters::apply` / `AdjustmentLut` / `Document::copy_layer_into_rgba`) — two evaluators, one
-  result, same contract blend mode already had. One entry point for adjustments: the sliders in
-  `LayerSettingsCard` (`calm_engine_set_layer_adjustments`). They ride `CalmDeferredSlider`,
-  which keeps the knob local and hands the engine only the value still standing after 100ms of
-  quiet — now a convenience against redundant `LayerData` rewrites during a drag, not a defence
-  against a CPU rebake the GPU path no longer pays for. The engine-side `nudge_layer_adjustment`
-  (`limits::ADJUSTMENT_NUDGE_STEP` / `GAMMA_NUDGE_STEP`, `calm_engine_nudge_layer_adjustment`) is
-  still there and still tested, but the menu-bar Filters menu that was its only caller is
+  result, same contract blend mode already had. One entry point for adjustments in the
+  frozen Swift shell was the sliders in `LayerSettingsCard`, debounced 100ms per drag so the
+  engine only saw the value still standing when the knob settled — a convenience against
+  redundant `LayerData` rewrites during a drag, not a defence against a CPU rebake the GPU
+  path no longer pays for. `Document::nudge_layer_adjustment`
+  (`limits::ADJUSTMENT_NUDGE_STEP` / `GAMMA_NUDGE_STEP`) is still there in `engine/core` and
+  still tested, but nothing on `Engine` re-exposes layer adjustments since the ffi rewrite —
+  `gui/`'s layer settings modal has no adjustment sliders yet. The menu-bar Filters menu that
+  was the nudge function's only caller is
   **gone** — a menu of Increase/Decrease pairs next to a panel of sliders was clutter, and the
   chrome stays minimal.
 - **Picking a layer is a region test, not a pixel test** (`engine/core/src/pick.rs`).
@@ -447,7 +466,7 @@ pub enum LayerContent {
 exist for other kinds; do **not** implement them until explicitly requested.
 
 ```
-Swift "Cut BG"  →  calm_engine_run_op(RemoveBackground, layer)
+Shell "Cut BG"  →  `Engine::run_op(RemoveBackground, layer)`
                  →  OpRegistry resolves Platform (Vision vtable)
                  →  VNGenerateForegroundInstanceMaskRequest
                  →  OpOutput::Mask
@@ -457,7 +476,7 @@ Swift "Cut BG"  →  calm_engine_run_op(RemoveBackground, layer)
 - Shell never chooses Core vs Platform and never edits the layer stack after an op.
 - Install platform ops once at engine startup (`VisionPlatformOps.install`).
 - Platform wins when `available()` is true; otherwise the op is greyed out.
-- Call ops only through `OpRegistry` / `calm_engine_run_op`, never ad hoc.
+- Call ops only through `OpRegistry` / `Engine::run_op`, never ad hoc.
 - Mask is non-destructive (tiles unchanged); renderer applies it at upload. Undo uses
   history `MaskDiff`.
 - Prefer `run_op` off the main thread; `Inner` is mutex-protected. Platform `run` must
@@ -478,69 +497,68 @@ GenerateTexture, Image Playground / `ImageCreator`.
 
 ## Internationalisation (UI strings)
 
-**User-facing text does not live in Swift or `tokens.json`.** It lives in
+**User-facing text does not live in Slint or `tokens.json`.** It lives in
 `translations/<lang>.json` (currently only `translations/en.json`).
 
 | Piece | Responsibility |
 | --- | --- |
 | `translations/*.json` | Source of truth for copy (flat `key` → string) |
-| `platform/macos/.../L10n/` | Load JSON from the app bundle (folder resource), expose `L10nCatalog` |
-| `AppModel.language` | Runtime language knob (same idea as `theme`) |
-| Settings sheet | Switch theme + language at runtime |
+| `gui/src/shell/l10n.rs` | Load JSON from repo `translations/`, expose `Catalog` |
+| `gui/src/shell/controller.rs` | Runtime language knob (same idea as `theme`) |
+| Settings modal | Switch theme + language at runtime |
 
 Rules for agents:
 
 - Add or edit UI strings in `translations/en.json` (and future locale files). Never hardcode
-  button/menu labels in `.swift` when a key exists.
-- Access strings via `@Environment(\.l10n)` / `app.l10n` / `L10nStore.catalog` (bridge code).
-- Loading + language switching is **platform** work. Keep `translations/` itself
-  platform-agnostic JSON so a future Windows shell can reuse the same files.
-- Only `en` is required today; `AppLanguage` is an enum you extend when adding locales.
+  button/menu labels in `.slint` when a key exists.
+- Access strings via `Catalog::get` / `ui_bridge::sync_shell` (pushed into Slint properties).
+- Loading + language switching is **shell** work. Keep `translations/` itself
+  platform-agnostic JSON.
+- Only `en` is required today; extend `Language` in `gui/src/shell/prefs.rs` when adding locales.
 - Preset labels in `design/tokens.json` are product data (resolutions), not i18n chrome.
 
 ### Dynamic strings (`{0}`, `{1}`, …)
 
 When a translation needs runtime values, put numbered placeholders in the JSON — never
-build sentences with `+` / string interpolation in Swift:
+build sentences with `+` in Slint or Rust:
 
 ```json
 "removeProjectNamed": "Remove project with name {0}.",
 "layerNamed": "Layer {0}"
 ```
 
-Platform code fills them in order via `L10nCatalog.format` / `formatKey` (simple
-`{n}` → argument replace):
-
-```swift
-l10n.formatKey("removeProjectNamed", projectName)
-l10n.formatKey("layerNamed", "\(index + 1)")
-```
+Shell code fills them in order via `Catalog::format` (simple `{n}` → argument replace).
 
 Placeholders are zero-based (`{0}`, `{1}`, …). Keep whole phrases in the locale file so
-word order can change per language. Do not use Swift `String(format:)` / `%@` for UI copy.
+word order can change per language.
 
 ## Styling
 
-Visual tokens live in `design/tokens.json` → `./manage.py tokens` → `Tokens.*` (radius,
-space, type, window, color, presets). Engine name constants live in `calumma_core::names`.
-CLI paths/binaries live in `cli/constants.py`.
+Visual tokens live in `design/tokens.json` → `gui/src/shell/theme.rs` (radius, space, type,
+window, color). Engine name constants live in `calumma_core::names`. CLI paths/binaries live
+in `cli/constants.py`.
 
-Compose `CalmText`, `CalmField`, `CalmRow`, `calmSurface()`, `CalmChip`, etc. Theme colors
-via `@Environment(\.themeColors)`; copy via `@Environment(\.l10n)`.
+Compose calm components in `gui/ui/calm/` (`CalmIsland`, `CalmSlider`, `CalmModal`, …).
+Colors and metrics are two Slint **globals**, `Theme` and `Tokens` (`gui/ui/calm/CalmTheme.slint`,
+`CalmTokens.slint`), filled from Rust in `ui_bridge::theme::apply_theme`. A component reads
+`Theme.surface` / `Tokens.space-md` directly — do not thread a `theme-*` property through five
+parents, and do not write a hex value or a pixel metric into a `.slint` file: both are token
+data, and the globals are how tokens reach the UI.
 
-1. Islands (`CalmIsland`) carry a thin `Tokens.Light/Dark.islandBorder` stroke. Text/number
-   inputs, buttons, and list rows carry a stronger `controlBorder` (focused inputs:
-   `controlFocusBorder`) via `calmSurface(bordered:focused:)`. Everywhere else — chips,
-   swatches, the tool grid, sliders — separate surfaces by background contrast only.
-2. Controls use `Tokens.Radius.sm` / `md`. Islands use `Tokens.Radius.island` (rounded) and
-   sit apart with a minimal gap and window margin (`Tokens.Space.xs`), not flush.
+1. Islands (`CalmIsland`) carry a thin `Theme.island-border` stroke. Text/number inputs
+   (`CalmField`), buttons (`CalmButton`), and list rows (`CalmSurface { bordered: true }`)
+   carry a stronger `control-border` (focused inputs: `control-focus-border`). Everywhere
+   else — chips, swatches, the tool grid, sliders — separate surfaces by background contrast
+   only.
+2. Controls use `Tokens.radius-sm` / `radius-md`. Islands use `Tokens.radius-island` (rounded)
+   and sit apart with a minimal gap and window margin (`Tokens.space-xs`), not flush.
 3. Custom Canvas/`AppIcon` drawings only — no icon packs / SF Symbols as product icons.
 4. Light and dark from tokens; push desk / grid / paper-border into the engine via
-   `calm_engine_set_board_colors`. Never hardcode a color in `.rs` or `.wgsl`.
+   `Engine::set_board_colors`. Never hardcode a color in `.rs` or `.wgsl`.
 5. Filled controls; hover = luminance shift. One height for inputs and buttons alike:
    `Tokens.Control.height` (tools panel keeps its own denser 24pt scale).
 6. Inline color picker (`QuickColorPicker`) — overlapping swatches, HSB field, hue, hex.
-7. Nothing **drawn on the board** may be a SwiftUI view — paper, strokes, grid, and the
+7. Nothing **drawn on the board** may be a Slint element — paper, strokes, grid, and the
    layer hover outline are WGSL. Small chrome *controls* may float over the canvas island
    (the zoom pill sits bottom-trailing inside it); panels stay side-by-side islands.
 
@@ -596,9 +614,11 @@ sharing rather than by unloading:
   undo staying instant is the whole point — and dies with it.
 - `calumma_core::memory::document_memory` is the measurement, exact rather than estimated:
   it counts each allocation once by address, so shared tiles are not double-counted, and
-  `history_bytes` is what history holds *alone*. It is served over FFI as `CalmMemory`
-  (`calm_engine_memory`) and shown in the Settings sheet. Reach for it before claiming a
-  memory win.
+  `history_bytes` is what history holds *alone*. `Engine::resident_memory_bytes` is what
+  `gui/`'s Settings modal actually shows today — a flat total, not `document_memory`'s
+  breakdown; there is no `CalmMemory` struct any more and nothing on `Engine` re-exposes the
+  per-category numbers since the ffi rewrite. Reach for `document_memory` at the core level
+  before claiming a memory win regardless of what the shell currently surfaces.
 
 ### `unsafe` Rust — threshold rules
 
@@ -606,9 +626,9 @@ Do **not** overuse `unsafe`. Default to clean, safe Rust.
 
 **Allowed**
 
-- FFI / C ABI boundary (`engine/ffi`): null checks, `CStr`, `Box::from_raw`, wgpu
-  `create_surface_unsafe`, platform vtable callbacks — always wrapped in `catch_unwind`,
-  never unwind into Swift.
+- `engine/ffi` (no C ABI any more, but still where raw-pointer work concentrates): wgpu
+  `create_surface_unsafe`, platform vtable callbacks — wrapped in `catch_unwind` where
+  platform code can throw.
 - A **proven** hot path where benchmarks (or clear asymptotic cost) show a **real** gain —
   keep the block tiny; invariants via naming + tests, not comments.
 - Necessary raw pointer work the API forces (Metal layer handle, opaque engine ptr).
@@ -628,8 +648,8 @@ Rules for agents:
    choose safe Rust even if it is slightly slower.
 3. New `unsafe` in `calumma-core` needs a strong justification; pixel helpers that only
    save a checked index are below the bar unless measured on a real stroke/commit path.
-4. FFI `unsafe` is expected at the boundary — keep it thin, centralise helpers
-   (`with_inner`, string free), and do not leak raw pointers into higher crates.
+4. `ffi`'s `unsafe` is expected — keep it thin, centralise helpers, and do not leak raw
+   pointers into higher crates.
 
 ---
 
@@ -647,8 +667,43 @@ LOD, motion mode) are documented in `docs/RENDERING.md`, not repeated here.
   keep its handles reachable rather than clipping them away the moment they cross the paper
   boundary. Every other piece of chrome (the hover outline, the text caret, a vector-item
   frame) keeps clipping to the paper.
-- Swift owns the `MTKView` / CAMetalLayer; Rust borrows the layer pointer (no retain).
-- Layer hover = dashed outline in the shader, not a Swift overlay.
+- On macOS, Rust owns the board's native surface, not the shell framework: `gui/src/board/surface_macos.rs`
+  (via `objc2`/`objc2-quartz-core`) creates a child `NSView` with a `CAMetalLayer`, inserts it
+  *below* Slint's own winit-owned view in the same window, and hands the layer pointer to
+  `calumma-app`'s `NativeSurface::MetalLayer` (`BoardHost::try_attach_winit`,
+  `gui/src/board/host.rs`) — wgpu presents straight into it, with no texture copy through
+  Slint's femtovg renderer. `engine/ffi/src/surface.rs` also defines `Win32Hwnd`/`Xlib`/
+  `Wayland` surface kinds for the same attach path, but `gui/src/board` only implements the
+  macOS one today; attaching on Windows/Linux currently fails (`attach_failed`) until that
+  lands.
+- **A subview draws over Slint, never under it.** Slint renders into the winit view's own
+  layer, so the board's `NSView` sits on top of every Slint element inside its rect, whatever
+  the subview ordering says. Rulers and side islands stay *outside* that rect. The zoom pill
+  and the layer hover preview float over the board the way they did in the frozen Swift shell:
+  `sync_board_geometry` punches those rectangles out of the Metal view with a layer mask so
+  Slint paints above the paper. Overlay chrome — modals, popovers, tooltips, toasts, the
+  smart menu — is allowed to cover the whole board: `AppWindow.overlay-chrome-open` is the one
+  flag, and `sync_board_geometry` hides the Metal view while it is true so Slint paints over
+  the hole. The board view would
+  swallow every pointer event over the canvas, so `MiwBoardView` overrides `hitTest:` to return
+  nil: the layer presents, and the pointer falls through to Slint's `TouchArea`, which is the
+  only thing that forwards to `Engine::pointer_*`. Slint owns the rect too: `Editor` publishes
+  `board-surface`'s `absolute-position` and size, `sync_board_geometry` feeds those straight to
+  `BoardSurface::set_frame`, and nothing in Rust re-derives panel widths or paddings. The frame
+  is set in *logical* points, and the host view is **flipped** (top-left origin), so `set_frame`
+  asks `isFlipped` rather than assuming AppKit's bottom-left convention.
+- **Rulers** are Slint, not WGSL — they sit outside the board rect, inset along the island's top
+  and left (`gui/ui/ruler.slint`). Tick *positions* stay engine-owned (`Engine::ruler_ticks_x/y`,
+  adaptive 1/2/5×10ⁿ spacing from `core/src/ruler.rs`); the shell only maps `doc * zoom + pan` to
+  a strip offset, the same affine the board uses, and rebuilds the tick models from the frame
+  loop when the camera actually moved. Dragging off a strip pulls a guide
+  (`Engine::begin_guide_drag_from_ruler` / `update_guide_drag` / `end_guide_drag`) — where it
+  lands and whether it survives release is `core/src/guide.rs`'s call, and the guide itself is
+  drawn by `vs_guide`, never by the shell.
+- The frame loop is two `slint::Timer`s owned by `main` (`start_frame_loop` returns them). A
+  `Timer` stops when it is dropped, so binding them to a local that lives until `ui.run()` is
+  what keeps the board attaching, resizing and presenting at all.
+- Layer hover = dashed outline in the shader, not a shell-drawn overlay.
 - Board **chrome** — guides, transform and vector-item frames, the text session's box and
   caret, the hover outline — is measured in *screen* pixels, not document units, so it is the
   same size at every zoom. Guides ride `vs_guide`/`fs_guide`, everything else
@@ -673,16 +728,17 @@ Never branch on bare literals (`tool == 1u`). Use named consts matching Rust
 
 ```
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
-./manage.py tokens # design/tokens.json → Swift + C++ Tokens
-./manage.py icon # design/icon.png → AppIcon.appiconset (Pillow)
-./manage.py test # cargo test --workspace
-./manage.py qt-smoke # Qt shell's engine wrapper, driven headless (no Qt needed)
+./manage.py fmt # verify rustfmt/ruff like CI; --write to apply
+./manage.py clippy # same crate set as CI (portable; + ffi/app on macOS)
+./manage.py lint # fmt --check + clippy + purity (ubuntu lint job; + darwin clippy on macOS)
+./manage.py test # cargo test --workspace; --ci matches the GHA test job on Linux
+./manage.py gui-check # compile-check the GUI shell (no window)
+./manage.py dev # build and run the GUI shell (optimized debug; --release for a shipped-like binary)
+./manage.py dev --mcp # same, plus Slint's embedded MCP server on :7883 for live UI introspection
+./manage.py build # release build of the GUI shell
 ./manage.py coverage # llvm-cov + per-crate %% table in the log
-./manage.py lint # clippy + ruff + purity
-./manage.py check # fmt + lint + test
+./manage.py check # lint + gui-check + test
 ./manage.py purity # core has no platform/GPU deps
-./manage.py dev # build ffi, xcodegen, open Xcode
-./manage.py package # Release .app, ad-hoc signed, wrapped in dist/Calumma-<version>.dmg
 ```
 
 `./manage.py` re-execs into `.venv` when that folder exists, so you do not need to activate it.
@@ -703,51 +759,30 @@ still needs a real `wgpu::Surface`, so what its own tests cover is what it *deci
 state per blend mode, bind-group and vertex layouts, visible/retained tile spans — not what it
 draws.
 
-Distribution: `.github/workflows/main.yml`'s `macos-dmg` job builds and publishes. On a
-`push` to `main` it only runs if `version-check` (diffs `engine/Cargo.toml`'s version
-against the previous commit) says the version changed; it always runs on a `v*` tag push
-or a manual `workflow_dispatch`, and — since it packages a release — it also requires
-`core-linux`, `core-windows` (skipped-is-OK, dispatch-only), and `macos` to have passed,
-so a red lint/test job in the same run can never ship a release anyway. It runs
-`./manage.py package` and publishes the `.dmg` + `.sha256` as **GitHub Release** assets
-(GitHub Packages hosts only npm/Maven/NuGet/RubyGems/container registries — a `.dmg`
-cannot live there). Version comes from the tag, falling back to `[workspace.package]
-version` in `engine/Cargo.toml`; it is stamped into the bundle as `MARKETING_VERSION`.
-Builds are **ad-hoc signed, not notarized** — there is no Developer ID in CI secrets, so
-Gatekeeper blocks the first launch until the user right-clicks → Open.
-
-App version stays in sync with zero manual Swift-side edits, in two layers:
-
-1. The **committed** `project.pbxproj`: a local pre-commit hook (`xcodegen-version` in
-   `.pre-commit-config.yaml`, triggered on `engine/Cargo.toml`) runs `./manage.py xcodegen`
-   whenever that file changes, so a version bump never leaves a stale `MARKETING_VERSION`
-   baked into the tracked project file waiting for someone to happen to build the app —
-   same shape as the pre-existing `app-icon` hook regenerating `AppIcon.appiconset` from
-   `design/icon.png`.
-2. The **built app**, regardless of route (`manage.py dev`/`build`, a raw `xcodebuild`, or
-   Xcode.app's own Run): the "Stamp version from Cargo.toml" build phase
-   (`platform/macos/project.yml`, `postCompileScripts`) overwrites the built `Info.plist`'s
-   `CFBundleShortVersionString`/`CFBundleVersion` with `./manage.py version` on every
-   build, so even a still-stale `pbxproj` (a fresh clone that hasn't run pre-commit yet)
-   can't ship the wrong version. It runs after Compile Sources but before Code Sign, so
-   the signature is never invalidated. `./manage.py package`'s tag-resolved version has to
-   win over that self-heal, so it passes `CALUMMA_VERSION_OVERRIDE` as an env var, which
-   the script checks first (`cli/package_macos.py`).
+Distribution: there is currently **no packaging/release pipeline**. `.github/workflows/main.yml`
+runs lint → security → per-OS tests only (`test-linux`, `test-macos` always; `test-windows` on
+manual `workflow_dispatch`) — the old Xcode `.dmg` build, its version-bump gate, and the
+`xcodegen`/`Info.plist`-stamping steps that kept a Swift bundle's version in sync were removed
+along with the Swift and Qt shells. `engine/Cargo.toml`'s `[workspace.package] version` is the
+one source of truth today (`./manage.py version` prints it, `./manage.py version-check` diffs
+it against the previous commit), but nothing currently stamps it into a `gui/` binary or ships
+one — building and distributing a `miw` release per platform is open work, not yet
+started.
 
 Expectations:
 
 - High coverage on `engine/core` (camera, tiles, history, shapes, paint commit).
 - `engine/ops` registry tests: platform beats core, `available()` gating, failed ops leave
   the document untouched.
-- Pre-commit: fmt, clippy, swift-format, no-comments, purity.
+- Pre-commit: fmt, clippy, ruff, purity.
 
 `cli/_helpers.py` holds shared paths, cargo helpers, and design-token accessors. Leaf tools
 under `cli/` import from it. `manage.py` is the CLI entrypoint. Python deps are pinned in
-`requirements.txt` (Pillow for the app icon, ruff for format/lint) — no extra CLI binaries
+`requirements.txt` (Pillow for README screenshot optimization, ruff for format/lint) — no extra CLI binaries
 like oxipng.
 
-Cargo workspace root is `engine/Cargo.toml` (rustfmt/clippy live there). Swift format
-config is `platform/macos/.swift-format` only.
+Cargo workspace root is `engine/Cargo.toml` (rustfmt/clippy live there). The GUI shell is a
+standalone crate at `gui/Cargo.toml`.
 
 Pin versions in `[workspace.dependencies]`. Never `*` or bare `^`.
 
@@ -757,8 +792,9 @@ Pin versions in `[workspace.dependencies]`. Never `*` or bare `^`.
 
 Vector *rotation* on the GPU (see Layers; per-item undo rides document
 history, shipped as plan `01`), **stylus pressure** (cancelled — tablet pen pressure does not
-taper brush size along a stroke; pointer FFI stays `(x, y)` only and mouse/tablet are both
-full press. No tilt, barrel, tangential pressure, per-brush toggles, or shell curve UI.
+taper brush size along a stroke; `Engine::pointer_down`/`pointer_move` stay `(x, y)` only and
+mouse/tablet are both full press. No tilt, barrel, tangential pressure, per-brush toggles, or
+shell curve UI.
 Raster paint tools only; vector-mode pen width stays on the item. Do not restart as a plan),
 BiRefNet / `ort`,
 GenerateTexture model manager, SuggestShape,
@@ -767,9 +803,9 @@ undoes, but Remove Background is its only writer — no mask painting, invert, t
 thumbnail; cancelled 2026-08-26 with the same call that made clipping masks merge-on-apply),
 layered PSD import wired into the app's import flow (`calumma-io` now has a real layered decoder —
 `decode_psd`/`DecodedPsd`/`DecodedLayer` in `io/src/psd.rs`, separate name/visibility/opacity/blend-mode/RGBA
-per layer, PackBits + raw channel data, `luni` Unicode names — but it isn't hooked up to FFI or
-`ArtworkImport.swift` yet; `decode_encoded`'s flattened-composite PSD import, via `raster_psd.rs`, is what the
-app actually uses today), picking a layer by clicking it outside
+per layer, PackBits + raw channel data, `luni` Unicode names — but nothing on `Engine` exposes
+it and no shell's import flow calls it yet; `decode_encoded`'s flattened-composite PSD import,
+via `raster_psd.rs`, is what the app actually uses today), picking a layer by clicking it outside
 transform mode as a *modifier* (the Move tool on the tools island is the path; Option-click and ⌘-click are
 both already Pan) — add
 only as considered features, not by restoring old app code.
@@ -794,11 +830,11 @@ Vector multi-select (`10`) is closed by the 1:1 rule — do not build it.
 
 **Shipped from this list (cont.):** GPU adjustment evaluation (plan 23 — the `LayerData` table
 grew the LUT and opacity; see the opacity/adjustments bullet above) and adaptive GPU residency
-under memory pressure (plan 22 — `calm_engine_set_memory_pressure`, `calumma_core::
+under memory pressure (plan 22 — `Engine::set_memory_pressure`, `calumma_core::
 MemoryPressureLevel`/`PressureState`). Plan 29 added the other axis on the same knobs:
 `calumma_core::DeviceTier`, classified once from the adapter, is a **floor** where pressure is a
 **ceiling**, and `GpuBudget` is the only thing that answers for either — it returns the stricter
 of the two, so neither can set the atlas ceiling or the retention margin behind the other's
-back. It also gave the shell one outbound pacing knob, `calm_engine_frame_hint`: the engine
+back. It also gave the shell one outbound pacing knob, `Engine::frame_hint`: the engine
 answers how often it wants to be drawn (0 = the display's own rate) and the shell assigns that
 to `preferredFramesPerSecond`. The ceiling stays the screen's; the engine names only the floor.

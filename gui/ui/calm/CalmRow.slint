@@ -1,0 +1,66 @@
+import { Theme } from "CalmTheme.slint";
+import { Tokens } from "CalmTokens.slint";
+import { CalmBody, CalmMuted, CalmTitle } from "CalmText.slint";
+
+export component CalmThumb inherits Rectangle {
+    in property <image> thumb;
+    in property <string> placeholder;
+    in property <color> tint;
+    in property <bool> has-tint: false;
+
+    width: 36px;
+    height: 36px;
+    border-radius: Tokens.radius-sm;
+    background: has-tint ? tint : Theme.surface-hover;
+    clip: true;
+
+    Image {
+        source: root.thumb;
+        width: 100%;
+        height: 100%;
+        image-fit: cover;
+    }
+
+    if placeholder != "": CalmMuted {
+        text: root.placeholder;
+        font-weight: 700;
+        width: 100%;
+        height: 100%;
+        horizontal-alignment: center;
+    }
+}
+
+export component CalmRow inherits HorizontalLayout {
+    in property <string> title;
+    in property <string> subtitle;
+    in property <string> trailing;
+    in property <bool> title-large: false;
+
+    spacing: Tokens.space-md;
+
+    @children
+
+    VerticalLayout {
+        horizontal-stretch: 1;
+        spacing: 2px;
+        alignment: center;
+
+        if title-large: CalmTitle {
+            text: root.title;
+            overflow: elide;
+        }
+        if !title-large: CalmBody {
+            text: root.title;
+            strong: true;
+            overflow: elide;
+        }
+        CalmMuted {
+            text: root.subtitle;
+        }
+    }
+
+    if trailing != "": CalmMuted {
+        text: root.trailing;
+        vertical-alignment: center;
+    }
+}

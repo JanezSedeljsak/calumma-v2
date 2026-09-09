@@ -800,6 +800,7 @@ impl Document {
         self.layers
             .get(self.active_layer)
             .is_some_and(accepts_pixels)
+            && !self.clip_pair_locked(self.active_layer)
     }
 
     pub fn place_image(&mut self, rgba: &[u8], width: u32, height: u32) -> bool {
@@ -1016,7 +1017,7 @@ impl Document {
         let Some(layer) = self.layers.get(index) else {
             return;
         };
-        if layer.locked || layer.transform.is_none() {
+        if self.clip_pair_locked(index) || layer.transform.is_none() {
             return;
         }
         self.record_layer_props_history(index);
@@ -1377,14 +1378,16 @@ impl Document {
     }
 
     pub fn set_layer_locked(&mut self, index: usize, locked: bool) -> bool {
-        let Some(layer) = self.layers.get_mut(index) else {
-            return false;
-        };
-        if layer.locked == locked {
-            return false;
+        {
+            let Some(layer) = self.layers.get_mut(index) else {
+                return false;
+            };
+            if layer.locked == locked {
+                return false;
+            }
+            layer.locked = locked;
         }
-        layer.locked = locked;
-        if locked && self.active_layer == index {
+        if locked && self.clip_pair_locked(self.active_layer) {
             self.exit_transform();
         }
         true
@@ -2561,10 +2564,8 @@ impl Document {
             layer_buf.fill(0);
             copy_layer_into_rgba(layer, &mut layer_buf, w, h);
             apply_mask(&mut layer_buf, layer.mask());
-            if let Some(base_id) = layer.clips_to.as_deref() {
-                if let Some(base) = self.layers.iter().find(|l| l.id == base_id) {
-                    crate::clip::apply_clip_alpha_to_buffer(&mut layer_buf, base, w, h);
-                }
+            if let Some(base) = self.clip_base_for_layer(layer) {
+                crate::clip::apply_clip_alpha_to_buffer(&mut layer_buf, base, w, h);
             }
             let lut = layer.adjustments.map(|a| a.lut());
             apply_layer_effects(&mut layer_buf, layer, lut.as_ref());
@@ -2870,6 +2871,9 @@ impl Document {
         let mut buf = vec![0u8; (w as usize) * (h as usize) * 4];
         copy_layer_into_rgba(layer, &mut buf, w, h);
         apply_mask(&mut buf, layer.mask());
+        if let Some(base) = self.clip_base_for_layer(layer) {
+            crate::clip::apply_clip_alpha_to_buffer(&mut buf, base, w, h);
+        }
         if let Some(adj) = &layer.adjustments {
             let lut = adj.lut();
             buf.par_chunks_mut(EFFECT_CHUNK_BYTES)
@@ -3064,7 +3068,7 @@ impl Document {
     /// rectangle would have to be resolved in the layer's own frame rather than the
     /// document's; the caller can see that from the bounds it reads back.
     pub fn set_layer_bounds(&mut self, index: usize, x: f32, y: f32, w: f32, h: f32) -> bool {
-        if self.layer_locked(index) {
+        if self.clip_pair_locked(index) {
             return false;
         }
         let Some((cur_x, cur_y, cur_x1, cur_y1)) = self.layer_bounds(index) else {

@@ -1,0 +1,23 @@
+import { Theme } from "CalmTheme.slint";
+import { Tokens } from "CalmTokens.slint";
+import { CalmDot } from "CalmDot.slint";
+import { CalmLabel } from "CalmText.slint";
+
+export component CalmSectionLabel inherits HorizontalLayout {
+    in property <string> label;
+    in property <color> accent;
+    in property <bool> has-accent: true;
+
+    spacing: Tokens.space-sm;
+    alignment: start;
+
+    if has-accent: CalmDot {
+        dot-color: root.accent;
+        dot-size: 8px;
+        y: (parent.height - self.height) / 2;
+    }
+
+    CalmLabel {
+        label: root.label;
+    }
+}

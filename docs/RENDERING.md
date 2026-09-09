@@ -2,30 +2,50 @@
 
 Companion to `AGENTS.md` (architecture) and `docs/FLOW.md` (product flow); the crate it
 documents is `engine/render` (see `AGENTS.md`'s "Canvas / render" section). Describes the GPU path,
-dirty flags, and the pan/zoom performance strategy. The engine owns all of this; Swift only
-owns the `MTKView` surface and calls FFI.
+dirty flags, and the pan/zoom performance strategy. The engine owns all of this; the shell
+only owns the native surface and calls into `calumma-app`.
+
+**A note on the history in this file.** Most of the optimization work described below —
+dirty flags, `PanCache`, motion mode, the overview pyramid, frame-hint pacing — lives in
+`engine/render`/`engine/core` and is exactly as true for `gui/` as it was for the frozen
+Swift shell. The "Frame loop" and "Frame pacing" sections describe how `gui/` consumes those
+mechanisms today (8 ms poll, hint-gated presents). Passages that name `MTKView` / AppKit
+are the historical record of the Swift shell, not current `gui/` API.
 
 ---
 
 ## Frame loop
 
+`gui/`'s loop (`gui/src/main.rs`'s `start_frame_loop`) is a Slint `Timer` firing every 8 ms
+while the editor is open — not display-linked. `Engine::frame_hint` gates whether that tick
+*presents*; idle ticks skip Metal hole-punching, `Engine::render`, and ruler rebuilds when
+the board layout has not changed:
+
 ```
-MTKView draw (60–120 Hz, display-linked)
-  └─ Engine.flushPendingState()     // zoom pill, pan readout — once per frame max
-  └─ calm_engine_render
-       ├─ flush_pending_camera()    // coalesced pan/scroll deltas from FFI
-       └─ Renderer::render(doc)
-            ├─ early-out if Clean && no live preview
-            ├─ decide overview vs tile path
-            ├─ sync GPU tiles / overview texture (if needed)
-            ├─ rebuild draw lists (if needed)
-            ├─ write uniforms (paper, tile camera, preview — camera-only skips preview)
-            ├─ content pass: PanCache full redraw, or shift + patch on a camera-only frame
-            └─ one Metal render pass: desk → PanCache blit quad (or overview) → overlays
+Slint Timer, every 8 ms (gui/src/main.rs::start_frame_loop)
+  └─ Engine::frame_hint()           // 0 = display ceiling, else fps (idle = 10)
+  └─ if layout/overlay changed: sync_board_geometry (Metal holes + resize)
+  └─ if present && !overlay:
+       BoardHost::render()        // gui/src/board/host.rs
+         └─ Engine::render()        // calumma-app → calumma-ffi
+              ├─ flush_pending_camera()    // coalesced pan/scroll deltas
+              └─ Renderer::render(doc)
+                   ├─ early-out if Clean && no live preview
+                   ├─ decide overview vs tile path
+                   ├─ sync GPU tiles / overview texture (if needed)
+                   ├─ rebuild draw lists (if needed)
+                   ├─ write uniforms (paper, tile camera, preview — camera-only skips preview)
+                   ├─ content pass: PanCache full redraw, or shift + patch on a camera-only frame
+                   └─ one render pass: desk → PanCache blit quad (or overview) → overlays
+  └─ if present && camera moved: sync_rulers + sync_zoom_chrome
 ```
 
-Input during pan does **not** call `render()` directly. `calm_engine_pan` queues deltas and
-marks the renderer **camera-dirty**; the next `MTKView` frame flushes and draws.
+Pointer move, scroll, and pinch queue work on the engine (`Engine::pan` / `pointer_move`) and
+do **not** call `render()` or Slint `request_redraw` themselves. The next presenting timer tick
+flushes and draws. Pointer-down still presents immediately so the first dab is not waiting on
+the 8 ms poll. The frozen Swift shell instead varied *how often* the tick fired (display-linked,
+hint-paced); `gui/` keeps a short poll so the first frame after idle is not an idle-interval
+away, and uses the hint only to skip present work.
 
 Autosave no longer lives on this path — see "Autosave" below.
 
@@ -96,7 +116,7 @@ function on purpose: a gate that disagreed would drop the frame meant to show th
 comparison also catches the caret going away, which needs one frame to erase it.
 
 A **hovered layer is deliberately in neither**. Its outline is a static overlay, and
-`calm_engine_set_hover_layer` already calls `invalidate()` on the way in and on the way out,
+`Engine::set_hover_layer` already calls `invalidate()` on the way in and on the way out,
 which is exactly the one frame it needs. Counting the hover as live made resting the cursor on
 a layer row resync every tile at 120 Hz *and* disable the overview proxy — on precisely the
 documents that are too large to draw the full way.
@@ -105,43 +125,46 @@ An **active selection** and **transform mode** are in neither, for the same reas
 modes you sit in rather than gestures you perform — a marquee lives until ⌘D — and both draw
 static overlays. Counting them as live pinned `Content` at display rate for as long as the mode
 was open: every tile resynced, the draw list rebuilt, the whole visible stack recomposited, the
-overview proxy off. Every FFI entry that touches either (`calm_engine_deselect`,
-`calm_engine_toggle_transform`, `calm_engine_exit_transform`, the pointer commits) already
+overview proxy off. Every engine entry that touches either (`Engine::deselect`,
+`Engine::toggle_transform`, `Engine::exit_transform`, the pointer commits) already
 calls `Renderer::invalidate`, which is the one frame they need.
 
 Nothing pins `Content` any more, and only a live *gesture* pins `Overlay`. `render()` ends a
 frame on `Overlay` while a gesture is live and `Clean` otherwise; content invalidation comes
-from the events that actually change content. `calm_engine_pointer_move` asks `Document::pointer_move` which kind it was — a
+from the events that actually change content. `Engine::pointer_move` asks `Document::pointer_move` which kind it was — a
 pen or a shape drag lays no pixels down until pointer-up, so those frames are overlay-only,
 while the blur brush (which commits mid-drag), a layer move and a transform/vector drag all
 return `true` and invalidate content.
 
-### Shell `stateDirty` (Swift)
+### Shell state sync
 
-Pan/zoom call `syncStateSoon()` instead of `syncState()` so SwiftUI does not diff the whole
-editor on every mouse-drag event. `flushPendingState()` runs inside `draw()` and reads
-`calm_engine_state` once per frame.
+The frozen Swift shell debounced its state sync (`syncStateSoon()` vs. `syncState()`) so
+SwiftUI would not diff the whole editor on every mouse-drag event. `gui/` does **not** call
+`sync_editor` from the 8 ms timer — that path is callback-driven (`defer_sync_editor` on
+tool picks, and direct `sync_editor` on the chrome that actually changed). Pointer-move does
+not rebuild editor chrome. The 500 ms timer only refreshes layer-row thumbnails and the
+memory label.
 
-### Save `dirty_save` (FFI `Inner`)
+### Save `dirty_save` (`Inner`, in `engine/ffi`)
 
 Set on document edits; `Inner::autosave` writes SQLite when the 800 ms interval has elapsed
 and no stroke is active. It runs on a dedicated background thread (`engine/ffi/src/
-autosave.rs`), not inside `calm_engine_render` — see "Autosave" below.
+autosave.rs`), not inside `Engine::render` — see "Autosave" below.
 
 ---
 
 ## Autosave
 
-`AutosaveThread` (`engine/ffi/src/autosave.rs`) is spawned in `calm_engine_new` and stopped
-(signal + join) in `calm_engine_free`, before the `Inner` mutex is dropped. It wakes every
-`AUTOSAVE_INTERVAL_MS` on a condvar (so `calm_engine_free` doesn't wait out a full interval to
+`AutosaveThread` (`engine/ffi/src/autosave.rs`) is spawned in `Engine::new` and stopped
+(signal + join) in `Engine::drop`, before the `Inner` mutex is released. It wakes every
+`AUTOSAVE_INTERVAL_MS` on a condvar (so `Drop` doesn't wait out a full interval to
 tear down) and calls the same `autosave()` the render path used to call inline. Nothing about
 `autosave()` itself changed — dirty-flag check, stroke-active guard, the 800 ms throttle — only
 *what calls it*.
 
 Moving the call off the render path was only half of it, and an earlier version of this file
 overstated the result: both threads still contend for the one `Mutex<Inner>`, so a blocking
-lock on the autosave thread only *relocated* the stall — `calm_engine_render` would wait out a
+lock on the autosave thread only *relocated* the stall — `Engine::render` would wait out a
 whole SQLite transaction at an arbitrary point in a frame, with no back-pressure. The tick now
 takes the lock with `try_lock` and skips on contention, forcing the lock only after
 `AUTOSAVE_MAX_SKIPPED_TICKS` consecutive skips so a continuously-drawn document still reaches
@@ -151,30 +174,42 @@ disk. A skipped tick costs 800 ms of staleness; a blocked frame is visible.
 
 ## Frame pacing
 
-The `MTKView` runs free (`isPaused = false`, `enableSetNeedsDisplay = false`) at whatever the
-screen it is on can do. What it draws at is now the engine's call: `calm_engine_frame_hint`
-answers frames per second, or **0** for "as fast as the display allows", and
-`Coordinator.draw(in:)` assigns it to `preferredFramesPerSecond`. The ceiling stays the shell's
-(`BoardMTKView.displayCeiling`, from `NSScreen.maximumFramesPerSecond`); the engine names only
-the floor it can live with, and `applyFrameRate` takes the min.
+**`gui/` consumes the hint as a present gate, not by recreating the timer.** The 8 ms poll
+(see "Frame loop") still fires so a pointer event after idle is at most one tick away; each
+tick reads `Engine::frame_hint` and skips `render` / hole-punch / ruler sync until the hint's
+interval has elapsed (`FRAME_HINT_IDLE_FPS` = 10 → ~100 ms between presents). Recreating a
+slower timer on idle is still avoided on purpose: without a Swift-style `wake()` that sped
+the view back up on input, the first frame after a rest would wait out the idle interval.
+
+The mechanism itself is engine-side and is exactly what the frozen Swift shell wired up,
+described below as it shipped:
+
+The Swift shell's `MTKView` ran free (`isPaused = false`, `enableSetNeedsDisplay = false`) at
+whatever the screen it was on could do. What it drew at was the engine's call:
+`Engine::frame_hint` answers frames per second, or **0** for "as fast as the display
+allows", and `Coordinator.draw(in:)` assigned it to `preferredFramesPerSecond`. The ceiling
+stayed the shell's (`BoardMTKView.displayCeiling`, from `NSScreen.maximumFramesPerSecond`);
+the engine names only the floor it can live with, and `applyFrameRate` took the min.
 
 `Renderer::frame_hint` returns the display maximum whenever something is in flight — a gesture
 (`has_live_preview`), a camera still settling (`camera_motion`), a text session, or a frame the
 renderer has already marked dirty for itself. Otherwise `FRAME_HINT_IDLE_FPS` (10): a board
-sitting still has nothing waiting on the display link, and 120 wakeups a second for a picture
-that is not moving is the whole of what idle costs.
+sitting still has nothing waiting on a display link, and 120 wakeups a second for a picture
+that is not moving is the whole of what idle costs. This part is unconditionally true for any
+shell, `gui/` included — it is `Renderer`/`Engine` deciding a number, whether or not the shell
+currently reads it.
 
 A `DeviceTier::Low` machine gets `FRAME_HINT_LOW_TIER_FPS` (60) in place of the display maximum
 — a GPU that cannot hold 120 gains nothing from being asked to try, and pacing it at a rate it
 can actually hold is what makes a gesture feel even. On a 60 Hz display the clamp is a no-op.
 
-**Latency.** `BoardMTKView.wake()` puts the rate straight back to the ceiling from every event
-that can arrive while the board is idle. Without it the first frame after a rest waits out an
-idle interval before the engine gets to report that something is happening — which is exactly
-the frame the pointer is waiting on. `wake()` only ever speeds the view *up*; the engine still
-owns when it may go quiet. This is deliberately smaller than C4 below (`isPaused` plus explicit
-`setNeedsDisplay` wiring) and is not thrown away by it: `frame_hint` returning 0 is the natural
-way to say "pause" if a wakeup per interval ever turns out to be too much.
+**Latency, as the Swift shell handled it.** `BoardMTKView.wake()` put the rate straight back to
+the ceiling from every event that could arrive while the board was idle — without it, the
+first frame after a rest would wait out an idle interval before the engine got to report that
+something was happening, which is exactly the frame the pointer is waiting on. `wake()` only
+ever sped the view *up*; the engine still owned when it might go quiet. Whatever wires
+`frame_hint` into `gui/`'s timer needs the same latency guard — recreating a slower timer on
+every idle tick and never speeding it back up on input would reproduce this exact problem.
 
 ---
 
@@ -401,7 +436,7 @@ Clear color is black; desk fills the viewport.
 surface. It used to be 2 at rest and 1 during motion, flipped by a `set_frame_latency` helper
 that called `Surface::configure` — and wgpu drains the entire GPU queue before it will
 reconfigure a surface (`Device::configure_surface` polls with `PollType::wait_indefinitely`).
-`begin_camera_motion` is reached from `calm_engine_pan`, which the shell calls synchronously
+`begin_camera_motion` is reached from `Engine::pan`, which the shell calls synchronously
 from `mouseDragged`, so that put a full pipeline stall on the main thread inside the first drag
 event of every pan gesture, and another one four idle frames after the last. A bursty
 scroll-wheel pan crossed that boundary several times a second.
@@ -464,7 +499,7 @@ the overview at a zoom the pyramid could draw sharply.
 | --- | --- | --- | --- | --- |
 | B1 | **Framebuffer scroll / ping-pong blit** on camera-only pan: copy previous frame with offset, redraw only exposed strips | Biggest Figma-like win; pan becomes ~2 blits + edge repair | No — additive | **Shipped** — `PanCache`, see above |
 | B1b | **Reuse the `PanCache` reference on an overlay-only frame** — no shift, no redraw, the board pass samples it directly | Brush strokes, shape drags and the caret stop recompositing the visible stack per frame | No — additive | **Shipped** — `reference_matches` / `reuse_reference` |
-| B2 | **Move autosave off render path** — background thread or timer, never inside `calm_engine_render` | Removes mutex + SQLite from frame budget | No | **Shipped** — `engine/ffi/src/autosave.rs` |
+| B2 | **Move autosave off render path** — background thread or timer, never inside `Engine::render` | Removes mutex + SQLite from frame budget | No | **Shipped** — `engine/ffi/src/autosave.rs` |
 | B3 | **Skip desk clear on camera-only** — `LoadOp::Load` + blit previous color attachment, or persistent desk texture | Saves full-screen fill | No | **Investigated 2026-09-04, not implemented.** `desk_pattern` (the lattice) is a pure function of *screen* position — genuinely cacheable, no shift-and-patch needed unlike `PanCache`'s content. But `fs_paper`'s paper-border ring reads `(screen - pan) / zoom`, so it moves every pan frame; a correct version needs the lattice baked once into a persistent texture plus the border redrawn on top each frame, not a one-line `LoadOp` swap. That's real new infrastructure (a texture, resize/theme invalidation, a second pipeline) to save a cost already measured as "one texel fetch and two `mix`es per pixel" (see below) — not confirmed worth it without a frame-time trace, which nothing here can take |
 | B4 | ~~**Lower overview enter to ~32**~~ — **withdrawn 2026-08-25**, then **superseded 2026-09-04** by the overview pyramid (#02) and the per-layer gate (#01) — see Overview path below | — | — | Superseded |
 | B5 | **R8 or RGB10A2 desk** if banding acceptable | Less memory bandwidth on fill | Minor visual | Open |
@@ -476,7 +511,7 @@ the overview at a zoom the pyramid could draw sharply.
 | C1 | ~~**Separate tile path entirely during motion**~~ — **shipped**, plan 29. The `visible_needs_gpu_upload` walk (3 µs at 1 layer, 34 µs at 10) is memoized across the frames where its answer cannot have moved; see Motion mode above | — | — |
 | C2 | ~~**GPU compositing for adjustments** instead of CPU bake per dirty tile~~ — **shipped 2026-09-02** as plan `23`. LUT + opacity moved onto the `LayerData` table (see `docs/ENGINE.md` § Bind groups); `fs_tile`/`fs_solid_tile` evaluate them per pixel via `apply_adjustments` | Slider drag on large docs | CPU path for export/flatten/pick stays (`AdjustmentLut`) |
 | C3 | **Layer flatten cache** — one GPU texture per layer at rest, patch on edit | Fewer instances when many layers. Note the instance count is already bounded at 48 by the overview threshold, so this is only worth it *inside* a pyramid rebuild, not for the live tile path | Memory ↑ |
-| C4 | **Display link driven render** — `isPaused = true`, draw only when dirty | No idle 120 Hz wakeups | Requires explicit `setNeedsDisplay` wiring. **Largely obviated** by plan 29's `calm_engine_frame_hint` (see Frame pacing), which drops idle to 10 fps and the caret from 120 full board passes a second to 2, without the wiring. **Investigated 2026-09-04, not implemented**: the remaining idle wakeup is already a cheap early-out (`render()`'s `Clean && no live preview` check) inside the standard `MTKView.preferredFramesPerSecond` polling model; removing it entirely needs exactly the `isPaused`/manual-`setNeedsDisplay` rearchitecture this row already argued against — wiring a redraw trigger into every state-mutating path for a wakeup that already does almost nothing |
+| C4 | **Display link driven render** — `isPaused = true`, draw only when dirty | No idle 120 Hz wakeups | Requires explicit `setNeedsDisplay` wiring. **Largely obviated** by plan 29's `Engine::frame_hint` (see Frame pacing), which drops idle to 10 fps and the caret from 120 full board passes a second to 2, without the wiring. **Investigated 2026-09-04, not implemented**: the remaining idle wakeup is already a cheap early-out (`render()`'s `Clean && no live preview` check) inside the standard `MTKView.preferredFramesPerSecond` polling model; removing it entirely needs exactly the `isPaused`/manual-`setNeedsDisplay` rearchitecture this row already argued against — wiring a redraw trigger into every state-mutating path for a wakeup that already does almost nothing |
 | C5 | **Read zoom pill from atomics** — `flushPendingState` only when chrome visible | Less Swift publish per frame | No | **Shipped 2026-09-04** — `BoardCanvas.Coordinator.draw(in:)` skips `flushPendingState()` (and so the FFI round trip + `@Published state` republish) when `view.window?.occlusionState` says the window isn't visible; `engine.render()` still runs so the frame-hint throttle keeps working. Scoped to *window* visibility, not the zoom pill specifically — `state` backs more than the pill (layer count, active layer, tool gate), so gating on the pill's own SwiftUI visibility would have starved those too |
 
 ## Tier D — simplify / throw out
@@ -500,13 +535,13 @@ Things you can remove or gate behind quality settings if smooth pan matters more
 Figma's smoothness comes from a **different contract**:
 
 - Infinite canvas with **scene graph** + **cached tiles** at multiple fixed zoom levels
-- Pan often **translates existing pixels** (scroll blit) — Calumma now does this too for a
+- Pan often **translates existing pixels** (scroll blit) — the Calumma engine now does this too for a
   camera-only frame at unchanged zoom, via `PanCache`, though only single-level (no pyramid)
 - **No full-scene CPU composite** on the hot path
-- **No SQLite** on the display thread — Calumma now matches this too (autosave is background)
+- **No SQLite** on the display thread — Miw matches this too (autosave is background)
 - Aggressive **level-of-detail** — text, effects, and grid degrade during motion
 
-Calumma is closer to a **pixel editor** (sparse tiles, undo, masks, adjustments). Matching
+Miw is closer to a **pixel editor** (sparse tiles, undo, masks, adjustments). Matching
 Figma on pan is achievable — and largely done; matching Figma on *everything* without a
 scene-graph rewrite is not. The pragmatic target: **pan/zoom feels like Figma; edit fidelity
 stays like Krita**. Zoomed-out LOD is a pyramid now (see Overview path); what remains on that
@@ -526,8 +561,9 @@ path is the still-summed enter/exit gate, not a missing level.
 | `engine/render/src/tile_atlas.rs` | Shared GPU tile array |
 | `engine/render/src/shaders/board.wgsl` | Desk, tiles, overview, solid quad, vectors, `PanCache` blit/clear |
 | `engine/render/src/compose.rs` | CPU tile bake (mask only, since C2), mips, overlay instances |
-| `engine/ffi/src/engine.rs` | Pan coalescing, `calm_engine_render` |
+| `engine/ffi/src/engine.rs` | Pan coalescing, `Engine::render` |
 | `engine/ffi/src/autosave.rs` | Background autosave thread |
-| `platform/macos/.../BoardCanvas.swift` | `MTKView` delegate, input |
+| `gui/src/board/host.rs` + `gui/src/main.rs` | `BoardHost`, the frame timer, input glue |
+| `gui/src/board/surface_macos.rs` | macOS native surface (`NSView` + `CAMetalLayer`) |
 | `engine/core/src/device_tier.rs` | `DeviceTier` / `GpuBudget` — the tier floor combined with the pressure ceiling |
 | `engine/core/src/limits.rs` | Thresholds (overview, retention, latency, frame hints) |
