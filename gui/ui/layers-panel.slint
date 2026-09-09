@@ -44,7 +44,7 @@ component LayerListRow inherits HorizontalLayout {
     callback open-settings(float, float);
     callback delete-layer();
     callback rename-layer(string);
-    callback hover-enter(length);
+    callback hover-enter();
     callback hover-leave();
     callback drag-moved(length);
     callback drag-finished();
@@ -74,7 +74,7 @@ component LayerListRow inherits HorizontalLayout {
             return;
         }
         if (root.row-hovered) {
-            root.hover-enter(root.absolute-position.y);
+            root.hover-enter();
         } else {
             root.hover-leave();
         }
@@ -287,7 +287,7 @@ export component LayersPanel inherits CalmIsland {
     callback delete-layer(int);
     callback rename-layer(int, string);
     callback reorder-layer(int, int);
-    callback hover-layer(int, length);
+    callback hover-layer(int);
     callback clear-layer-hover();
     callback commit-layer-bounds(string, string, string, string);
     callback commit-canvas-size(string, string);
@@ -368,9 +368,9 @@ export component LayersPanel inherits CalmIsland {
                     rename-layer(name) => {
                         root.rename-layer(layer.index, name);
                     }
-                    hover-enter(y) => {
+                    hover-enter => {
                         if (root.drag-from < 0) {
-                            root.hover-layer(layer.index, y - root.absolute-position.y);
+                            root.hover-layer(layer.index);
                         }
                     }
                     hover-leave => {
@@ -478,8 +478,8 @@ export component LayerHoverCard inherits Rectangle {
     drop-shadow-color: Theme.shadow;
 
     card := VerticalLayout {
-        padding: Tokens.space-md;
-        spacing: Tokens.space-sm;
+        padding: Tokens.space-sm;
+        spacing: Tokens.space-xs;
 
         CalmBody {
             text: root.layer-name;

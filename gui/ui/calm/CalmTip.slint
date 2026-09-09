@@ -12,52 +12,49 @@ export global Tip {
 }
 
 export component CalmTip inherits Rectangle {
-    width: 0px;
-    height: 0px;
+    out property <length> bubble-x: bubble.x;
+    out property <length> bubble-y: bubble.y;
+    out property <length> bubble-width: bubble.width;
+    out property <length> bubble-height: bubble.height;
+    out property <length> bubble-radius: bubble.border-radius;
 
-    popup := PopupWindow {
-        close-policy: no-auto-close;
-        x: Tip.leading ? Tip.x - bubble.width : Tip.x;
-        y: Tip.y - bubble.height / 2;
+    width: 100%;
+    height: 100%;
 
-        bubble := Rectangle {
-            background: Theme.surface-hover;
-            border-radius: Tokens.radius-sm;
-            border-width: 1px;
-            border-color: Theme.island-border;
+    bubble := Rectangle {
+        visible: Tip.open && Tip.text != "";
+        width: label.preferred-width;
+        height: label.preferred-height;
+        x: min(max(0px, Tip.leading ? Tip.x - self.width : Tip.x), parent.width - self.width);
+        y: min(max(0px, Tip.y - self.height / 2), parent.height - self.height);
+        background: Theme.surface-hover;
+        border-radius: Tokens.radius-sm;
+        border-width: 1px;
+        border-color: Theme.island-border;
 
-            HorizontalLayout {
-                padding-left: Tokens.space-sm;
-                padding-right: Tokens.space-sm;
-                padding-top: Tokens.space-xs;
-                padding-bottom: Tokens.space-xs;
-                spacing: Tokens.space-sm;
+        label := HorizontalLayout {
+            padding-left: Tokens.space-sm;
+            padding-right: Tokens.space-sm;
+            padding-top: Tokens.space-xs;
+            padding-bottom: Tokens.space-xs;
+            spacing: Tokens.space-sm;
 
-                Text {
-                    text: Tip.text;
-                    color: Theme.text;
-                    font-size: Tokens.label-size;
-                    font-weight: 500;
-                    vertical-alignment: center;
-                }
+            Text {
+                text: Tip.text;
+                color: Theme.text;
+                font-size: Tokens.label-size;
+                font-weight: 500;
+                vertical-alignment: center;
+            }
 
-                if Tip.shortcut != "": Text {
-                    text: Tip.shortcut;
-                    color: Theme.text-muted;
-                    font-size: Tokens.label-size;
-                    font-weight: 600;
-                    font-family: "Menlo";
-                    vertical-alignment: center;
-                }
+            if Tip.shortcut != "": Text {
+                text: Tip.shortcut;
+                color: Theme.text-muted;
+                font-size: Tokens.label-size;
+                font-weight: 600;
+                font-family: "Menlo";
+                vertical-alignment: center;
             }
         }
-    }
-
-    public function show-tip() {
-        popup.show();
-    }
-
-    public function hide-tip() {
-        popup.close();
     }
 }

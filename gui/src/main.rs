@@ -522,6 +522,7 @@ fn wire_editor_callbacks(
             if let Some(ui) = ui_weak.upgrade() {
                 let mut ctrl = controller.borrow_mut();
                 sync_editor(&ui, &mut ctrl);
+                drop(ctrl);
                 refresh_board_cursor(&host, &controller, &input);
             }
         }
@@ -1140,8 +1141,8 @@ fn wire_layer_actions(ui: &AppWindow, controller: SharedController, ui_weak: Sha
     ui.on_hover_layer({
         let controller = controller.clone();
         let ui_weak = ui_weak.clone();
-        move |index, y| {
-            controller.borrow_mut().set_layer_hover(index as usize, y);
+        move |index| {
+            controller.borrow_mut().set_layer_hover(index as usize);
             if let Some(ui) = ui_weak.upgrade() {
                 let ctrl = controller.borrow();
                 sync_layer_settings(&ui, &ctrl);
@@ -2069,32 +2070,62 @@ fn sync_board_geometry(ui: &AppWindow, host: &Rc<RefCell<BoardHost>>, present: b
         ui.get_board_height(),
     );
     let mut holes = Vec::new();
-    const HOLE_PAD: f32 = 8.0;
-    if let Some(hole) = hole_in_board(
-        &layout,
-        BoardRect {
-            x: ui.get_zoom_chrome_x(),
-            y: ui.get_zoom_chrome_y(),
-            width: ui.get_zoom_chrome_width(),
-            height: ui.get_zoom_chrome_height(),
-        },
-        HOLE_PAD,
-    ) {
-        holes.push(hole);
-    }
-    if ui.get_hover_preview_visible() {
-        if let Some(hole) = hole_in_board(
-            &layout,
-            BoardRect {
-                x: ui.get_hover_chrome_x(),
-                y: ui.get_hover_chrome_y(),
-                width: ui.get_hover_chrome_width(),
-                height: ui.get_hover_chrome_height(),
-            },
-            HOLE_PAD,
-        ) {
+    let mut punch = |chrome: BoardRect| {
+        if let Some(hole) = hole_in_board(&layout, chrome) {
             holes.push(hole);
         }
+    };
+    punch(BoardRect {
+        x: ui.get_zoom_chrome_x(),
+        y: ui.get_zoom_chrome_y(),
+        width: ui.get_zoom_chrome_width(),
+        height: ui.get_zoom_chrome_height(),
+        radius: ui.get_zoom_chrome_radius(),
+    });
+    if ui.get_hover_preview_visible() {
+        punch(BoardRect {
+            x: ui.get_hover_chrome_x(),
+            y: ui.get_hover_chrome_y(),
+            width: ui.get_hover_chrome_width(),
+            height: ui.get_hover_chrome_height(),
+            radius: ui.get_hover_chrome_radius(),
+        });
+    }
+    if ui.get_guides_open() {
+        punch(BoardRect {
+            x: ui.get_guides_chrome_x(),
+            y: ui.get_guides_chrome_y(),
+            width: ui.get_guides_chrome_width(),
+            height: ui.get_guides_chrome_height(),
+            radius: ui.get_guides_chrome_radius(),
+        });
+    }
+    if ui.get_new_project_open() {
+        punch(BoardRect {
+            x: ui.get_new_project_chrome_x(),
+            y: ui.get_new_project_chrome_y(),
+            width: ui.get_new_project_chrome_width(),
+            height: ui.get_new_project_chrome_height(),
+            radius: ui.get_new_project_chrome_radius(),
+        });
+    }
+    if ui.get_project_settings_open() {
+        punch(BoardRect {
+            x: ui.get_project_settings_chrome_x(),
+            y: ui.get_project_settings_chrome_y(),
+            width: ui.get_project_settings_chrome_width(),
+            height: ui.get_project_settings_chrome_height(),
+            radius: ui.get_project_settings_chrome_radius(),
+        });
+    }
+    if ui.get_tip_visible() {
+        punch(BoardRect {
+            x: ui.get_tip_chrome_x(),
+            y: ui.get_tip_chrome_y(),
+            width: ui.get_tip_chrome_width(),
+            height: ui.get_tip_chrome_height(),
+            radius: ui.get_tip_chrome_radius(),
+        });
     }
     ui.window().with_winit_window(|winit_window| {
         host.borrow_mut().sync_geometry(

@@ -34,7 +34,6 @@ export component Editor inherits Rectangle {
     in property <bool> hover-preview-visible;
     in property <string> hover-preview-name;
     in property <image> hover-preview-image;
-    in property <float> hover-preview-y;
 
     in property <int> active-tool;
     in property <[ToolEntry]> tools;
@@ -84,10 +83,12 @@ export component Editor inherits Rectangle {
     out property <length> zoom-chrome-y: zoom-pill.absolute-position.y;
     out property <length> zoom-chrome-width: zoom-pill.width;
     out property <length> zoom-chrome-height: zoom-pill.height;
+    out property <length> zoom-chrome-radius: zoom-pill.border-radius;
     out property <length> hover-chrome-x: hover-card.absolute-position.x;
     out property <length> hover-chrome-y: hover-card.absolute-position.y;
     out property <length> hover-chrome-width: hover-card.width;
     out property <length> hover-chrome-height: hover-card.height;
+    out property <length> hover-chrome-radius: hover-card.border-radius;
 
     function strip-to-board-x(strip-x: length, local-x: length) -> float {
         (strip-x + local-x - board-surface.absolute-position.x) / 1px;
@@ -137,7 +138,7 @@ export component Editor inherits Rectangle {
     callback delete-layer(int);
     callback rename-layer(int, string);
     callback reorder-layer(int, int);
-    callback hover-layer(int, float);
+    callback hover-layer(int);
     callback clear-layer-hover();
     callback commit-layer-bounds(string, string, string, string);
     callback commit-canvas-size(string, string);
@@ -546,8 +547,8 @@ export component Editor inherits Rectangle {
                     reorder-layer(from-row, to-row) => {
                         root.reorder-layer(from-row, to-row);
                     }
-                    hover-layer(index, y) => {
-                        root.hover-layer(index, y / 1px);
+                    hover-layer(index) => {
+                        root.hover-layer(index);
                     }
                     clear-layer-hover => {
                         root.clear-layer-hover();
@@ -565,8 +566,8 @@ export component Editor inherits Rectangle {
 
     hover-card := LayerHoverCard {
         visible: root.layers-open && root.hover-preview-visible;
-        x: board-area.absolute-position.x - root.absolute-position.x + board-area.width - self.width - Tokens.space-md;
-        y: board-area.absolute-position.y - root.absolute-position.y + min(max(root.hover-preview-y * 1px, Tokens.space-md), board-area.height - self.height - Tokens.space-md);
+        x: board-surface.absolute-position.x - root.absolute-position.x + board-surface.width - self.width - Tokens.space-md;
+        y: board-surface.absolute-position.y - root.absolute-position.y + (board-surface.height - self.height) / 2;
         z: 8;
         layer-name: root.hover-preview-name;
         preview: root.hover-preview-image;

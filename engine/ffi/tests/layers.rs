@@ -36,7 +36,9 @@ fn list_layers_marks_the_clip_base_row() {
     engine.create_project("Clip", 32, 32).unwrap();
     engine.add_layer();
     let layers = engine.list_layers();
-    assert!(layers.iter().all(|layer| !layer.clipped && !layer.clip_base));
+    assert!(layers
+        .iter()
+        .all(|layer| !layer.clipped && !layer.clip_base));
 
     assert!(engine.create_clipping_mask(2));
     let layers = engine.list_layers();

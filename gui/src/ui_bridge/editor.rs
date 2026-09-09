@@ -298,7 +298,6 @@ pub fn sync_layer_settings(ui: &AppWindow, controller: &AppController) {
         ui.set_hover_preview_visible(true);
         ui.set_hover_preview_name(SharedString::from(name.as_str()));
         ui.set_hover_preview_image(controller.thumb_cache.preview_image(index));
-        ui.set_hover_preview_y(controller.layer_hover_y);
     } else {
         ui.set_hover_preview_visible(false);
     }

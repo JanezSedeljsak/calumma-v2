@@ -35,7 +35,6 @@ pub struct AppController {
     pub pinch_zoom: Option<f32>,
     pub tools_busy: bool,
     pub layer_hover_index: Option<usize>,
-    pub layer_hover_y: f32,
     pub thumb_cache: LayerThumbCache,
     pub quick_colors: QuickColors,
     pub toast_text: String,
@@ -81,7 +80,6 @@ impl AppController {
             pinch_zoom: None,
             tools_busy: false,
             layer_hover_index: None,
-            layer_hover_y: 0.0,
             thumb_cache: LayerThumbCache::new(),
             quick_colors: QuickColors::new(),
             toast_text: String::new(),
@@ -818,9 +816,8 @@ impl AppController {
         result
     }
 
-    pub fn set_layer_hover(&mut self, index: usize, y: f32) {
+    pub fn set_layer_hover(&mut self, index: usize) {
         self.layer_hover_index = Some(index);
-        self.layer_hover_y = y;
         self.engine.borrow_mut().set_hover_layer(Some(index));
     }
 

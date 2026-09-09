@@ -104,7 +104,7 @@ export component AppWindow inherits Window {
     callback delete-layer(int);
     callback rename-layer(int, string);
     callback reorder-layer(int, int);
-    callback hover-layer(int, float);
+    callback hover-layer(int);
     callback clear-layer-hover();
     callback commit-layer-bounds(string, string, string, string);
     callback commit-canvas-size(string, string);
@@ -206,7 +206,6 @@ export component AppWindow inherits Window {
     in property <bool> hover-preview-visible;
     in property <string> hover-preview-name;
     in property <image> hover-preview-image;
-    in property <float> hover-preview-y;
 
     in property <string> layer-settings-label;
     in property <string> layer-settings-expand-label;
@@ -218,10 +217,33 @@ export component AppWindow inherits Window {
     out property <length> zoom-chrome-y: editor.zoom-chrome-y;
     out property <length> zoom-chrome-width: editor.zoom-chrome-width;
     out property <length> zoom-chrome-height: editor.zoom-chrome-height;
+    out property <length> zoom-chrome-radius: editor.zoom-chrome-radius;
     out property <length> hover-chrome-x: editor.hover-chrome-x;
     out property <length> hover-chrome-y: editor.hover-chrome-y;
     out property <length> hover-chrome-width: editor.hover-chrome-width;
     out property <length> hover-chrome-height: editor.hover-chrome-height;
+    out property <length> hover-chrome-radius: editor.hover-chrome-radius;
+    out property <length> guides-chrome-x: guides-card.card-x;
+    out property <length> guides-chrome-y: guides-card.card-y;
+    out property <length> guides-chrome-width: guides-card.card-width;
+    out property <length> guides-chrome-height: guides-card.card-height;
+    out property <length> guides-chrome-radius: guides-card.card-radius;
+    out property <length> new-project-chrome-x: new-project-card.card-x;
+    out property <length> new-project-chrome-y: new-project-card.card-y;
+    out property <length> new-project-chrome-width: new-project-card.card-width;
+    out property <length> new-project-chrome-height: new-project-card.card-height;
+    out property <length> new-project-chrome-radius: new-project-card.card-radius;
+    out property <length> project-settings-chrome-x: project-settings.card-x;
+    out property <length> project-settings-chrome-y: project-settings.card-y;
+    out property <length> project-settings-chrome-width: project-settings.card-width;
+    out property <length> project-settings-chrome-height: project-settings.card-height;
+    out property <length> project-settings-chrome-radius: project-settings.card-radius;
+    out property <bool> tip-visible: Tip.open && Tip.text != "";
+    out property <length> tip-chrome-x: tip.bubble-x;
+    out property <length> tip-chrome-y: tip.bubble-y;
+    out property <length> tip-chrome-width: tip.bubble-width;
+    out property <length> tip-chrome-height: tip.bubble-height;
+    out property <length> tip-chrome-radius: tip.bubble-radius;
     in property <string> width-short-label;
     in property <string> height-short-label;
     in property <string> layer-visibility-label;
@@ -254,13 +276,9 @@ export component AppWindow inherits Window {
 
     out property <bool> overlay-chrome-open: root.loading
         || root.settings-open
-        || root.new-project-open
-        || root.guides-open
         || root.layer-settings-open
-        || root.project-settings-open
         || root.toast-visible
-        || SmartMenu.open
-        || Tip.open;
+        || SmartMenu.open;
 
     in property <image> app-icon;
     in property <string> brand-text;
@@ -578,7 +596,6 @@ export component AppWindow inherits Window {
             hover-preview-visible: root.hover-preview-visible;
             hover-preview-name: root.hover-preview-name;
             hover-preview-image: root.hover-preview-image;
-            hover-preview-y: root.hover-preview-y;
             active-tool: root.active-tool;
             tools: root.tools;
             active-tool-label: root.active-tool-label;
@@ -702,8 +719,8 @@ export component AppWindow inherits Window {
             reorder-layer(from-row, to-row) => {
                 root.reorder-layer(from-row, to-row);
             }
-            hover-layer(index, y) => {
-                root.hover-layer(index, y);
+            hover-layer(index) => {
+                root.hover-layer(index);
             }
             clear-layer-hover => {
                 root.clear-layer-hover();
@@ -823,7 +840,7 @@ export component AppWindow inherits Window {
             }
         }
 
-        NewProjectModal {
+        new-project-card := NewProjectModal {
             z: 20;
             open <=> root.new-project-open;
             dim-scrim: !root.editor-open;
@@ -875,7 +892,7 @@ export component AppWindow inherits Window {
             }
         }
 
-        GuidesCard {
+        guides-card := GuidesCard {
             z: 20;
             open <=> root.guides-open;
             dim-scrim: !root.editor-open;
@@ -982,7 +999,7 @@ export component AppWindow inherits Window {
             }
         }
 
-        ProjectSettingsPopover {
+        project-settings := ProjectSettingsPopover {
             z: 25;
             open <=> root.project-settings-open;
             anchor-x: root.project-settings-anchor-x;
@@ -1038,14 +1055,7 @@ export component AppWindow inherits Window {
         }
     }
 
-    property <bool> tip-live: Tip.open && Tip.text != "";
-    changed tip-live => {
-        if (root.tip-live) {
-            tip.show-tip();
-        } else {
-            tip.hide-tip();
-        }
+    tip := CalmTip {
+        z: 40;
     }
-
-    tip := CalmTip { }
 }

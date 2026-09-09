@@ -40,6 +40,12 @@ export component NewProjectModal inherits Rectangle {
     callback paste-artwork-clicked();
     callback app-icon-clicked();
 
+    out property <length> card-x: card.absolute-position.x;
+    out property <length> card-y: card.absolute-position.y;
+    out property <length> card-width: card.width;
+    out property <length> card-height: card.height;
+    out property <length> card-radius: card.border-radius;
+
     width: 100%;
     height: 100%;
     visible: open;
@@ -51,7 +57,7 @@ export component NewProjectModal inherits Rectangle {
             root.dismissed();
         }
 
-        CalmModalCard {
+        card := CalmModalCard {
             z: 1;
             width: min(Tokens.new-project-width, parent.width - Tokens.space-xl * 2);
             height: min(Tokens.new-project-height, parent.height - Tokens.space-xl * 2);

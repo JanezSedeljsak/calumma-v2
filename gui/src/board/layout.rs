@@ -12,6 +12,7 @@ pub struct BoardRect {
     pub y: f32,
     pub width: f32,
     pub height: f32,
+    pub radius: f32,
 }
 
 impl BoardRect {
@@ -29,28 +30,29 @@ pub fn board_layout(x: f32, y: f32, width: f32, height: f32) -> BoardLayout {
     }
 }
 
-pub fn hole_in_board(board: &BoardLayout, chrome: BoardRect, pad: f32) -> Option<BoardRect> {
+pub fn hole_in_board(board: &BoardLayout, chrome: BoardRect) -> Option<BoardRect> {
     if chrome.is_empty() {
         return None;
     }
     let board_w = board.width as f32;
     let board_h = board.height as f32;
-    let x0 = (chrome.x - pad).max(board.x);
-    let y0 = (chrome.y - pad).max(board.y);
-    let x1 = (chrome.x + chrome.width + pad).min(board.x + board_w);
-    let y1 = (chrome.y + chrome.height + pad).min(board.y + board_h);
-    let width = x1 - x0;
-    let height = y1 - y0;
-    if width < 1.0 || height < 1.0 {
-        None
-    } else {
-        Some(BoardRect {
-            x: x0 - board.x,
-            y: y0 - board.y,
-            width,
-            height,
-        })
+    let x = chrome.x - board.x;
+    let y = chrome.y - board.y;
+    if x + chrome.width < 1.0 || y + chrome.height < 1.0 || x > board_w - 1.0 || y > board_h - 1.0 {
+        return None;
     }
+    // Keep the chrome rect whole rather than trimming it to the board: the mask is clipped
+    // to the surface anyway, and a trimmed hole would round off the edge it was trimmed at.
+    Some(BoardRect {
+        x,
+        y,
+        width: chrome.width,
+        height: chrome.height,
+        radius: chrome
+            .radius
+            .min(chrome.width / 2.0)
+            .min(chrome.height / 2.0),
+    })
 }
 
 pub fn holes_signature(holes: &[BoardRect]) -> u64 {
@@ -68,6 +70,9 @@ pub fn holes_signature(holes: &[BoardRect]) -> u64 {
         sig = sig
             .wrapping_mul(1_000_003)
             .wrapping_add((hole.height * 10.0).round() as i32 as u32 as u64);
+        sig = sig
+            .wrapping_mul(1_000_003)
+            .wrapping_add((hole.radius * 10.0).round() as i32 as u32 as u64);
     }
     sig
 }

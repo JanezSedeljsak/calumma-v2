@@ -67,6 +67,12 @@ export component GuidesCard inherits Rectangle {
 
     private property <image> icon-trash: @image-url("trash.svg");
 
+    out property <length> card-x: card.absolute-position.x;
+    out property <length> card-y: card.absolute-position.y;
+    out property <length> card-width: card.width;
+    out property <length> card-height: card.height;
+    out property <length> card-radius: card.border-radius;
+
     width: 100%;
     height: 100%;
     visible: open;
@@ -78,7 +84,7 @@ export component GuidesCard inherits Rectangle {
             root.dismissed();
         }
 
-        CalmModalCard {
+        card := CalmModalCard {
             z: 1;
             width: min(Tokens.guides-card-width, parent.width - Tokens.space-xl * 2);
             height: min(Tokens.guides-card-max-height, parent.height - Tokens.space-xl * 2);

@@ -105,10 +105,16 @@ impl BoardSurface {
             } else {
                 bounds.size.height - hole.y as f64 - hole.height as f64
             };
-            path.appendBezierPathWithRect(NSRect::new(
+            let rect = NSRect::new(
                 NSPoint::new(hole.x as f64, y),
                 NSSize::new(hole.width as f64, hole.height as f64),
-            ));
+            );
+            let radius = hole.radius as f64;
+            if radius > 0.0 {
+                path.appendBezierPathWithRoundedRect_xRadius_yRadius(rect, radius, radius);
+            } else {
+                path.appendBezierPathWithRect(rect);
+            }
         }
         let mask: Retained<CAShapeLayer> = unsafe { msg_send![CAShapeLayer::class(), layer] };
         mask.setFrame(bounds);

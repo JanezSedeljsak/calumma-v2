@@ -1,9 +1,9 @@
 use calumma_app::Engine;
 use slint::{Image, SharedPixelBuffer};
 
-const ROW_THUMB_W: u32 = 40;
-const ROW_THUMB_H: u32 = 40;
-const PREVIEW_SIDE: u32 = 160;
+const ROW_THUMB_W: u32 = 80;
+const ROW_THUMB_H: u32 = 80;
+const PREVIEW_SIDE: u32 = 320;
 const CHECKER_CELL: u32 = 4;
 
 type LayerMeta = (usize, String, bool, bool, bool, bool, bool);
@@ -150,31 +150,31 @@ fn blend_over(dst: &mut [u8], src: &[u8]) {
 }
 
 fn fit_thumb(rgba: &[u8], w: u32, h: u32, dw: u32, dh: u32, dark: bool) -> Image {
-    let mut out = vec![0u8; (dw * dh * 4) as usize];
-    fill_checker(&mut out, dw, dh, dark);
     if w == 0 || h == 0 || rgba.len() < (w * h * 4) as usize {
+        let mut out = vec![0u8; (dw * dh * 4) as usize];
+        fill_checker(&mut out, dw, dh, dark);
         return rgba_image(&out, dw, dh);
     }
     let scale = (dw as f32 / w as f32).min(dh as f32 / h as f32).min(1.0);
     let tw = ((w as f32) * scale).round().max(1.0) as u32;
     let th = ((h as f32) * scale).round().max(1.0) as u32;
-    let ox = (dw.saturating_sub(tw)) / 2;
-    let oy = (dh.saturating_sub(th)) / 2;
+    // Fit the buffer to the layer rather than to a fixed box: letterboxing baked into the
+    // thumbnail reads as dead padding once the view scales the image up to its own box.
+    let mut out = vec![0u8; (tw * th * 4) as usize];
+    fill_checker(&mut out, tw, th, dark);
     for y in 0..th {
         let sy = ((y as f32 / th as f32) * h as f32) as u32;
         for x in 0..tw {
             let sx = ((x as f32 / tw as f32) * w as f32) as u32;
             let src = ((sy * w + sx) * 4) as usize;
-            let dx = ox + x;
-            let dy = oy + y;
-            if src + 3 >= rgba.len() || dx >= dw || dy >= dh {
+            if src + 3 >= rgba.len() {
                 continue;
             }
-            let dst = ((dy * dw + dx) * 4) as usize;
+            let dst = ((y * tw + x) * 4) as usize;
             blend_over(&mut out[dst..dst + 4], &rgba[src..src + 4]);
         }
     }
-    rgba_image(&out, dw, dh)
+    rgba_image(&out, tw, th)
 }
 
 fn rgba_image(rgba: &[u8], w: u32, h: u32) -> Image {
