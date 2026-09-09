@@ -354,6 +354,8 @@ pub struct Renderer {
     cached_strokes: Vec<StrokeInstance>,
     overlay_scratch: Vec<StrokeInstance>,
     screen_overlay_scratch: Vec<StrokeInstance>,
+    last_overlay_range: std::ops::Range<u32>,
+    screen_overlay_start: u32,
     cached_shapes: Vec<VectorShapeInstance>,
     cached_draws: Vec<LayerDraw>,
     overview: OverviewPass,
