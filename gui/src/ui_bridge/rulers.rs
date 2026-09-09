@@ -31,9 +31,9 @@ pub fn sync_zoom_chrome(ui: &AppWindow, controller: &AppController) {
     let is_fit = engine.is_fit();
     drop(engine);
     ui.set_zoom_unit(unit);
-    ui.set_zoom_text(SharedString::from(format!(
-        "{}%",
-        (zoom * 100.0).round() as i32
+    ui.set_zoom_text(SharedString::from(controller.l10n.format(
+        "zoomPercent",
+        &[&format!("{}", (zoom * 100.0).round() as i32)],
     )));
     ui.set_is_fit(is_fit);
 }

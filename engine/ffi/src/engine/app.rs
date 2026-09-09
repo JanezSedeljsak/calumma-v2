@@ -128,7 +128,6 @@ impl Engine {
                 ((width as f32 * dpr).round() as u32).max(1),
                 ((height as f32 * dpr).round() as u32).max(1),
             );
-            renderer.invalidate_camera();
         }
     }
 
@@ -145,11 +144,21 @@ impl Engine {
     }
 
     pub fn create_project(&mut self, name: &str, width: u32, height: u32) -> Result<String> {
+        self.create_project_with_accent(name, width, height, None)
+    }
+
+    pub fn create_project_with_accent(
+        &mut self,
+        name: &str,
+        width: u32,
+        height: u32,
+        accent: Option<[u8; 3]>,
+    ) -> Result<String> {
         let mut inner = self.inner.lock();
         inner.close_document();
         let doc = inner
             .store
-            .create(name, width, height)
+            .create_with_accent(name, width, height, accent)
             .with_context(|| format!("creating project {name} at {width}x{height}"))?;
         let id = doc.id.clone();
         inner.install_document(doc);
@@ -249,6 +258,38 @@ impl Engine {
             inner.close_document();
         }
         inner.store.delete(id).context("deleting project")?;
+        Ok(())
+    }
+
+    pub fn rename_project(&mut self, id: &str, name: &str) -> Result<()> {
+        let name = name.trim();
+        if name.is_empty() {
+            anyhow::bail!("project name is empty");
+        }
+        let mut inner = self.inner.lock();
+        inner
+            .store
+            .rename(id, name)
+            .with_context(|| format!("renaming project {id}"))?;
+        if let Some(doc) = inner.doc.as_mut() {
+            if doc.id == id {
+                doc.name = name.to_string();
+            }
+        }
+        Ok(())
+    }
+
+    pub fn set_project_accent(&mut self, id: &str, accent: [u8; 3]) -> Result<()> {
+        let mut inner = self.inner.lock();
+        inner
+            .store
+            .set_accent(id, accent)
+            .with_context(|| format!("recoloring project {id}"))?;
+        if let Some(doc) = inner.doc.as_mut() {
+            if doc.id == id {
+                doc.accent = accent;
+            }
+        }
         Ok(())
     }
 
@@ -702,6 +743,7 @@ impl Engine {
                 active: index == active,
                 is_paper: layer.is_paper(),
                 clipped: layer.clips_to.is_some(),
+                clip_base: doc.is_layer_clip_base(index),
             })
             .collect()
     }
@@ -733,6 +775,7 @@ pub struct LayerSummary {
     pub active: bool,
     pub is_paper: bool,
     pub clipped: bool,
+    pub clip_base: bool,
 }
 
 mod colors;

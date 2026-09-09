@@ -10,6 +10,7 @@ export component Titlebar inherits Rectangle {
 
     callback switch-project-tab(string);
     callback close-project-tab(string);
+    callback edit-project-tab(string, float, float);
     callback new-project();
     callback drag();
     callback zoom();
@@ -36,6 +37,9 @@ export component Titlebar inherits Rectangle {
             }
             close-tab(id) => {
                 root.close-project-tab(id);
+            }
+            edit-tab(id, anchor-x, anchor-y) => {
+                root.edit-project-tab(id, anchor-x, anchor-y);
             }
             new-project => {
                 root.new-project();

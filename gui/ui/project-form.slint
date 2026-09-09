@@ -7,7 +7,7 @@ import { CalmAccentButton } from "calm/CalmButton.slint";
 import { CalmSectionLabel } from "calm/CalmSectionLabel.slint";
 import { CalmSurface } from "calm/CalmSurface.slint";
 import { CalmField } from "calm/CalmField.slint";
-import { CalmDot } from "calm/CalmDot.slint";
+import { CalmPalettePopover } from "calm/CalmPalettePopover.slint";
 import { CalmRow, CalmThumb } from "calm/CalmRow.slint";
 import { CalmBrand, CalmEyebrow, CalmLabel, CalmMuted } from "calm/CalmText.slint";
 import { CalmIconButton } from "calm/CalmToolButton.slint";
@@ -59,6 +59,7 @@ component RecentCard inherits CalmSurface {
     callback deleted();
 
     bordered: true;
+    clip: true;
     hover: touch.has-hover;
 
     touch := CalmPointer {
@@ -68,33 +69,34 @@ component RecentCard inherits CalmSurface {
     }
 
     HorizontalLayout {
-        padding-left: Tokens.space-md;
-        padding-right: Tokens.space-md;
-        padding-top: Tokens.space-sm;
-        padding-bottom: Tokens.space-sm;
+        padding-right: Tokens.space-sm;
         spacing: Tokens.space-sm;
 
         CalmRow {
             title: root.recent.name;
             subtitle: root.recent.size-text;
             trailing: root.recent.time-text;
+            spacing: Tokens.space-sm;
+            horizontal-stretch: 1;
 
             CalmThumb {
                 thumb: root.recent.thumb;
                 tint: root.recent.accent;
                 has-tint: true;
+                width: Tokens.layer-thumb-height;
+                height: Tokens.layer-thumb-height;
             }
         }
 
         Rectangle {
             width: Tokens.row-icon-size;
-            y: (parent.height - self.height) / 2;
-            height: Tokens.row-icon-size;
 
             if touch.has-hover: CalmIconButton {
                 icon: root.trash-icon;
                 tint: Theme.danger;
                 tip: root.delete-tip;
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
                 clicked => {
                     root.deleted();
                 }
@@ -122,6 +124,8 @@ export component ProjectForm inherits Rectangle {
     in-out property <string> project-name;
     in-out property <string> width-text;
     in-out property <string> height-text;
+    in-out property <int> accent-index: 0;
+    in property <[color]> palette;
 
     in property <[PresetRow]> presets;
     in property <[RecentRow]> recents;
@@ -185,6 +189,69 @@ export component ProjectForm inherits Rectangle {
                 }
             }
 
+            VerticalLayout {
+                spacing: Tokens.space-xs;
+                vertical-stretch: 0;
+
+                CalmLabel {
+                    label: root.project-name-label;
+                }
+
+                HorizontalLayout {
+                    spacing: Tokens.space-sm;
+                    alignment: stretch;
+
+                    CalmPalettePopover {
+                        palette: root.palette;
+                        selected-index <=> root.accent-index;
+                        well-size: Tokens.control-height;
+                    }
+
+                    CalmField {
+                        text <=> root.project-name;
+                        horizontal-stretch: 1;
+                        min-width: 160px;
+                    }
+                }
+            }
+
+            VerticalLayout {
+                spacing: Tokens.space-xs;
+                vertical-stretch: 0;
+
+                CalmLabel {
+                    label: root.resolution-label;
+                }
+
+                HorizontalLayout {
+                    spacing: Tokens.space-sm;
+                    alignment: start;
+
+                    CalmField {
+                        text <=> root.width-text;
+                        width: 72px;
+                        accepted(text) => {
+                            root.create-clicked();
+                        }
+                    }
+
+                    CalmField {
+                        text <=> root.height-text;
+                        width: 72px;
+                        accepted(text) => {
+                            root.create-clicked();
+                        }
+                    }
+
+                    CalmAccentButton {
+                        text: root.create-label;
+                        clicked => {
+                            root.create-clicked();
+                        }
+                    }
+                }
+            }
+
             CalmScrollView {
                 vertical-stretch: 1;
 
@@ -192,68 +259,6 @@ export component ProjectForm inherits Rectangle {
                     spacing: Tokens.space-lg;
                     padding-right: Tokens.space-md;
                     alignment: start;
-
-                    VerticalLayout {
-                        spacing: Tokens.space-xs;
-
-                        CalmLabel {
-                            label: root.project-name-label;
-                        }
-
-                        HorizontalLayout {
-                            spacing: Tokens.space-sm;
-
-                            CalmDot {
-                                dot-color: Theme.accent-teal;
-                                dot-size: 16px;
-                                y: (parent.height - self.height) / 2;
-                            }
-
-                            CalmField {
-                                text <=> root.project-name;
-                                horizontal-stretch: 1;
-                                accepted(text) => {
-                                    root.create-clicked();
-                                }
-                            }
-                        }
-                    }
-
-                    VerticalLayout {
-                        spacing: Tokens.space-xs;
-
-                        CalmLabel {
-                            label: root.resolution-label;
-                        }
-
-                        HorizontalLayout {
-                            spacing: Tokens.space-sm;
-                            alignment: start;
-
-                            CalmField {
-                                text <=> root.width-text;
-                                width: 72px;
-                                accepted(text) => {
-                                    root.create-clicked();
-                                }
-                            }
-
-                            CalmField {
-                                text <=> root.height-text;
-                                width: 72px;
-                                accepted(text) => {
-                                    root.create-clicked();
-                                }
-                            }
-
-                            CalmAccentButton {
-                                text: root.create-label;
-                                clicked => {
-                                    root.create-clicked();
-                                }
-                            }
-                        }
-                    }
 
                     HorizontalLayout {
                         spacing: Tokens.space-lg;

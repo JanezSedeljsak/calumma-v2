@@ -15,7 +15,7 @@ pub fn sync_recents(ui: &AppWindow, controller: &AppController) {
             id: SharedString::from(item.id.as_str()),
             name: SharedString::from(item.name.as_str()),
             size_text: SharedString::from(format!("{} × {}", item.width, item.height)),
-            time_text: SharedString::from(relative_time(item.opened_at)),
+            time_text: SharedString::from(relative_time(item.opened_at, &controller.l10n)),
             accent: accent_color(item),
             thumb: recent_thumb(&engine, &item.id),
         })
@@ -44,6 +44,14 @@ pub fn accent_color(item: &ProjectSummary) -> Color {
 
 pub fn parse_dimension(text: &str, fallback: u32) -> u32 {
     text.trim().parse::<u32>().unwrap_or(fallback).max(1)
+}
+
+pub fn form_accent(ui: &AppWindow) -> [u8; 3] {
+    calumma_core::project_color(ui.get_project_accent_index().max(0) as usize)
+}
+
+pub fn random_accent_index() -> i32 {
+    calumma_core::project_color_index(calumma_core::random_project_color()) as i32
 }
 
 pub fn refresh_landing(ui: &AppWindow, controller: &AppController) {

@@ -72,24 +72,24 @@ component SubGrid inherits VerticalLayout {
 
     callback pick(int);
 
-    spacing: Tokens.space-sm;
+    spacing: Tokens.tool-grid-gap;
 
-    for row in [0, 1, 2]: HorizontalLayout {
-        spacing: Tokens.space-sm;
+    for row in [0, 1]: HorizontalLayout {
+        spacing: Tokens.tool-grid-gap;
 
-        for column in [0, 1]: Rectangle {
+        for column in [0, 1, 2]: Rectangle {
             horizontal-stretch: 1;
             height: Tokens.tool-button-size;
 
-            if row * 2 + column < root.tools.length: CalmToolButton {
+            if row * 3 + column < root.tools.length: CalmToolButton {
                 x: (parent.width - self.width) / 2;
-                icon: root.icons[root.tools[row * 2 + column].icon];
-                tip: root.tools[row * 2 + column].tip;
-                shortcut: root.tools[row * 2 + column].shortcut;
-                enabled: root.tools[row * 2 + column].enabled;
-                selected: root.tools[row * 2 + column].selected;
+                icon: root.icons[root.tools[row * 3 + column].icon];
+                tip: root.tools[row * 3 + column].tip;
+                shortcut: root.tools[row * 3 + column].shortcut;
+                enabled: root.tools[row * 3 + column].enabled;
+                selected: root.tools[row * 3 + column].selected;
                 clicked => {
-                    root.pick(root.tools[row * 2 + column].id);
+                    root.pick(root.tools[row * 3 + column].id);
                 }
             }
         }
@@ -138,7 +138,7 @@ export component ToolOptions inherits VerticalLayout {
     }
 
     if ToolChrome.show-brushes: HorizontalLayout {
-        spacing: Tokens.space-sm;
+        spacing: Tokens.tool-grid-gap;
 
         for column in [0, 1]: Rectangle {
             horizontal-stretch: 1;
@@ -157,7 +157,7 @@ export component ToolOptions inherits VerticalLayout {
     }
 
     if ToolChrome.show-brushes: HorizontalLayout {
-        spacing: Tokens.space-sm;
+        spacing: Tokens.tool-grid-gap;
 
         for column in [2, 3]: Rectangle {
             horizontal-stretch: 1;
@@ -249,7 +249,7 @@ export component ToolOptions inherits VerticalLayout {
                 x: (parent.width - self.width) / 2;
                 y: (parent.height - self.height) / 2;
                 border-radius: self.width / 2;
-                background: Theme.accent-teal.with-alpha(0.35);
+                background: Theme.surface-hover;
                 border-width: 1px;
                 border-color: Theme.text-muted;
             }
@@ -325,7 +325,7 @@ export component ToolOptions inherits VerticalLayout {
         spacing: Tokens.space-xs;
 
         OptionChip {
-            label: "4:3";
+            label: ToolChrome.crop-four-three-label;
             selected: ToolChrome.crop-aspect == 2;
             clicked => {
                 root.crop-aspect-changed(2);
@@ -333,10 +333,30 @@ export component ToolOptions inherits VerticalLayout {
         }
 
         OptionChip {
-            label: "16:9";
+            label: ToolChrome.crop-three-two-label;
             selected: ToolChrome.crop-aspect == 3;
             clicked => {
                 root.crop-aspect-changed(3);
+            }
+        }
+    }
+
+    if ToolChrome.show-crop: HorizontalLayout {
+        spacing: Tokens.space-xs;
+
+        OptionChip {
+            label: ToolChrome.crop-sixteen-nine-label;
+            selected: ToolChrome.crop-aspect == 4;
+            clicked => {
+                root.crop-aspect-changed(4);
+            }
+        }
+
+        OptionChip {
+            label: ToolChrome.crop-five-four-label;
+            selected: ToolChrome.crop-aspect == 5;
+            clicked => {
+                root.crop-aspect-changed(5);
             }
         }
     }

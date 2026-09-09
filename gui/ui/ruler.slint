@@ -26,7 +26,7 @@ export component RulerStrip inherits Rectangle {
         y: root.vertical ? tick.offset : root.height - (tick.major ? root.major-length : root.minor-length);
         width: root.vertical ? (tick.major ? root.major-length : root.minor-length) : 1px;
         height: root.vertical ? 1px : (tick.major ? root.major-length : root.minor-length);
-        background: Theme.text-muted.with-alpha(tick.major ? 0.9 : 0.4);
+        background: tick.major ? Theme.text-muted : Theme.desk-grid;
     }
 
     for tick in root.ticks: Text {

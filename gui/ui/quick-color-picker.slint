@@ -10,7 +10,7 @@ component ColorSwatch inherits Rectangle {
 
     callback clicked();
 
-    height: 24px;
+    height: 20px;
     horizontal-stretch: 1;
     border-radius: Tokens.radius-sm;
     background: swatch-color;
@@ -37,11 +37,13 @@ export component QuickColorPicker inherits VerticalLayout {
     in property <brush> swatch0;
     in property <brush> swatch1;
     in property <brush> swatch2;
+    in property <brush> swatch3;
     in property <int> active-swatch;
     in property <color> hue-color;
     in property <string> primary-tip;
     in property <string> secondary-tip;
     in property <string> tertiary-tip;
+    in property <string> quaternary-tip;
 
     in-out property <float> sb-x;
     in-out property <float> sb-y;
@@ -80,6 +82,14 @@ export component QuickColorPicker inherits VerticalLayout {
             tip: root.tertiary-tip;
             clicked => {
                 root.select-swatch(2);
+            }
+        }
+        ColorSwatch {
+            swatch-color: root.swatch3;
+            active: root.active-swatch == 3;
+            tip: root.quaternary-tip;
+            clicked => {
+                root.select-swatch(3);
             }
         }
     }
@@ -187,6 +197,13 @@ export component QuickColorPicker inherits VerticalLayout {
                 selection-foreground-color: Theme.bg;
                 accepted => {
                     root.hex-changed(self.text);
+                }
+                key-pressed(event) => {
+                    if (event.text == "\u{000A}" || event.text == "\u{000D}" || event.text == Key.Return) {
+                        root.hex-changed(self.text);
+                        accept;
+                    }
+                    reject;
                 }
             }
         }

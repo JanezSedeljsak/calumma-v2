@@ -22,8 +22,15 @@ pub struct AppController {
     pub settings_open: bool,
     pub new_project_open: bool,
     pub layer_settings_open: bool,
+    pub layer_settings_expanded: bool,
     pub layer_settings_index: usize,
+    pub layer_settings_anchor_x: f32,
+    pub layer_settings_anchor_y: f32,
     pub guides_open: bool,
+    pub project_settings_open: bool,
+    pub project_settings_id: String,
+    pub project_settings_anchor_x: f32,
+    pub project_settings_anchor_y: f32,
     pub guide_drag_pos: Option<(f32, f32)>,
     pub pinch_zoom: Option<f32>,
     pub tools_busy: bool,
@@ -61,8 +68,15 @@ impl AppController {
             settings_open: false,
             new_project_open: false,
             layer_settings_open: false,
+            layer_settings_expanded: false,
             layer_settings_index: 0,
+            layer_settings_anchor_x: 0.0,
+            layer_settings_anchor_y: 0.0,
             guides_open: false,
+            project_settings_open: false,
+            project_settings_id: String::new(),
+            project_settings_anchor_x: 0.0,
+            project_settings_anchor_y: 0.0,
             guide_drag_pos: None,
             pinch_zoom: None,
             tools_busy: false,
@@ -77,14 +91,20 @@ impl AppController {
     }
 
     pub fn any_modal_open(&self) -> bool {
-        self.settings_open || self.new_project_open || self.layer_settings_open || self.guides_open
+        self.settings_open
+            || self.new_project_open
+            || self.layer_settings_open
+            || self.guides_open
+            || self.project_settings_open
     }
 
     pub fn dismiss_modals(&mut self) {
         self.settings_open = false;
         self.new_project_open = false;
         self.layer_settings_open = false;
+        self.layer_settings_expanded = false;
         self.guides_open = false;
+        self.project_settings_open = false;
     }
 
     pub fn push_board_colors(&mut self) {
@@ -135,7 +155,7 @@ impl AppController {
     }
 
     pub fn memory_label(&self) -> String {
-        format_bytes(self.engine.borrow().resident_memory_bytes())
+        format_bytes(self.engine.borrow().resident_memory_bytes(), &self.l10n)
     }
 
     pub fn set_theme_dark(&mut self, dark: bool) -> Result<()> {
@@ -289,11 +309,17 @@ impl AppController {
         }
     }
 
-    pub fn create_project(&mut self, name: &str, width: u32, height: u32) -> Result<()> {
+    pub fn create_project(
+        &mut self,
+        name: &str,
+        width: u32,
+        height: u32,
+        accent: Option<[u8; 3]>,
+    ) -> Result<()> {
         let id = self
             .engine
             .borrow_mut()
-            .create_project(name, width, height)?;
+            .create_project_with_accent(name, width, height, accent)?;
         self.add_open_tab(&id);
         self.active_project_id = Some(id.clone());
         self.prefs.set_last_active_project(Some(&id));
@@ -320,15 +346,6 @@ impl AppController {
         self.load_quick_colors_from_engine();
         self.editor_open = true;
         Ok(())
-    }
-
-    pub fn close_editor(&mut self) {
-        self.bump_load_generation();
-        self.engine.borrow_mut().flush_save();
-        self.engine.borrow_mut().close_project();
-        self.open_tabs.clear();
-        self.persist_tabs();
-        self.reset_editor_state();
     }
 
     pub fn delete_project(&mut self, id: &str) -> TabCloseResult {
@@ -593,9 +610,30 @@ impl AppController {
             .find(|layer| layer.index == self.layer_settings_index)
     }
 
-    pub fn open_layer_settings(&mut self, index: usize) {
+    pub fn open_layer_settings(&mut self, index: usize, anchor_x: f32, anchor_y: f32) {
         self.layer_settings_index = index;
+        self.layer_settings_anchor_x = anchor_x;
+        self.layer_settings_anchor_y = anchor_y;
+        self.layer_settings_expanded = false;
         self.layer_settings_open = true;
+    }
+
+    pub fn open_project_settings(&mut self, id: &str, anchor_x: f32, anchor_y: f32) {
+        self.project_settings_id = id.to_string();
+        self.project_settings_anchor_x = anchor_x;
+        self.project_settings_anchor_y = anchor_y;
+        self.project_settings_open = true;
+    }
+
+    pub fn rename_open_project_settings(&mut self, name: &str) -> Result<()> {
+        let id = self.project_settings_id.clone();
+        self.engine.borrow_mut().rename_project(&id, name)
+    }
+
+    pub fn recolor_open_project_settings(&mut self, palette_index: usize) -> Result<()> {
+        let id = self.project_settings_id.clone();
+        let accent = calumma_core::project_color(palette_index);
+        self.engine.borrow_mut().set_project_accent(&id, accent)
     }
 
     pub fn toggle_layer_visible(&mut self, index: usize) {
@@ -688,6 +726,27 @@ impl AppController {
         true
     }
 
+    pub fn move_layer_row(&mut self, from_row: usize, to_row: usize) -> bool {
+        let count = self.engine.borrow().layer_count() as usize;
+        if !self.engine.borrow_mut().move_layer_row(from_row, to_row) {
+            return false;
+        }
+        let from = count - 1 - from_row;
+        let to = count - 1 - to_row;
+        let index = self.layer_settings_index;
+        self.layer_settings_index = if index == from {
+            to
+        } else if from < to && index > from && index <= to {
+            index - 1
+        } else if from > to && index >= to && index < from {
+            index + 1
+        } else {
+            index
+        };
+        self.thumb_cache.invalidate();
+        true
+    }
+
     pub fn rasterize_layer(&mut self, index: usize) -> bool {
         self.engine.borrow_mut().rasterize_layer(index)
     }
@@ -696,7 +755,9 @@ impl AppController {
         let ratio = match index {
             1 => Some(1.0),
             2 => Some(4.0 / 3.0),
-            3 => Some(16.0 / 9.0),
+            3 => Some(3.0 / 2.0),
+            4 => Some(16.0 / 9.0),
+            5 => Some(5.0 / 4.0),
             _ => None,
         };
         self.engine.borrow_mut().set_crop_aspect_lock(ratio);

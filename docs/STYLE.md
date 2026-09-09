@@ -56,9 +56,9 @@ bits use `{0}`, `{1}`, … filled by `l10n.formatKey(...)`. Visual tokens stay i
    their padding from the spacing scale horizontally only; the height is the token.
    The tools panel keeps its own denser scale (24pt controls, label type) — it is a
    packed island, not a form.
-6. **Inline color picker.** `QuickColorPicker` is the only color control: two equal
+6. **Inline color picker.** `QuickColorPicker` is the only color control: four equal
    quick swatches side by side, a saturation/brightness gradient field, a hue slider, and
-   a hex field. Both edit the *active* quick swatch. Hue/saturation/brightness are held as
+   a hex field. All four edit the *active* quick swatch. Hue/saturation/brightness are held as
    model state (`AppModel.hsb`), not re-derived from the RGB color on every read —
    deriving loses the hue as soon as saturation or brightness hits zero, which makes a
    gradient field jump under the cursor.
@@ -66,10 +66,13 @@ bits use `{0}`, `{1}`, … filled by `l10n.formatKey(...)`. Visual tokens stay i
    layer hover outline) is WGSL — the shell never paints board content. The one thing the
    shell may draw over the board is a **placeholder for a board with nothing to show yet** —
    and even that only where the shell owns the pixels. In `gui/` the board is a native
-   `CAMetalLayer` subview, which draws *over* every Slint element inside its rect, so no chrome
-   may overlap the board rectangle at all: the zoom pill sits in a strip along the bottom of the
-   canvas island rather than floating over the paper, and the **rulers** are inset strips along
-   the island's top and left rather than an overlay. The exception below is Swift-shell
+   `CAMetalLayer` subview, which draws *over* every Slint element inside its rect. Rulers stay
+   *outside* that rectangle (inset strips along the island's top and left). The **zoom pill**
+   (bottom-trailing) and the **layer hover preview** (left of the layers island) float over the
+   board the way they did in the frozen Swift shell: the shell punches those rectangles out of
+   the Metal view with a layer mask so Slint paints above the paper. Overlay chrome (modals,
+   popovers, tooltips, toasts) *may* cover the whole board — the shell hides the Metal view
+   while `overlay-chrome-open` is true so those layers paint. The exception below is Swift-shell
    behavior:
    `CanvasSkeleton` covers the Metal view while a project loads, on the rectangle
    `calumma_core::camera::fit_size` says the paper will occupy (frozen Swift-shell behavior —
@@ -149,9 +152,10 @@ outline — the overlay pass has no stroked circle, and two discs is the same pr
 
 Tools, canvas, and layers are three **rounded, bordered islands**, full-height, separated
 by a minimal gap (`space.xs`) with a matching margin from the window edge on every side — no
-longer flush. The **zoom pill** floats bottom-trailing *inside* the canvas island: `−`, log
-slider, `+`, percentage, a fit-to-view icon (tooltip, no label) — in its own strip in `gui/`,
-see rule 7. Layer list rows stay compact; hovering a row shows a thumbnail popover. Board hover outline remains a dashed
+longer flush. The **zoom pill** floats bottom-trailing *inside* the canvas island, over the
+board: `−`, log slider, `+`, percentage, a fit-to-view icon (tooltip, no label). Layer list
+rows stay compact; hovering a row shows a thumbnail popover to the left of the island, over
+the board. Board hover outline remains a dashed
 WGSL stroke, not a Swift overlay.
 
 A tools-panel slider row is a muted label, the value, and the track under both. Where the

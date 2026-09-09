@@ -8,10 +8,12 @@ pub struct Hsb {
 }
 
 pub struct QuickColors {
-    pub slots: [[u8; 4]; 3],
+    pub slots: [[u8; 4]; 4],
     pub active: usize,
     pub hsb: Hsb,
 }
+
+const EXTRA_SLOT: [u8; 4] = [196, 62, 62, 255];
 
 impl QuickColors {
     pub fn new() -> Self {
@@ -19,6 +21,7 @@ impl QuickColors {
             [26, 26, 26, 255],
             [255, 255, 255, 255],
             [128, 128, 128, 255],
+            EXTRA_SLOT,
         ];
         Self {
             slots,
@@ -28,18 +31,23 @@ impl QuickColors {
     }
 
     pub fn load_from_engine(ink: [u8; 4], stroke: [u8; 4], fill: [u8; 4], select: [u8; 4]) -> Self {
-        let slots = [stroke, fill, select];
-        let active = slots.iter().position(|slot| *slot == ink).unwrap_or(0);
-        let mut colors = Self {
+        let mut extra = EXTRA_SLOT;
+        let active = if ink == stroke {
+            0
+        } else if ink == fill {
+            1
+        } else if ink == select {
+            2
+        } else {
+            extra = ink;
+            3
+        };
+        let slots = [stroke, fill, select, extra];
+        Self {
             slots,
             active,
             hsb: rgba_to_hsb(slots[active]),
-        };
-        if colors.slots[active] != ink {
-            colors.slots[active] = ink;
-            colors.hsb = rgba_to_hsb(ink);
         }
-        colors
     }
 
     pub fn select(&mut self, index: usize) {

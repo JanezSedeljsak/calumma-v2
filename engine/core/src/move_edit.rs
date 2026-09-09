@@ -9,11 +9,13 @@ impl Document {
             self.commit_text();
         }
         if next == Tool::Transform {
-            return self.toggle_transform();
+            if self.tool == Tool::Crop {
+                self.exit_crop();
+            }
+            self.tool = Tool::Move;
+            return self.enter_transform();
         }
-        if next != Tool::Move {
-            self.exit_transform();
-        }
+        self.exit_transform();
         if next == Tool::Crop {
             self.enter_crop();
         } else if self.tool == Tool::Crop {

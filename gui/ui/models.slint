@@ -26,7 +26,9 @@ export struct LayerRow {
     visible: bool,
     locked: bool,
     active: bool,
+    paper: bool,
     clipped: bool,
+    clip-base: bool,
     thumb: image,
 }
 
@@ -51,4 +53,5 @@ export struct GuideRow {
     horizontal: bool,
     offset-text: string,
     color: color,
+    palette-index: int,
 }

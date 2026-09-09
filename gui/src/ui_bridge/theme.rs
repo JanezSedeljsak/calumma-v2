@@ -19,6 +19,7 @@ pub fn apply_theme(ui: &AppWindow, theme: &Theme) {
     palette.set_paper(theme.paper);
     palette.set_paper_border(theme.paper_border);
     palette.set_desk(theme.desk);
+    palette.set_desk_grid(theme.desk_grid);
 
     let metrics = &theme.metrics;
     let tokens = ui.global::<UiTokens>();

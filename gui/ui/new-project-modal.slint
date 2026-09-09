@@ -5,6 +5,7 @@ import { ProjectForm } from "project-form.slint";
 
 export component NewProjectModal inherits Rectangle {
     in-out property <bool> open;
+    in property <bool> dim-scrim: true;
 
     in property <string> brand-text;
     in property <string> tagline-text;
@@ -24,6 +25,8 @@ export component NewProjectModal inherits Rectangle {
     in-out property <string> project-name;
     in-out property <string> width-text;
     in-out property <string> height-text;
+    in-out property <int> accent-index: 0;
+    in property <[color]> palette;
 
     in property <[PresetRow]> presets;
     in property <[RecentRow]> recents;
@@ -43,6 +46,7 @@ export component NewProjectModal inherits Rectangle {
 
     CalmModal {
         open <=> root.open;
+        dim-scrim: root.dim-scrim;
         dismissed => {
             root.dismissed();
         }
@@ -75,6 +79,8 @@ export component NewProjectModal inherits Rectangle {
                 project-name <=> root.project-name;
                 width-text <=> root.width-text;
                 height-text <=> root.height-text;
+                accent-index <=> root.accent-index;
+                palette: root.palette;
                 presets: root.presets;
                 recents: root.recents;
                 create-clicked => {

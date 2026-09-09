@@ -1,6 +1,5 @@
 import { Theme } from "calm/CalmTheme.slint";
 import { Tokens } from "calm/CalmTokens.slint";
-import { CalmIsland } from "calm/CalmIsland.slint";
 import { CalmPointer } from "calm/CalmPointer.slint";
 import { CalmIconButton } from "calm/CalmToolButton.slint";
 import { CalmSlider } from "calm/CalmSlider.slint";
@@ -50,7 +49,7 @@ component ZoomStep inherits Rectangle {
     }
 }
 
-export component ZoomPill inherits CalmIsland {
+export component ZoomPill inherits Rectangle {
     in-out property <float> zoom-unit;
     in property <string> zoom-text;
     in property <bool> is-fit;
@@ -64,29 +63,32 @@ export component ZoomPill inherits CalmIsland {
 
     private property <image> icon-fit: @image-url("fit-to-view.svg");
 
-    background: Theme.surface-hover;
-    island-padding: Tokens.space-sm;
-    width: pill.preferred-width + self.island-padding * 2;
-    height: pill.preferred-height + self.island-padding * 2;
+    background: Theme.surface;
+    border-width: 1px;
+    border-color: Theme.island-border;
+    border-radius: Tokens.radius-island;
+    drop-shadow-blur: 12px;
+    drop-shadow-offset-y: 2px;
+    drop-shadow-color: Theme.shadow;
 
-    pill := HorizontalLayout {
-        x: root.island-padding;
-        y: root.island-padding;
-        width: parent.width - root.island-padding * 2;
-        height: parent.height - root.island-padding * 2;
-        spacing: Tokens.space-sm;
+    HorizontalLayout {
+        padding-left: Tokens.space-sm;
+        padding-right: Tokens.space-sm;
+        padding-top: Tokens.space-xs;
+        padding-bottom: Tokens.space-xs;
+        spacing: Tokens.space-xs;
+        alignment: center;
 
         ZoomStep {
             glyph: "−";
             tip: root.zoom-out-tip;
-            y: (parent.height - self.height) / 2;
             clicked => {
                 root.step-zoom(false);
             }
         }
 
         CalmSlider {
-            width: 128px;
+            width: 96px;
             minimum: 0;
             maximum: 1;
             value <=> root.zoom-unit;
@@ -98,7 +100,6 @@ export component ZoomPill inherits CalmIsland {
         ZoomStep {
             glyph: "+";
             tip: root.zoom-in-tip;
-            y: (parent.height - self.height) / 2;
             clicked => {
                 root.step-zoom(true);
             }
@@ -109,13 +110,14 @@ export component ZoomPill inherits CalmIsland {
             mono: true;
             width: 40px;
             horizontal-alignment: right;
+            vertical-alignment: center;
         }
 
         CalmIconButton {
             icon: root.icon-fit;
             tint: root.is-fit ? Theme.accent-teal : Theme.text-muted;
+            opacity: root.is-fit ? 1.0 : Tokens.disabled-opacity;
             tip: root.fit-tip;
-            y: (parent.height - self.height) / 2;
             clicked => {
                 root.fit-zoom();
             }

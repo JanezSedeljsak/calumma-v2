@@ -60,6 +60,14 @@ impl Engine {
             .is_some_and(|doc| doc.can_create_clipping_mask(index))
     }
 
+    pub fn can_release_clipping_mask(&self, index: usize) -> bool {
+        self.inner
+            .lock()
+            .doc
+            .as_ref()
+            .is_some_and(|doc| doc.can_release_clipping_mask(index))
+    }
+
     pub fn create_clipping_mask(&mut self, index: usize) -> bool {
         let mut inner = self.inner.lock();
         let Some(doc) = inner.doc.as_mut() else {
@@ -180,6 +188,19 @@ impl Engine {
             return false;
         };
         if !doc.move_layer_down(index) {
+            return false;
+        }
+        inner.dirty_save = true;
+        inner.invalidate_renderer();
+        true
+    }
+
+    pub fn move_layer_row(&mut self, from_row: usize, to_row: usize) -> bool {
+        let mut inner = self.inner.lock();
+        let Some(doc) = inner.doc.as_mut() else {
+            return false;
+        };
+        if !doc.move_layer_row(from_row, to_row) {
             return false;
         }
         inner.dirty_save = true;

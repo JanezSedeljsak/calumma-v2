@@ -41,6 +41,10 @@ pub fn handle_shell_key(
         return ShellKeyAction::None;
     }
 
+    if editor_open && (text == "\n" || text == "\r") {
+        return ShellKeyAction::Return;
+    }
+
     if editor_open && is_toggle_layers_shortcut(text, mods.meta, mods.alt) {
         return ShellKeyAction::ToggleLayers;
     }
@@ -128,6 +132,7 @@ pub fn handle_key_press_for_modifiers(text: &str, mods: Modifiers) -> KeyPressMo
 pub enum ShellKeyAction {
     None,
     Escape,
+    Return,
     OpenSettings,
     NewProject,
     ToggleLayers,
@@ -159,4 +164,34 @@ pub enum KeyReleaseAction {
     Alt(bool),
     Meta(bool),
     Shift(bool),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn mods() -> Modifiers {
+        Modifiers {
+            control: false,
+            meta: false,
+            shift: false,
+            alt: false,
+        }
+    }
+
+    #[test]
+    fn return_is_a_shell_shortcut_in_the_editor() {
+        assert!(matches!(
+            handle_shell_key("\n", mods(), false, true, false, false),
+            ShellKeyAction::Return
+        ));
+    }
+
+    #[test]
+    fn return_does_not_submit_while_a_modal_is_open() {
+        assert!(matches!(
+            handle_shell_key("\n", mods(), true, true, false, false),
+            ShellKeyAction::None
+        ));
+    }
 }

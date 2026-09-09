@@ -3,7 +3,7 @@ import { CalmScrollBar } from "CalmScrollBar.slint";
 export component CalmScrollView inherits Rectangle {
     property <bool> scroll-chrome: false;
 
-    clip: true;
+    out property <length> viewport-y: flick.viewport-y;
 
     flick := Flickable {
         width: parent.width;

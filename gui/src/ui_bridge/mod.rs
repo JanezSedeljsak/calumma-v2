@@ -12,7 +12,9 @@ pub use editor::{
     sync_project_tabs,
 };
 pub use guides::{sync_guide_readout, sync_guides};
-pub use landing::{parse_dimension, refresh_landing, sync_recents};
+pub use landing::{
+    form_accent, parse_dimension, random_accent_index, refresh_landing, sync_recents,
+};
 pub use rulers::{camera_signature, sync_rulers, sync_zoom_chrome};
 pub use strings::{init_form_defaults, sync_strings, DEFAULT_HEIGHT, DEFAULT_WIDTH};
 pub use theme::apply_theme;
@@ -37,7 +39,28 @@ pub fn sync_shell(ui: &AppWindow, controller: &AppController) {
     ui.set_settings_open(controller.settings_open);
     ui.set_new_project_open(controller.new_project_open);
     ui.set_layer_settings_open(controller.layer_settings_open);
+    ui.set_layer_settings_expanded(controller.layer_settings_expanded);
+    ui.set_layer_settings_anchor_x(controller.layer_settings_anchor_x);
+    ui.set_layer_settings_anchor_y(controller.layer_settings_anchor_y);
     ui.set_guides_open(controller.guides_open);
+    ui.set_project_settings_open(controller.project_settings_open);
+    ui.set_project_settings_anchor_x(controller.project_settings_anchor_x);
+    ui.set_project_settings_anchor_y(controller.project_settings_anchor_y);
+    if controller.project_settings_open {
+        if let Some(summary) = controller
+            .engine
+            .borrow()
+            .project_summary(&controller.project_settings_id)
+        {
+            ui.set_project_settings_size_text(SharedString::from(format!(
+                "{} × {}",
+                summary.width, summary.height
+            )));
+            ui.set_project_settings_accent_index(calumma_core::project_color_index(
+                calumma_core::unpack_rgb(summary.accent_rgb),
+            ) as i32);
+        }
+    }
     ui.set_toast_visible(controller.toast_visible);
     ui.set_toast_text(SharedString::from(controller.toast_text.as_str()));
     ui.set_toast_is_error(controller.toast_is_error);

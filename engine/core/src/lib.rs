@@ -82,8 +82,8 @@ pub use limits::{
 pub use memory_pressure::{MemoryPressureLevel, PressureState, PressureTransition};
 pub use names::{LAYER_ONE, PAPER, UNTITLED};
 pub use palette::{
-    default_guide_color, project_color, random_project_color, BoardColors, DeskMetrics,
-    PROJECT_COLORS,
+    default_guide_color, project_color, project_color_index, random_project_color, BoardColors,
+    DeskMetrics, PROJECT_COLORS,
 };
 pub use ruler::{ruler_ticks, RulerTick};
 pub use selection::{Selection, SelectionShape};

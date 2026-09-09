@@ -224,7 +224,9 @@ fn crop_aspect_index(ratio: Option<f32>) -> i32 {
     match ratio {
         Some(value) if (value - 1.0).abs() < 0.02 => 1,
         Some(value) if (value - 4.0 / 3.0).abs() < 0.02 => 2,
-        Some(value) if (value - 16.0 / 9.0).abs() < 0.02 => 3,
+        Some(value) if (value - 3.0 / 2.0).abs() < 0.02 => 3,
+        Some(value) if (value - 16.0 / 9.0).abs() < 0.02 => 4,
+        Some(value) if (value - 5.0 / 4.0).abs() < 0.02 => 5,
         _ => 0,
     }
 }
@@ -261,7 +263,11 @@ pub fn sync_layer_settings(ui: &AppWindow, controller: &AppController) {
         chrome.set_saturation_text(put(signed_percent(adjustments.saturation)));
         chrome.set_gamma_text(put(format!("{:.2}", adjustments.levels_gamma)));
         chrome.set_clipped(clipped);
-        chrome.set_can_clip(engine.can_create_clipping_mask(index));
+        chrome.set_can_clip(if clipped {
+            engine.can_release_clipping_mask(index)
+        } else {
+            engine.can_create_clipping_mask(index)
+        });
         chrome.set_can_flatten(engine.can_flatten_clip(index));
         chrome.set_can_merge(engine.can_merge_layer_down(index));
         chrome.set_can_reset_transform(engine.layer_has_transform(index) && !layer.locked);
@@ -279,11 +285,6 @@ pub fn sync_layer_settings(ui: &AppWindow, controller: &AppController) {
             "createClippingMask"
         })));
         drop(engine);
-        ui.set_layer_lock_label(put(controller.l10n.get(if layer.locked {
-            "layerUnlock"
-        } else {
-            "layerLock"
-        })));
     }
     ui.set_layer_visibility_label(SharedString::from(controller.l10n.get("layerVisibility")));
     if let Some(index) = controller.layer_hover_index {
@@ -308,6 +309,7 @@ pub fn sync_color_picker(ui: &AppWindow, controller: &AppController) {
     ui.set_color_swatch0(brush(slint_color(colors.slots[0])));
     ui.set_color_swatch1(brush(slint_color(colors.slots[1])));
     ui.set_color_swatch2(brush(slint_color(colors.slots[2])));
+    ui.set_color_swatch3(brush(slint_color(colors.slots[3])));
     ui.set_active_color_swatch(colors.active as i32);
     ui.set_color_hue_brush(hue_color(colors.hsb.hue));
     ui.set_color_sb_x(colors.hsb.saturation);
@@ -334,7 +336,9 @@ fn sync_layer_bounds(ui: &AppWindow, controller: &AppController) {
 }
 
 pub fn sync_layer_rows(ui: &AppWindow, controller: &mut AppController) {
-    let thumbs_changed = controller.thumb_cache.sync(&controller.engine.borrow());
+    let thumbs_changed = controller
+        .thumb_cache
+        .sync(&controller.engine.borrow(), controller.prefs.is_dark());
     if thumbs_changed {
         let engine = controller.engine.borrow();
         let rows: Vec<LayerRow> = engine
@@ -346,7 +350,9 @@ pub fn sync_layer_rows(ui: &AppWindow, controller: &mut AppController) {
                 visible: layer.visible,
                 locked: layer.locked,
                 active: layer.active,
+                paper: layer.is_paper,
                 clipped: layer.clipped,
+                clip_base: layer.clip_base,
                 thumb: controller.thumb_cache.row_image(layer.index),
             })
             .collect();
@@ -392,7 +398,7 @@ pub fn sync_editor(ui: &AppWindow, controller: &mut AppController) {
             engine.zoom_unit(),
             engine.zoom_factor(),
             engine.is_fit(),
-            format_bytes(engine.resident_memory_bytes()),
+            format_bytes(engine.resident_memory_bytes(), &controller.l10n),
         )
     };
     ui.set_active_tool(tool as i32);
@@ -400,9 +406,9 @@ pub fn sync_editor(ui: &AppWindow, controller: &mut AppController) {
     let label = controller.l10n.get(tool_family_key(tool));
     ui.set_active_tool_label(SharedString::from(label.as_str()));
     ui.set_zoom_unit(zoom_unit);
-    ui.set_zoom_text(SharedString::from(format!(
-        "{}%",
-        (zoom * 100.0).round() as i32
+    ui.set_zoom_text(SharedString::from(controller.l10n.format(
+        "zoomPercent",
+        &[&format!("{}", (zoom * 100.0).round() as i32)],
     )));
     ui.set_is_fit(is_fit);
     ui.set_memory_value(SharedString::from(memory));

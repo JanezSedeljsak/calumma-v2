@@ -18,8 +18,8 @@ export component PasteArtworkIsland inherits CalmIsland {
     island-padding: 0px;
     clip: true;
     background: @linear-gradient(135deg,
-        Theme.accent-teal.with-alpha(lit ? 0.7 : 0.45) 0%,
-        Theme.accent-orange.with-alpha(lit ? 0.6 : 0.35) 50%,
+        lit ? Theme.accent-teal : Theme.surface-hover 0%,
+        lit ? Theme.accent-orange : Theme.surface 50%,
         Theme.surface 100%);
 
     touch := CalmPointer {
@@ -57,7 +57,7 @@ export component PasteArtworkIsland inherits CalmIsland {
         Text {
             text: root.hint-text;
             font-size: Tokens.label-size;
-            color: Theme.text.with-alpha(0.7);
+            color: Theme.text-muted;
             horizontal-alignment: center;
             wrap: word-wrap;
         }
@@ -66,7 +66,7 @@ export component PasteArtworkIsland inherits CalmIsland {
             text: root.formats-text;
             font-size: Tokens.label-size;
             font-weight: 500;
-            color: Theme.text.with-alpha(0.5);
+            color: Theme.text-muted;
             horizontal-alignment: center;
             wrap: word-wrap;
         }

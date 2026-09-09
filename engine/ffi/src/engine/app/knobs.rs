@@ -180,11 +180,24 @@ impl Engine {
             .is_some_and(|doc| doc.transform_active)
     }
 
+    pub fn text_editing(&self) -> bool {
+        self.inner
+            .lock()
+            .doc
+            .as_ref()
+            .is_some_and(|doc| doc.text_editing())
+    }
+
     pub fn set_move_transform(&mut self, on: bool) {
         let mut inner = self.inner.lock();
         if let Some(doc) = &mut inner.doc {
             if on {
-                doc.set_tool(Tool::Move);
+                if doc.tool == Tool::Crop {
+                    doc.exit_crop();
+                }
+                if doc.tool != Tool::Move {
+                    doc.set_tool(Tool::Move);
+                }
                 doc.enter_transform();
             } else {
                 doc.exit_transform();

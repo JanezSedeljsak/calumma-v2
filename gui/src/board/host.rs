@@ -21,6 +21,7 @@ pub struct BoardHost {
     hover: (f32, f32),
     last_pan: (f32, f32),
     cursor: CursorController,
+    last_sync: Option<(i32, i32, u32, u32, u32, bool, u64)>,
     #[cfg(target_os = "macos")]
     surface: Option<BoardSurface>,
 }
@@ -38,6 +39,7 @@ impl BoardHost {
             hover: (0.0, 0.0),
             last_pan: (0.0, 0.0),
             cursor: CursorController::new(icons_root),
+            last_sync: None,
             #[cfg(target_os = "macos")]
             surface: None,
         }
@@ -50,6 +52,7 @@ impl BoardHost {
             self.panning = false;
             self.stroke_active = false;
             self.cursor.reset();
+            self.last_sync = None;
             #[cfg(target_os = "macos")]
             if let Some(surface) = &self.surface {
                 surface.set_hidden(true);
@@ -127,7 +130,22 @@ impl BoardHost {
         content_height: f32,
         scale: f32,
         overlay: bool,
+        holes: &[super::layout::BoardRect],
     ) {
+        let hole_sig = super::layout::holes_signature(holes);
+        let key = (
+            (layout.x * 100.0).round() as i32,
+            (layout.y * 100.0).round() as i32,
+            layout.width,
+            layout.height,
+            (scale * 1000.0).round() as u32,
+            overlay,
+            hole_sig,
+        );
+        if self.last_sync == Some(key) {
+            return;
+        }
+        self.last_sync = Some(key);
         if !self.active || overlay {
             #[cfg(target_os = "macos")]
             if let Some(surface) = &self.surface {
@@ -147,6 +165,7 @@ impl BoardHost {
                 layout.height as f64,
                 content_height as f64,
             );
+            surface.set_holes(holes);
         }
         if self.attached {
             self.engine
@@ -294,10 +313,8 @@ impl BoardHost {
         meta_held: bool,
     ) {
         if alt_held || meta_held {
-            eprintln!("[DEBUG host.scroll] zoom_scroll x={x} y={y} delta_y={delta_y}");
             self.engine.borrow_mut().zoom_scroll(x, y, delta_y, true);
         } else {
-            eprintln!("[DEBUG host.scroll] pan_scroll delta_x={delta_x} delta_y={delta_y} active={} attached={}", self.active, self.attached);
             self.engine.borrow_mut().pan_scroll(delta_x, delta_y, true);
         }
         self.engine.borrow_mut().end_camera_motion();

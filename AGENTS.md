@@ -323,10 +323,10 @@ pub enum LayerContent {
   drag. Empty space and Paper are no-ops. Arrow keys call
   `nudge_move_target` — selected vector item first, otherwise the active
   layer's `transform.offset` when Move or transform mode is on. Transform is
-  a *toggle on Move* (options panel / `⌘T`): on, the same grab shows
-  scale/rotate handles and selects the layer; off, it only drags. `V` picks
-  Move and nothing else — it never turns transform on or off — and vector
-  mode moved to `⇧V`.
+  a *mode on Move* (options panel / `⌘T`): on, the same grab shows
+  scale/rotate handles and selects the layer; off, it only drags. `⌘T`
+  selects Move and turns the mode on; `V` (or picking Move) turns it off.
+  Vector mode moved to `⇧V`.
 - **Paper** (`Layer::paper`) is an ordinary raster layer, name-matched via
   `Layer::is_paper()`, pre-filled fully opaque white at creation — not a
   cheap vector fill. It is paintable/eraseable/editable like any other
@@ -678,12 +678,16 @@ LOD, motion mode) are documented in `docs/RENDERING.md`, not repeated here.
   lands.
 - **A subview draws over Slint, never under it.** Slint renders into the winit view's own
   layer, so the board's `NSView` sits on top of every Slint element inside its rect, whatever
-  the subview ordering says. Nothing Slint draws may overlap the board rect — which is why the
-  zoom pill has a strip of its own at the bottom of the canvas island rather than floating over
-  the paper the way the Swift shell's did. It also means the board view would swallow every
-  pointer event over the canvas, so `MiwBoardView` overrides `hitTest:` to return nil: the
-  layer presents, and the pointer falls through to Slint's `TouchArea`, which is the only thing
-  that forwards to `Engine::pointer_*`. Slint owns the rect too: `Editor` publishes
+  the subview ordering says. Rulers and side islands stay *outside* that rect. The zoom pill
+  and the layer hover preview float over the board the way they did in the frozen Swift shell:
+  `sync_board_geometry` punches those rectangles out of the Metal view with a layer mask so
+  Slint paints above the paper. Overlay chrome — modals, popovers, tooltips, toasts, the
+  smart menu — is allowed to cover the whole board: `AppWindow.overlay-chrome-open` is the one
+  flag, and `sync_board_geometry` hides the Metal view while it is true so Slint paints over
+  the hole. The board view would
+  swallow every pointer event over the canvas, so `MiwBoardView` overrides `hitTest:` to return
+  nil: the layer presents, and the pointer falls through to Slint's `TouchArea`, which is the
+  only thing that forwards to `Engine::pointer_*`. Slint owns the rect too: `Editor` publishes
   `board-surface`'s `absolute-position` and size, `sync_board_geometry` feeds those straight to
   `BoardSurface::set_frame`, and nothing in Rust re-derives panel widths or paddings. The frame
   is set in *logical* points, and the host view is **flipped** (top-left origin), so `set_frame`

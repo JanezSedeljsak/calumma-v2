@@ -6,7 +6,9 @@ export component CalmDot inherits Rectangle {
     width: dot-size + (selected ? 6px : 0px);
     height: self.width;
     border-radius: self.width / 2;
-    background: selected ? dot-color.with-alpha(0.35) : transparent;
+    background: transparent;
+    border-width: selected ? 2px : 0px;
+    border-color: root.dot-color;
 
     Rectangle {
         width: root.dot-size;

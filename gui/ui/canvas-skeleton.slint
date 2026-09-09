@@ -1,21 +1,16 @@
 import { Theme } from "calm/CalmTheme.slint";
 import { Tokens } from "calm/CalmTokens.slint";
+import { DeskGrid } from "desk-grid.slint";
 
 export component CanvasSkeleton inherits Rectangle {
     in property <float> doc-width: 1;
     in property <float> doc-height: 1;
 
-    background: Theme.desk;
     clip: true;
 
-    private property <float> phase: 0;
-
-    sweep-timer := Timer {
-        interval: 16ms;
-        running: true;
-        triggered => {
-            root.phase = root.phase >= 1 ? 0 : root.phase + 0.014;
-        }
+    DeskGrid {
+        width: 100%;
+        height: 100%;
     }
 
     private property <float> fit-scale: min(
@@ -30,13 +25,5 @@ export component CanvasSkeleton inherits Rectangle {
         background: Theme.paper;
         border-width: 1px;
         border-color: Theme.paper-border;
-        clip: true;
-
-        Rectangle {
-            width: parent.width * 0.4;
-            height: parent.height;
-            x: root.phase * (parent.width + self.width) - self.width;
-            background: @linear-gradient(90deg, transparent 0%, Theme.surface-hover 50%, transparent 100%);
-        }
     }
 }

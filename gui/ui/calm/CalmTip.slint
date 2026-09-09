@@ -12,39 +12,52 @@ export global Tip {
 }
 
 export component CalmTip inherits Rectangle {
-    in property <string> tip;
-    in property <string> shortcut;
+    width: 0px;
+    height: 0px;
 
-    z: 200;
-    width: content.preferred-width;
-    height: content.preferred-height;
-    background: Theme.surface-hover;
-    border-radius: Tokens.radius-sm;
-    border-width: 1px;
-    border-color: Theme.island-border;
+    popup := PopupWindow {
+        close-policy: no-auto-close;
+        x: Tip.leading ? Tip.x - bubble.width : Tip.x;
+        y: Tip.y - bubble.height / 2;
 
-    content := HorizontalLayout {
-        padding-left: Tokens.space-sm;
-        padding-right: Tokens.space-sm;
-        padding-top: Tokens.space-xs;
-        padding-bottom: Tokens.space-xs;
-        spacing: Tokens.space-sm;
+        bubble := Rectangle {
+            background: Theme.surface-hover;
+            border-radius: Tokens.radius-sm;
+            border-width: 1px;
+            border-color: Theme.island-border;
 
-        Text {
-            text: root.tip;
-            color: Theme.text;
-            font-size: Tokens.label-size;
-            font-weight: 500;
-            vertical-alignment: center;
+            HorizontalLayout {
+                padding-left: Tokens.space-sm;
+                padding-right: Tokens.space-sm;
+                padding-top: Tokens.space-xs;
+                padding-bottom: Tokens.space-xs;
+                spacing: Tokens.space-sm;
+
+                Text {
+                    text: Tip.text;
+                    color: Theme.text;
+                    font-size: Tokens.label-size;
+                    font-weight: 500;
+                    vertical-alignment: center;
+                }
+
+                if Tip.shortcut != "": Text {
+                    text: Tip.shortcut;
+                    color: Theme.text-muted;
+                    font-size: Tokens.label-size;
+                    font-weight: 600;
+                    font-family: "Menlo";
+                    vertical-alignment: center;
+                }
+            }
         }
+    }
 
-        if shortcut != "": Text {
-            text: root.shortcut;
-            color: Theme.text-muted;
-            font-size: Tokens.label-size;
-            font-weight: 600;
-            font-family: "Menlo";
-            vertical-alignment: center;
-        }
+    public function show-tip() {
+        popup.show();
+    }
+
+    public function hide-tip() {
+        popup.close();
     }
 }

@@ -176,8 +176,8 @@ impl Document {
             .iter()
             .enumerate()
             .rev()
-            .find(|(_, layer)| {
-                layer.locked == locked
+            .find(|(index, layer)| {
+                self.clip_pair_locked(*index) == locked
                     && eligible(layer)
                     && probe.may_reach(layer)
                     && scan.hits(&probe, layer)

@@ -9,6 +9,7 @@ pub fn init_form_defaults(ui: &AppWindow, l10n: &Catalog) {
     ui.set_project_name(SharedString::from(l10n.get("newProject")));
     ui.set_width_text(SharedString::from(DEFAULT_WIDTH.to_string()));
     ui.set_height_text(SharedString::from(DEFAULT_HEIGHT.to_string()));
+    ui.set_project_accent_index(super::random_accent_index());
     ui.set_add_guide_offset(SharedString::from("0"));
     ui.set_add_guide_horizontal(true);
 }
@@ -29,7 +30,6 @@ pub fn sync_strings(ui: &AppWindow, l10n: &Catalog) {
     ui.set_paste_artwork_title(put(l10n.get("pasteArtwork")));
     ui.set_paste_artwork_hint(put(l10n.get("pasteArtworkHint")));
     ui.set_artwork_formats(put(l10n.get("artworkFormats")));
-    ui.set_back_to_landing_tip(put(l10n.get("backToProjects")));
     ui.set_close_project_tab_tip(put(l10n.get("closeProjectTab")));
     ui.set_settings_title(put(l10n.get("settings")));
     ui.set_theme_label(put(l10n.get("theme")));
@@ -43,6 +43,7 @@ pub fn sync_strings(ui: &AppWindow, l10n: &Catalog) {
     ui.set_primary_color_label(put(l10n.get("primaryColor")));
     ui.set_secondary_color_label(put(l10n.get("secondaryColor")));
     ui.set_tertiary_color_label(put(l10n.get("tertiaryColor")));
+    ui.set_quaternary_color_label(put(l10n.get("quaternaryColor")));
     ui.set_file_menu_title(put(l10n.get("fileMenu")));
     ui.set_edit_menu_title(put(l10n.get("editMenu")));
     ui.set_board_menu_title(put(l10n.get("boardMenu")));
@@ -85,11 +86,9 @@ pub fn sync_strings(ui: &AppWindow, l10n: &Catalog) {
     ui.set_upscale_label(put(l10n.get("upscale")));
     ui.set_seam_carve_label(put(l10n.get("seamCarve")));
     ui.set_layer_settings_label(put(l10n.get("layerSettings")));
-    ui.set_layer_export_label(put(l10n.get("exportLayer")));
-    ui.set_layer_duplicate_label(put(l10n.get("duplicateLayer")));
+    ui.set_layer_settings_expand_label(put(l10n.get("layerSettingsExpand")));
     ui.set_layer_delete_label(put(l10n.get("deleteLayer")));
     ui.set_layer_visibility_label(put(l10n.get("layerVisibility")));
-    ui.set_opacity_label(put(l10n.get("opacity")));
 
     let chrome = ui.global::<ToolChrome>();
     chrome.set_brush_size_label(put(l10n.get("brushSize")));
@@ -106,7 +105,11 @@ pub fn sync_strings(ui: &AppWindow, l10n: &Catalog) {
     chrome.set_crop_aspect_label(put(l10n.get("cropAspectRatio")));
     chrome.set_crop_overlay_label(put(l10n.get("cropOverlay")));
     chrome.set_crop_free_label(put(l10n.get("cropAspectFree")));
-    chrome.set_crop_square_label(put("1:1".into()));
+    chrome.set_crop_square_label(put(l10n.get("cropAspectSquare")));
+    chrome.set_crop_four_three_label(put(l10n.get("cropAspectFourThree")));
+    chrome.set_crop_three_two_label(put(l10n.get("cropAspectThreeTwo")));
+    chrome.set_crop_sixteen_nine_label(put(l10n.get("cropAspectSixteenNine")));
+    chrome.set_crop_five_four_label(put(l10n.get("cropAspectFiveFour")));
     chrome.set_crop_overlay_off_label(put(l10n.get("cropOverlayOff")));
     chrome.set_crop_overlay_thirds_label(put(l10n.get("cropOverlayThirds")));
     chrome.set_crop_overlay_grid_label(put(l10n.get("cropOverlayGrid")));

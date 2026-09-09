@@ -36,19 +36,43 @@ component LayerListRow inherits HorizontalLayout {
     in property <string> visibility-tip;
     in property <string> settings-tip;
     in property <string> delete-tip;
+    in property <bool> drop-target;
+    in property <bool> dragging;
 
     callback row-clicked();
     callback toggle-visible();
-    callback open-settings();
+    callback open-settings(float, float);
     callback delete-layer();
+    callback rename-layer(string);
     callback hover-enter(length);
     callback hover-leave();
+    callback drag-moved(length);
+    callback drag-finished();
 
     spacing: Tokens.space-sm;
+    alignment: stretch;
+    height: Tokens.layer-thumb-height + Tokens.space-xs * 2;
+    opacity: root.dragging ? 0.45 : 1.0;
 
-    private property <bool> row-hovered: card-touch.has-hover;
+    private property <bool> row-hovered: grab.has-hover || trash-hot.has-hover;
+    private property <bool> drag-armed: false;
+    private property <bool> renaming: false;
+    private property <string> rename-draft: "";
+    private property <length> press-x: 0px;
+    private property <length> press-y: 0px;
+
+    function commit-rename() {
+        if (!root.renaming) {
+            return;
+        }
+        root.renaming = false;
+        root.rename-layer(root.rename-draft);
+    }
 
     changed row-hovered => {
+        if (root.dragging || root.renaming) {
+            return;
+        }
         if (root.row-hovered) {
             root.hover-enter(root.absolute-position.y);
         } else {
@@ -60,44 +84,109 @@ component LayerListRow inherits HorizontalLayout {
         horizontal-stretch: 1;
         radius: Tokens.radius-sm;
         bordered: true;
-        hover: root.layer-row.active;
-        focused: root.layer-row.active;
-
-        card-touch := CalmPointer {
-            clicked => {
-                root.row-clicked();
-            }
-        }
+        hover: root.layer-row.active || root.drop-target;
+        focused: root.layer-row.active || root.drop-target;
 
         HorizontalLayout {
-            padding-left: root.layer-row.clipped ? Tokens.space-lg : Tokens.space-sm;
+            padding-left: root.layer-row.clip-base ? Tokens.space-xl : Tokens.space-sm;
             padding-right: Tokens.space-sm;
             padding-top: Tokens.space-xs;
             padding-bottom: Tokens.space-xs;
-            spacing: Tokens.space-md;
+            spacing: Tokens.space-sm;
 
-            LayerThumb {
-                thumb: root.layer-row.thumb;
-                y: (parent.height - self.height) / 2;
-            }
-
-            CalmBody {
-                text: root.layer-row.name;
-                strong: root.layer-row.active;
+            grab := CalmPointer {
                 horizontal-stretch: 1;
-                opacity: root.layer-row.visible ? 1.0 : 0.45;
-                overflow: elide;
+                mouse-cursor: root.layer-row.paper || root.renaming ? pointer : (root.drag-armed ? MouseCursor.grabbing : MouseCursor.grab);
+                pointer-event(event) => {
+                    if (root.renaming) {
+                        return;
+                    }
+                    if (event.kind == PointerEventKind.down && event.button == PointerEventButton.left) {
+                        root.press-x = self.mouse-x;
+                        root.press-y = self.mouse-y;
+                        root.drag-armed = false;
+                    }
+                    if (event.kind == PointerEventKind.up && event.button == PointerEventButton.left) {
+                        if (root.drag-armed) {
+                            root.drag-finished();
+                        } else {
+                            root.row-clicked();
+                        }
+                        root.drag-armed = false;
+                    }
+                }
+                moved => {
+                    if (!self.pressed || root.layer-row.paper || root.renaming) {
+                        return;
+                    }
+                    if (Math.abs((self.mouse-x - root.press-x) / 1px) + Math.abs((self.mouse-y - root.press-y) / 1px) < 5) {
+                        return;
+                    }
+                    root.drag-armed = true;
+                    root.hover-leave();
+                    root.drag-moved(self.absolute-position.y + self.mouse-y);
+                }
+                double-clicked => {
+                    if (root.layer-row.paper || root.drag-armed) {
+                        return;
+                    }
+                    root.rename-draft = root.layer-row.name;
+                    root.renaming = true;
+                    root.hover-leave();
+                }
+
+                HorizontalLayout {
+                    spacing: Tokens.space-sm;
+
+                    if root.layer-row.clipped: Rectangle {
+                        width: 2px;
+                        height: Tokens.layer-thumb-height * 0.55;
+                        border-radius: 1px;
+                        background: Theme.text-muted;
+                    }
+
+                    LayerThumb {
+                        thumb: root.layer-row.thumb;
+                    }
+
+                    if root.renaming: CalmField {
+                        horizontal-stretch: 1;
+                        height: Tokens.control-height;
+                        radius: Tokens.radius-sm;
+                        pad: Tokens.space-sm;
+                        text-size: Tokens.body-size;
+                        auto-focus: true;
+                        text <=> root.rename-draft;
+                        accepted(_) => {
+                            root.commit-rename();
+                        }
+                        cancelled => {
+                            root.renaming = false;
+                        }
+                        focus-lost => {
+                            root.commit-rename();
+                        }
+                    }
+
+                    if !root.renaming: CalmBody {
+                        text: root.layer-row.name;
+                        strong: root.layer-row.active;
+                        horizontal-stretch: 1;
+                        opacity: root.layer-row.visible ? 1.0 : 0.45;
+                        overflow: elide;
+                    }
+                }
             }
 
-            Rectangle {
+            trash-hot := CalmPointer {
                 width: Tokens.row-icon-size;
-                height: Tokens.row-icon-size;
-                y: (parent.height - self.height) / 2;
 
-                if root.row-hovered && !root.layer-row.locked: CalmIconButton {
+                if root.row-hovered && !root.layer-row.locked && !root.drag-armed && !root.renaming: CalmIconButton {
                     icon: root.icon-trash;
                     tint: Theme.danger;
                     tip: root.delete-tip;
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
                     clicked => {
                         root.delete-layer();
                     }
@@ -106,22 +195,33 @@ component LayerListRow inherits HorizontalLayout {
         }
     }
 
-    CalmIconButton {
-        icon: root.layer-row.visible ? root.icon-eye-open : root.icon-eye-closed;
-        tint: root.layer-row.visible ? Theme.text-muted : Theme.text-muted.with-alpha(0.4);
-        tip: root.visibility-tip;
-        y: (parent.height - self.height) / 2;
-        clicked => {
-            root.toggle-visible();
+    Rectangle {
+        width: Tokens.row-icon-size;
+
+        CalmIconButton {
+            icon: root.layer-row.visible ? root.icon-eye-open : root.icon-eye-closed;
+            tint: root.layer-row.visible ? Theme.text-muted : Theme.desk-grid;
+            tip: root.visibility-tip;
+            y: (parent.height - self.height) / 2;
+            clicked => {
+                root.toggle-visible();
+            }
         }
     }
 
-    CalmIconButton {
-        icon: root.icon-more;
-        tip: root.settings-tip;
-        y: (parent.height - self.height) / 2;
-        clicked => {
-            root.open-settings();
+    Rectangle {
+        width: Tokens.row-icon-size;
+
+        more-btn := CalmIconButton {
+            icon: root.icon-more;
+            tip: root.settings-tip;
+            y: (parent.height - self.height) / 2;
+            clicked => {
+                root.open-settings(
+                    more-btn.absolute-position.x / 1px,
+                    (more-btn.absolute-position.y + more-btn.height) / 1px,
+                );
+            }
         }
     }
 }
@@ -183,8 +283,10 @@ export component LayersPanel inherits CalmIsland {
     callback add-layer();
     callback pick-layer(int);
     callback toggle-layer-visible(int);
-    callback open-layer-settings(int);
+    callback open-layer-settings(int, float, float);
     callback delete-layer(int);
+    callback rename-layer(int, string);
+    callback reorder-layer(int, int);
     callback hover-layer(int, length);
     callback clear-layer-hover();
     callback commit-layer-bounds(string, string, string, string);
@@ -195,6 +297,18 @@ export component LayersPanel inherits CalmIsland {
     private property <image> icon-more: @image-url("more.svg");
     private property <image> icon-trash: @image-url("trash.svg");
     private property <image> icon-plus: @image-url("plus.svg");
+    private property <int> drag-from: -1;
+    private property <int> drop-row: -1;
+    private property <length> row-stride: Tokens.layer-thumb-height + Tokens.space-xs * 2 + Tokens.space-sm;
+
+    function row-at(abs-y: length) -> int {
+        if (root.layers.length <= 0) {
+            return 0;
+        }
+        let local = (abs-y - list-scroll.absolute-position.y - list-scroll.viewport-y) / 1px;
+        let stride = root.row-stride / 1px;
+        return Math.max(0, Math.min(root.layers.length - 1, Math.floor(local / stride)));
+    }
 
     width: Tokens.layers-panel-width;
     island-padding: Tokens.space-sm;
@@ -219,15 +333,16 @@ export component LayersPanel inherits CalmIsland {
             }
         }
 
-        CalmScrollView {
+        list-scroll := CalmScrollView {
             vertical-stretch: 1;
             min-height: 96px;
 
             VerticalLayout {
+                padding: Tokens.space-xs;
                 spacing: Tokens.space-sm;
                 alignment: start;
 
-                for layer in root.layers: LayerListRow {
+                for layer[i] in root.layers: LayerListRow {
                     layer-row: layer;
                     icon-eye-open: root.icon-eye-open;
                     icon-eye-closed: root.icon-eye-closed;
@@ -236,23 +351,43 @@ export component LayersPanel inherits CalmIsland {
                     visibility-tip: root.visibility-tip;
                     settings-tip: root.settings-tip;
                     delete-tip: root.delete-tip;
+                    dragging: root.drag-from == i;
+                    drop-target: root.drag-from >= 0 && root.drop-row == i && root.drag-from != i && !layer.paper;
                     row-clicked => {
                         root.pick-layer(layer.index);
                     }
                     toggle-visible => {
                         root.toggle-layer-visible(layer.index);
                     }
-                    open-settings => {
-                        root.open-layer-settings(layer.index);
+                    open-settings(anchor-x, anchor-y) => {
+                        root.open-layer-settings(layer.index, anchor-x, anchor-y);
                     }
                     delete-layer => {
                         root.delete-layer(layer.index);
                     }
+                    rename-layer(name) => {
+                        root.rename-layer(layer.index, name);
+                    }
                     hover-enter(y) => {
-                        root.hover-layer(layer.index, y - root.absolute-position.y);
+                        if (root.drag-from < 0) {
+                            root.hover-layer(layer.index, y - root.absolute-position.y);
+                        }
                     }
                     hover-leave => {
-                        root.clear-layer-hover();
+                        if (root.drag-from < 0) {
+                            root.clear-layer-hover();
+                        }
+                    }
+                    drag-moved(abs-y) => {
+                        root.drag-from = i;
+                        root.drop-row = root.row-at(abs-y);
+                    }
+                    drag-finished => {
+                        if (root.drag-from >= 0 && root.drop-row >= 0 && root.drag-from != root.drop-row) {
+                            root.reorder-layer(root.drag-from, root.drop-row);
+                        }
+                        root.drag-from = -1;
+                        root.drop-row = -1;
                     }
                 }
             }
@@ -334,9 +469,12 @@ export component LayerHoverCard inherits Rectangle {
 
     width: Tokens.hover-card-width;
     background: Theme.surface;
-    border-radius: Tokens.radius-sm;
+    border-radius: Tokens.radius-md;
     border-width: 1px;
     border-color: Theme.island-border;
+    drop-shadow-blur: 16px;
+    drop-shadow-offset-y: 4px;
+    drop-shadow-color: Theme.shadow;
 
     VerticalLayout {
         padding: Tokens.space-md;
@@ -349,7 +487,7 @@ export component LayerHoverCard inherits Rectangle {
         }
 
         Rectangle {
-            height: 120px;
+            height: Tokens.hover-card-preview-height;
             border-radius: Tokens.radius-sm;
             background: Theme.surface-hover;
             clip: true;

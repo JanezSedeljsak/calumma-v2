@@ -134,13 +134,13 @@ are not openable, they are open.
 - **Tools island** (top to bottom): a 2-column tool grid (Move, Select, Pen, Eraser, Blur,
   Clone, Heal, Shape, Fill, Eyedropper, Text). Every button's tooltip carries the tool's **name and its
   key**, muted mono beside the name — except where the active layer refuses the tool, where
-  the tooltip is the refusal and carries no key. When **Move** is selected the options panel
-  carries a **Transform** toggle — `⌘T` on the active layer, a *mode* not a tool, lit from
-  engine state (`CalmState.transform_active`). Off, Move only drags a layer around; on, the same
-  grab shows scale/rotate handles and clicking a layer's pixels selects it. Picking Move leaves
-  the mode as it was: transform is asked for, never assumed. Paste and drop are the exception —
-  they hand the new layer over already inside `⌘T`, because placing it is the next thing anyone
-  does. Then a
+  the tooltip is the refusal and carries no key.   When **Move** is selected the options panel
+  carries a **Transform** toggle — lit from engine state while transform is on. Off, Move
+  only drags a layer around; on, the same grab shows scale/rotate handles and clicking a
+  layer's pixels selects it. `⌘T` selects Move and turns the mode **on**. `V` (or picking
+  Move on the island) turns it **off** and leaves ordinary Move. Paste and drop are the
+  exception — they hand the new layer over already inside `⌘T`, because placing it is the
+  next thing anyone does. Then a
   contextual options section below the grid that changes with the selected tool
   (shape/selection sub-picker + independent **Fill** and **Stroke** toggles for
   the shape tools that enclose an area — Rect, Ellipse, Triangle, Pentagon; Line and Arrow are
@@ -150,15 +150,15 @@ are not openable, they are open.
   Eyedropper (a circle under the cursor shows the area) — ink opacity for Pen, shapes,
   and Fill, strength for Blur, an **Aligned** toggle for Clone and Heal (they share one
   source), and tolerance for Fill and the magic wand; Eraser stays a full
-  erase); a color section of **exactly three swatches — primary, secondary, tertiary — and
-  never more**, plus a saturation/brightness field, a hue strip, and a hex field, all three
+  erase); a color section of **four swatches — primary, secondary, tertiary, and a fourth
+  ink slot** — plus a saturation/brightness field, a hue strip, and a hex field, all
   editing whichever swatch is ringed; the AI menu pinned at the bottom.
 
-  The three are the whole colour surface. There is no separate outline swatch, because an area
+  Primary, secondary and tertiary keep their jobs. There is no separate outline swatch, because an area
   shape already reads two of them **by role**: **primary is its outline, secondary is its
   fill** (`Document::shape_paint`), whichever swatch happens to be ringed for editing — so a
   rectangle comes out the same way every time instead of depending on what was clicked last.
-  While a fill-capable shape tool is selected the first two tooltips say so. Line and Arrow
+  Tertiary is the select-by-colour match. The fourth is extra ink only. While a fill-capable shape tool is selected the first two tooltips say so. Line and Arrow
   have no interior and no second half: they are the ink, meaning the ringed swatch, as they
   always were.
 - **Board:** Metal surface clipped as its own island. Desk fill, grid, and the paper border
@@ -167,7 +167,11 @@ are not openable, they are open.
   board field sits recessed against the raised side islands. The paper border inverts with the theme
   (dark ring on the light board, light ring on the dark board). Layer pixels, vectors,
   previews, and most chrome are scissored to the paper — content may sit off the board, but
-  only the overlap with the whiteboard is drawn. Guides, Crop's rect and the `⌘T` transform
+  only the overlap with the whiteboard is drawn.   Overlay chrome (modals, popovers, tooltips,
+  toasts) is allowed to cover the board: the shell hides the Metal view while it is open so
+  Slint paints over the hole. The zoom pill and layer hover preview float over the board
+  instead — the shell punches just those rectangles out of Metal so the chrome sits above the
+  paper, matching the frozen Swift shell. Guides, Crop's rect and the `⌘T` transform
   box are the exceptions and draw right up to the viewport edge instead — see Guides below
   and Transform (`⌘T`) under Layers and ops below.
 - **Layers:** add / select / visibility / delete; first layer is **Paper**, a normal
@@ -576,19 +580,21 @@ live in `engine/core`; PNG/JPEG/WebP/AVIF/HEIC encode and decode live in `engine
   the active layer's `clips_to` points at the layer directly below, and the texture is
   multiplied by the silhouette's **raw** tile alpha every frame on CPU composite and at GPU
   upload. **Release Clipping Mask** clears the link; `⌘Z` undoes the toggle. **Flatten Clip**
-  bakes the same multiply and merges the two, the old destructive path. The clipped texture
-  row indents in the layers panel so the silhouette it reads stays flush left. One link per
+  bakes the same multiply and merges the two, the old destructive path. The silhouette row
+  (the layer below) indents in the layers panel so the live clip pair is obvious; the
+  clipped texture stays flush left. One link per
   layer, no clip trees — a layer cannot clip to one that is already clipped.
-  Refuses Paper as base; reorder that separates the pair clears the link. Flatten still
-  stands down on a base carrying a transform.
+  Raster-to-raster only: text and vector must **Rasterize** first, on the clipped layer and
+  on the silhouette it reads. Refuses Paper as base; locking either member of a live pair
+  greys tools on both and stands Create / Release / Flatten down until the lock lifts.
+  Reorder that separates the pair clears the link. Flatten still stands down on a base
+  carrying a transform.
 - **The list uses the height it has:** the stack takes every point the header above it and the
   Layer bounds fields below it do not, and scrolls once it runs out, rather than stopping at a
   fixed share of the island with dead space underneath. A floor keeps it from collapsing
   entirely in a short window. Renaming is still a double-click on the name, or the row's
   context menu, or Rename in the card.
-**Drag-reorder and rename below are not yet ported to `gui/`** (`gui/ui/layers-panel.slint`
-today only picks a layer, toggles visibility, and opens its settings modal) — tracked in
-`docs/plans/02-slint-shell.md`.
+**Drag-reorder is in `gui/`** (`gui/ui/layers-panel.slint` — drop a row onto another row; Paper stays pinned). **Rename is not yet ported.**
 
 - **Drag-reorder:** drag a row onto another row to put it there. Dropping *onto* a row rather
   than between rows is the whole contract — there is no insertion point to get off by one at
@@ -629,9 +635,8 @@ today only picks a layer, toggles visibility, and opens its settings modal) — 
   scale or rotation moves but does not crop. The fields always mirror what the engine took,
   not what was typed. Values follow selection at pointer-up granularity, not live through a
   transform drag.
-- **Transform (`⌘T`):** a transient *mode* on the active layer. Picking **Move** enters it,
-  and Move's options toggle or `⌘T` (which selects Move so the toggle is visible) turns it
-  off and on again from there. Not a tools-island button
+- **Transform (`⌘T`):** a transient *mode* on Move. `⌘T` selects Move and turns it
+  **on**; the options toggle or `V` turns it **off**. Not a tools-island button
   of its own (Select tools stay for region marquee/lasso; transforming a selection region
   is separate). Shows scale/rotate handles around the *active* layer. Drag a corner to
   scale — proportional by default, hold **Shift** for free (non-uniform) scale, the same
@@ -1041,9 +1046,9 @@ panel toggles are shell knobs.
 | `⇧W` | Select by colour — Photoshop's Color Range, with the tertiary swatch as the match colour and Tolerance as its Fuzziness | Yes (Ps Color Range, which is a dialog rather than a tool) |
 | `G` | Fill (bucket) | Yes (Ps Paint Bucket, shared with Gradient) |
 | `I` | Eyedropper (live sample under the cursor into the active primary/secondary swatch; loupe shows color + hex; a circle shows the sample area) | Yes |
-| `V` | Move tool — click a layer's pixels or a vector item to drag it; Transform off, that is all it does. Transform on (options toggle or `⌘T`) adds scale/rotate handles and selecting a layer's pixels makes it active. Empty space is a no-op. The key only changes which tool is in hand: it never touches the transform state, so `V` while transform is on leaves it on. | Yes (Ps `V` is Move) |
+| `V` | Move tool — click a layer's pixels or a vector item to drag it. Transform off, that is all it does. The key selects Move and **leaves** transform, so `V` is ordinary move even if `⌘T` was on. Transform on (options toggle or `⌘T`) adds scale/rotate handles. Empty space is a no-op. | Yes (Ps `V` is Move) |
 | `K` | Crop — drag any of the rect's 8 handles to shrink or expand the canvas from that edge or corner (not just bottom-right); the options bar carries the aspect-ratio lock and the composition-guide overlay (Rule of Thirds / Grid / Diagonal / Golden Ratio, defaulting to Rule of Thirds). `Return` commits the rect and stays on Crop with a fresh full-canvas rect; `Esc` cancels back to Move. Cropped-away pixels are never deleted — same non-destructive resize the layers panel's canvas-size fields already do, just from a draggable rect instead of two numbers | Yes (Ps Crop is `C`, already Clone Stamp here) |
-| `⌘T` | Select Move and toggle transform mode on the active layer (scale/rotate/move); click another layer's pixels to retarget, click empty space, `Return` or `Esc` to exit | Yes (Ps Free Transform) |
+| `⌘T` | Select Move and turn transform mode **on** (scale/rotate/move); click another layer's pixels to retarget, click empty space, `Return`, `V`, or `Esc` to exit | Yes (Ps Free Transform) |
 | `Return` | Exit transform mode, leaving the selection and the layer's transform alone. Does nothing outside transform, and types a newline while a text layer is open | Yes (Ps commits Free Transform on Return) |
 | `⌥⌘G` | Clip to Below on the active layer — see Layers | Yes (Ps Create Clipping Mask, though ours merges rather than clipping live) |
 | `⌃⌘F` | Enter / exit full screen (re-homed from the removed View menu) | macOS standard |

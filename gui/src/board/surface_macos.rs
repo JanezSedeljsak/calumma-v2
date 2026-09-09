@@ -1,9 +1,11 @@
+use super::layout::BoardRect;
 use anyhow::{Context, Result};
 use objc2::rc::Retained;
-use objc2::{define_class, MainThreadMarker, MainThreadOnly};
-use objc2_app_kit::{NSAutoresizingMaskOptions, NSView, NSWindowOrderingMode};
+use objc2::{define_class, msg_send, ClassType, MainThreadMarker, MainThreadOnly};
+use objc2_app_kit::{NSAutoresizingMaskOptions, NSBezierPath, NSView, NSWindowOrderingMode};
+use objc2_core_graphics::CGColor;
 use objc2_foundation::{NSPoint, NSRect, NSSize};
-use objc2_quartz_core::CAMetalLayer;
+use objc2_quartz_core::{kCAFillRuleEvenOdd, CAMetalLayer, CAShapeLayer};
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use std::ffi::c_void;
 use std::ptr::NonNull;
@@ -85,6 +87,40 @@ impl BoardSurface {
 
     pub fn set_hidden(&self, hidden: bool) {
         self.view.setHidden(hidden);
+    }
+
+    pub fn set_holes(&self, holes: &[BoardRect]) {
+        if holes.is_empty() {
+            unsafe {
+                self.layer.setMask(None);
+            }
+            return;
+        }
+        let bounds = self.view.bounds();
+        let path = NSBezierPath::bezierPathWithRect(bounds);
+        let flipped = self.view.isFlipped();
+        for hole in holes {
+            let y = if flipped {
+                hole.y as f64
+            } else {
+                bounds.size.height - hole.y as f64 - hole.height as f64
+            };
+            path.appendBezierPathWithRect(NSRect::new(
+                NSPoint::new(hole.x as f64, y),
+                NSSize::new(hole.width as f64, hole.height as f64),
+            ));
+        }
+        let mask: Retained<CAShapeLayer> = unsafe { msg_send![CAShapeLayer::class(), layer] };
+        mask.setFrame(bounds);
+        unsafe {
+            mask.setFillRule(kCAFillRuleEvenOdd);
+        }
+        let white = CGColor::new_generic_gray(1.0, 1.0);
+        mask.setFillColor(Some(&white));
+        mask.setPath(Some(&path.CGPath()));
+        unsafe {
+            self.layer.setMask(Some(mask.as_super()));
+        }
     }
 
     pub fn scale(&self) -> f64 {

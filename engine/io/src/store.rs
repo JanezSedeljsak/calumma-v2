@@ -258,9 +258,22 @@ impl ProjectStore {
     }
 
     pub fn create(&self, name: &str, width: u32, height: u32) -> Result<Document, StoreError> {
+        self.create_with_accent(name, width, height, None)
+    }
+
+    pub fn create_with_accent(
+        &self,
+        name: &str,
+        width: u32,
+        height: u32,
+        accent: Option<[u8; 3]>,
+    ) -> Result<Document, StoreError> {
         let id = Uuid::new_v4().to_string();
         let ts = now_secs();
         let mut doc = Document::new(id.clone(), name, width, height);
+        if let Some(accent) = accent {
+            doc.accent = accent;
+        }
         self.conn.execute(
             "INSERT INTO projects (id, name, width, height, created_at, opened_at, thumb, accent, guides) VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL, ?7, NULL)",
             params![

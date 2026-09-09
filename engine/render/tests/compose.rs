@@ -826,3 +826,26 @@ fn overlay_guide_lines_add_to_the_fixed_rect_chrome() {
     let instances = crop_overlay_instances(&doc);
     assert_eq!(instances.len(), doc.crop_overlay_lines().len() + 4 + 8 * 2);
 }
+
+#[test]
+fn shrinking_the_crop_covers_discarded_paper_with_opaque_desk() {
+    let mut doc = crop_board();
+    doc.crop_overlay_style = calumma_core::CropOverlayStyle::Off;
+    let (sx, sy) = doc.camera.to_screen(200.0, 100.0);
+    doc.pointer_down(sx, sy);
+    let (sx, sy) = doc.camera.to_screen(160.0, 80.0);
+    doc.pointer_move(sx, sy);
+    let instances = crop_overlay_instances(&doc);
+    let chrome = 4 + 8 * 2;
+    assert!(
+        instances.len() > chrome,
+        "discarded paper is covered, not left as a transparent wash"
+    );
+    let desk = rgba_unit(doc.board_colors.desk);
+    assert_eq!(desk[3], 1.0);
+    let shade = instances.len() - chrome;
+    for instance in instances.iter().take(shade) {
+        assert_eq!(instance.color, desk);
+        assert!(instance.brush[2] > 0.0);
+    }
+}

@@ -5,7 +5,7 @@ import { CalmModal, CalmModalCard } from "calm/CalmModal.slint";
 import { CalmButton } from "calm/CalmButton.slint";
 import { CalmField } from "calm/CalmField.slint";
 import { CalmPointer } from "calm/CalmPointer.slint";
-import { CalmDot } from "calm/CalmDot.slint";
+import { CalmPalettePopover } from "calm/CalmPalettePopover.slint";
 import { CalmMuted, CalmTitle } from "calm/CalmText.slint";
 import { CalmScrollView } from "calm/CalmScrollView.slint";
 import { CalmIconButton } from "calm/CalmToolButton.slint";
@@ -41,6 +41,7 @@ component EdgeChip inherits Rectangle {
 
 export component GuidesCard inherits Rectangle {
     in-out property <bool> open;
+    in property <bool> dim-scrim: true;
     in property <string> title-text;
     in property <string> hint-text;
     in property <string> empty-text;
@@ -64,23 +65,16 @@ export component GuidesCard inherits Rectangle {
     callback set-offset(int, string);
     callback set-color(int, int);
 
-    private property <int> picking-index: -1;
     private property <image> icon-trash: @image-url("trash.svg");
 
     width: 100%;
     height: 100%;
     visible: open;
 
-    changed open => {
-        if (!root.open) {
-            root.picking-index = -1;
-        }
-    }
-
     CalmModal {
         open <=> root.open;
+        dim-scrim: root.dim-scrim;
         dismissed => {
-            root.picking-index = -1;
             root.dismissed();
         }
 
@@ -113,7 +107,6 @@ export component GuidesCard inherits Rectangle {
                         }
                         clicked => {
                             root.open = false;
-                            root.picking-index = -1;
                             root.dismissed();
                         }
                     }
@@ -135,84 +128,51 @@ export component GuidesCard inherits Rectangle {
                         spacing: Tokens.space-sm;
                         alignment: start;
 
-                        for row in root.guides: VerticalLayout {
-                            spacing: Tokens.space-xs;
+                        for row in root.guides: HorizontalLayout {
+                            spacing: Tokens.space-sm;
+                            height: Tokens.control-height;
 
-                            HorizontalLayout {
-                                spacing: Tokens.space-sm;
-                                height: Tokens.control-height;
-
-                                EdgeChip {
-                                    text: root.top-label;
-                                    selected: row.horizontal;
-                                    width: 44px;
-                                    clicked => {
-                                        root.set-axis(row.index, true);
-                                    }
+                            EdgeChip {
+                                text: root.top-label;
+                                selected: row.horizontal;
+                                width: 44px;
+                                clicked => {
+                                    root.set-axis(row.index, true);
                                 }
-                                EdgeChip {
-                                    text: root.left-label;
-                                    selected: !row.horizontal;
-                                    width: 44px;
-                                    clicked => {
-                                        root.set-axis(row.index, false);
-                                    }
-                                }
-
-                                CalmField {
-                                    horizontal-stretch: 1;
-                                    text: row.offset-text;
-                                    mono: true;
-                                    accepted(text) => {
-                                        root.set-offset(row.index, text);
-                                    }
-                                }
-
-                                swatch := Rectangle {
-                                    width: Tokens.control-height;
-                                    height: Tokens.control-height;
-                                    border-radius: self.height / 2;
-                                    background: row.color;
-                                    border-width: 1px;
-                                    border-color: Theme.control-border;
-
-                                    CalmPointer {
-                                        clicked => {
-                                            root.picking-index = root.picking-index == row.index ? -1 : row.index;
-                                        }
-                                    }
-                                }
-
-                                CalmIconButton {
-                                    icon: root.icon-trash;
-                                    tip: root.delete-tip;
-                                    y: (parent.height - self.height) / 2;
-                                    clicked => {
-                                        root.picking-index = -1;
-                                        root.remove-guide(row.index);
-                                    }
+                            }
+                            EdgeChip {
+                                text: root.left-label;
+                                selected: !row.horizontal;
+                                width: 44px;
+                                clicked => {
+                                    root.set-axis(row.index, false);
                                 }
                             }
 
-                            if root.picking-index == row.index: HorizontalLayout {
-                                spacing: Tokens.space-xs;
-                                alignment: start;
+                            CalmField {
+                                horizontal-stretch: 1;
+                                text: row.offset-text;
+                                mono: true;
+                                accepted(text) => {
+                                    root.set-offset(row.index, text);
+                                }
+                            }
 
-                                for swatch-color[i] in root.palette: Rectangle {
-                                    width: 18px;
-                                    height: 18px;
+                            CalmPalettePopover {
+                                palette: root.palette;
+                                selected-index: row.palette-index;
+                                well-size: Tokens.control-height;
+                                picked(index) => {
+                                    root.set-color(row.index, index);
+                                }
+                            }
 
-                                    CalmDot {
-                                        dot-color: swatch-color;
-                                        selected: swatch-color == row.color;
-                                    }
-
-                                    CalmPointer {
-                                        clicked => {
-                                            root.set-color(row.index, i);
-                                            root.picking-index = -1;
-                                        }
-                                    }
+                            CalmIconButton {
+                                icon: root.icon-trash;
+                                tip: root.delete-tip;
+                                y: (parent.height - self.height) / 2;
+                                clicked => {
+                                    root.remove-guide(row.index);
                                 }
                             }
                         }
@@ -275,7 +235,6 @@ export component GuidesCard inherits Rectangle {
                     enabled: root.guides.length > 0;
                     fill: true;
                     clicked => {
-                        root.picking-index = -1;
                         root.clear-guides();
                     }
                 }

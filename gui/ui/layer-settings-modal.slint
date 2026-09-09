@@ -1,50 +1,18 @@
 import { Theme } from "calm/CalmTheme.slint";
 import { Tokens } from "calm/CalmTokens.slint";
-import { CalmDivider } from "calm/CalmDivider.slint";
-import { CalmButton } from "calm/CalmButton.slint";
-import { CalmToggle } from "calm/CalmToggle.slint";
-import { CalmSliderRow } from "calm/CalmSliderRow.slint";
-import { CalmBody, CalmMuted } from "calm/CalmText.slint";
 import { CalmScrollView } from "calm/CalmScrollView.slint";
 import { CalmPointer } from "calm/CalmPointer.slint";
-import { CalmField } from "calm/CalmField.slint";
-import { CalmSectionLabel } from "calm/CalmSectionLabel.slint";
-import { LayerChrome } from "layer-chrome.slint";
-
-component BlendChip inherits Rectangle {
-    in property <string> label;
-    in property <bool> selected: false;
-
-    callback clicked();
-
-    height: Tokens.control-height;
-    min-width: chip-label.preferred-width + Tokens.space-sm * 2;
-    horizontal-stretch: 1;
-    border-radius: Tokens.radius-sm;
-    background: root.selected ? Theme.surface-hover : Theme.surface;
-    border-width: 1px;
-    border-color: root.selected ? Theme.control-focus-border : Theme.control-border;
-
-    CalmPointer {
-        clicked => {
-            root.clicked();
-        }
-    }
-
-    chip-label := Text {
-        x: (parent.width - self.width) / 2;
-        y: (parent.height - self.height) / 2;
-        text: root.label;
-        color: root.selected ? Theme.text : Theme.text-muted;
-        font-size: Tokens.label-size;
-        font-weight: 500;
-    }
-}
+import { LayerSettingsBody } from "layer-settings-body.slint";
 
 export component LayerSettingsModal inherits Rectangle {
     in-out property <bool> open;
+    in-out property <bool> expanded;
+    in property <float> anchor-x;
+    in property <float> anchor-y;
+    in property <string> expand-label;
 
     callback dismissed();
+    callback expand();
     callback toggle-visibility();
     callback toggle-lock();
     callback opacity-changed(float);
@@ -63,46 +31,138 @@ export component LayerSettingsModal inherits Rectangle {
     callback duplicate-layer();
     callback delete-layer();
 
+    private property <length> popover-width: 260px;
+    private property <length> popover-max-height: min(root.height - anchor-y * 1px - Tokens.space-md, 480px);
+
     width: 100%;
     height: 100%;
     visible: root.open;
 
-    scrim := Rectangle {
+    if root.open: CalmPointer {
         width: 100%;
         height: 100%;
-        background: Theme.scrim;
-        opacity: root.open ? 1.0 : 0.0;
-        visible: root.open;
-
-        animate opacity {
-            duration: 160ms;
-            easing: ease-out;
+        clicked => {
+            root.open = false;
+            root.expanded = false;
+            root.dismissed();
         }
+    }
 
-        CalmPointer {
-            clicked => {
-                root.open = false;
-                root.dismissed();
+    if root.open && !root.expanded: Rectangle {
+        z: 2;
+        width: popover-width;
+        height: min(card.preferred-height, popover-max-height);
+        x: max(Tokens.space-xs, min(anchor-x * 1px - self.width + Tokens.row-icon-size, parent.width - self.width - Tokens.space-xs));
+        y: min(anchor-y * 1px + Tokens.space-xs, parent.height - self.height - Tokens.space-xs);
+        background: Theme.surface;
+        border-radius: Tokens.radius-md;
+        border-width: 1px;
+        border-color: Theme.island-border;
+        drop-shadow-blur: 16px;
+        drop-shadow-offset-y: 4px;
+        drop-shadow-color: Theme.shadow;
+        clip: true;
+
+        dismiss-swallow := CalmPointer { }
+
+        card := VerticalLayout {
+            padding: Tokens.space-md;
+            spacing: Tokens.space-sm;
+
+            HorizontalLayout {
+                Rectangle {
+                    horizontal-stretch: 1;
+                }
+                expand-touch := CalmPointer {
+                    height: Tokens.control-height;
+                    Text {
+                        text: root.expand-label;
+                        color: expand-touch.has-hover ? Theme.accent-teal : Theme.text-muted;
+                        font-size: Tokens.label-size;
+                        font-weight: 600;
+                        horizontal-alignment: right;
+                        vertical-alignment: center;
+                    }
+                    clicked => {
+                        root.expanded = true;
+                        root.expand();
+                    }
+                }
+            }
+
+            LayerSettingsBody {
+                compact: true;
+                toggle-visibility => {
+                    root.toggle-visibility();
+                }
+                toggle-lock => {
+                    root.toggle-lock();
+                }
+                opacity-changed(v) => {
+                    root.opacity-changed(v);
+                }
+                blend-changed(mode) => {
+                    root.blend-changed(mode);
+                }
+                filter-changed(kind, value) => {
+                    root.filter-changed(kind, value);
+                }
+                reset-filters => {
+                    root.reset-filters();
+                }
+                rename-layer(text) => {
+                    root.rename-layer(text);
+                }
+                toggle-clip => {
+                    root.toggle-clip();
+                }
+                flatten-clip => {
+                    root.flatten-clip();
+                }
+                merge-down => {
+                    root.merge-down();
+                }
+                reset-transform => {
+                    root.reset-transform();
+                }
+                move-up => {
+                    root.move-up();
+                }
+                move-down => {
+                    root.move-down();
+                }
+                rasterize-layer => {
+                    root.rasterize-layer();
+                }
+                export-layer => {
+                    root.export-layer();
+                }
+                duplicate-layer => {
+                    root.duplicate-layer();
+                }
+                delete-layer => {
+                    root.delete-layer();
+                }
             }
         }
     }
 
-    sheet := Rectangle {
+    if root.open && root.expanded: Rectangle {
+        z: 1;
         width: Tokens.layers-panel-width;
         height: parent.height - Tokens.space-xs * 2;
         y: Tokens.space-xs;
-        x: root.open ? parent.width - self.width - Tokens.space-xs : parent.width;
+        x: parent.width - self.width - Tokens.space-xs;
         background: Theme.surface;
         border-radius: Tokens.radius-island;
         border-width: 1px;
         border-color: Theme.island-border;
+        drop-shadow-blur: 24px;
+        drop-shadow-offset-x: -4px;
+        drop-shadow-color: Theme.shadow;
+        clip: true;
 
-        animate x {
-            duration: 180ms;
-            easing: ease-out;
-        }
-
-        swallow := CalmPointer { }
+        sheet-swallow := CalmPointer { }
 
         CalmScrollView {
             x: Tokens.space-md;
@@ -110,270 +170,58 @@ export component LayerSettingsModal inherits Rectangle {
             width: parent.width - Tokens.space-md * 2;
             height: parent.height - Tokens.space-md * 2;
 
-            VerticalLayout {
-                spacing: Tokens.space-md;
-                alignment: start;
-
-                if LayerChrome.can-rename: CalmField {
-                    text: LayerChrome.name;
-                    accepted(text) => {
-                        root.rename-layer(text);
-                    }
+            LayerSettingsBody {
+                compact: false;
+                toggle-visibility => {
+                    root.toggle-visibility();
                 }
-
-                if !LayerChrome.can-rename: CalmBody {
-                    text: LayerChrome.name;
-                    strong: true;
-                    overflow: elide;
+                toggle-lock => {
+                    root.toggle-lock();
                 }
-
-                Rectangle {
-                    height: 120px;
-                    border-radius: Tokens.radius-sm;
-                    background: Theme.surface-hover;
-                    clip: true;
-
-                    Image {
-                        source: LayerChrome.preview;
-                        width: 100%;
-                        height: 100%;
-                        image-fit: contain;
-                    }
+                opacity-changed(v) => {
+                    root.opacity-changed(v);
                 }
-
-                HorizontalLayout {
-                    CalmMuted {
-                        text: LayerChrome.visibility-label;
-                        horizontal-stretch: 1;
-                    }
-                    CalmToggle {
-                        checked: LayerChrome.visible;
-                        y: (parent.height - self.height) / 2;
-                        toggled => {
-                            root.toggle-visibility();
-                        }
-                    }
+                blend-changed(mode) => {
+                    root.blend-changed(mode);
                 }
-
-                HorizontalLayout {
-                    CalmMuted {
-                        text: LayerChrome.lock-label;
-                        horizontal-stretch: 1;
-                    }
-                    CalmToggle {
-                        checked: LayerChrome.locked;
-                        y: (parent.height - self.height) / 2;
-                        toggled => {
-                            root.toggle-lock();
-                        }
-                    }
+                filter-changed(kind, value) => {
+                    root.filter-changed(kind, value);
                 }
-
-                CalmSliderRow {
-                    label: LayerChrome.opacity-label;
-                    value-text: LayerChrome.opacity-text;
-                    value <=> LayerChrome.opacity;
-                    moved(v) => {
-                        root.opacity-changed(v);
-                    }
+                reset-filters => {
+                    root.reset-filters();
                 }
-
-                CalmMuted {
-                    text: LayerChrome.blend-label;
+                rename-layer(text) => {
+                    root.rename-layer(text);
                 }
-
-                HorizontalLayout {
-                    spacing: Tokens.space-xs;
-
-                    BlendChip {
-                        label: LayerChrome.blend-normal-label;
-                        selected: LayerChrome.blend == 0;
-                        clicked => {
-                            root.blend-changed(0);
-                        }
-                    }
-
-                    BlendChip {
-                        label: LayerChrome.blend-multiply-label;
-                        selected: LayerChrome.blend == 1;
-                        clicked => {
-                            root.blend-changed(1);
-                        }
-                    }
-
-                    BlendChip {
-                        label: LayerChrome.blend-screen-label;
-                        selected: LayerChrome.blend == 2;
-                        clicked => {
-                            root.blend-changed(2);
-                        }
-                    }
+                toggle-clip => {
+                    root.toggle-clip();
                 }
-
-                CalmSectionLabel {
-                    label: LayerChrome.filters-label;
-                    has-accent: false;
+                flatten-clip => {
+                    root.flatten-clip();
                 }
-
-                CalmSliderRow {
-                    label: LayerChrome.brightness-label;
-                    value-text: LayerChrome.brightness-text;
-                    minimum: -1;
-                    maximum: 1;
-                    value <=> LayerChrome.brightness;
-                    moved(v) => {
-                        root.filter-changed(0, v);
-                    }
+                merge-down => {
+                    root.merge-down();
                 }
-
-                CalmSliderRow {
-                    label: LayerChrome.contrast-label;
-                    value-text: LayerChrome.contrast-text;
-                    minimum: -1;
-                    maximum: 1;
-                    value <=> LayerChrome.contrast;
-                    moved(v) => {
-                        root.filter-changed(1, v);
-                    }
+                reset-transform => {
+                    root.reset-transform();
                 }
-
-                CalmSliderRow {
-                    label: LayerChrome.vibrance-label;
-                    value-text: LayerChrome.vibrance-text;
-                    minimum: -1;
-                    maximum: 1;
-                    value <=> LayerChrome.vibrance;
-                    moved(v) => {
-                        root.filter-changed(2, v);
-                    }
+                move-up => {
+                    root.move-up();
                 }
-
-                CalmSliderRow {
-                    label: LayerChrome.saturation-label;
-                    value-text: LayerChrome.saturation-text;
-                    minimum: -1;
-                    maximum: 1;
-                    value <=> LayerChrome.saturation;
-                    moved(v) => {
-                        root.filter-changed(3, v);
-                    }
+                move-down => {
+                    root.move-down();
                 }
-
-                CalmSliderRow {
-                    label: LayerChrome.gamma-label;
-                    value-text: LayerChrome.gamma-text;
-                    minimum: 0.1;
-                    maximum: 4;
-                    value <=> LayerChrome.gamma;
-                    moved(v) => {
-                        root.filter-changed(4, v);
-                    }
+                rasterize-layer => {
+                    root.rasterize-layer();
                 }
-
-                CalmButton {
-                    text: LayerChrome.reset-filters-label;
-                    fill: true;
-                    clicked => {
-                        root.reset-filters();
-                    }
+                export-layer => {
+                    root.export-layer();
                 }
-
-                CalmDivider { }
-
-                CalmButton {
-                    text: LayerChrome.clip-label;
-                    fill: true;
-                    enabled: LayerChrome.can-clip || LayerChrome.clipped;
-                    clicked => {
-                        root.toggle-clip();
-                    }
+                duplicate-layer => {
+                    root.duplicate-layer();
                 }
-
-                CalmButton {
-                    text: LayerChrome.flatten-label;
-                    fill: true;
-                    enabled: LayerChrome.can-flatten;
-                    clicked => {
-                        root.flatten-clip();
-                    }
-                }
-
-                CalmButton {
-                    text: LayerChrome.merge-label;
-                    fill: true;
-                    enabled: LayerChrome.can-merge;
-                    clicked => {
-                        root.merge-down();
-                    }
-                }
-
-                CalmButton {
-                    text: LayerChrome.reset-transform-label;
-                    fill: true;
-                    enabled: LayerChrome.can-reset-transform;
-                    clicked => {
-                        root.reset-transform();
-                    }
-                }
-
-                HorizontalLayout {
-                    spacing: Tokens.space-xs;
-
-                    CalmButton {
-                        text: LayerChrome.move-up-label;
-                        fill: true;
-                        enabled: LayerChrome.can-move-up;
-                        clicked => {
-                            root.move-up();
-                        }
-                    }
-
-                    CalmButton {
-                        text: LayerChrome.move-down-label;
-                        fill: true;
-                        enabled: LayerChrome.can-move-down;
-                        clicked => {
-                            root.move-down();
-                        }
-                    }
-                }
-
-                if LayerChrome.can-rasterize: CalmButton {
-                    text: LayerChrome.rasterize-label;
-                    fill: true;
-                    clicked => {
-                        root.rasterize-layer();
-                    }
-                }
-
-                CalmDivider { }
-
-                CalmButton {
-                    text: LayerChrome.export-label;
-                    fill: true;
-                    clicked => {
-                        root.export-layer();
-                    }
-                }
-
-                CalmButton {
-                    text: LayerChrome.duplicate-label;
-                    fill: true;
-                    clicked => {
-                        root.duplicate-layer();
-                    }
-                }
-
-                if LayerChrome.can-delete: CalmDivider { }
-
-                if LayerChrome.can-delete: CalmButton {
-                    text: LayerChrome.delete-label;
-                    fill: true;
-                    has-tint: true;
-                    tint: Theme.danger;
-                    clicked => {
-                        root.delete-layer();
-                    }
+                delete-layer => {
+                    root.delete-layer();
                 }
             }
         }

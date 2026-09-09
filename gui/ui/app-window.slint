@@ -7,6 +7,7 @@ import { SettingsModal } from "settings-modal.slint";
 import { NewProjectModal } from "new-project-modal.slint";
 import { ToastBanner } from "toast-banner.slint";
 import { LayerSettingsModal } from "layer-settings-modal.slint";
+import { ProjectSettingsPopover } from "project-settings-popover.slint";
 import { GuidesCard } from "guides-card.slint";
 import { Theme } from "calm/CalmTheme.slint";
 import { Tokens } from "calm/CalmTokens.slint";
@@ -26,13 +27,23 @@ export component AppWindow inherits Window {
     in-out property <bool> new-project-open: false;
     in-out property <bool> layers-open: true;
     in-out property <bool> layer-settings-open: false;
+    in-out property <bool> layer-settings-expanded: false;
+    in-out property <float> layer-settings-anchor-x;
+    in-out property <float> layer-settings-anchor-y;
     in-out property <bool> guides-open: false;
+    in-out property <bool> project-settings-open: false;
+    in-out property <float> project-settings-anchor-x;
+    in-out property <float> project-settings-anchor-y;
+    in-out property <string> project-settings-name;
+    in property <string> project-settings-size-text;
+    in-out property <int> project-settings-accent-index: 0;
 
     changed editor-open => {
         if (!root.editor-open) {
             SmartMenu.open = false;
             Tip.open = false;
             root.guides-open = false;
+            root.project-settings-open = false;
         }
     }
 
@@ -43,9 +54,9 @@ export component AppWindow inherits Window {
     callback preset-size(int, int);
     callback paste-artwork-clicked();
     callback app-icon-clicked();
-    callback back-to-landing();
     callback switch-project-tab(string);
     callback close-project-tab(string);
+    callback edit-project-tab(string, float, float);
     callback create-from-modal();
 
     callback pointer-pressed(float, float, bool, bool, bool, bool);
@@ -89,8 +100,10 @@ export component AppWindow inherits Window {
     callback add-layer();
     callback pick-layer(int);
     callback toggle-layer-visible(int);
-    callback open-layer-settings(int);
+    callback open-layer-settings(int, float, float);
     callback delete-layer(int);
+    callback rename-layer(int, string);
+    callback reorder-layer(int, int);
     callback hover-layer(int, float);
     callback clear-layer-hover();
     callback commit-layer-bounds(string, string, string, string);
@@ -107,6 +120,7 @@ export component AppWindow inherits Window {
     callback export-svg();
     callback export-pdf();
     callback layer-settings-dismissed();
+    callback layer-settings-expand();
     callback layer-settings-toggle-visibility();
     callback layer-settings-toggle-lock();
     callback layer-settings-opacity-changed(float);
@@ -149,6 +163,9 @@ export component AppWindow inherits Window {
 
     callback settings-dismissed();
     callback new-project-dismissed();
+    callback project-settings-dismissed();
+    callback rename-project(string);
+    callback recolor-project(int);
     callback set-theme-light();
     callback set-theme-dark();
     callback set-language-en();
@@ -157,6 +174,7 @@ export component AppWindow inherits Window {
     in-out property <string> project-name;
     in-out property <string> width-text;
     in-out property <string> height-text;
+    in-out property <int> project-accent-index: 0;
     in property <[ProjectTabRow]> project-tabs;
     in property <string> close-project-tab-tip;
 
@@ -191,36 +209,35 @@ export component AppWindow inherits Window {
     in property <float> hover-preview-y;
 
     in property <string> layer-settings-label;
-    in property <string> layer-settings-name;
-    in property <string> back-to-landing-tip;
+    in property <string> layer-settings-expand-label;
     out property <length> board-x: editor.board-x;
     out property <length> board-y: editor.board-y;
     out property <length> board-width: editor.board-width;
     out property <length> board-height: editor.board-height;
+    out property <length> zoom-chrome-x: editor.zoom-chrome-x;
+    out property <length> zoom-chrome-y: editor.zoom-chrome-y;
+    out property <length> zoom-chrome-width: editor.zoom-chrome-width;
+    out property <length> zoom-chrome-height: editor.zoom-chrome-height;
+    out property <length> hover-chrome-x: editor.hover-chrome-x;
+    out property <length> hover-chrome-y: editor.hover-chrome-y;
+    out property <length> hover-chrome-width: editor.hover-chrome-width;
+    out property <length> hover-chrome-height: editor.hover-chrome-height;
     in property <string> width-short-label;
     in property <string> height-short-label;
-    in property <bool> layer-settings-visible;
-    in property <bool> layer-settings-locked;
-    in property <bool> layer-settings-can-delete;
-    in property <image> layer-settings-preview;
-    in-out property <float> layer-settings-opacity;
-    in property <string> layer-settings-opacity-text;
-    in property <string> layer-lock-label;
-    in property <string> opacity-label;
     in property <string> layer-visibility-label;
-    in property <string> layer-export-label;
-    in property <string> layer-duplicate-label;
     in property <string> layer-delete-label;
 
     in property <string> color-label;
     in property <brush> color-swatch0;
     in property <brush> color-swatch1;
     in property <brush> color-swatch2;
+    in property <brush> color-swatch3;
     in property <int> active-color-swatch;
     in property <color> color-hue-brush;
     in property <string> primary-color-label;
     in property <string> secondary-color-label;
     in property <string> tertiary-color-label;
+    in property <string> quaternary-color-label;
     in-out property <float> color-sb-x;
     in-out property <float> color-sb-y;
     in-out property <float> color-hue-x;
@@ -234,6 +251,16 @@ export component AppWindow inherits Window {
     in property <bool> toast-visible;
     in property <string> toast-text;
     in property <bool> toast-is-error;
+
+    out property <bool> overlay-chrome-open: root.loading
+        || root.settings-open
+        || root.new-project-open
+        || root.guides-open
+        || root.layer-settings-open
+        || root.project-settings-open
+        || root.toast-visible
+        || SmartMenu.open
+        || Tip.open;
 
     in property <image> app-icon;
     in property <string> brand-text;
@@ -323,12 +350,6 @@ export component AppWindow inherits Window {
         Menu {
             title: root.file-menu-title;
             MenuItem {
-                title: root.settings-title;
-                activated => {
-                    root.menu-settings();
-                }
-            }
-            MenuItem {
                 title: root.new-project-menu-title;
                 enabled: root.editor-open;
                 activated => {
@@ -408,6 +429,12 @@ export component AppWindow inherits Window {
         Menu {
             title: root.board-menu-title;
             MenuItem {
+                title: root.settings-title;
+                activated => {
+                    root.menu-settings();
+                }
+            }
+            MenuItem {
                 title: root.fit-view-menu-title;
                 enabled: root.editor-open;
                 activated => {
@@ -483,6 +510,8 @@ export component AppWindow inherits Window {
             project-name <=> root.project-name;
             width-text <=> root.width-text;
             height-text <=> root.height-text;
+            accent-index <=> root.project-accent-index;
+            palette: root.guide-palette;
             presets: root.presets;
             recents: root.recents;
             create-clicked => {
@@ -571,11 +600,13 @@ export component AppWindow inherits Window {
             color-swatch0: root.color-swatch0;
             color-swatch1: root.color-swatch1;
             color-swatch2: root.color-swatch2;
+            color-swatch3: root.color-swatch3;
             active-color-swatch: root.active-color-swatch;
             color-hue-brush: root.color-hue-brush;
             primary-color-label: root.primary-color-label;
             secondary-color-label: root.secondary-color-label;
             tertiary-color-label: root.tertiary-color-label;
+            quaternary-color-label: root.quaternary-color-label;
             color-sb-x <=> root.color-sb-x;
             color-sb-y <=> root.color-sb-y;
             color-hue-x <=> root.color-hue-x;
@@ -659,11 +690,17 @@ export component AppWindow inherits Window {
             toggle-layer-visible(index) => {
                 root.toggle-layer-visible(index);
             }
-            open-layer-settings(index) => {
-                root.open-layer-settings(index);
+            open-layer-settings(index, anchor-x, anchor-y) => {
+                root.open-layer-settings(index, anchor-x, anchor-y);
             }
             delete-layer(index) => {
                 root.delete-layer(index);
+            }
+            rename-layer(index, name) => {
+                root.rename-layer(index, name);
+            }
+            reorder-layer(from-row, to-row) => {
+                root.reorder-layer(from-row, to-row);
             }
             hover-layer(index, y) => {
                 root.hover-layer(index, y);
@@ -742,6 +779,9 @@ export component AppWindow inherits Window {
             close-project-tab(id) => {
                 root.close-project-tab(id);
             }
+            edit-project-tab(id, anchor-x, anchor-y) => {
+                root.edit-project-tab(id, anchor-x, anchor-y);
+            }
             new-project => {
                 root.menu-new-project();
             }
@@ -756,6 +796,7 @@ export component AppWindow inherits Window {
         SettingsModal {
             z: 20;
             open <=> root.settings-open;
+            dim-scrim: true;
             title-text: root.settings-title;
             theme-label: root.theme-label;
             theme-light-label: root.theme-light-label;
@@ -785,6 +826,7 @@ export component AppWindow inherits Window {
         NewProjectModal {
             z: 20;
             open <=> root.new-project-open;
+            dim-scrim: !root.editor-open;
             brand-text: root.brand-text;
             tagline-text: root.tagline-text;
             project-name-label: root.project-name-label;
@@ -802,6 +844,8 @@ export component AppWindow inherits Window {
             project-name <=> root.project-name;
             width-text <=> root.width-text;
             height-text <=> root.height-text;
+            accent-index <=> root.project-accent-index;
+            palette: root.guide-palette;
             presets: root.presets;
             recents: root.recents;
             dismissed => {
@@ -834,6 +878,7 @@ export component AppWindow inherits Window {
         GuidesCard {
             z: 20;
             open <=> root.guides-open;
+            dim-scrim: !root.editor-open;
             title-text: root.guides-title;
             hint-text: root.guides-hint;
             empty-text: root.no-guides-label;
@@ -874,8 +919,15 @@ export component AppWindow inherits Window {
         LayerSettingsModal {
             z: 20;
             open <=> root.layer-settings-open;
+            expanded <=> root.layer-settings-expanded;
+            anchor-x: root.layer-settings-anchor-x;
+            anchor-y: root.layer-settings-anchor-y;
+            expand-label: root.layer-settings-expand-label;
             dismissed => {
                 root.layer-settings-dismissed();
+            }
+            expand => {
+                root.layer-settings-expand();
             }
             toggle-visibility => {
                 root.layer-settings-toggle-visibility();
@@ -930,6 +982,26 @@ export component AppWindow inherits Window {
             }
         }
 
+        ProjectSettingsPopover {
+            z: 25;
+            open <=> root.project-settings-open;
+            anchor-x: root.project-settings-anchor-x;
+            anchor-y: root.project-settings-anchor-y;
+            name <=> root.project-settings-name;
+            size-text: root.project-settings-size-text;
+            palette: root.guide-palette;
+            accent-index <=> root.project-settings-accent-index;
+            dismissed => {
+                root.project-settings-dismissed();
+            }
+            rename(text) => {
+                root.rename-project(text);
+            }
+            recolor(index) => {
+                root.recolor-project(index);
+            }
+        }
+
         ToastBanner {
             show: root.toast-visible;
             text: root.toast-text;
@@ -966,11 +1038,14 @@ export component AppWindow inherits Window {
         }
     }
 
-    CalmTip {
-        visible: Tip.open && Tip.text != "";
-        x: Tip.leading ? Tip.x - self.width : Tip.x;
-        y: Tip.y - self.height / 2;
-        tip: Tip.text;
-        shortcut: Tip.shortcut;
+    property <bool> tip-live: Tip.open && Tip.text != "";
+    changed tip-live => {
+        if (root.tip-live) {
+            tip.show-tip();
+        } else {
+            tip.hide-tip();
+        }
     }
+
+    tip := CalmTip { }
 }

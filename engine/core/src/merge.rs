@@ -49,11 +49,13 @@ impl Document {
         self.can_flatten_onto_below(index)
     }
 
-    /// Same answer as [`Self::can_merge_layer_down`]. Clip and merge share the base-layer
-    /// rules — Paper, a vector with no tiles, a leftover transform — because they share the
-    /// bake; the clip flag is the only difference once those pass.
     pub fn can_clip_layer_down(&self, index: usize) -> bool {
-        self.can_flatten_onto_below(index)
+        if !self.can_flatten_onto_below(index) {
+            return false;
+        }
+        let base = &self.layers[index - 1];
+        let source = &self.layers[index];
+        base.is_raster() && source.is_raster() && !base.locked && !source.locked
     }
 
     /// Paper, a vector base, and a leftover transform all refuse. The source bakes into

@@ -1,0 +1,78 @@
+import { Theme } from "calm/CalmTheme.slint";
+import { Tokens } from "calm/CalmTokens.slint";
+import { CalmField } from "calm/CalmField.slint";
+import { CalmMuted } from "calm/CalmText.slint";
+import { CalmPointer } from "calm/CalmPointer.slint";
+import { CalmPaletteRow } from "calm/CalmPaletteRow.slint";
+
+export component ProjectSettingsPopover inherits Rectangle {
+    in-out property <bool> open;
+    in property <float> anchor-x;
+    in property <float> anchor-y;
+    in-out property <string> name;
+    in property <string> size-text;
+    in property <[color]> palette;
+    in-out property <int> accent-index: 0;
+
+    callback dismissed();
+    callback rename(string);
+    callback recolor(int);
+
+    private property <length> popover-width: 260px;
+
+    width: 100%;
+    height: 100%;
+    visible: root.open;
+
+    if root.open: CalmPointer {
+        width: 100%;
+        height: 100%;
+        clicked => {
+            root.open = false;
+            root.dismissed();
+        }
+    }
+
+    if root.open: Rectangle {
+        z: 2;
+        width: popover-width;
+        height: card.preferred-height;
+        x: max(Tokens.space-xs, min(anchor-x * 1px, parent.width - self.width - Tokens.space-xs));
+        y: min(anchor-y * 1px + Tokens.space-xs, parent.height - self.height - Tokens.space-xs);
+        background: Theme.surface;
+        border-radius: Tokens.radius-md;
+        border-width: 1px;
+        border-color: Theme.island-border;
+        drop-shadow-blur: 16px;
+        drop-shadow-offset-y: 4px;
+        drop-shadow-color: Theme.shadow;
+        clip: true;
+
+        dismiss-swallow := CalmPointer { }
+
+        card := VerticalLayout {
+            padding: Tokens.space-md;
+            spacing: Tokens.space-sm;
+
+            CalmField {
+                text <=> root.name;
+                accepted(text) => {
+                    root.rename(text);
+                }
+            }
+
+            CalmPaletteRow {
+                palette: root.palette;
+                selected-index: root.accent-index;
+                picked(index) => {
+                    root.accent-index = index;
+                    root.recolor(index);
+                }
+            }
+
+            CalmMuted {
+                text: root.size-text;
+            }
+        }
+    }
+}

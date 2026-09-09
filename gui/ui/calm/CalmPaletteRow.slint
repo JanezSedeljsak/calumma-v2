@@ -1,0 +1,37 @@
+import { Theme } from "CalmTheme.slint";
+import { Tokens } from "CalmTokens.slint";
+import { CalmDot } from "CalmDot.slint";
+import { CalmPointer } from "CalmPointer.slint";
+
+export component CalmPaletteRow inherits GridLayout {
+    in property <[color]> palette;
+    in property <int> selected-index: -1;
+    in property <length> dot-size: Tokens.palette-dot-size;
+    in property <int> columns: 5;
+
+    callback picked(int);
+
+    spacing: Tokens.space-xs;
+    vertical-stretch: 0;
+
+    for swatch-color[i] in root.palette: Rectangle {
+        row: root.columns <= 0 ? 0 : Math.floor(i / root.columns);
+        col: root.columns <= 0 ? i : Math.mod(i, root.columns);
+        width: root.dot-size + 6px;
+        height: self.width;
+
+        CalmDot {
+            dot-color: swatch-color;
+            dot-size: root.dot-size;
+            selected: i == root.selected-index;
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+        }
+
+        CalmPointer {
+            clicked => {
+                root.picked(i);
+            }
+        }
+    }
+}

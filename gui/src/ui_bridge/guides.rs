@@ -23,6 +23,7 @@ pub fn sync_guides(ui: &AppWindow, controller: &AppController) {
             horizontal: guide.axis == GuideAxis::Horizontal,
             offset_text: SharedString::from(format_offset(guide.position)),
             color: slint_color([guide.color[0], guide.color[1], guide.color[2], 255]),
+            palette_index: calumma_core::project_color_index(guide.color) as i32,
         })
         .collect();
     let count = rows.len();

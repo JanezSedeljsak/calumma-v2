@@ -5,7 +5,7 @@ mod shell;
 mod ui_bridge;
 mod window_chrome;
 
-use board::{board_layout, BoardHost, ModifierState};
+use board::{board_layout, hole_in_board, BoardHost, BoardRect, ModifierState};
 use calumma_io::RasterFormat;
 use i_slint_backend_winit::WinitWindowAccessor;
 use input::{
@@ -16,12 +16,12 @@ use shell::{pick_artwork_file, shared, workspace_root, SharedController, TabClos
 use slint::ComponentHandle;
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use ui_bridge::{
-    camera_signature, init_form_defaults, parse_dimension, refresh_landing, set_editor_open,
-    sync_editor, sync_guide_readout, sync_guides, sync_layer_rows, sync_layer_settings,
-    sync_layers, sync_project_tabs, sync_rulers, sync_shell, sync_zoom_chrome, AppWindow, SharedUi,
-    DEFAULT_HEIGHT, DEFAULT_WIDTH,
+    camera_signature, form_accent, init_form_defaults, parse_dimension, random_accent_index,
+    refresh_landing, set_editor_open, sync_editor, sync_guide_readout, sync_guides,
+    sync_layer_rows, sync_layer_settings, sync_layers, sync_project_tabs, sync_rulers, sync_shell,
+    sync_zoom_chrome, AppWindow, SharedUi, DEFAULT_HEIGHT, DEFAULT_WIDTH,
 };
 
 struct InputState {
@@ -146,8 +146,13 @@ fn wire_landing_callbacks(
             let name = ui.get_project_name().to_string();
             let width = parse_dimension(ui.get_width_text().as_ref(), DEFAULT_WIDTH);
             let height = parse_dimension(ui.get_height_text().as_ref(), DEFAULT_HEIGHT);
+            let accent = form_accent(&ui);
             let mut ctrl = controller.borrow_mut();
-            if ctrl.create_project(&name, width, height).is_ok() {
+            if ctrl
+                .create_project(&name, width, height, Some(accent))
+                .is_ok()
+            {
+                ui.set_project_accent_index(random_accent_index());
                 set_editor_open(&ui, &mut ctrl, true);
                 host.borrow_mut().set_active(true);
                 setup_board(&ui_weak, &host);
@@ -235,7 +240,8 @@ fn wire_landing_callbacks(
         let ui_weak = ui_weak.clone();
         let host = host.clone();
         move || {
-            let Some(bytes) = pick_artwork_file() else {
+            let filter = controller.borrow().l10n.get("imagesFilter");
+            let Some(bytes) = pick_artwork_file(&filter) else {
                 return;
             };
             let ui = ui_weak.upgrade().unwrap();
@@ -262,21 +268,6 @@ fn wire_editor_callbacks(
     ui_weak: SharedUi,
     input: Rc<RefCell<InputState>>,
 ) {
-    ui.on_back_to_landing({
-        let controller = controller.clone();
-        let ui_weak = ui_weak.clone();
-        let host = host.clone();
-        move || {
-            let ui = ui_weak.upgrade().unwrap();
-            let mut ctrl = controller.borrow_mut();
-            ctrl.close_editor();
-            host.borrow_mut().set_active(false);
-            ui.set_editor_open(false);
-            ui.set_loading(false);
-            refresh_landing(&ui, &ctrl);
-        }
-    });
-
     ui.on_switch_project_tab({
         let controller = controller.clone();
         let ui_weak = ui_weak.clone();
@@ -309,6 +300,26 @@ fn wire_editor_callbacks(
                 host.clone(),
                 &ui,
             );
+        }
+    });
+
+    ui.on_edit_project_tab({
+        let controller = controller.clone();
+        let ui_weak = ui_weak.clone();
+        move |id, anchor_x, anchor_y| {
+            let id = id.to_string();
+            let mut ctrl = controller.borrow_mut();
+            ctrl.open_project_settings(&id, anchor_x, anchor_y);
+            let name = ctrl
+                .engine
+                .borrow()
+                .project_summary(&id)
+                .map(|summary| summary.name)
+                .unwrap_or_default();
+            if let Some(ui) = ui_weak.upgrade() {
+                ui.set_project_settings_name(slint::SharedString::from(name));
+                sync_shell(&ui, &ctrl);
+            }
         }
     });
 
@@ -690,6 +701,9 @@ fn wire_editor_callbacks(
             };
             host.borrow_mut().pointer_pressed(x, y, mods, middle);
             refresh_board_cursor(&host, &controller, &input);
+            if controller.borrow().editor_open {
+                host.borrow_mut().render();
+            }
             if let Some(ui) = ui_weak.upgrade() {
                 let mut ctrl = controller.borrow_mut();
                 ctrl.announce_tool_block_if_any();
@@ -709,6 +723,9 @@ fn wire_editor_callbacks(
         move |x, y| {
             let (mods, modal) = cursor_context(&controller, &input);
             host.borrow_mut().pointer_moved(x, y, mods, modal);
+            if controller.borrow().editor_open {
+                host.borrow_mut().render();
+            }
             if controller.borrow().engine.borrow().is_dragging_guide() {
                 if let Some(ui) = ui_weak.upgrade() {
                     sync_guide_readout(&ui, &controller.borrow());
@@ -758,13 +775,15 @@ fn wire_editor_callbacks(
         let input = input.clone();
         let ui_weak = ui_weak.clone();
         move |x, y, dx, dy, alt, meta| {
-            eprintln!("[DEBUG scroll-event] x={x} y={y} dx={dx} dy={dy} alt={alt} meta={meta} pinch_zoom={:?}", controller.borrow().pinch_zoom);
             if controller.borrow().pinch_zoom.is_some() {
                 return;
             }
             input.borrow_mut().mods.alt_held = alt;
             input.borrow_mut().mods.meta_held = meta;
             host.borrow_mut().scroll(x, y, dx, dy, alt, meta);
+            if controller.borrow().editor_open {
+                host.borrow_mut().render();
+            }
             wake(&ui_weak);
         }
     });
@@ -776,9 +795,13 @@ fn wire_editor_callbacks(
     });
     ui.on_pinch_updated({
         let controller = controller.clone();
+        let host = host.clone();
         let ui_weak = ui_weak.clone();
         move |x, y, scale| {
             controller.borrow_mut().pinch_updated(x, y, scale);
+            if controller.borrow().editor_open {
+                host.borrow_mut().render();
+            }
             wake(&ui_weak);
         }
     });
@@ -916,6 +939,7 @@ fn wire_menus(ui: &AppWindow, controller: SharedController, ui_weak: SharedUi) {
             if let Some(ui) = ui_weak.upgrade() {
                 sync_shell(&ui, &ctrl);
             }
+            wake(&ui_weak);
         }
     });
     ui.on_menu_undo({
@@ -1062,8 +1086,10 @@ fn wire_layer_actions(ui: &AppWindow, controller: SharedController, ui_weak: Sha
     ui.on_open_layer_settings({
         let controller = controller.clone();
         let ui_weak = ui_weak.clone();
-        move |index| {
-            controller.borrow_mut().open_layer_settings(index as usize);
+        move |index, anchor_x, anchor_y| {
+            controller
+                .borrow_mut()
+                .open_layer_settings(index as usize, anchor_x, anchor_y);
             if let Some(ui) = ui_weak.upgrade() {
                 let ctrl = controller.borrow();
                 sync_shell(&ui, &ctrl);
@@ -1077,6 +1103,33 @@ fn wire_layer_actions(ui: &AppWindow, controller: SharedController, ui_weak: Sha
         let ui_weak = ui_weak.clone();
         move |index| {
             controller.borrow_mut().remove_layer(index as usize);
+            if let Some(ui) = ui_weak.upgrade() {
+                let mut ctrl = controller.borrow_mut();
+                sync_layers(&ui, &mut ctrl);
+            }
+            wake(&ui_weak);
+        }
+    });
+    ui.on_rename_layer({
+        let controller = controller.clone();
+        let ui_weak = ui_weak.clone();
+        move |index, name| {
+            controller.borrow_mut().rename_layer(index as usize, &name);
+            if let Some(ui) = ui_weak.upgrade() {
+                let mut ctrl = controller.borrow_mut();
+                sync_layer_settings(&ui, &ctrl);
+                sync_layers(&ui, &mut ctrl);
+            }
+            wake(&ui_weak);
+        }
+    });
+    ui.on_reorder_layer({
+        let controller = controller.clone();
+        let ui_weak = ui_weak.clone();
+        move |from_row, to_row| {
+            controller
+                .borrow_mut()
+                .move_layer_row(from_row as usize, to_row as usize);
             if let Some(ui) = ui_weak.upgrade() {
                 let mut ctrl = controller.borrow_mut();
                 sync_layers(&ui, &mut ctrl);
@@ -1110,10 +1163,24 @@ fn wire_layer_actions(ui: &AppWindow, controller: SharedController, ui_weak: Sha
         let controller = controller.clone();
         let ui_weak = ui_weak.clone();
         move || {
-            controller.borrow_mut().layer_settings_open = false;
+            let mut ctrl = controller.borrow_mut();
+            ctrl.layer_settings_open = false;
+            ctrl.layer_settings_expanded = false;
+            if let Some(ui) = ui_weak.upgrade() {
+                sync_shell(&ui, &ctrl);
+            }
+            wake(&ui_weak);
+        }
+    });
+    ui.on_layer_settings_expand({
+        let controller = controller.clone();
+        let ui_weak = ui_weak.clone();
+        move || {
+            controller.borrow_mut().layer_settings_expanded = true;
             if let Some(ui) = ui_weak.upgrade() {
                 sync_shell(&ui, &controller.borrow());
             }
+            wake(&ui_weak);
         }
     });
     ui.on_layer_settings_toggle_visibility({
@@ -1661,9 +1728,14 @@ fn wire_modals(
             let name = ui.get_project_name().to_string();
             let width = parse_dimension(ui.get_width_text().as_ref(), DEFAULT_WIDTH);
             let height = parse_dimension(ui.get_height_text().as_ref(), DEFAULT_HEIGHT);
+            let accent = form_accent(&ui);
             let mut ctrl = controller.borrow_mut();
             ctrl.new_project_open = false;
-            if ctrl.create_project(&name, width, height).is_ok() {
+            if ctrl
+                .create_project(&name, width, height, Some(accent))
+                .is_ok()
+            {
+                ui.set_project_accent_index(random_accent_index());
                 set_editor_open(&ui, &mut ctrl, true);
                 host.borrow_mut().set_active(true);
                 setup_board(&ui_weak, &host);
@@ -1682,6 +1754,48 @@ fn wire_modals(
             if let Some(ui) = ui_weak.upgrade() {
                 sync_shell(&ui, &controller.borrow());
             }
+        }
+    });
+
+    ui.on_project_settings_dismissed({
+        let controller = controller.clone();
+        let ui_weak = ui_weak.clone();
+        move || {
+            controller.borrow_mut().project_settings_open = false;
+            if let Some(ui) = ui_weak.upgrade() {
+                sync_shell(&ui, &controller.borrow());
+            }
+        }
+    });
+
+    ui.on_rename_project({
+        let controller = controller.clone();
+        let ui_weak = ui_weak.clone();
+        move |name| {
+            let mut ctrl = controller.borrow_mut();
+            if ctrl.rename_open_project_settings(name.as_str()).is_err() {
+                return;
+            }
+            if let Some(ui) = ui_weak.upgrade() {
+                sync_shell(&ui, &ctrl);
+                sync_project_tabs(&ui, &ctrl);
+            }
+        }
+    });
+
+    ui.on_recolor_project({
+        let controller = controller.clone();
+        let ui_weak = ui_weak.clone();
+        move |index| {
+            let mut ctrl = controller.borrow_mut();
+            if ctrl.recolor_open_project_settings(index as usize).is_err() {
+                return;
+            }
+            if let Some(ui) = ui_weak.upgrade() {
+                sync_shell(&ui, &ctrl);
+                sync_project_tabs(&ui, &ctrl);
+            }
+            wake(&ui_weak);
         }
     });
 }
@@ -1748,13 +1862,16 @@ fn wire_shell_keys(
             drop(ctrl);
 
             match action {
-                ShellKeyAction::None => {
-                    if (text == "\n" || text == "\r")
-                        && !controller.borrow().any_modal_open()
-                        && controller.borrow().engine.borrow().active_tool()
-                            == Some(calumma_core::Tool::Crop)
-                    {
-                        controller.borrow_mut().commit_crop();
+                ShellKeyAction::None => {}
+                ShellKeyAction::Return => {
+                    let engine = controller.borrow().engine.clone();
+                    if !engine.borrow().text_editing() {
+                        if engine.borrow().active_tool() == Some(calumma_core::Tool::Crop) {
+                            controller.borrow_mut().commit_crop();
+                        } else if engine.borrow().transform_active() {
+                            engine.borrow_mut().set_move_transform(false);
+                            refresh_board_cursor(&host, &controller, &input);
+                        }
                     }
                 }
                 ShellKeyAction::Escape => {
@@ -1794,7 +1911,10 @@ fn wire_shell_keys(
                     EditorKeyAction::ToggleTransform => {
                         controller
                             .borrow_mut()
-                            .pick_tool(calumma_core::Tool::Transform);
+                            .engine
+                            .borrow_mut()
+                            .set_move_transform(true);
+                        refresh_board_cursor(&host, &controller, &input);
                     }
                     EditorKeyAction::ZoomIn => {
                         controller.borrow_mut().step_zoom(true);
@@ -1934,28 +2054,58 @@ fn handle_tab_close_result(
 
 fn setup_board(ui_weak: &SharedUi, host: &Rc<RefCell<BoardHost>>) {
     if let Some(ui) = ui_weak.upgrade() {
-        sync_board_geometry(&ui, host);
+        sync_board_geometry(&ui, host, true);
     }
 }
 
-fn sync_board_geometry(ui: &AppWindow, host: &Rc<RefCell<BoardHost>>) {
+fn sync_board_geometry(ui: &AppWindow, host: &Rc<RefCell<BoardHost>>, present: bool) {
     let scale = ui.window().scale_factor();
     let content_height = ui.window().size().to_logical(scale).height;
-    let overlay = ui.get_settings_open()
-        || ui.get_new_project_open()
-        || ui.get_guides_open()
-        || ui.get_layer_settings_open()
-        || ui.get_loading();
+    let overlay = ui.get_overlay_chrome_open();
     let layout = board_layout(
         ui.get_board_x(),
         ui.get_board_y(),
         ui.get_board_width(),
         ui.get_board_height(),
     );
+    let mut holes = Vec::new();
+    const HOLE_PAD: f32 = 8.0;
+    if let Some(hole) = hole_in_board(
+        &layout,
+        BoardRect {
+            x: ui.get_zoom_chrome_x(),
+            y: ui.get_zoom_chrome_y(),
+            width: ui.get_zoom_chrome_width(),
+            height: ui.get_zoom_chrome_height(),
+        },
+        HOLE_PAD,
+    ) {
+        holes.push(hole);
+    }
+    if ui.get_hover_preview_visible() {
+        if let Some(hole) = hole_in_board(
+            &layout,
+            BoardRect {
+                x: ui.get_hover_chrome_x(),
+                y: ui.get_hover_chrome_y(),
+                width: ui.get_hover_chrome_width(),
+                height: ui.get_hover_chrome_height(),
+            },
+            HOLE_PAD,
+        ) {
+            holes.push(hole);
+        }
+    }
     ui.window().with_winit_window(|winit_window| {
-        host.borrow_mut()
-            .sync_geometry(winit_window, &layout, content_height, scale, overlay);
-        if !overlay {
+        host.borrow_mut().sync_geometry(
+            winit_window,
+            &layout,
+            content_height,
+            scale,
+            overlay,
+            &holes,
+        );
+        if present && !overlay {
             host.borrow_mut().render();
         }
     });
@@ -2003,11 +2153,13 @@ fn start_frame_loop(
     let icon_done = Rc::new(Cell::new(false));
     let board = slint::Timer::default();
     let camera = Rc::new(RefCell::new((f32::NAN, f32::NAN, f32::NAN)));
-    board.start(slint::TimerMode::Repeated, Duration::from_millis(16), {
+    let last_present = Rc::new(Cell::new(Instant::now() - Duration::from_secs(1)));
+    board.start(slint::TimerMode::Repeated, Duration::from_millis(8), {
         let ui_weak = ui_weak.clone();
         let host = host.clone();
         let controller = controller.clone();
         let icon_done = icon_done.clone();
+        let last_present = last_present.clone();
         move || {
             if !icon_done.get() {
                 if let Some(ui) = ui_weak.upgrade() {
@@ -2019,8 +2171,19 @@ fn start_frame_loop(
             if !controller.borrow().editor_open {
                 return;
             }
+            let hint = controller.borrow().engine.borrow().frame_hint();
+            let period = if hint == 0 {
+                Duration::from_millis(8)
+            } else {
+                Duration::from_millis(1000 / u64::from(hint.max(1)))
+            };
+            let now = Instant::now();
+            let present = now.duration_since(last_present.get()) >= period;
+            if present {
+                last_present.set(now);
+            }
             if let Some(ui) = ui_weak.upgrade() {
-                sync_board_geometry(&ui, &host);
+                sync_board_geometry(&ui, &host, present);
                 let ctrl = controller.borrow();
                 let next = camera_signature(&ctrl);
                 if *camera.borrow() != next {
@@ -2043,7 +2206,8 @@ fn start_frame_loop(
                 }
                 let mut ctrl = controller.borrow_mut();
                 ui.set_memory_value(
-                    shell::format_bytes(ctrl.engine.borrow().resident_memory_bytes()).into(),
+                    shell::format_bytes(ctrl.engine.borrow().resident_memory_bytes(), &ctrl.l10n)
+                        .into(),
                 );
                 sync_layer_rows(&ui, &mut ctrl);
             }

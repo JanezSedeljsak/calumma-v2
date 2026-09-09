@@ -1,9 +1,9 @@
 use std::path::Path;
 
-pub fn pick_artwork_file() -> Option<Vec<u8>> {
+pub fn pick_artwork_file(filter: &str) -> Option<Vec<u8>> {
     let path = rfd::FileDialog::new()
         .add_filter(
-            "Images",
+            filter,
             &[
                 "png", "jpg", "jpeg", "webp", "avif", "heic", "heif", "psd", "svg",
             ],

@@ -1,4 +1,6 @@
-use calumma_core::{Document, Layer, LayerTransform};
+use calumma_core::shape::{Shape, Tool};
+use calumma_core::vector::{VectorItem, VectorShape};
+use calumma_core::{Document, Layer, LayerTransform, TextRun, ToolBlock};
 
 fn two_layer_doc() -> Document {
     let mut doc = Document::new("clip".into(), "Clip", 64, 64);
@@ -184,4 +186,113 @@ fn moving_the_clip_base_rebakes_the_texture_layer() {
             .is_empty(),
         "moving the silhouette rebakes the clipped texture"
     );
+}
+
+#[test]
+fn cannot_clip_a_text_or_vector_layer_until_it_is_raster() {
+    let mut doc = two_layer_doc();
+    let text = Layer::text(
+        "Type",
+        TextRun {
+            text: "Hi".into(),
+            size: 24.0,
+            ..TextRun::default()
+        }
+        .clamped(),
+        64,
+        64,
+    );
+    doc.layers.push(text);
+    let text_index = doc.layers.len() - 1;
+    assert!(!doc.can_create_clipping_mask(text_index));
+    assert!(doc.rasterize_layer(text_index));
+    assert!(doc.can_create_clipping_mask(text_index));
+}
+
+#[test]
+fn cannot_clip_onto_a_text_or_vector_base() {
+    let mut doc = two_layer_doc();
+    let vector = doc.add_vector_layer(
+        "Shape",
+        VectorItem::Shape(VectorShape {
+            shape: Shape {
+                tool: Tool::Rect,
+                start: (2.0, 2.0),
+                end: (20.0, 20.0),
+                half_width: 1.0,
+                fill: true,
+                stroke: false,
+            },
+            color: [0, 0, 0, 255],
+            stroke_color: [0, 0, 0, 255],
+        }),
+    );
+    doc.add_layer("Paint");
+    let paint = doc.layers.len() - 1;
+    doc.layers[paint]
+        .tiles_mut()
+        .unwrap()
+        .set_pixel(8, 8, [255, 0, 0, 255]);
+    assert_eq!(vector, paint - 1);
+    assert!(!doc.can_create_clipping_mask(paint));
+    assert!(doc.rasterize_layer(vector));
+    assert!(doc.can_create_clipping_mask(paint));
+}
+
+#[test]
+fn cannot_clip_when_either_layer_in_the_pair_is_locked() {
+    let mut doc = two_layer_doc();
+    doc.layers[1].locked = true;
+    assert!(!doc.can_create_clipping_mask(2));
+    doc.layers[1].locked = false;
+    doc.layers[2].locked = true;
+    assert!(!doc.can_create_clipping_mask(2));
+    doc.layers[2].locked = false;
+    assert!(doc.can_create_clipping_mask(2));
+}
+
+#[test]
+fn locking_either_member_of_a_live_clip_pair_locks_tools_on_both() {
+    let mut doc = two_layer_doc();
+    assert!(doc.create_clipping_mask(2));
+    doc.active_layer = 2;
+    assert_eq!(doc.tool_block(Tool::Pen), ToolBlock::None);
+    assert!(doc.set_layer_locked(1, true));
+    assert_eq!(doc.tool_block(Tool::Pen), ToolBlock::LayerLocked);
+    doc.active_layer = 1;
+    assert_eq!(doc.tool_block(Tool::Pen), ToolBlock::LayerLocked);
+    assert!(doc.set_layer_locked(1, false));
+    assert_eq!(doc.tool_block(Tool::Pen), ToolBlock::None);
+    assert!(doc.set_layer_locked(2, true));
+    doc.active_layer = 1;
+    assert_eq!(doc.tool_block(Tool::Pen), ToolBlock::LayerLocked);
+    assert!(!doc.can_release_clipping_mask(2));
+    assert!(!doc.can_clip_layer_down(2));
+}
+
+#[test]
+fn cannot_flatten_a_clip_onto_text_or_vector_until_rasterized() {
+    let mut doc = two_layer_doc();
+    let text = Layer::text(
+        "Type",
+        TextRun {
+            text: "Hi".into(),
+            size: 24.0,
+            ..TextRun::default()
+        }
+        .clamped(),
+        64,
+        64,
+    );
+    doc.layers.push(text);
+    doc.add_layer("Paint");
+    let paint = doc.layers.len() - 1;
+    let base = paint - 1;
+    doc.layers[paint]
+        .tiles_mut()
+        .unwrap()
+        .set_pixel(10, 10, [255, 0, 0, 255]);
+    assert!(!doc.can_clip_layer_down(paint));
+    assert!(doc.rasterize_layer(base));
+    assert!(doc.can_clip_layer_down(paint));
 }

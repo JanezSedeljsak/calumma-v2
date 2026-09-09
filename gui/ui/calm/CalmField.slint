@@ -12,8 +12,11 @@ export component CalmField inherits Rectangle {
 
     callback accepted(string);
     callback edited(string);
+    callback cancelled();
+    callback focus-lost();
 
     out property <bool> focused: input.has-focus;
+    in property <bool> auto-focus: false;
 
     height: Tokens.control-height;
     border-radius: radius;
@@ -46,6 +49,40 @@ export component CalmField inherits Rectangle {
         }
         edited => {
             root.edited(self.text);
+        }
+        key-pressed(event) => {
+            if (event.text == "\u{001B}") {
+                root.cancelled();
+                accept;
+            }
+            if (event.text == "\u{000A}" || event.text == "\u{000D}" || event.text == Key.Return) {
+                root.accepted(self.text);
+                accept;
+            }
+            reject;
+        }
+    }
+
+    private property <bool> was-focused: false;
+
+    changed focused => {
+        if (root.was-focused && !root.focused) {
+            root.focus-lost();
+        }
+        root.was-focused = root.focused;
+    }
+
+    init => {
+        if (root.auto-focus) {
+            input.focus();
+            input.select-all();
+        }
+    }
+
+    changed auto-focus => {
+        if (root.auto-focus) {
+            input.focus();
+            input.select-all();
         }
     }
 }

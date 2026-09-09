@@ -11,33 +11,43 @@ component ProjectTabChip inherits Rectangle {
 
     callback switch-tab();
     callback close-tab();
+    callback edit-tab(float, float);
 
     height: Tokens.control-height;
     background: root.tab.active ? Theme.surface-hover : transparent;
-
-    name-touch := CalmPointer {
-        clicked => {
-            root.switch-tab();
-        }
-    }
 
     HorizontalLayout {
         padding-left: Tokens.space-sm;
         padding-right: Tokens.space-sm;
         spacing: Tokens.space-xs;
 
-        CalmDot {
+        dot := CalmDot {
             dot-color: root.tab.accent;
             y: (parent.height - self.height) / 2;
+
+            CalmPointer {
+                clicked => {
+                    root.edit-tab(
+                        dot.absolute-position.x / 1px,
+                        (dot.absolute-position.y + dot.height) / 1px,
+                    );
+                }
+            }
         }
 
-        Text {
-            text: root.tab.name;
-            font-size: Tokens.label-size;
-            font-weight: root.tab.active ? 600 : 500;
-            color: root.tab.active ? Theme.text : Theme.text-muted;
-            vertical-alignment: center;
-            overflow: elide;
+        name-touch := CalmPointer {
+            clicked => {
+                root.switch-tab();
+            }
+
+            Text {
+                text: root.tab.name;
+                font-size: Tokens.label-size;
+                font-weight: root.tab.active ? 600 : 500;
+                color: root.tab.active ? Theme.text : Theme.text-muted;
+                vertical-alignment: center;
+                overflow: elide;
+            }
         }
 
         close-touch := CalmPointer {
@@ -64,6 +74,7 @@ export component ProjectTabs inherits Rectangle {
 
     callback switch-tab(string);
     callback close-tab(string);
+    callback edit-tab(string, float, float);
     callback new-project();
 
     private property <image> icon-plus: @image-url("plus.svg");
@@ -86,6 +97,9 @@ export component ProjectTabs inherits Rectangle {
             }
             close-tab => {
                 root.close-tab(tab.id);
+            }
+            edit-tab(anchor-x, anchor-y) => {
+                root.edit-tab(tab.id, anchor-x, anchor-y);
             }
         }
 

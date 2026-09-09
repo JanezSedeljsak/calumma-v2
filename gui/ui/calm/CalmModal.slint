@@ -20,6 +20,7 @@ export component CalmModalCard inherits Rectangle {
 
 export component CalmModal inherits Rectangle {
     in-out property <bool> open;
+    in property <bool> dim-scrim: true;
     callback dismissed();
 
     visible: open;
@@ -29,7 +30,7 @@ export component CalmModal inherits Rectangle {
     scrim := Rectangle {
         width: 100%;
         height: 100%;
-        background: Theme.scrim;
+        background: root.dim-scrim ? Theme.scrim : transparent;
 
         TouchArea {
             width: 100%;

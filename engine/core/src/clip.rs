@@ -72,6 +72,27 @@ impl Document {
             .is_some_and(|id| id == base_id)
     }
 
+    pub fn clip_pair_locked(&self, index: usize) -> bool {
+        let Some(layer) = self.layers.get(index) else {
+            return false;
+        };
+        if layer.locked {
+            return true;
+        }
+        if index > 0 {
+            let base = &self.layers[index - 1];
+            if layer.clips_to.as_deref() == Some(base.id.as_str()) && base.locked {
+                return true;
+            }
+        }
+        if let Some(above) = self.layers.get(index + 1) {
+            if above.clips_to.as_deref() == Some(layer.id.as_str()) && above.locked {
+                return true;
+            }
+        }
+        false
+    }
+
     pub fn can_create_clipping_mask(&self, index: usize) -> bool {
         if index == 0 || index >= self.layers.len() {
             return false;
@@ -83,15 +104,15 @@ impl Document {
             return false;
         }
         let base = &self.layers[index - 1];
-        if base.is_paper() || base.tiles().is_none() {
+        if base.is_paper() || !base.is_raster() || base.locked {
             return false;
         }
         let source = &self.layers[index];
-        source.tiles().is_some() || source.content.item().is_some()
+        source.is_raster() && !source.locked
     }
 
     pub fn can_release_clipping_mask(&self, index: usize) -> bool {
-        self.is_layer_clipped(index)
+        self.is_layer_clipped(index) && !self.clip_pair_locked(index)
     }
 
     pub fn create_clipping_mask(&mut self, index: usize) -> bool {
