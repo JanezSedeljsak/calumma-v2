@@ -219,45 +219,46 @@ export component ToolsPanel inherits CalmIsland {
                         root.cancel-crop();
                     }
                 }
+            }
+        }
 
-                CalmDivider { }
+        CalmDivider { }
 
-                VerticalLayout {
-                    spacing: Tokens.space-xs;
+        VerticalLayout {
+            vertical-stretch: 0;
+            spacing: Tokens.space-xs;
 
-                    CalmLabel {
-                        label: root.color-label;
-                        horizontal-alignment: center;
-                    }
+            CalmLabel {
+                label: root.color-label;
+                horizontal-alignment: center;
+            }
 
-                    QuickColorPicker {
-                        swatch0: root.color-swatch0;
-                        swatch1: root.color-swatch1;
-                        swatch2: root.color-swatch2;
-                        swatch3: root.color-swatch3;
-                        active-swatch: root.active-color-swatch;
-                        hue-color: root.color-hue-brush;
-                        primary-tip: root.primary-color-label;
-                        secondary-tip: root.secondary-color-label;
-                        tertiary-tip: root.tertiary-color-label;
-                        quaternary-tip: root.quaternary-color-label;
-                        sb-x <=> root.color-sb-x;
-                        sb-y <=> root.color-sb-y;
-                        hue-x <=> root.color-hue-x;
-                        hex-text <=> root.color-hex-text;
-                        select-swatch(i) => {
-                            root.select-color-swatch(i);
-                        }
-                        sb-changed(x, y) => {
-                            root.color-sb-changed(x, y);
-                        }
-                        hue-changed(x) => {
-                            root.color-hue-changed(x);
-                        }
-                        hex-changed(text) => {
-                            root.color-hex-changed(text);
-                        }
-                    }
+            QuickColorPicker {
+                swatch0: root.color-swatch0;
+                swatch1: root.color-swatch1;
+                swatch2: root.color-swatch2;
+                swatch3: root.color-swatch3;
+                active-swatch: root.active-color-swatch;
+                hue-color: root.color-hue-brush;
+                primary-tip: root.primary-color-label;
+                secondary-tip: root.secondary-color-label;
+                tertiary-tip: root.tertiary-color-label;
+                quaternary-tip: root.quaternary-color-label;
+                sb-x <=> root.color-sb-x;
+                sb-y <=> root.color-sb-y;
+                hue-x <=> root.color-hue-x;
+                hex-text <=> root.color-hex-text;
+                select-swatch(i) => {
+                    root.select-color-swatch(i);
+                }
+                sb-changed(x, y) => {
+                    root.color-sb-changed(x, y);
+                }
+                hue-changed(x) => {
+                    root.color-hue-changed(x);
+                }
+                hex-changed(text) => {
+                    root.color-hex-changed(text);
                 }
             }
         }

@@ -33,6 +33,16 @@ export component LayerSettingsModal inherits Rectangle {
 
     private property <length> popover-width: 260px;
     private property <length> popover-max-height: min(root.height - anchor-y * 1px - Tokens.space-md, 480px);
+    private property <length> sheet-x: root.width - Tokens.layers-panel-width - Tokens.space-xs;
+    private property <length> sheet-y: Tokens.space-xs;
+    private property <length> sheet-width: Tokens.layers-panel-width;
+    private property <length> sheet-height: root.height - Tokens.space-xs * 2;
+
+    out property <length> card-x: root.expanded ? root.sheet-x : popover.x;
+    out property <length> card-y: root.expanded ? root.sheet-y : popover.y;
+    out property <length> card-width: root.expanded ? root.sheet-width : popover.width;
+    out property <length> card-height: root.expanded ? root.sheet-height : popover.height;
+    out property <length> card-radius: root.expanded ? Tokens.radius-island : popover.border-radius;
 
     width: 100%;
     height: 100%;
@@ -48,7 +58,8 @@ export component LayerSettingsModal inherits Rectangle {
         }
     }
 
-    if root.open && !root.expanded: Rectangle {
+    popover := Rectangle {
+        visible: root.open && !root.expanded;
         z: 2;
         width: popover-width;
         height: min(card.preferred-height, popover-max-height);
@@ -149,10 +160,10 @@ export component LayerSettingsModal inherits Rectangle {
 
     if root.open && root.expanded: Rectangle {
         z: 1;
-        width: Tokens.layers-panel-width;
-        height: parent.height - Tokens.space-xs * 2;
-        y: Tokens.space-xs;
-        x: parent.width - self.width - Tokens.space-xs;
+        width: root.sheet-width;
+        height: root.sheet-height;
+        y: root.sheet-y;
+        x: root.sheet-x;
         background: Theme.surface;
         border-radius: Tokens.radius-island;
         border-width: 1px;

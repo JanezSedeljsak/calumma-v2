@@ -2109,6 +2109,15 @@ fn sync_board_geometry(ui: &AppWindow, host: &Rc<RefCell<BoardHost>>, present: b
             radius: ui.get_new_project_chrome_radius(),
         });
     }
+    if ui.get_layer_settings_open() {
+        punch(BoardRect {
+            x: ui.get_layer_settings_chrome_x(),
+            y: ui.get_layer_settings_chrome_y(),
+            width: ui.get_layer_settings_chrome_width(),
+            height: ui.get_layer_settings_chrome_height(),
+            radius: ui.get_layer_settings_chrome_radius(),
+        });
+    }
     if ui.get_project_settings_open() {
         punch(BoardRect {
             x: ui.get_project_settings_chrome_x(),

@@ -238,6 +238,11 @@ export component AppWindow inherits Window {
     out property <length> project-settings-chrome-width: project-settings.card-width;
     out property <length> project-settings-chrome-height: project-settings.card-height;
     out property <length> project-settings-chrome-radius: project-settings.card-radius;
+    out property <length> layer-settings-chrome-x: layer-settings.card-x;
+    out property <length> layer-settings-chrome-y: layer-settings.card-y;
+    out property <length> layer-settings-chrome-width: layer-settings.card-width;
+    out property <length> layer-settings-chrome-height: layer-settings.card-height;
+    out property <length> layer-settings-chrome-radius: layer-settings.card-radius;
     out property <bool> tip-visible: Tip.open && Tip.text != "";
     out property <length> tip-chrome-x: tip.bubble-x;
     out property <length> tip-chrome-y: tip.bubble-y;
@@ -276,7 +281,6 @@ export component AppWindow inherits Window {
 
     out property <bool> overlay-chrome-open: root.loading
         || root.settings-open
-        || root.layer-settings-open
         || root.toast-visible
         || SmartMenu.open;
 
@@ -933,7 +937,7 @@ export component AppWindow inherits Window {
             }
         }
 
-        LayerSettingsModal {
+        layer-settings := LayerSettingsModal {
             z: 20;
             open <=> root.layer-settings-open;
             expanded <=> root.layer-settings-expanded;
