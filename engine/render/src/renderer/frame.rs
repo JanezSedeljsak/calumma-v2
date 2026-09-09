@@ -20,11 +20,7 @@ fn collect_screen_overlays(doc: &Document, elapsed: f32, out: &mut Vec<StrokeIns
             .transform_handles()
             .is_some_and(|(handle_index, _, _)| handle_index == index);
         if !covered {
-            out.extend(layer_highlight_instances(
-                corners,
-                elapsed,
-                doc.camera.zoom,
-            ));
+            out.extend(layer_highlight_instances(corners, elapsed, doc.camera.zoom));
         }
     }
 }
@@ -903,8 +899,7 @@ impl Renderer {
                     bytemuck::cast_slice(&screen_instances),
                 );
             }
-            screen_overlay_range =
-                screen_start..screen_start + screen_instances.len() as u32;
+            screen_overlay_range = screen_start..screen_start + screen_instances.len() as u32;
             self.screen_overlay_start = screen_start;
             self.screen_overlay_scratch = screen_instances;
         }

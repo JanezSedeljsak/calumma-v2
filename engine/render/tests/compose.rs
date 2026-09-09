@@ -412,12 +412,19 @@ fn text_overlay_draws_a_four_edge_box_and_a_caret_that_blinks() {
     );
 
     let visible = text_overlay_instances(&doc, 0.0);
-    assert_eq!(visible.len(), 10, "four outlined edges plus a visible caret");
+    assert_eq!(
+        visible.len(),
+        10,
+        "four outlined edges plus a visible caret"
+    );
     for pair in visible[0..8].chunks(2) {
         assert!(pair[0].brush[0] > pair[1].brush[0]);
         assert_eq!(pair[1].brush[0], 0.5, "box edges use the hairline width");
     }
-    assert_eq!(visible[8].brush[0], 2.0, "the caret border is the thicker stroke");
+    assert_eq!(
+        visible[8].brush[0], 2.0,
+        "the caret border is the thicker stroke"
+    );
     assert_eq!(visible[9].brush[0], 1.0, "the caret is drawn thicker");
 
     let hidden = text_overlay_instances(&doc, 0.7);
