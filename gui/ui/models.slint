@@ -1,0 +1,63 @@
+export struct ProjectTabRow {
+    id: string,
+    name: string,
+    accent: color,
+    active: bool,
+}
+
+export struct RecentRow {
+    id: string,
+    name: string,
+    size-text: string,
+    time-text: string,
+    accent: color,
+    thumb: image,
+}
+
+export struct PresetRow {
+    label: string,
+    width: int,
+    height: int,
+}
+
+export struct LayerRow {
+    index: int,
+    name: string,
+    visible: bool,
+    locked: bool,
+    active: bool,
+    paper: bool,
+    clipped: bool,
+    clip-base: bool,
+    thumb: image,
+}
+
+export struct ToolEntry {
+    id: int,
+    icon: int,
+    tip: string,
+    shortcut: string,
+    enabled: bool,
+    selected: bool,
+}
+
+export struct BrushEntry {
+    id: int,
+    icon: int,
+    tip: string,
+    selected: bool,
+}
+
+export struct FontFamilyRow {
+    name: string,
+    has-bold: bool,
+    has-italic: bool,
+}
+
+export struct GuideRow {
+    index: int,
+    horizontal: bool,
+    offset-text: string,
+    color: color,
+    palette-index: int,
+}

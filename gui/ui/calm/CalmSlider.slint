@@ -1,0 +1,62 @@
+import { Theme } from "CalmTheme.slint";
+
+export component CalmSlider inherits Rectangle {
+    in property <float> minimum: 0;
+    in property <float> maximum: 1;
+    in-out property <float> value: 0;
+
+    callback moved(float);
+    callback released(float);
+
+    height: 20px;
+    min-width: 60px;
+
+    private property <length> knob: 12px;
+    private property <float> fraction: (maximum - minimum) == 0 ? 0 : clamp((value - minimum) / (maximum - minimum), 0, 1);
+
+    Rectangle {
+        y: (parent.height - self.height) / 2;
+        x: root.knob / 2;
+        width: parent.width - root.knob;
+        height: 4px;
+        border-radius: 2px;
+        background: Theme.island-border;
+
+        Rectangle {
+            x: 0;
+            width: parent.width * root.fraction;
+            height: parent.height;
+            border-radius: parent.border-radius;
+            background: Theme.accent-teal;
+        }
+    }
+
+    track-touch := TouchArea {
+        width: 100%;
+        height: 100%;
+        mouse-cursor: pointer;
+
+        pointer-event(event) => {
+            if (event.kind == PointerEventKind.down || (event.kind == PointerEventKind.move && self.pressed)) {
+                let track = parent.width - root.knob;
+                let next = clamp((self.mouse-x - root.knob / 2) / max(track, 1px), 0, 1);
+                root.value = root.minimum + next * (root.maximum - root.minimum);
+                root.moved(root.value);
+            }
+            if (event.kind == PointerEventKind.up) {
+                root.released(root.value);
+            }
+        }
+    }
+
+    Rectangle {
+        x: root.fraction * (parent.width - root.knob);
+        y: (parent.height - root.knob) / 2;
+        width: root.knob;
+        height: root.knob;
+        border-radius: self.width / 2;
+        background: Theme.surface;
+        border-width: 1px;
+        border-color: track-touch.pressed || track-touch.has-hover ? Theme.control-focus-border : Theme.control-border;
+    }
+}

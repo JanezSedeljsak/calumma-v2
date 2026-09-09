@@ -1,0 +1,136 @@
+import { Theme } from "calm/CalmTheme.slint";
+import { Tokens } from "calm/CalmTokens.slint";
+import { CalmScrollView } from "calm/CalmScrollView.slint";
+import { CalmPointer } from "calm/CalmPointer.slint";
+import { LayerSettingsBody } from "layer-settings-body.slint";
+
+export component LayerSettingsModal inherits Rectangle {
+    in-out property <bool> open;
+    in property <length> board-x;
+    in property <length> board-y;
+    in property <length> board-width;
+    in property <length> board-height;
+
+    callback dismissed();
+    callback toggle-visibility();
+    callback toggle-lock();
+    callback opacity-changed(float);
+    callback blend-changed(int);
+    callback filter-changed(int, float);
+    callback reset-filters();
+    callback rename-layer(string);
+    callback toggle-clip();
+    callback flatten-clip();
+    callback merge-down();
+    callback reset-transform();
+    callback move-up();
+    callback move-down();
+    callback rasterize-layer();
+    callback export-layer();
+    callback duplicate-layer();
+    callback delete-layer();
+
+    private property <length> card-max-height: max(Tokens.control-height * 8, root.board-height - Tokens.space-md * 2);
+
+    out property <length> card-x: card.absolute-position.x;
+    out property <length> card-y: card.absolute-position.y;
+    out property <length> card-width: card.width;
+    out property <length> card-height: card.height;
+    out property <length> card-radius: card.border-radius;
+
+    width: 100%;
+    height: 100%;
+    visible: root.open;
+
+    if root.open: CalmPointer {
+        x: root.board-x;
+        y: root.board-y;
+        width: root.board-width;
+        height: root.board-height;
+        clicked => {
+            root.open = false;
+            root.dismissed();
+        }
+    }
+
+    card := Rectangle {
+        visible: root.open;
+        z: 2;
+        width: Tokens.layer-settings-card-width;
+        height: min(body.preferred-height + Tokens.space-md * 2, root.card-max-height);
+        x: root.board-x + root.board-width - self.width - Tokens.space-md;
+        y: root.board-y + (root.board-height - self.height) / 2;
+        background: Theme.surface;
+        border-radius: Tokens.radius-md;
+        border-width: 1px;
+        border-color: Theme.island-border;
+        drop-shadow-blur: 16px;
+        drop-shadow-offset-y: 4px;
+        drop-shadow-color: Theme.shadow;
+        clip: true;
+
+        dismiss-swallow := CalmPointer { }
+
+        CalmScrollView {
+            x: Tokens.space-md;
+            y: Tokens.space-md;
+            width: parent.width - Tokens.space-md * 2;
+            height: parent.height - Tokens.space-md * 2;
+
+            body := LayerSettingsBody {
+                compact: false;
+                toggle-visibility => {
+                    root.toggle-visibility();
+                }
+                toggle-lock => {
+                    root.toggle-lock();
+                }
+                opacity-changed(v) => {
+                    root.opacity-changed(v);
+                }
+                blend-changed(mode) => {
+                    root.blend-changed(mode);
+                }
+                filter-changed(kind, value) => {
+                    root.filter-changed(kind, value);
+                }
+                reset-filters => {
+                    root.reset-filters();
+                }
+                rename-layer(text) => {
+                    root.rename-layer(text);
+                }
+                toggle-clip => {
+                    root.toggle-clip();
+                }
+                flatten-clip => {
+                    root.flatten-clip();
+                }
+                merge-down => {
+                    root.merge-down();
+                }
+                reset-transform => {
+                    root.reset-transform();
+                }
+                move-up => {
+                    root.move-up();
+                }
+                move-down => {
+                    root.move-down();
+                }
+                rasterize-layer => {
+                    root.rasterize-layer();
+                }
+                export-layer => {
+                    root.export-layer();
+                }
+                duplicate-layer => {
+                    root.duplicate-layer();
+                }
+                delete-layer => {
+                    root.delete-layer();
+                }
+            }
+        }
+    }
+}

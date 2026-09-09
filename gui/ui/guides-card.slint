@@ -1,0 +1,250 @@
+import { GuideRow } from "models.slint";
+import { Theme } from "calm/CalmTheme.slint";
+import { Tokens } from "calm/CalmTokens.slint";
+import { CalmModal, CalmModalCard } from "calm/CalmModal.slint";
+import { CalmButton } from "calm/CalmButton.slint";
+import { CalmField } from "calm/CalmField.slint";
+import { CalmPointer } from "calm/CalmPointer.slint";
+import { CalmPalettePopover } from "calm/CalmPalettePopover.slint";
+import { CalmMuted, CalmTitle } from "calm/CalmText.slint";
+import { CalmScrollView } from "calm/CalmScrollView.slint";
+import { CalmIconButton } from "calm/CalmToolButton.slint";
+import { CalmDivider } from "calm/CalmDivider.slint";
+
+component EdgeChip inherits Rectangle {
+    in property <string> text;
+    in property <bool> selected;
+
+    callback clicked();
+
+    height: Tokens.control-height;
+    border-radius: Tokens.radius-sm;
+    background: selected ? Theme.surface-hover : transparent;
+
+    touch := CalmPointer {
+        clicked => {
+            root.clicked();
+        }
+    }
+
+    Text {
+        width: 100%;
+        height: 100%;
+        text: root.text;
+        color: selected ? Theme.text : Theme.text-muted;
+        font-size: Tokens.label-size;
+        font-weight: selected ? 600 : 400;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+}
+
+export component GuidesCard inherits Rectangle {
+    in-out property <bool> open;
+    in property <bool> dim-scrim: true;
+    in property <string> title-text;
+    in property <string> hint-text;
+    in property <string> empty-text;
+    in property <string> add-label;
+    in property <string> full-text;
+    in property <string> top-label;
+    in property <string> left-label;
+    in property <string> delete-tip;
+    in property <string> clear-label;
+    in property <[GuideRow]> guides;
+    in property <[color]> palette;
+    in property <bool> can-add;
+    in-out property <bool> add-horizontal;
+    in-out property <string> add-offset;
+
+    callback dismissed();
+    callback add-guide();
+    callback remove-guide(int);
+    callback clear-guides();
+    callback set-axis(int, bool);
+    callback set-offset(int, string);
+    callback set-color(int, int);
+
+    private property <image> icon-trash: @image-url("trash.svg");
+
+    out property <length> card-x: card.absolute-position.x;
+    out property <length> card-y: card.absolute-position.y;
+    out property <length> card-width: card.width;
+    out property <length> card-height: card.height;
+    out property <length> card-radius: card.border-radius;
+
+    width: 100%;
+    height: 100%;
+    visible: open;
+
+    CalmModal {
+        open <=> root.open;
+        dim-scrim: root.dim-scrim;
+        dismissed => {
+            root.dismissed();
+        }
+
+        card := CalmModalCard {
+            z: 1;
+            width: min(Tokens.guides-card-width, parent.width - Tokens.space-xl * 2);
+            height: min(Tokens.guides-card-max-height, parent.height - Tokens.space-xl * 2);
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            clip: true;
+
+            VerticalLayout {
+                padding: Tokens.space-lg;
+                spacing: Tokens.space-md;
+
+                HorizontalLayout {
+                    CalmTitle {
+                        text: root.title-text;
+                        strong: true;
+                        horizontal-stretch: 1;
+                    }
+                    close-touch := CalmPointer {
+                        width: Tokens.space-lg;
+                        Text {
+                            text: "×";
+                            font-size: Tokens.title-size;
+                            color: close-touch.has-hover ? Theme.text : Theme.text-muted;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+                        clicked => {
+                            root.open = false;
+                            root.dismissed();
+                        }
+                    }
+                }
+
+                CalmMuted {
+                    text: root.hint-text;
+                }
+
+                if root.guides.length == 0: CalmMuted {
+                    text: root.empty-text;
+                    vertical-stretch: 1;
+                }
+
+                if root.guides.length > 0: CalmScrollView {
+                    vertical-stretch: 1;
+
+                    VerticalLayout {
+                        spacing: Tokens.space-sm;
+                        alignment: start;
+
+                        for row in root.guides: HorizontalLayout {
+                            spacing: Tokens.space-sm;
+                            height: Tokens.control-height;
+
+                            EdgeChip {
+                                text: root.top-label;
+                                selected: row.horizontal;
+                                width: 44px;
+                                clicked => {
+                                    root.set-axis(row.index, true);
+                                }
+                            }
+                            EdgeChip {
+                                text: root.left-label;
+                                selected: !row.horizontal;
+                                width: 44px;
+                                clicked => {
+                                    root.set-axis(row.index, false);
+                                }
+                            }
+
+                            CalmField {
+                                horizontal-stretch: 1;
+                                text: row.offset-text;
+                                mono: true;
+                                accepted(text) => {
+                                    root.set-offset(row.index, text);
+                                }
+                            }
+
+                            CalmPalettePopover {
+                                palette: root.palette;
+                                selected-index: row.palette-index;
+                                well-size: Tokens.control-height;
+                                picked(index) => {
+                                    root.set-color(row.index, index);
+                                }
+                            }
+
+                            CalmIconButton {
+                                icon: root.icon-trash;
+                                tip: root.delete-tip;
+                                y: (parent.height - self.height) / 2;
+                                clicked => {
+                                    root.remove-guide(row.index);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                CalmDivider { }
+
+                HorizontalLayout {
+                    spacing: Tokens.space-sm;
+
+                    EdgeChip {
+                        text: root.top-label;
+                        selected: root.add-horizontal;
+                        width: 44px;
+                        clicked => {
+                            root.add-horizontal = true;
+                        }
+                    }
+                    EdgeChip {
+                        text: root.left-label;
+                        selected: !root.add-horizontal;
+                        width: 44px;
+                        clicked => {
+                            root.add-horizontal = false;
+                        }
+                    }
+                    CalmField {
+                        horizontal-stretch: 1;
+                        text <=> root.add-offset;
+                        mono: true;
+                        accepted(text) => {
+                            root.add-offset = text;
+                            if (root.can-add) {
+                                root.add-guide();
+                            }
+                        }
+                    }
+                    Rectangle {
+                        width: Tokens.control-height;
+                        height: Tokens.control-height;
+                        border-radius: self.height / 2;
+                        background: root.palette.length > 1 ? root.palette[1] : Theme.accent-teal;
+                    }
+                    CalmButton {
+                        text: root.add-label;
+                        enabled: root.can-add;
+                        clicked => {
+                            root.add-guide();
+                        }
+                    }
+                }
+
+                if !root.can-add: CalmMuted {
+                    text: root.full-text;
+                }
+
+                CalmButton {
+                    text: root.clear-label;
+                    enabled: root.guides.length > 0;
+                    fill: true;
+                    clicked => {
+                        root.clear-guides();
+                    }
+                }
+            }
+        }
+    }
+}

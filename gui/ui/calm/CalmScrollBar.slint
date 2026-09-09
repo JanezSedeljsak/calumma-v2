@@ -1,0 +1,31 @@
+import { Theme } from "CalmTheme.slint";
+
+export component CalmScrollBar inherits Rectangle {
+    in property <bool> box-hovered;
+    in property <float> scroll-fraction;
+    in property <float> visible-fraction: 1.0;
+    in property <length> track-length;
+
+    width: 8px;
+    height: track-length;
+
+    touch := TouchArea {
+        width: 100%;
+        height: 100%;
+    }
+
+    out property <bool> chrome-visible: (box-hovered || touch.has-hover || touch.pressed) && visible-fraction < 1.0;
+    property <length> thumb-length: max(24px, track-length * visible-fraction);
+    property <length> thumb-offset: (track-length - thumb-length) * scroll-fraction;
+
+    visible: chrome-visible;
+
+    if chrome-visible: Rectangle {
+        x: 1px;
+        y: thumb-offset + 2px;
+        width: 6px;
+        height: thumb-length - 4px;
+        border-radius: 3px;
+        background: touch.pressed ? Theme.text : (touch.has-hover ? Theme.text-muted : Theme.island-border);
+    }
+}

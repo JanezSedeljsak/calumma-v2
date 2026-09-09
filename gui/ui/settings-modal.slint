@@ -1,0 +1,207 @@
+import { Theme } from "calm/CalmTheme.slint";
+import { Tokens } from "calm/CalmTokens.slint";
+import { CalmModal, CalmModalCard } from "calm/CalmModal.slint";
+import { CalmPointer } from "calm/CalmPointer.slint";
+import { CalmSurface } from "calm/CalmSurface.slint";
+import { CalmBody, CalmLabel, CalmMuted, CalmTitle } from "calm/CalmText.slint";
+
+component ThemeSegment inherits Rectangle {
+    in property <string> text;
+    in property <bool> selected;
+
+    callback clicked();
+
+    horizontal-stretch: 1;
+    height: 100%;
+    border-radius: Tokens.radius-sm;
+    background: selected ? Theme.surface-hover : transparent;
+
+    touch := CalmPointer {
+        width: 100%;
+        height: 100%;
+        clicked => {
+            root.clicked();
+        }
+    }
+
+    Text {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        text: root.text;
+        color: selected ? Theme.text : Theme.text-muted;
+        font-weight: selected ? 600 : 500;
+        font-size: Tokens.body-size;
+    }
+}
+
+component LanguageRow inherits CalmSurface {
+    in property <string> text;
+    in property <bool> selected;
+
+    callback clicked();
+
+    hover: selected;
+    height: Tokens.control-height + Tokens.space-md;
+
+    touch := CalmPointer {
+        clicked => {
+            root.clicked();
+        }
+    }
+
+    CalmBody {
+        x: Tokens.space-md;
+        height: 100%;
+        text: root.text;
+        strong: root.selected;
+    }
+}
+
+export component SettingsModal inherits Rectangle {
+    in-out property <bool> open;
+    in property <bool> dim-scrim: true;
+
+    in property <string> title-text;
+    in property <string> theme-label;
+    in property <string> theme-light-label;
+    in property <string> theme-dark-label;
+    in property <string> language-label;
+    in property <string> language-name;
+    in property <string> memory-label;
+    in property <string> memory-value;
+    in property <string> version-label;
+    in property <string> version-value;
+
+    in property <bool> theme-is-dark;
+    in property <bool> language-is-en;
+
+    callback dismissed();
+    callback set-theme-light();
+    callback set-theme-dark();
+    callback set-language-en();
+
+    width: 100%;
+    height: 100%;
+    visible: open;
+
+    CalmModal {
+        open <=> root.open;
+        dim-scrim: root.dim-scrim;
+        dismissed => {
+            root.dismissed();
+        }
+
+        CalmModalCard {
+            z: 1;
+            width: 360px;
+            height: 380px;
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+
+            VerticalLayout {
+                padding: Tokens.space-xl;
+                spacing: Tokens.space-xl;
+
+                HorizontalLayout {
+                    CalmTitle {
+                        text: root.title-text;
+                        strong: true;
+                        horizontal-stretch: 1;
+                    }
+                    close-touch := CalmPointer {
+                        width: Tokens.space-lg;
+                        Text {
+                            text: "×";
+                            font-size: Tokens.title-size;
+                            color: close-touch.has-hover ? Theme.text : Theme.text-muted;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+                        clicked => {
+                            root.open = false;
+                            root.dismissed();
+                        }
+                    }
+                }
+
+                VerticalLayout {
+                    spacing: Tokens.space-sm;
+
+                    CalmLabel {
+                        label: root.theme-label;
+                    }
+
+                    Rectangle {
+                        height: Tokens.control-height;
+                        border-radius: Tokens.radius-md;
+                        background: Theme.surface;
+                        border-width: 1px;
+                        border-color: Theme.control-border;
+
+                        HorizontalLayout {
+                            padding: 3px;
+                            spacing: 3px;
+
+                            ThemeSegment {
+                                text: root.theme-light-label;
+                                selected: !root.theme-is-dark;
+                                clicked => {
+                                    root.set-theme-light();
+                                }
+                            }
+                            ThemeSegment {
+                                text: root.theme-dark-label;
+                                selected: root.theme-is-dark;
+                                clicked => {
+                                    root.set-theme-dark();
+                                }
+                            }
+                        }
+                    }
+                }
+
+                VerticalLayout {
+                    spacing: Tokens.space-sm;
+
+                    CalmLabel {
+                        label: root.language-label;
+                    }
+
+                    LanguageRow {
+                        text: root.language-name;
+                        selected: root.language-is-en;
+                        clicked => {
+                            root.set-language-en();
+                        }
+                    }
+                }
+
+                HorizontalLayout {
+                    CalmLabel {
+                        label: root.memory-label;
+                        horizontal-stretch: 1;
+                    }
+                    CalmMuted {
+                        text: root.memory-value;
+                        mono: true;
+                    }
+                }
+
+                HorizontalLayout {
+                    CalmLabel {
+                        label: root.version-label;
+                        horizontal-stretch: 1;
+                    }
+                    CalmMuted {
+                        text: root.version-value;
+                        mono: true;
+                    }
+                }
+
+                Rectangle {
+                    vertical-stretch: 1;
+                }
+            }
+        }
+    }
+}

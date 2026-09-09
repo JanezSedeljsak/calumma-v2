@@ -1,0 +1,311 @@
+import { ToolEntry } from "models.slint";
+import { Theme } from "calm/CalmTheme.slint";
+import { Tokens } from "calm/CalmTokens.slint";
+import { CalmScrollView } from "calm/CalmScrollView.slint";
+import { CalmIsland } from "calm/CalmIsland.slint";
+import { CalmDivider } from "calm/CalmDivider.slint";
+import { CalmPointer } from "calm/CalmPointer.slint";
+import { CalmToolButton } from "calm/CalmToolButton.slint";
+import { CalmLabel } from "calm/CalmText.slint";
+import { QuickColorPicker } from "quick-color-picker.slint";
+import { ToolOptions } from "tool-options.slint";
+import { SmartMenu } from "smart-menu.slint";
+import { Tip } from "calm/CalmTip.slint";
+
+component ToolGrid inherits VerticalLayout {
+    in property <[ToolEntry]> tools;
+    in property <[image]> icons;
+
+    callback pick(int);
+
+    spacing: Tokens.tool-grid-gap;
+
+    for row in [0, 1, 2, 3]: HorizontalLayout {
+        spacing: Tokens.tool-grid-gap;
+
+        for column in [0, 1, 2]: Rectangle {
+            horizontal-stretch: 1;
+            height: Tokens.tool-button-size;
+
+            if row * 3 + column < root.tools.length: CalmToolButton {
+                x: (parent.width - self.width) / 2;
+                icon: root.icons[root.tools[row * 3 + column].icon];
+                tip: root.tools[row * 3 + column].tip;
+                shortcut: root.tools[row * 3 + column].shortcut;
+                enabled: root.tools[row * 3 + column].enabled;
+                selected: root.tools[row * 3 + column].selected;
+                clicked => {
+                    root.pick(root.tools[row * 3 + column].id);
+                }
+            }
+        }
+    }
+}
+
+export component ToolsPanel inherits CalmIsland {
+    in property <[ToolEntry]> tools;
+    in property <string> active-tool-label;
+
+    in property <string> color-label;
+    in property <string> tools-menu-title;
+    in property <bool> tools-busy;
+    in property <string> upscale-label;
+    in property <string> smart-matte-label;
+    in property <string> seam-carve-label;
+    in property <bool> can-upscale;
+    in property <bool> can-smart-matte;
+    in property <bool> can-seam-carve;
+
+    in property <brush> color-swatch0;
+    in property <brush> color-swatch1;
+    in property <brush> color-swatch2;
+    in property <brush> color-swatch3;
+    in property <int> active-color-swatch;
+    in property <color> color-hue-brush;
+    in property <string> primary-color-label;
+    in property <string> secondary-color-label;
+    in property <string> tertiary-color-label;
+    in property <string> quaternary-color-label;
+    in-out property <float> color-sb-x;
+    in-out property <float> color-sb-y;
+    in-out property <float> color-hue-x;
+    in-out property <string> color-hex-text;
+
+    callback pick-tool(int);
+    callback pick-brush(int);
+    callback brush-size-changed(float);
+    callback brush-size-committed(string);
+    callback ink-opacity-changed(float);
+    callback blur-changed(float);
+    callback hardness-changed(float);
+    callback tolerance-changed(float);
+    callback eyedropper-changed(float);
+    callback fill-toggled();
+    callback stroke-toggled();
+    callback vector-toggled();
+    callback aligned-toggled();
+    callback transform-toggled();
+    callback crop-aspect-changed(int);
+    callback crop-overlay-changed(int);
+    callback commit-crop();
+    callback cancel-crop();
+    callback select-color-swatch(int);
+    callback color-sb-changed(float, float);
+    callback color-hue-changed(float);
+    callback color-hex-changed(string);
+    callback run-upscale();
+    callback run-smart-matte();
+    callback run-seam-carve();
+
+    private property <[image]> tool-icons: [
+        @image-url("move.svg"),
+        @image-url("select-rect.svg"),
+        @image-url("pen.svg"),
+        @image-url("eraser.svg"),
+        @image-url("blur.svg"),
+        @image-url("clone.svg"),
+        @image-url("heal.svg"),
+        @image-url("shape.svg"),
+        @image-url("bucket.svg"),
+        @image-url("eyedropper.svg"),
+        @image-url("text.svg"),
+        @image-url("crop.svg"),
+        @image-url("line.svg"),
+        @image-url("ellipse.svg"),
+        @image-url("arrow.svg"),
+        @image-url("triangle.svg"),
+        @image-url("pentagon.svg"),
+        @image-url("select-ellipse.svg"),
+        @image-url("select-lasso.svg"),
+        @image-url("magic-wand.svg"),
+        @image-url("select-color.svg"),
+        @image-url("transform.svg"),
+    ];
+    private property <[image]> brush-icons: [
+        @image-url("pen.svg"),
+        @image-url("marker.svg"),
+        @image-url("crayon.svg"),
+        @image-url("airbrush.svg"),
+    ];
+    private property <image> icon-ai: @image-url("ai.svg");
+
+    width: Tokens.tools-panel-width;
+    island-padding: Tokens.space-xs;
+
+    VerticalLayout {
+        x: root.island-padding;
+        y: root.island-padding;
+        width: parent.width - root.island-padding * 2;
+        height: parent.height - root.island-padding * 2;
+        spacing: Tokens.space-sm;
+
+        ToolGrid {
+            tools: root.tools;
+            icons: root.tool-icons;
+            pick(id) => {
+                root.pick-tool(id);
+            }
+        }
+
+        CalmDivider { }
+
+        CalmScrollView {
+            vertical-stretch: 1;
+
+            VerticalLayout {
+                spacing: Tokens.space-sm;
+                alignment: start;
+
+                CalmLabel {
+                    label: root.active-tool-label;
+                    horizontal-alignment: center;
+                }
+
+                ToolOptions {
+                    tool-icons: root.tool-icons;
+                    brush-icons: root.brush-icons;
+                    pick-tool(id) => {
+                        root.pick-tool(id);
+                    }
+                    pick-brush(id) => {
+                        root.pick-brush(id);
+                    }
+                    brush-size-changed(v) => {
+                        root.brush-size-changed(v);
+                    }
+                    brush-size-committed(text) => {
+                        root.brush-size-committed(text);
+                    }
+                    ink-opacity-changed(v) => {
+                        root.ink-opacity-changed(v);
+                    }
+                    blur-changed(v) => {
+                        root.blur-changed(v);
+                    }
+                    hardness-changed(v) => {
+                        root.hardness-changed(v);
+                    }
+                    tolerance-changed(v) => {
+                        root.tolerance-changed(v);
+                    }
+                    eyedropper-changed(v) => {
+                        root.eyedropper-changed(v);
+                    }
+                    fill-toggled => {
+                        root.fill-toggled();
+                    }
+                    stroke-toggled => {
+                        root.stroke-toggled();
+                    }
+                    vector-toggled => {
+                        root.vector-toggled();
+                    }
+                    aligned-toggled => {
+                        root.aligned-toggled();
+                    }
+                    transform-toggled => {
+                        root.transform-toggled();
+                    }
+                    crop-aspect-changed(index) => {
+                        root.crop-aspect-changed(index);
+                    }
+                    crop-overlay-changed(index) => {
+                        root.crop-overlay-changed(index);
+                    }
+                    commit-crop => {
+                        root.commit-crop();
+                    }
+                    cancel-crop => {
+                        root.cancel-crop();
+                    }
+                }
+            }
+        }
+
+        CalmDivider { }
+
+        VerticalLayout {
+            vertical-stretch: 0;
+            spacing: Tokens.space-xs;
+
+            CalmLabel {
+                label: root.color-label;
+                horizontal-alignment: center;
+            }
+
+            QuickColorPicker {
+                swatch0: root.color-swatch0;
+                swatch1: root.color-swatch1;
+                swatch2: root.color-swatch2;
+                swatch3: root.color-swatch3;
+                active-swatch: root.active-color-swatch;
+                hue-color: root.color-hue-brush;
+                primary-tip: root.primary-color-label;
+                secondary-tip: root.secondary-color-label;
+                tertiary-tip: root.tertiary-color-label;
+                quaternary-tip: root.quaternary-color-label;
+                sb-x <=> root.color-sb-x;
+                sb-y <=> root.color-sb-y;
+                hue-x <=> root.color-hue-x;
+                hex-text <=> root.color-hex-text;
+                select-swatch(i) => {
+                    root.select-color-swatch(i);
+                }
+                sb-changed(x, y) => {
+                    root.color-sb-changed(x, y);
+                }
+                hue-changed(x) => {
+                    root.color-hue-changed(x);
+                }
+                hex-changed(text) => {
+                    root.color-hex-changed(text);
+                }
+            }
+        }
+
+        CalmDivider { }
+
+        menu-touch := CalmPointer {
+            height: Tokens.control-height;
+            clicked => {
+                Tip.armed = false;
+                Tip.open = false;
+                SmartMenu.x = root.absolute-position.x + root.island-padding;
+                SmartMenu.width = root.width - root.island-padding * 2;
+                SmartMenu.y = self.absolute-position.y;
+                SmartMenu.open = true;
+            }
+            changed has-hover => {
+                if (self.has-hover) {
+                    Tip.text = root.tools-menu-title;
+                    Tip.shortcut = "";
+                    Tip.leading = false;
+                    Tip.x = root.absolute-position.x + root.width + Tokens.space-sm;
+                    Tip.y = self.absolute-position.y + self.height / 2;
+                    Tip.open = false;
+                    Tip.armed = true;
+                } else if (Tip.text == root.tools-menu-title) {
+                    Tip.armed = false;
+                    Tip.open = false;
+                }
+            }
+
+            HorizontalLayout {
+                spacing: Tokens.space-xs;
+                alignment: center;
+
+                Image {
+                    source: root.icon-ai;
+                    width: 14px;
+                    height: 14px;
+                    colorize: root.tools-busy ? Theme.accent-teal : Theme.text-muted;
+                    y: (parent.height - self.height) / 2;
+                }
+
+                CalmLabel {
+                    label: root.tools-menu-title;
+                }
+            }
+        }
+    }
+}

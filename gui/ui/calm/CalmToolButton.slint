@@ -1,0 +1,106 @@
+import { Theme } from "CalmTheme.slint";
+import { Tokens } from "CalmTokens.slint";
+import { CalmPointer } from "CalmPointer.slint";
+import { Tip } from "CalmTip.slint";
+
+export component CalmToolButton inherits Rectangle {
+    in property <bool> selected;
+    in property <bool> enabled: true;
+    in property <image> icon;
+    in property <brush> icon-tint;
+    in property <bool> has-icon-tint: false;
+    in property <string> tip;
+    in property <string> shortcut;
+    in property <bool> tip-leading: false;
+
+    callback clicked();
+
+    width: Tokens.tool-button-size;
+    height: Tokens.tool-button-size;
+    border-radius: Tokens.radius-sm;
+    background: selected && enabled ? Theme.surface-hover : transparent;
+    opacity: enabled ? 1.0 : Tokens.disabled-opacity;
+
+    touch := CalmPointer {
+        enabled: root.enabled;
+        clicked => {
+            Tip.armed = false;
+            Tip.open = false;
+            root.clicked();
+        }
+        changed has-hover => {
+            if (self.has-hover && root.tip != "") {
+                Tip.text = root.tip;
+                Tip.shortcut = root.shortcut;
+                Tip.leading = root.tip-leading;
+                Tip.x = root.tip-leading
+                    ? root.absolute-position.x - Tokens.space-sm
+                    : root.absolute-position.x + root.width + Tokens.space-sm;
+                Tip.y = root.absolute-position.y + root.height / 2;
+                Tip.open = false;
+                Tip.armed = true;
+            } else if (Tip.text == root.tip) {
+                Tip.armed = false;
+                Tip.open = false;
+            }
+        }
+    }
+
+    Image {
+        source: root.icon;
+        width: Tokens.tool-icon-size;
+        height: Tokens.tool-icon-size;
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        colorize: has-icon-tint ? icon-tint : (selected && enabled ? Theme.accent-teal : Theme.text-muted);
+        image-fit: contain;
+    }
+}
+
+export component CalmIconButton inherits Rectangle {
+    in property <image> icon;
+    in property <brush> tint: Theme.text-muted;
+    in property <length> icon-size: Tokens.row-icon-size;
+    in property <bool> enabled: true;
+    in property <string> tip;
+    in property <bool> tip-leading: true;
+
+    callback clicked();
+
+    width: icon-size;
+    height: icon-size;
+
+    touch := CalmPointer {
+        enabled: root.enabled;
+        clicked => {
+            Tip.armed = false;
+            Tip.open = false;
+            root.clicked();
+        }
+        changed has-hover => {
+            if (self.has-hover && root.tip != "") {
+                Tip.text = root.tip;
+                Tip.shortcut = "";
+                Tip.leading = root.tip-leading;
+                Tip.x = root.tip-leading
+                    ? root.absolute-position.x - Tokens.space-sm
+                    : root.absolute-position.x + root.width + Tokens.space-sm;
+                Tip.y = root.absolute-position.y + root.height / 2;
+                Tip.open = false;
+                Tip.armed = true;
+            } else if (Tip.text == root.tip) {
+                Tip.armed = false;
+                Tip.open = false;
+            }
+        }
+    }
+
+    Image {
+        source: root.icon;
+        width: parent.width;
+        height: parent.height;
+        colorize: root.tint;
+        image-fit: contain;
+        opacity: touch.has-hover ? 1.0 : 0.86;
+    }
+}

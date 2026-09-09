@@ -1,0 +1,577 @@
+import { LayerRow, ToolEntry } from "models.slint";
+import { Theme } from "calm/CalmTheme.slint";
+import { Tokens } from "calm/CalmTokens.slint";
+import { CalmIsland } from "calm/CalmIsland.slint";
+import { CalmPointer } from "calm/CalmPointer.slint";
+import { CalmMuted } from "calm/CalmText.slint";
+import { Tip } from "calm/CalmTip.slint";
+import { ToolsPanel } from "tools-panel.slint";
+import { LayersPanel, LayerHoverCard } from "layers-panel.slint";
+import { ZoomPill } from "zoom-pill.slint";
+import { CanvasSkeleton } from "canvas-skeleton.slint";
+import { RulerStrip, RulerTickRow } from "ruler.slint";
+
+export component Editor inherits Rectangle {
+    in property <bool> layers-open;
+    in property <string> layers-title;
+    in property <string> add-layer-tip;
+    in property <string> layer-visibility-tip;
+    in property <string> layer-settings-tip;
+    in property <string> delete-layer-tip;
+    in property <string> width-label;
+    in property <string> height-label;
+    in property <string> bounds-label;
+    in property <string> bounds-x-label;
+    in property <string> bounds-y-label;
+    in-out property <string> doc-width-text;
+    in-out property <string> doc-height-text;
+    in-out property <string> layer-x-text;
+    in-out property <string> layer-y-text;
+    in-out property <string> layer-w-text;
+    in-out property <string> layer-h-text;
+    in property <[LayerRow]> layers;
+
+    in property <bool> hover-preview-visible;
+    in property <string> hover-preview-name;
+    in property <image> hover-preview-image;
+    in property <bool> layer-settings-open;
+
+    in property <int> active-tool;
+    in property <[ToolEntry]> tools;
+    in property <string> active-tool-label;
+
+    in-out property <float> zoom-unit;
+    in property <string> zoom-text;
+    in property <bool> is-fit;
+    in property <string> zoom-in-tip;
+    in property <string> zoom-out-tip;
+    in property <string> fit-tip;
+
+    in property <bool> loading;
+    in property <float> loading-doc-width;
+    in property <float> loading-doc-height;
+
+    in property <bool> tools-busy;
+    in property <string> tools-menu-title;
+    in property <string> upscale-label;
+    in property <string> smart-matte-label;
+    in property <string> seam-carve-label;
+    in property <bool> can-upscale;
+    in property <bool> can-smart-matte;
+    in property <bool> can-seam-carve;
+
+    in property <string> color-label;
+    in property <brush> color-swatch0;
+    in property <brush> color-swatch1;
+    in property <brush> color-swatch2;
+    in property <brush> color-swatch3;
+    in property <int> active-color-swatch;
+    in property <color> color-hue-brush;
+    in property <string> primary-color-label;
+    in property <string> secondary-color-label;
+    in property <string> tertiary-color-label;
+    in property <string> quaternary-color-label;
+    in-out property <float> color-sb-x;
+    in-out property <float> color-sb-y;
+    in-out property <float> color-hue-x;
+    in-out property <string> color-hex-text;
+
+    out property <length> board-x: board-surface.absolute-position.x;
+    out property <length> board-y: board-surface.absolute-position.y;
+    out property <length> board-width: board-surface.width;
+    out property <length> board-height: board-surface.height;
+    out property <length> zoom-chrome-x: zoom-pill.absolute-position.x;
+    out property <length> zoom-chrome-y: zoom-pill.absolute-position.y;
+    out property <length> zoom-chrome-width: zoom-pill.width;
+    out property <length> zoom-chrome-height: zoom-pill.height;
+    out property <length> zoom-chrome-radius: zoom-pill.border-radius;
+    out property <length> hover-chrome-x: hover-card.absolute-position.x;
+    out property <length> hover-chrome-y: hover-card.absolute-position.y;
+    out property <length> hover-chrome-width: hover-card.width;
+    out property <length> hover-chrome-height: hover-card.height;
+    out property <length> hover-chrome-radius: hover-card.border-radius;
+
+    function strip-to-board-x(strip-x: length, local-x: length) -> float {
+        (strip-x + local-x - board-surface.absolute-position.x) / 1px;
+    }
+
+    function strip-to-board-y(strip-y: length, local-y: length) -> float {
+        (strip-y + local-y - board-surface.absolute-position.y) / 1px;
+    }
+
+    in property <[RulerTickRow]> ruler-ticks-x;
+    in property <[RulerTickRow]> ruler-ticks-y;
+    in property <string> guides-tip;
+    in property <bool> guide-readout-visible;
+    in property <bool> guide-readout-horizontal;
+    in property <string> guide-readout-text;
+    in property <float> guide-readout-screen;
+
+    callback open-guides();
+    callback guide-pressed(bool, float, float);
+    callback guide-moved(float, float);
+    callback guide-released();
+    callback pick-tool(int);
+    callback pick-brush(int);
+    callback brush-size-changed(float);
+    callback brush-size-committed(string);
+    callback ink-opacity-changed(float);
+    callback blur-changed(float);
+    callback hardness-changed(float);
+    callback tolerance-changed(float);
+    callback eyedropper-changed(float);
+    callback fill-toggled();
+    callback stroke-toggled();
+    callback vector-toggled();
+    callback aligned-toggled();
+    callback transform-toggled();
+    callback crop-aspect-changed(int);
+    callback crop-overlay-changed(int);
+    callback commit-crop();
+    callback cancel-crop();
+    callback zoom-changed(float);
+    callback step-zoom(bool);
+    callback fit-zoom();
+    callback add-layer();
+    callback pick-layer(int);
+    callback toggle-layer-visible(int);
+    callback open-layer-settings(int, float, float);
+    callback delete-layer(int);
+    callback rename-layer(int, string);
+    callback reorder-layer(int, int);
+    callback hover-layer(int);
+    callback clear-layer-hover();
+    callback commit-layer-bounds(string, string, string, string);
+    callback commit-canvas-size(string, string);
+    callback run-upscale();
+    callback run-smart-matte();
+    callback run-seam-carve();
+    callback select-color-swatch(int);
+    callback color-sb-changed(float, float);
+    callback color-hue-changed(float);
+    callback color-hex-changed(string);
+    callback pointer-pressed(float, float, bool, bool, bool, bool);
+    callback pointer-moved(float, float);
+    callback pointer-released(float, float);
+    callback pointer-enter();
+    callback pointer-exit();
+    callback scrolled(float, float, float, float, bool, bool);
+    callback pinch-started();
+    callback pinch-updated(float, float, float);
+    callback pinch-ended();
+
+    background: Theme.bg;
+
+        VerticalLayout {
+            width: 100%;
+            height: 100%;
+            padding-left: Tokens.space-xs;
+            padding-right: Tokens.space-xs;
+            padding-bottom: Tokens.space-xs;
+            padding-top: Tokens.titlebar-height;
+            spacing: Tokens.space-xs;
+
+        HorizontalLayout {
+            spacing: Tokens.space-xs;
+            vertical-stretch: 1;
+
+            ToolsPanel {
+                vertical-stretch: 1;
+                tools: root.tools;
+                active-tool-label: root.active-tool-label;
+                color-label: root.color-label;
+                tools-menu-title: root.tools-menu-title;
+                tools-busy: root.tools-busy;
+                upscale-label: root.upscale-label;
+                smart-matte-label: root.smart-matte-label;
+                seam-carve-label: root.seam-carve-label;
+                can-upscale: root.can-upscale;
+                can-smart-matte: root.can-smart-matte;
+                can-seam-carve: root.can-seam-carve;
+                color-swatch0: root.color-swatch0;
+                color-swatch1: root.color-swatch1;
+                color-swatch2: root.color-swatch2;
+                color-swatch3: root.color-swatch3;
+                active-color-swatch: root.active-color-swatch;
+                color-hue-brush: root.color-hue-brush;
+                primary-color-label: root.primary-color-label;
+                secondary-color-label: root.secondary-color-label;
+                tertiary-color-label: root.tertiary-color-label;
+                quaternary-color-label: root.quaternary-color-label;
+                color-sb-x <=> root.color-sb-x;
+                color-sb-y <=> root.color-sb-y;
+                color-hue-x <=> root.color-hue-x;
+                color-hex-text <=> root.color-hex-text;
+                pick-tool(id) => {
+                    root.pick-tool(id);
+                }
+                pick-brush(id) => {
+                    root.pick-brush(id);
+                }
+                brush-size-changed(v) => {
+                    root.brush-size-changed(v);
+                }
+                brush-size-committed(text) => {
+                    root.brush-size-committed(text);
+                }
+                ink-opacity-changed(v) => {
+                    root.ink-opacity-changed(v);
+                }
+                blur-changed(v) => {
+                    root.blur-changed(v);
+                }
+                hardness-changed(v) => {
+                    root.hardness-changed(v);
+                }
+                tolerance-changed(v) => {
+                    root.tolerance-changed(v);
+                }
+                eyedropper-changed(v) => {
+                    root.eyedropper-changed(v);
+                }
+                fill-toggled => {
+                    root.fill-toggled();
+                }
+                stroke-toggled => {
+                    root.stroke-toggled();
+                }
+                vector-toggled => {
+                    root.vector-toggled();
+                }
+                aligned-toggled => {
+                    root.aligned-toggled();
+                }
+                transform-toggled => {
+                    root.transform-toggled();
+                }
+                crop-aspect-changed(index) => {
+                    root.crop-aspect-changed(index);
+                }
+                crop-overlay-changed(index) => {
+                    root.crop-overlay-changed(index);
+                }
+                commit-crop => {
+                    root.commit-crop();
+                }
+                cancel-crop => {
+                    root.cancel-crop();
+                }
+                select-color-swatch(i) => {
+                    root.select-color-swatch(i);
+                }
+                color-sb-changed(x, y) => {
+                    root.color-sb-changed(x, y);
+                }
+                color-hue-changed(x) => {
+                    root.color-hue-changed(x);
+                }
+                color-hex-changed(text) => {
+                    root.color-hex-changed(text);
+                }
+                run-upscale => {
+                    root.run-upscale();
+                }
+                run-smart-matte => {
+                    root.run-smart-matte();
+                }
+                run-seam-carve => {
+                    root.run-seam-carve();
+                }
+            }
+
+            board-area := CalmIsland {
+                horizontal-stretch: 1;
+                vertical-stretch: 1;
+                min-width: 320px;
+                island-padding: 0px;
+                clip: true;
+
+                VerticalLayout {
+                    x: 1px;
+                    y: 1px;
+                    width: parent.width - 2px;
+                    height: parent.height - 2px;
+
+                    HorizontalLayout {
+                        height: Tokens.ruler-thickness;
+
+                        Rectangle {
+                            width: Tokens.ruler-thickness;
+                            background: Theme.surface;
+                        }
+
+                        h-ruler := RulerStrip {
+                            horizontal-stretch: 1;
+                            ticks: root.ruler-ticks-x;
+                            guide-pressed(x, y) => {
+                                root.guide-pressed(true, root.strip-to-board-x(h-ruler.absolute-position.x, x), root.strip-to-board-y(h-ruler.absolute-position.y, y));
+                            }
+                            guide-moved(x, y) => {
+                                root.guide-moved(root.strip-to-board-x(h-ruler.absolute-position.x, x), root.strip-to-board-y(h-ruler.absolute-position.y, y));
+                            }
+                            guide-released => {
+                                root.guide-released();
+                            }
+                        }
+                    }
+
+                    HorizontalLayout {
+                        vertical-stretch: 1;
+
+                        v-ruler := RulerStrip {
+                            width: Tokens.ruler-thickness;
+                            vertical: true;
+                            ticks: root.ruler-ticks-y;
+                            guide-pressed(x, y) => {
+                                root.guide-pressed(false, root.strip-to-board-x(v-ruler.absolute-position.x, x), root.strip-to-board-y(v-ruler.absolute-position.y, y));
+                            }
+                            guide-moved(x, y) => {
+                                root.guide-moved(root.strip-to-board-x(v-ruler.absolute-position.x, x), root.strip-to-board-y(v-ruler.absolute-position.y, y));
+                            }
+                            guide-released => {
+                                root.guide-released();
+                            }
+                        }
+
+                        board-stack := Rectangle {
+                            horizontal-stretch: 1;
+                            background: Theme.desk;
+
+                            board-surface := Rectangle {
+                                width: 100%;
+                                height: 100%;
+
+                                pinch := ScaleRotateGestureHandler {
+                                        width: 100%;
+                                        height: 100%;
+                                        started => {
+                                            root.pinch-started();
+                                        }
+                                        updated => {
+                                            root.pinch-updated(board-touch.mouse-x / 1px, board-touch.mouse-y / 1px, self.scale);
+                                        }
+                                        ended => {
+                                            root.pinch-ended();
+                                        }
+                                        cancelled => {
+                                            root.pinch-ended();
+                                        }
+
+                                        board-touch := TouchArea {
+                                            width: 100%;
+                                            height: 100%;
+
+                                            pointer-event(event) => {
+                                                if (event.button == PointerEventButton.left || event.button == PointerEventButton.middle) {
+                                                    if (event.kind == PointerEventKind.down) {
+                                                        root.pointer-pressed(
+                                                            self.mouse-x / 1px,
+                                                            self.mouse-y / 1px,
+                                                            event.button == PointerEventButton.middle,
+                                                            event.modifiers.meta || event.modifiers.control,
+                                                            event.modifiers.alt,
+                                                            event.modifiers.shift,
+                                                        );
+                                                    } else if (event.kind == PointerEventKind.up) {
+                                                        root.pointer-released(self.mouse-x / 1px, self.mouse-y / 1px);
+                                                    }
+                                                }
+                                            }
+
+                                            moved => {
+                                                root.pointer-moved(self.mouse-x / 1px, self.mouse-y / 1px);
+                                            }
+
+                                            scroll-event(event) => {
+                                                root.scrolled(
+                                                    self.mouse-x / 1px,
+                                                    self.mouse-y / 1px,
+                                                    event.delta-x / 1px,
+                                                    event.delta-y / 1px,
+                                                    event.modifiers.alt,
+                                                    event.modifiers.meta || event.modifiers.control,
+                                                );
+                                                accept;
+                                            }
+                                        }
+                                    }
+
+                                    private property <bool> board-hovered: board-touch.has-hover;
+
+                                    changed board-hovered => {
+                                        if (self.board-hovered) {
+                                            root.pointer-enter();
+                                        } else {
+                                            root.pointer-exit();
+                                        }
+                                    }
+                            }
+
+                            zoom-pill := ZoomPill {
+                                visible: !root.layer-settings-open;
+                                x: parent.width - self.width - Tokens.space-md;
+                                y: parent.height - self.height - Tokens.space-md;
+                                z: 2;
+                                zoom-unit <=> root.zoom-unit;
+                                zoom-text: root.zoom-text;
+                                is-fit: root.is-fit;
+                                zoom-in-tip: root.zoom-in-tip;
+                                zoom-out-tip: root.zoom-out-tip;
+                                fit-tip: root.fit-tip;
+                                zoom-changed(v) => {
+                                    root.zoom-changed(v);
+                                }
+                                step-zoom(zoom-in) => {
+                                    root.step-zoom(zoom-in);
+                                }
+                                fit-zoom => {
+                                    root.fit-zoom();
+                                }
+                            }
+
+                            if root.loading: CanvasSkeleton {
+                                x: 0px;
+                                y: 0px;
+                                width: 100%;
+                                height: 100%;
+                                doc-width: root.loading-doc-width;
+                                doc-height: root.loading-doc-height;
+                            }
+                        }
+                    }
+                }
+
+                guides-corner := Rectangle {
+                    width: Tokens.guides-corner-size;
+                    height: Tokens.guides-corner-size;
+                    x: 1px + Tokens.ruler-thickness / 2 - self.width / 2;
+                    y: 1px + Tokens.ruler-thickness / 2 - self.height / 2;
+                    border-radius: self.width / 2;
+                    background: Theme.surface-hover;
+                    border-width: 1px;
+                    border-color: Theme.island-border;
+
+                    Image {
+                        source: @image-url("ruler.svg");
+                        width: Tokens.row-icon-size;
+                        height: Tokens.row-icon-size;
+                        x: (parent.width - self.width) / 2;
+                        y: (parent.height - self.height) / 2;
+                        colorize: Theme.text-muted;
+                    }
+
+                    corner-touch := CalmPointer {
+                        clicked => {
+                            Tip.armed = false;
+                            Tip.open = false;
+                            root.open-guides();
+                        }
+                        changed has-hover => {
+                            if (self.has-hover && root.guides-tip != "") {
+                                Tip.text = root.guides-tip;
+                                Tip.shortcut = "";
+                                Tip.leading = false;
+                                Tip.x = guides-corner.absolute-position.x + guides-corner.width + Tokens.space-sm;
+                                Tip.y = guides-corner.absolute-position.y + guides-corner.height / 2;
+                                Tip.open = false;
+                                Tip.armed = true;
+                            } else if (Tip.text == root.guides-tip) {
+                                Tip.armed = false;
+                                Tip.open = false;
+                            }
+                        }
+                    }
+                }
+
+                if root.guide-readout-visible: Rectangle {
+                    x: root.guide-readout-horizontal
+                        ? 1px + 2px
+                        : min(max(1px + Tokens.ruler-thickness + 4px, 1px + Tokens.ruler-thickness + root.guide-readout-screen * 1px + 4px), parent.width - self.width - Tokens.space-sm);
+                    y: root.guide-readout-horizontal
+                        ? min(max(1px + Tokens.ruler-thickness, 1px + Tokens.ruler-thickness + root.guide-readout-screen * 1px - self.height / 2), parent.height - self.height - Tokens.space-sm)
+                        : 1px + 2px;
+                    background: Theme.surface;
+                    border-radius: Tokens.radius-sm;
+                    height: Tokens.label-size + Tokens.space-xs * 2;
+                    width: readout-label.preferred-width + Tokens.space-sm;
+
+                    readout-label := CalmMuted {
+                        x: Tokens.space-xs;
+                        y: Tokens.space-xs;
+                        text: root.guide-readout-text;
+                        mono: true;
+                    }
+                }
+            }
+
+            if root.layers-open: layers-slot := Rectangle {
+                width: Tokens.layers-panel-width;
+                clip: false;
+
+                LayersPanel {
+                    width: 100%;
+                    height: 100%;
+                    title-text: root.layers-title;
+                    add-tip: root.add-layer-tip;
+                    visibility-tip: root.layer-visibility-tip;
+                    settings-tip: root.layer-settings-tip;
+                    delete-tip: root.delete-layer-tip;
+                    bounds-label: root.bounds-label;
+                    bounds-x-label: root.bounds-x-label;
+                    bounds-y-label: root.bounds-y-label;
+                    width-label: root.width-label;
+                    height-label: root.height-label;
+                    doc-width-text <=> root.doc-width-text;
+                    doc-height-text <=> root.doc-height-text;
+                    layer-x-text <=> root.layer-x-text;
+                    layer-y-text <=> root.layer-y-text;
+                    layer-w-text <=> root.layer-w-text;
+                    layer-h-text <=> root.layer-h-text;
+                    layers: root.layers;
+                    add-layer => {
+                        root.add-layer();
+                    }
+                    pick-layer(index) => {
+                        root.pick-layer(index);
+                    }
+                    toggle-layer-visible(index) => {
+                        root.toggle-layer-visible(index);
+                    }
+                    open-layer-settings(index, anchor-x, anchor-y) => {
+                        root.open-layer-settings(index, anchor-x, anchor-y);
+                    }
+                    delete-layer(index) => {
+                        root.delete-layer(index);
+                    }
+                    rename-layer(index, name) => {
+                        root.rename-layer(index, name);
+                    }
+                    reorder-layer(from-row, to-row) => {
+                        root.reorder-layer(from-row, to-row);
+                    }
+                    hover-layer(index) => {
+                        root.hover-layer(index);
+                    }
+                    clear-layer-hover => {
+                        root.clear-layer-hover();
+                    }
+                    commit-layer-bounds(x, y, w, h) => {
+                        root.commit-layer-bounds(x, y, w, h);
+                    }
+                    commit-canvas-size(w, h) => {
+                        root.commit-canvas-size(w, h);
+                    }
+                }
+            }
+        }
+    }
+
+    hover-card := LayerHoverCard {
+        visible: root.layers-open && root.hover-preview-visible && !root.layer-settings-open;
+        x: board-surface.absolute-position.x - root.absolute-position.x + board-surface.width - self.width - Tokens.space-md;
+        y: board-surface.absolute-position.y - root.absolute-position.y + (board-surface.height - self.height) / 2;
+        z: 8;
+        layer-name: root.hover-preview-name;
+        preview: root.hover-preview-image;
+    }
+}
