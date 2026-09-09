@@ -736,6 +736,7 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 ./manage.py dev # build and run the GUI shell (optimized debug; --release for a shipped-like binary)
 ./manage.py dev --mcp # same, plus Slint's embedded MCP server on :7883 for live UI introspection
 ./manage.py build # release build of the GUI shell
+./manage.py package # macOS: Miw.app + dist/Miw-<version>.dmg (ad-hoc signed)
 ./manage.py coverage # llvm-cov + per-crate %% table in the log
 ./manage.py check # lint + gui-check + test
 ./manage.py purity # core has no platform/GPU deps
@@ -759,15 +760,15 @@ still needs a real `wgpu::Surface`, so what its own tests cover is what it *deci
 state per blend mode, bind-group and vertex layouts, visible/retained tile spans — not what it
 draws.
 
-Distribution: there is currently **no packaging/release pipeline**. `.github/workflows/main.yml`
-runs lint → security → per-OS tests only (`test-linux`, `test-macos` always; `test-windows` on
-manual `workflow_dispatch`) — the old Xcode `.dmg` build, its version-bump gate, and the
-`xcodegen`/`Info.plist`-stamping steps that kept a Swift bundle's version in sync were removed
-along with the Swift and Qt shells. `engine/Cargo.toml`'s `[workspace.package] version` is the
-one source of truth today (`./manage.py version` prints it, `./manage.py version-check` diffs
-it against the previous commit), but nothing currently stamps it into a `gui/` binary or ships
-one — building and distributing a `miw` release per platform is open work, not yet
-started.
+Distribution: `.github/workflows/main.yml` runs lint → security → per-OS tests
+(`test-linux`, `test-macos` always; `test-windows` on manual `workflow_dispatch`), then a
+macOS `.dmg` when `engine/Cargo.toml`'s `[workspace.package] version` was bumped on `main`
+(`./manage.py version-check`), or on `workflow_dispatch` / a `v*` tag. `./manage.py package`
+(`cli/package_macos.py`) is the whole pipeline — release-builds the Slint shell, stamps
+`Miw.app`'s Info.plist from that workspace version, ad-hoc signs, and emits
+`dist/Miw-<version>.dmg` plus a `.sha256`. `gui/Cargo.toml`'s package version must match
+(lint and version-check both refuse a drift). Notarization is still out: Gatekeeper needs
+right-click → Open on first launch. Windows and Linux installers are still open work.
 
 Expectations:
 

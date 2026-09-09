@@ -1,10 +1,12 @@
 name: main
 
-# Three stages, in order: lint, then security, then per-OS tests. Each gate is cheap and runs
-# on the cheapest machine that can answer it, so a formatting slip or a vulnerable dependency
-# is reported in a couple of minutes and never spends a macOS runner.
+# Four stages, in order: lint, then security, then per-OS tests, then a macOS .dmg only when
+# the workspace version actually moved (or someone dispatched the workflow). Each earlier gate
+# is cheap and runs on the cheapest machine that can answer it, so a formatting slip or a
+# vulnerable dependency is reported in a couple of minutes and never spends a macOS runner.
 #
 #   lint (ubuntu)  ->  security (ubuntu)  ->  test-linux / test-windows / test-macos
+#                                        ->  macos-dmg (version bump / dispatch / tag)
 #
 # `pre-commit-autofix` deliberately sits outside that chain: it is the *fixer*, and gating it
 # behind `lint` would deadlock — lint fails, the autofix that would have healed it never runs.
@@ -22,7 +24,16 @@ on:
       - 'portal/**'
       - '**.yml'
       - '**/.gitignore'
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'version to stamp (default: engine workspace version)'
+        type: string
+        default: ''
+      publish:
+        description: 'also publish a GitHub prerelease'
+        type: boolean
+        default: false
 
 env:
   CARGO_TARGET_DIR: engine/target
@@ -222,3 +233,72 @@ jobs:
         run: ./manage.py coverage
       - name: build ffi
         run: cargo build --manifest-path engine/Cargo.toml -p calumma-ffi
+
+  version-check:
+    name: check for a workspace version bump
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    outputs:
+      changed: ${{ steps.check.outputs.changed }}
+      version: ${{ steps.check.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+          cache: pip
+      - run: python -m pip install -r requirements.txt
+      - name: diff engine/Cargo.toml version against the previous commit
+        id: check
+        run: ./manage.py version-check
+
+  macos-dmg:
+    name: macos installable (.dmg)
+    needs: [version-check, test-linux, test-windows, test-macos]
+    if: |
+      always() &&
+      (github.event_name == 'workflow_dispatch' ||
+       github.ref_type == 'tag' ||
+       needs.version-check.outputs.changed == 'true') &&
+      needs.test-linux.result == 'success' &&
+      needs.test-macos.result == 'success' &&
+      (needs.test-windows.result == 'success' || needs.test-windows.result == 'skipped')
+    runs-on: macos-26
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+          cache: pip
+      - run: python -m pip install -r requirements.txt
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            engine -> target
+            gui -> target
+      - name: cmake for libaom
+        run: command -v cmake || brew install cmake
+      - name: package
+        id: package
+        env:
+          VERSION_INPUT: ${{ inputs.version }}
+        run: ./manage.py ci-release package
+      - uses: actions/upload-artifact@v4
+        with:
+          name: miw-macos-dmg
+          path: |
+            dist/*.dmg
+            dist/*.sha256
+      - name: publish release
+        if: github.ref_type == 'tag' || inputs.publish || needs.version-check.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          AUTO_RELEASE: ${{ needs.version-check.outputs.changed }}
+          VERSION: ${{ steps.package.outputs.version }}
+          DMG: ${{ steps.package.outputs.dmg }}
+        run: ./manage.py ci-release publish

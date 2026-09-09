@@ -26,7 +26,9 @@ from constants import (
     ENGINE_TARGET,
     ENV_CARGO_TARGET_DIR,
     ENV_GITHUB_STEP_SUMMARY,
+    GUI_MANIFEST,
     MSG_N_A,
+    MSG_VERSION_MISMATCH,
     PKG_CORE,
     ROOT,
     TOKEN_ACCENT_ORANGE,
@@ -75,6 +77,8 @@ __all__ = [
     "token_window",
     "which",
     "workspace_version",
+    "gui_version",
+    "require_matching_versions",
     "FORBIDDEN_CORE_DEPS",
 ]
 
@@ -87,6 +91,18 @@ def workspace_version() -> str:
     """Single source of truth for the app version: engine/Cargo.toml's [workspace.package]."""
     manifest = tomllib.loads(ENGINE_MANIFEST.read_text(encoding=ENCODING_UTF8))
     return str(manifest["workspace"]["package"]["version"])
+
+
+def gui_version() -> str:
+    manifest = tomllib.loads(GUI_MANIFEST.read_text(encoding=ENCODING_UTF8))
+    return str(manifest["package"]["version"])
+
+
+def require_matching_versions() -> None:
+    engine = workspace_version()
+    gui = gui_version()
+    if engine != gui:
+        raise SystemExit(f"{MSG_VERSION_MISMATCH}: engine={engine} gui={gui}")
 
 
 def python_module(*args: str) -> list[str]:

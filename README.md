@@ -46,9 +46,18 @@ Landing → create/preset/recent → editor with tools panel and board embed.
 
 ## Install
 
-There is no packaged release yet — build from source (`./manage.py dev` / `build` above).
-CI (`.github/workflows/main.yml`) currently only lints, security-scans, and runs the engine's
-test suite; a per-platform `gui/` release pipeline is open work.
+macOS: GitHub Releases ships `Miw-<version>.dmg` whenever the workspace version in
+`engine/Cargo.toml` is bumped on `main` (must match `gui/Cargo.toml`). Ad-hoc signed, not
+notarized — right-click → Open the first time, or `xattr -dr com.apple.quarantine /Applications/Miw.app`.
+
+```bash
+./manage.py package   # local macOS build of the same .dmg
+./manage.py dev       # or run from source
+./manage.py build
+```
+
+CI (`.github/workflows/main.yml`) lints, security-scans, runs the engine tests, and packages
+the macOS installer on a version bump. Windows and Linux installers are still open work.
 
 ## Notes
 
