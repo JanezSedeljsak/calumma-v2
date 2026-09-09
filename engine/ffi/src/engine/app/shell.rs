@@ -49,7 +49,8 @@ impl Engine {
         let opacity = layer.opacity;
         let (w, h, mut rgba) = if let Some(tiles) = layer.tiles_mut() {
             tiles.preview().scaled(THUMB_MAX_SIDE.max(1))
-        } else if let Some(item) = layer.content.item() {
+        } else {
+            let item = layer.content.item()?;
             let side = THUMB_MAX_SIDE.clamp(1, 64);
             let color = item.color();
             let mut rgba = vec![0u8; (side * side * 4) as usize];
@@ -57,8 +58,6 @@ impl Engine {
                 px.copy_from_slice(&color);
             }
             (side, side, rgba)
-        } else {
-            return None;
         };
         if let Some(adj) = adjustments.filter(|a| !a.is_neutral()) {
             adj.lut().apply_rgba(&mut rgba);
