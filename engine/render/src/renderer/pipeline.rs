@@ -620,7 +620,7 @@ pub(crate) fn tile_shared_bgl(device: &wgpu::Device) -> wgpu::BindGroupLayout {
                 count: None,
             },
             // The layer table. `VERTEX_FRAGMENT` since plan 23: `fs_tile`/`fs_solid_tile` now
-            // read `opacity`/`lut_mode`/`tone`/`saturation`/`vibrance` off the same row
+            // read `opacity`/`lut_mode`/`tone`/`saturation`/`vibrance`/`hue` off the same row
             // `vs_tile`/`vs_doc_quad` already read for the transform, evaluating the adjustment
             // LUT per pixel instead of the CPU baking it into tile bytes before upload.
             //

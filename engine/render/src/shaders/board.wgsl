@@ -120,11 +120,17 @@ struct TileCamera {
 // struct; an explicit field costs 4 bytes a layer and stops two draw paths disagreeing about
 // what the bytes mean.
 //
-// `opacity`, `lut_mode`, `tone`, `saturation` and `vibrance` are plan 23's addition: a layer's
-// non-destructive adjustments, evaluated by `apply_adjustments` in `fs_tile` instead of baked
-// into tile bytes by the CPU (`compose::composited_tile_payload`, mask only now). Nothing here
-// is per *tile*: the whole point is that the table is written once per content rebuild — or
-// once per slider sample, which no longer touches a tile at all — not once per draw.
+// `opacity`, `lut_mode`, `tone`, `saturation`, `vibrance` and `hue` are plan 23's addition: a
+// layer's non-destructive adjustments, evaluated by `apply_adjustments` in `fs_tile` instead of
+// baked into tile bytes by the CPU (`compose::composited_tile_payload`, mask only now). Nothing
+// here is per *tile*: the whole point is that the table is written once per content rebuild —
+// or once per slider sample, which no longer touches a tile at all — not once per draw.
+//
+// `_pad` is explicit tail padding matching the Rust side (`LayerData` in `renderer.rs`): every
+// field through `hue` is 4-byte aligned, landing the natural size at 1076 bytes, but a
+// storage-buffer array's stride rounds up to the struct's own 8-byte alignment (from `pivot`/
+// `offset`/`scale`'s `vec2<f32>`s) regardless of whether this field is declared. It is declared
+// anyway so the 1080-byte size is explicit here rather than implicit in the stride rounding.
 struct LayerData {
     pivot: vec2<f32>,
     offset: vec2<f32>,
@@ -139,6 +145,8 @@ struct LayerData {
     tone: array<f32, 256>,
     saturation: f32,
     vibrance: f32,
+    hue: f32,
+    _pad: f32,
 }
 
 const LUT_MODE_IDENTITY: u32 = 0u;
@@ -242,12 +250,15 @@ fn srgb_to_linear(c: f32) -> f32 {
 
 // Mirrors `hsl_stage` in `core/src/filters.rs` byte for byte in spirit, not literally — Rust
 // works in `[f32; 3]`, this in `vec3<f32>` — but every arithmetic step is the same. See that
-// function's own comment for why saturation and vibrance share one HSL round trip.
-fn hsl_stage(v: vec3<f32>, saturation: f32, vibrance: f32) -> vec3<f32> {
-    if saturation == 0.0 && vibrance == 0.0 {
+// function's own comment for why saturation, vibrance and hue share one HSL round trip.
+fn hsl_stage(v: vec3<f32>, saturation: f32, vibrance: f32, hue: f32) -> vec3<f32> {
+    if saturation == 0.0 && vibrance == 0.0 && hue == 0.0 {
         return v;
     }
     var hsl = rgb_to_hsl(v);
+    if hue != 0.0 {
+        hsl.x = fract(hsl.x + hue / 360.0);
+    }
     if saturation != 0.0 {
         hsl.y = clamp(hsl.y * (1.0 + saturation), 0.0, 1.0);
     }
@@ -350,7 +361,12 @@ fn apply_adjustments(c: vec4<f32>, layer_index: u32) -> vec4<f32> {
         layer_data[layer_index].tone[byte.b],
     );
     if lut_mode == LUT_MODE_TONE_HSL {
-        v = hsl_stage(v, layer_data[layer_index].saturation, layer_data[layer_index].vibrance);
+        v = hsl_stage(
+            v,
+            layer_data[layer_index].saturation,
+            layer_data[layer_index].vibrance,
+            layer_data[layer_index].hue,
+        );
     }
     return vec4<f32>(srgb_to_linear(v.r), srgb_to_linear(v.g), srgb_to_linear(v.b), c.a);
 }

@@ -680,6 +680,7 @@ impl AppController {
             2 => adjustments.vibrance = value,
             3 => adjustments.saturation = value,
             4 => adjustments.levels_gamma = value,
+            5 => adjustments.hue = value,
             _ => return,
         }
         self.engine

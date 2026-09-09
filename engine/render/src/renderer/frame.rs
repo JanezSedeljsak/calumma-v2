@@ -1215,6 +1215,7 @@ mod headless_tests {
             vibrance: 0.0,
             saturation: 0.0,
             levels_gamma: 1.0,
+            hue: 0.0,
         });
         doc.tool = Tool::Pen;
         doc.pointer_down(8.0, 8.0);

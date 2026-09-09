@@ -273,6 +273,9 @@ pub const ADJUSTMENT_NUDGE_STEP: f32 = 0.05;
 /// Gamma is a multiplier around 1.0 on a 0.1–4.0 range, not a −1..1 offset, so it needs
 /// a coarser step than the other four to move a visible amount per press.
 pub const GAMMA_NUDGE_STEP: f32 = 0.1;
+/// Hue is a −180..180 degree rotation, not a −1..1 offset, so it needs a step scaled to
+/// that much wider range.
+pub const HUE_NUDGE_STEP: f32 = 5.0;
 
 pub const MIN_SCALE: f32 = 0.02;
 pub const MAX_SCALE: f32 = 50.0;

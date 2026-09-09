@@ -140,8 +140,8 @@ fn adjustment_kind_round_trips_through_its_discriminant() {
     for kind in AdjustmentKind::ALL {
         assert_eq!(AdjustmentKind::from_u32(kind.as_u32()), Some(kind));
     }
-    assert_eq!(AdjustmentKind::from_u32(5), None);
-    assert_eq!(AdjustmentKind::ALL.len(), 5);
+    assert_eq!(AdjustmentKind::from_u32(6), None);
+    assert_eq!(AdjustmentKind::ALL.len(), 6);
 }
 
 #[test]
@@ -161,14 +161,17 @@ fn gamma_nudges_from_one_not_from_zero() {
 }
 
 #[test]
-fn gamma_uses_a_coarser_step_than_the_other_four() {
-    let gamma = AdjustmentKind::LevelsGamma.step();
-    for kind in AdjustmentKind::ALL {
-        if kind == AdjustmentKind::LevelsGamma {
-            continue;
-        }
-        assert!(kind.step() < gamma, "{kind:?} should step less than gamma");
+fn gamma_and_hue_use_coarser_steps_than_the_unit_range_four() {
+    let fine = AdjustmentKind::Brightness.step();
+    for kind in [
+        AdjustmentKind::Contrast,
+        AdjustmentKind::Vibrance,
+        AdjustmentKind::Saturation,
+    ] {
+        assert_eq!(kind.step(), fine, "{kind:?} should share the fine step");
     }
+    assert!(AdjustmentKind::LevelsGamma.step() > fine);
+    assert!(AdjustmentKind::Hue.step() > fine);
 }
 
 #[test]

@@ -1,4 +1,4 @@
-use crate::limits::{ADJUSTMENT_NUDGE_STEP, GAMMA_NUDGE_STEP};
+use crate::limits::{ADJUSTMENT_NUDGE_STEP, GAMMA_NUDGE_STEP, HUE_NUDGE_STEP};
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, IntoPrimitive, TryFromPrimitive)]
@@ -9,15 +9,17 @@ pub enum AdjustmentKind {
     Vibrance = 2,
     Saturation = 3,
     LevelsGamma = 4,
+    Hue = 5,
 }
 
 impl AdjustmentKind {
-    pub const ALL: [AdjustmentKind; 5] = [
+    pub const ALL: [AdjustmentKind; 6] = [
         Self::Brightness,
         Self::Contrast,
         Self::Vibrance,
         Self::Saturation,
         Self::LevelsGamma,
+        Self::Hue,
     ];
 
     pub fn from_u32(value: u32) -> Option<Self> {
@@ -31,6 +33,7 @@ impl AdjustmentKind {
     pub fn step(self) -> f32 {
         match self {
             Self::LevelsGamma => GAMMA_NUDGE_STEP,
+            Self::Hue => HUE_NUDGE_STEP,
             _ => ADJUSTMENT_NUDGE_STEP,
         }
     }
@@ -43,6 +46,8 @@ pub struct Adjustments {
     pub vibrance: f32,
     pub saturation: f32,
     pub levels_gamma: f32,
+    /// Degrees of hue rotation around the color wheel, −180..180.
+    pub hue: f32,
 }
 
 impl Default for Adjustments {
@@ -53,6 +58,7 @@ impl Default for Adjustments {
             vibrance: 0.0,
             saturation: 0.0,
             levels_gamma: 1.0,
+            hue: 0.0,
         }
     }
 }
@@ -65,6 +71,7 @@ impl Adjustments {
             vibrance: self.vibrance.clamp(-1.0, 1.0),
             saturation: self.saturation.clamp(-1.0, 1.0),
             levels_gamma: self.levels_gamma.clamp(0.1, 4.0),
+            hue: self.hue.clamp(-180.0, 180.0),
         }
     }
 
@@ -74,6 +81,7 @@ impl Adjustments {
             && self.vibrance == 0.0
             && self.saturation == 0.0
             && self.levels_gamma == 1.0
+            && self.hue == 0.0
     }
 
     pub fn value(&self, kind: AdjustmentKind) -> f32 {
@@ -83,6 +91,7 @@ impl Adjustments {
             AdjustmentKind::Vibrance => self.vibrance,
             AdjustmentKind::Saturation => self.saturation,
             AdjustmentKind::LevelsGamma => self.levels_gamma,
+            AdjustmentKind::Hue => self.hue,
         }
     }
 
@@ -95,6 +104,7 @@ impl Adjustments {
             AdjustmentKind::Vibrance => next.vibrance += delta,
             AdjustmentKind::Saturation => next.saturation += delta,
             AdjustmentKind::LevelsGamma => next.levels_gamma += delta,
+            AdjustmentKind::Hue => next.hue += delta,
         }
         next.clamped()
     }
@@ -171,15 +181,18 @@ fn tone(byte: u8, adj: &Adjustments) -> f32 {
     ((c - 0.5) * contrast_factor + 0.5 + adj.brightness).clamp(0.0, 1.0)
 }
 
-/// Saturation and vibrance both only move `s`, so they share one HSL round trip instead
-/// of one each. Besides halving the trigonometry-ish work, this keeps the hue: going out
-/// to RGB between the two stages loses it whenever saturation lands a pixel on gray, and
+/// Saturation, vibrance and hue all move `s`/`h`, so they share one HSL round trip instead
+/// of one each. Besides halving the trigonometry-ish work, this keeps hue changes coherent:
+/// going out to RGB between stages loses it whenever saturation lands a pixel on gray, and
 /// vibrance would then re-saturate that pixel toward red.
 fn hsl_stage(v: [f32; 3], adj: &Adjustments) -> [f32; 3] {
-    if adj.saturation == 0.0 && adj.vibrance == 0.0 {
+    if adj.saturation == 0.0 && adj.vibrance == 0.0 && adj.hue == 0.0 {
         return v;
     }
-    let [h, mut s, l] = rgb_to_hsl(v);
+    let [mut h, mut s, l] = rgb_to_hsl(v);
+    if adj.hue != 0.0 {
+        h = (h + adj.hue / 360.0).rem_euclid(1.0);
+    }
     if adj.saturation != 0.0 {
         s = (s * (1.0 + adj.saturation)).clamp(0.0, 1.0);
     }
@@ -210,7 +223,7 @@ pub fn apply(rgb: [u8; 3], adj: &Adjustments) -> [u8; 3] {
 /// the tone stage is a pure per-channel function of the input byte, so tabulating it
 /// over all 256 inputs is exact rather than an approximation.
 ///
-/// When saturation and vibrance are both neutral there is no channel coupling at all
+/// When saturation, vibrance and hue are all neutral there is no channel coupling at all
 /// and the whole filter collapses to one `[u8; 256]` lookup per channel.
 #[derive(Clone)]
 pub struct AdjustmentLut {
@@ -227,7 +240,7 @@ impl AdjustmentLut {
         for (byte, slot) in tone_lut.iter_mut().enumerate() {
             *slot = tone(byte as u8, adj);
         }
-        let direct = (adj.saturation == 0.0 && adj.vibrance == 0.0).then(|| {
+        let direct = (adj.saturation == 0.0 && adj.vibrance == 0.0 && adj.hue == 0.0).then(|| {
             let mut out = [0u8; 256];
             for (byte, slot) in out.iter_mut().enumerate() {
                 *slot = (tone_lut[byte].clamp(0.0, 1.0) * 255.0).round() as u8;
@@ -247,7 +260,7 @@ impl AdjustmentLut {
         self.neutral
     }
 
-    /// True when saturation and vibrance are both neutral, so the whole filter is three
+    /// True when saturation, vibrance and hue are all neutral, so the whole filter is three
     /// independent per-channel lookups with no HSL round trip — `Self::direct`'s condition,
     /// exposed for the GPU path (`LayerData.lut_mode` in `render/src/renderer.rs`) to pick the
     /// cheaper of `fs_tile`'s two branches without re-deriving it from `Adjustments` itself.

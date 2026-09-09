@@ -140,6 +140,7 @@ pub fn sync_strings(ui: &AppWindow, l10n: &Catalog) {
     layers.set_vibrance_label(put(l10n.get("vibrance")));
     layers.set_saturation_label(put(l10n.get("saturation")));
     layers.set_gamma_label(put(l10n.get("levelsGamma")));
+    layers.set_hue_label(put(l10n.get("hue")));
     layers.set_reset_filters_label(put(l10n.get("resetFilters")));
     layers.set_rename_label(put(l10n.get("renameLayer")));
     layers.set_flatten_label(put(l10n.get("flattenClippingMask")));

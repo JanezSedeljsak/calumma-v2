@@ -157,6 +157,7 @@
   "vibrance": "Vibrance",
   "saturation": "Saturation",
   "levelsGamma": "Gamma",
+  "hue": "Hue",
   "resetFilters": "Reset",
   "resetTransform": "Reset Transform",
   "toolPen": "Pen",

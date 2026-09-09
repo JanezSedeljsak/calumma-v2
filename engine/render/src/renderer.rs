@@ -102,14 +102,16 @@ const LUT_MODE_TONE_HSL: u32 = 2;
 /// bytes — it is that a stack of Normal layers now draws with one `set_bind_group` for the
 /// whole board instead of a rebind between every layer's instanced draw.
 ///
-/// 1072 bytes: the original 32-byte transform block plus opacity, `atlas_slot`, `lut_mode` and
+/// 1080 bytes: the original 32-byte transform block plus opacity, `atlas_slot`, `lut_mode` and
 /// the adjustment LUT (`tone` — the 256-entry per-channel table `AdjustmentLut` already builds
-/// on the CPU — plus `sat`/`vib`, since saturation and vibrance couple all three channels through
-/// HSL and cannot ride a table). No tail padding: every field after the three `vec2<f32>`s is
-/// 4-byte aligned in both Rust and WGSL, and 1072 is already a multiple of 8, the struct's own
-/// alignment (from `pivot`/`offset`/`scale`). See `layer_table_tests::a_table_row_is_the_size_
-/// the_shader_strides_by` — the one thing enforcing that this and `LayerData` in `board.wgsl`
-/// agree byte for byte.
+/// on the CPU — plus `sat`/`vib`/`hue`, since saturation, vibrance and hue couple all three
+/// channels through HSL and cannot ride a table). `_pad` is explicit tail padding: every field
+/// through `hue` is 4-byte aligned in both Rust and WGSL, landing the natural size at 1076,
+/// but WGSL rounds a storage-buffer array's stride up to the struct's own 8-byte alignment
+/// (from `pivot`/`offset`/`scale`'s `vec2<f32>`s) — `_pad` is what keeps Rust's `size_of`
+/// matching that rounded-up stride instead of drifting from it by 4 bytes. See
+/// `layer_table_tests::a_table_row_is_the_size_the_shader_strides_by` — the one thing enforcing
+/// that this and `LayerData` in `board.wgsl` agree byte for byte.
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
 struct LayerData {
@@ -121,9 +123,9 @@ struct LayerData {
     /// Read only by the solid-Paper quad, which has no instance buffer to carry it. `0` for
     /// every other layer, and unread there.
     atlas_slot: u32,
-    /// `LUT_MODE_IDENTITY` / `LUT_MODE_TONE` / `LUT_MODE_TONE_HSL` — which of `tone`/`sat`/`vib`
-    /// `fs_tile`'s `apply_adjustments` needs to read, so a neutral or tone-only layer skips the
-    /// HSL round trip entirely.
+    /// `LUT_MODE_IDENTITY` / `LUT_MODE_TONE` / `LUT_MODE_TONE_HSL` — which of `tone`/`sat`/`vib`/
+    /// `hue` `fs_tile`'s `apply_adjustments` needs to read, so a neutral or tone-only layer skips
+    /// the HSL round trip entirely.
     lut_mode: u32,
     /// `AdjustmentLut`'s own `tone` table, byte-indexed and channel-agnostic (gamma → contrast →
     /// brightness depends only on the input byte, not which channel it came from) — the exact
@@ -132,6 +134,8 @@ struct LayerData {
     tone: [f32; 256],
     saturation: f32,
     vibrance: f32,
+    hue: f32,
+    _pad: f32,
 }
 
 impl Default for LayerData {
@@ -148,6 +152,8 @@ impl Default for LayerData {
             tone: [0.0; 256],
             saturation: 0.0,
             vibrance: 0.0,
+            hue: 0.0,
+            _pad: 0.0,
         }
     }
 }

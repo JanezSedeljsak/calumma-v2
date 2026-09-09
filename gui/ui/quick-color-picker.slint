@@ -8,12 +8,13 @@ component ColorSwatch inherits Rectangle {
     in property <brush> swatch-color;
     in property <bool> active;
     in property <string> tip;
+    in property <length> size: 20px;
 
     callback clicked();
 
-    height: 20px;
-    min-width: 20px;
-    horizontal-stretch: 1;
+    width: root.size;
+    height: root.size;
+    horizontal-stretch: 0;
     border-radius: Tokens.radius-sm;
     background: swatch-color;
     border-width: active ? 2px : 1px;
@@ -75,12 +76,17 @@ export component QuickColorPicker inherits VerticalLayout {
 
     spacing: Tokens.space-xs;
 
+    // Toolbar width is fixed (Tokens.tools-panel-width), so the swatches can
+    // size themselves to fill it exactly instead of guessing a constant.
+    private property <length> swatch-size: (Tokens.tools-panel-width - Tokens.space-xs * 2 - Tokens.space-xs * 3) / 4;
+
     HorizontalLayout {
         width: 100%;
-        height: 20px;
-        spacing: 2px;
+        height: root.swatch-size;
+        spacing: Tokens.space-xs;
 
         ColorSwatch {
+            size: root.swatch-size;
             swatch-color: root.swatch0;
             active: root.active-swatch == 0;
             tip: root.primary-tip;
@@ -89,6 +95,7 @@ export component QuickColorPicker inherits VerticalLayout {
             }
         }
         ColorSwatch {
+            size: root.swatch-size;
             swatch-color: root.swatch1;
             active: root.active-swatch == 1;
             tip: root.secondary-tip;
@@ -97,6 +104,7 @@ export component QuickColorPicker inherits VerticalLayout {
             }
         }
         ColorSwatch {
+            size: root.swatch-size;
             swatch-color: root.swatch2;
             active: root.active-swatch == 2;
             tip: root.tertiary-tip;
@@ -105,6 +113,7 @@ export component QuickColorPicker inherits VerticalLayout {
             }
         }
         ColorSwatch {
+            size: root.swatch-size;
             swatch-color: root.swatch3;
             active: root.active-swatch == 3;
             tip: root.quaternary-tip;

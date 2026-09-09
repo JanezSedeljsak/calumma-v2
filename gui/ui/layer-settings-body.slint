@@ -291,6 +291,20 @@ export component LayerSettingsBody inherits VerticalLayout {
             }
         }
 
+        CalmSliderRow {
+            label: LayerChrome.hue-label;
+            value-text: LayerChrome.hue-text;
+            minimum: -180;
+            maximum: 180;
+            value <=> LayerChrome.hue;
+            moved(v) => {
+                root.filter-changed(5, v);
+            }
+            released(v) => {
+                root.filter-committed(5, v);
+            }
+        }
+
         CalmButton {
             text: LayerChrome.reset-filters-label;
             fill: true;

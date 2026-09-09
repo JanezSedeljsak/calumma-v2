@@ -181,6 +181,7 @@ impl Renderer {
                         row.lut_mode = LUT_MODE_TONE_HSL;
                         row.saturation = adjustments.saturation;
                         row.vibrance = adjustments.vibrance;
+                        row.hue = adjustments.hue;
                     }
                 }
             }
@@ -726,7 +727,7 @@ mod layer_table_tests {
     /// grew this from 32 to 1072 deliberately; see `LayerData`'s own doc comment for the layout.
     #[test]
     fn a_table_row_is_the_size_the_shader_strides_by() {
-        assert_eq!(std::mem::size_of::<LayerData>(), 1072);
+        assert_eq!(std::mem::size_of::<LayerData>(), 1080);
         assert_eq!(std::mem::align_of::<LayerData>(), 4);
         assert_eq!(
             std::mem::size_of::<TileInstance>(),
@@ -884,7 +885,7 @@ mod layer_table_tests {
         f.atlas.write(&gpu.queue, slot, &base, &[]);
 
         for adjustments in [
-            // Tone only: saturation and vibrance neutral, so `write_layer_data` would pick
+            // Tone only: saturation, vibrance and hue neutral, so `write_layer_data` would pick
             // `LUT_MODE_TONE` and the shader never enters `hsl_stage`.
             Adjustments {
                 brightness: 0.15,
@@ -892,6 +893,7 @@ mod layer_table_tests {
                 vibrance: 0.0,
                 saturation: 0.0,
                 levels_gamma: 1.4,
+                hue: 0.0,
             },
             // Tone + HSL: exercises `rgb_to_hsl` / `hue_to_rgb` / `hsl_to_rgb` too.
             Adjustments {
@@ -900,6 +902,17 @@ mod layer_table_tests {
                 vibrance: 0.3,
                 saturation: -0.25,
                 levels_gamma: 1.4,
+                hue: 0.0,
+            },
+            // Tone + HSL again, this time driven by hue alone, to catch the shader's hue
+            // rotation disagreeing with `hsl_stage` in `core/src/filters.rs` specifically.
+            Adjustments {
+                brightness: 0.0,
+                contrast: 0.0,
+                vibrance: 0.0,
+                saturation: 0.0,
+                levels_gamma: 1.0,
+                hue: 120.0,
             },
         ] {
             let lut = AdjustmentLut::new(&adjustments);
@@ -915,6 +928,7 @@ mod layer_table_tests {
                     lut_mode: LUT_MODE_TONE_HSL,
                     saturation: adjustments.saturation,
                     vibrance: adjustments.vibrance,
+                    hue: adjustments.hue,
                     ..LayerData::default()
                 }
             };

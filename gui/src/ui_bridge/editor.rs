@@ -308,6 +308,7 @@ pub fn apply_filter_readout(ui: &AppWindow, kind: i32, value: f32) {
         2 => chrome.set_vibrance_text(put(signed_percent(value))),
         3 => chrome.set_saturation_text(put(signed_percent(value))),
         4 => chrome.set_gamma_text(put(format!("{value:.2}"))),
+        5 => chrome.set_hue_text(put(format!("{:+}°", value.round() as i32))),
         _ => {}
     }
 }
@@ -345,11 +346,13 @@ pub fn sync_layer_settings(ui: &AppWindow, controller: &AppController) {
         chrome.set_vibrance(adjustments.vibrance);
         chrome.set_saturation(adjustments.saturation);
         chrome.set_gamma(adjustments.levels_gamma);
+        chrome.set_hue(adjustments.hue);
         chrome.set_brightness_text(put(signed_percent(adjustments.brightness)));
         chrome.set_contrast_text(put(signed_percent(adjustments.contrast)));
         chrome.set_vibrance_text(put(signed_percent(adjustments.vibrance)));
         chrome.set_saturation_text(put(signed_percent(adjustments.saturation)));
         chrome.set_gamma_text(put(format!("{:.2}", adjustments.levels_gamma)));
+        chrome.set_hue_text(put(format!("{:+}°", adjustments.hue.round() as i32)));
         chrome.set_clipped(clipped);
         chrome.set_can_clip(if clipped {
             engine.can_release_clipping_mask(index)
