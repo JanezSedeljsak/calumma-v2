@@ -15,8 +15,10 @@ export component LayerSettingsModal inherits Rectangle {
     callback toggle-visibility();
     callback toggle-lock();
     callback opacity-changed(float);
+    callback opacity-committed(float);
     callback blend-changed(int);
     callback filter-changed(int, float);
+    callback filter-committed(int, float);
     callback reset-filters();
     callback rename-layer(string);
     callback toggle-clip();
@@ -88,11 +90,17 @@ export component LayerSettingsModal inherits Rectangle {
                 opacity-changed(v) => {
                     root.opacity-changed(v);
                 }
+                opacity-committed(v) => {
+                    root.opacity-committed(v);
+                }
                 blend-changed(mode) => {
                     root.blend-changed(mode);
                 }
                 filter-changed(kind, value) => {
                     root.filter-changed(kind, value);
+                }
+                filter-committed(kind, value) => {
+                    root.filter-committed(kind, value);
                 }
                 reset-filters => {
                     root.reset-filters();

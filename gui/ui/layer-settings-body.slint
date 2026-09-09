@@ -46,8 +46,10 @@ export component LayerSettingsBody inherits VerticalLayout {
     callback toggle-visibility();
     callback toggle-lock();
     callback opacity-changed(float);
+    callback opacity-committed(float);
     callback blend-changed(int);
     callback filter-changed(int, float);
+    callback filter-committed(int, float);
     callback reset-filters();
     callback rename-layer(string);
     callback toggle-clip();
@@ -125,6 +127,9 @@ export component LayerSettingsBody inherits VerticalLayout {
         value <=> LayerChrome.opacity;
         moved(v) => {
             root.opacity-changed(v);
+        }
+        released(v) => {
+            root.opacity-committed(v);
         }
     }
 
@@ -225,6 +230,9 @@ export component LayerSettingsBody inherits VerticalLayout {
             moved(v) => {
                 root.filter-changed(0, v);
             }
+            released(v) => {
+                root.filter-committed(0, v);
+            }
         }
 
         CalmSliderRow {
@@ -235,6 +243,9 @@ export component LayerSettingsBody inherits VerticalLayout {
             value <=> LayerChrome.contrast;
             moved(v) => {
                 root.filter-changed(1, v);
+            }
+            released(v) => {
+                root.filter-committed(1, v);
             }
         }
 
@@ -247,6 +258,9 @@ export component LayerSettingsBody inherits VerticalLayout {
             moved(v) => {
                 root.filter-changed(2, v);
             }
+            released(v) => {
+                root.filter-committed(2, v);
+            }
         }
 
         CalmSliderRow {
@@ -258,6 +272,9 @@ export component LayerSettingsBody inherits VerticalLayout {
             moved(v) => {
                 root.filter-changed(3, v);
             }
+            released(v) => {
+                root.filter-committed(3, v);
+            }
         }
 
         CalmSliderRow {
@@ -268,6 +285,9 @@ export component LayerSettingsBody inherits VerticalLayout {
             value <=> LayerChrome.gamma;
             moved(v) => {
                 root.filter-changed(4, v);
+            }
+            released(v) => {
+                root.filter-committed(4, v);
             }
         }
 

@@ -318,6 +318,12 @@ pub fn apply_opacity_readout(ui: &AppWindow, value: f32) {
 }
 
 pub fn sync_layer_settings(ui: &AppWindow, controller: &AppController) {
+    if controller.layer_settings_dragging {
+        // A slider is mid-drag: its committed value lags the live one on
+        // screen, so an engine-sourced resync here would yank the slider
+        // back to the stale value until the drag settles.
+        return;
+    }
     let chrome = ui.global::<LayerChrome>();
     if let Some(layer) = controller.layer_settings_summary() {
         let engine = controller.engine.borrow();

@@ -16,7 +16,7 @@ pub use export::pick_artwork_file;
 pub use format::{format_bytes, relative_time};
 pub use l10n::Catalog;
 pub use layers::LayerThumbCache;
-pub use meow::play as play_meow;
+pub use meow::{play as play_meow, preload as preload_meow};
 pub use prefs::ShellPrefs;
 pub use theme::Theme;
 pub use tool_labels::{

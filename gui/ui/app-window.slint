@@ -120,8 +120,10 @@ export component AppWindow inherits Window {
     callback layer-settings-toggle-visibility();
     callback layer-settings-toggle-lock();
     callback layer-settings-opacity-changed(float);
+    callback layer-settings-opacity-committed(float);
     callback layer-settings-blend-changed(int);
     callback layer-settings-filter-changed(int, float);
+    callback layer-settings-filter-committed(int, float);
     callback layer-settings-reset-filters();
     callback layer-settings-rename(string);
     callback layer-settings-toggle-clip();
@@ -952,11 +954,17 @@ export component AppWindow inherits Window {
             opacity-changed(v) => {
                 root.layer-settings-opacity-changed(v);
             }
+            opacity-committed(v) => {
+                root.layer-settings-opacity-committed(v);
+            }
             blend-changed(mode) => {
                 root.layer-settings-blend-changed(mode);
             }
             filter-changed(kind, value) => {
                 root.layer-settings-filter-changed(kind, value);
+            }
+            filter-committed(kind, value) => {
+                root.layer-settings-filter-committed(kind, value);
             }
             reset-filters => {
                 root.layer-settings-reset-filters();

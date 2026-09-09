@@ -1,7 +1,8 @@
 const MEOW: &[u8] = include_bytes!("../../sounds/meow.wav");
 
 #[cfg(target_os = "macos")]
-pub fn play() {
+mod imp {
+    use super::MEOW;
     use objc2::rc::Retained;
     use objc2::AnyThread;
     use objc2_app_kit::NSSound;
@@ -12,19 +13,38 @@ pub fn play() {
         static SOUND: RefCell<Option<Retained<NSSound>>> = const { RefCell::new(None) };
     }
 
-    SOUND.with(|slot| {
-        let mut slot = slot.borrow_mut();
-        let sound = slot.get_or_insert_with(|| {
-            let data = NSData::with_bytes(MEOW);
-            NSSound::initWithData(NSSound::alloc(), &data).expect("decoding the meow")
+    fn with_sound<R>(f: impl FnOnce(&Retained<NSSound>) -> R) -> R {
+        SOUND.with(|slot| {
+            let mut slot = slot.borrow_mut();
+            let sound = slot.get_or_insert_with(|| {
+                let data = NSData::with_bytes(MEOW);
+                NSSound::initWithData(NSSound::alloc(), &data).expect("decoding the meow")
+            });
+            f(sound)
+        })
+    }
+
+    /// Decodes the meow up front so the first real `play()` is instant.
+    pub fn preload() {
+        with_sound(|_| ());
+    }
+
+    pub fn play() {
+        with_sound(|sound| {
+            sound.stop();
+            sound.play();
         });
-        sound.stop();
-        sound.play();
-    });
+    }
 }
+
+#[cfg(target_os = "macos")]
+pub use imp::{play, preload};
 
 #[cfg(not(target_os = "macos"))]
 pub fn play() {}
+
+#[cfg(not(target_os = "macos"))]
+pub fn preload() {}
 
 #[cfg(test)]
 mod tests {

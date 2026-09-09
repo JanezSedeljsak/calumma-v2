@@ -101,6 +101,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         deferred_load_project(summary, controller.clone(), ui_weak.clone(), host.clone());
     }
 
+    slint::Timer::single_shot(Duration::ZERO, shell::preload_meow);
+
     wire_landing_callbacks(&ui, controller.clone(), host.clone(), ui_weak.clone());
     let input = Rc::new(RefCell::new(InputState {
         mods: ModifierState::default(),
@@ -1374,10 +1376,24 @@ fn wire_layer_actions(
         let filter_debounce = filter_debounce.clone();
         move |opacity| {
             let index = controller.borrow().layer_settings_index;
+            controller.borrow_mut().layer_settings_dragging = true;
             if let Some(ui) = ui_weak.upgrade() {
                 apply_opacity_readout(&ui, opacity);
             }
-            filter_debounce.schedule_opacity(index, opacity, &controller, &ui_weak);
+            filter_debounce.stage_opacity(index, opacity);
+        }
+    });
+    ui.on_layer_settings_opacity_committed({
+        let controller = controller.clone();
+        let ui_weak = ui_weak.clone();
+        let filter_debounce = filter_debounce.clone();
+        move |opacity| {
+            let index = controller.borrow().layer_settings_index;
+            filter_debounce.stage_opacity(index, opacity);
+            if let Some(ui) = ui_weak.upgrade() {
+                filter_debounce.commit(&controller, &ui);
+            }
+            wake(&ui_weak);
         }
     });
     ui.on_layer_settings_export_layer({
@@ -1447,10 +1463,24 @@ fn wire_layer_actions(
         let filter_debounce = filter_debounce.clone();
         move |kind, value| {
             let index = controller.borrow().layer_settings_index;
+            controller.borrow_mut().layer_settings_dragging = true;
             if let Some(ui) = ui_weak.upgrade() {
                 apply_filter_readout(&ui, kind, value);
             }
-            filter_debounce.schedule_filter(index, kind, value, &controller, &ui_weak);
+            filter_debounce.stage_filter(index, kind, value);
+        }
+    });
+    ui.on_layer_settings_filter_committed({
+        let controller = controller.clone();
+        let ui_weak = ui_weak.clone();
+        let filter_debounce = filter_debounce.clone();
+        move |kind, value| {
+            let index = controller.borrow().layer_settings_index;
+            filter_debounce.stage_filter(index, kind, value);
+            if let Some(ui) = ui_weak.upgrade() {
+                filter_debounce.commit(&controller, &ui);
+            }
+            wake(&ui_weak);
         }
     });
     ui.on_layer_settings_reset_filters({
@@ -1461,6 +1491,7 @@ fn wire_layer_actions(
             filter_debounce.cancel_filter();
             let mut ctrl = controller.borrow_mut();
             let index = ctrl.layer_settings_index;
+            ctrl.layer_settings_dragging = false;
             ctrl.reset_layer_filters(index);
             if let Some(ui) = ui_weak.upgrade() {
                 sync_layers(&ui, &mut ctrl);
