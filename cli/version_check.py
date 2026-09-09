@@ -8,7 +8,7 @@ import os
 import sys
 import tomllib
 
-from _helpers import run, workspace_version
+from _helpers import require_matching_versions, run, workspace_version
 from constants import (
     BIN_GIT,
     ENCODING_UTF8,
@@ -46,6 +46,7 @@ def write_output(changed: bool, version: str) -> None:
 
 
 def check_version_bump() -> bool:
+    require_matching_versions()
     new = workspace_version()
     old = previous_version()
     changed = new != old

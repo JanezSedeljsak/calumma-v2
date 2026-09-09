@@ -47,6 +47,7 @@ from _helpers import (
 )
 from check_core_purity import check_core_purity
 from ci_lint import run_ci_lint, run_ci_test, run_clippy, run_clippy_darwin, run_fmt
+from ci_release import ci_publish, resolve_ci_version
 from constants import (
     BIN_CARGO_AUDIT,
     BIN_CARGO_DENY,
@@ -64,8 +65,10 @@ from constants import (
     MSG_DENY_SKIP,
     MSG_INSTALL_LLVM_COV,
     MSG_NO_COVERAGE,
+    MSG_PACKAGE_MACOS_ONLY,
     ROOT,
 )
+from package_macos import package_macos
 from version_check import check_version_bump
 
 
@@ -109,6 +112,14 @@ def cmd_gui_check(_: argparse.Namespace) -> int:
 
 def cmd_build(_: argparse.Namespace) -> int:
     run(["cargo", "build", "--release", "--manifest-path", str(GUI_MANIFEST)])
+    return 0
+
+
+def cmd_package(args: argparse.Namespace) -> int:
+    if sys.platform != "darwin":
+        print(MSG_PACKAGE_MACOS_ONLY, file=sys.stderr)
+        return 1
+    package_macos(args.version)
     return 0
 
 
@@ -289,6 +300,14 @@ def cmd_version_check(_: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_ci_release(args: argparse.Namespace) -> int:
+    if args.action == "package":
+        package_macos(resolve_ci_version() or None)
+    else:
+        ci_publish()
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="manage.py",
@@ -328,6 +347,14 @@ def build_parser() -> argparse.ArgumentParser:
         func=cmd_gui_check
     )
     sub.add_parser("build", help="release build of the GUI shell").set_defaults(func=cmd_build)
+    package_parser = sub.add_parser(
+        "package", help="macOS: release-build Miw.app, ad-hoc sign, wrap in dist/*.dmg"
+    )
+    package_parser.add_argument(
+        "--version",
+        help="version stamped into Info.plist and the dmg name (default: engine workspace version)",
+    )
+    package_parser.set_defaults(func=cmd_package)
     test_parser = sub.add_parser(
         "test",
         help="cargo test --workspace (use --ci for the GHA test job scope)",
@@ -376,6 +403,9 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser(
         "version-check", help="CI: diff engine/Cargo.toml's version against the previous commit"
     ).set_defaults(func=cmd_version_check)
+    ci_release_parser = sub.add_parser("ci-release", help="CI: package or publish a macOS release")
+    ci_release_parser.add_argument("action", choices=["package", "publish"])
+    ci_release_parser.set_defaults(func=cmd_ci_release)
     return parser
 
 

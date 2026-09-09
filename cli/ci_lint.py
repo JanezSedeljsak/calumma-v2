@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import sys
 
-from _helpers import cargo_cmd, python_module, run, which
+from _helpers import cargo_cmd, python_module, require_matching_versions, run, which
 from constants import (
     BIN_TAPLO,
     CLIPPY_DARWIN_PACKAGES,
@@ -84,6 +84,7 @@ def run_clippy(*, darwin_only: bool = False) -> None:
 
 
 def run_ci_lint() -> None:
+    require_matching_versions()
     run_fmt(check=True, include_taplo=False)
     run_clippy_portable()
 

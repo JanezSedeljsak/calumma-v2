@@ -85,7 +85,7 @@ backtraces still work without paying for full DWARF on every link.
 not apply to `./manage.py dev` on their own. `gui/` repeats the same `opt-level = 3` /
 `line-tables-only` `profile.dev` so a debug `cargo run` of the shell is not an unoptimized
 pixel loop. `./manage.py build` / `./manage.py dev --release` are `--release` (no debug
-assertions); a `.dmg` would use that, but there is no packaging pipeline yet.
+assertions); a `.dmg` uses that (`./manage.py package`).
 
 Release (engine workspace) is `opt-level = 3, lto = "fat", codegen-units = 1, strip = "symbols"`
 — the pixel helpers are small functions called from million-iteration loops, and
@@ -769,6 +769,7 @@ nothing will ever evict them: `sync_tiles` only runs with a document open.
 ./manage.py coverage  # llvm-cov, per-crate table
 ./manage.py dev       # build and run the GUI shell (gui/)
 ./manage.py gui-check # compile-check the GUI shell, no window
+./manage.py package   # macOS: Miw.app + dist/Miw-<version>.dmg (ad-hoc signed)
 ```
 
 Tests live in `engine/<crate>/tests/<module>.rs` — one file per module under test, not in

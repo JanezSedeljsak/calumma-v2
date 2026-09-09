@@ -19,6 +19,19 @@ MARK_HEIGHT_BOOST = 1.1
 BADGE_INSET_FRACTION = 0.065
 BADGE_RADIUS_FRACTION = 0.22
 
+ICONSET_ENTRIES = (
+    (16, "icon_16x16.png"),
+    (32, "icon_16x16@2x.png"),
+    (32, "icon_32x32.png"),
+    (64, "icon_32x32@2x.png"),
+    (128, "icon_128x128.png"),
+    (256, "icon_128x128@2x.png"),
+    (256, "icon_256x256.png"),
+    (512, "icon_256x256@2x.png"),
+    (512, "icon_512x512.png"),
+    (1024, "icon_512x512@2x.png"),
+)
+
 
 def compose_icon(mark: Image.Image, size: int) -> Image.Image:
     canvas = Image.new("RGBA", (size, size), (0, 0, 0, 0))
@@ -55,6 +68,19 @@ def generate_icon(
 
     dest.parent.mkdir(parents=True, exist_ok=True)
     resized.save(dest, format="PNG", optimize=True, compress_level=9)
+    return dest
+
+
+def write_iconset(dest: Path, source: Path = ICON_SOURCE) -> Path:
+    with Image.open(source) as img:
+        mark = img.convert("RGBA")
+    master = compose_icon(mark, COMPOSE_SIZE)
+    if dest.exists():
+        for old in dest.iterdir():
+            old.unlink()
+    dest.mkdir(parents=True, exist_ok=True)
+    for side, name in ICONSET_ENTRIES:
+        master.resize((side, side), Image.Resampling.LANCZOS).save(dest / name, format="PNG")
     return dest
 
 

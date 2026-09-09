@@ -6,7 +6,7 @@ use calumma_app::{pick_tool, Engine, LayerSummary, ProjectSummary, ToolBlock};
 use calumma_core::{guide::GuideAxis, BlendMode, CropOverlayStyle, Tool};
 use calumma_io::RasterFormat;
 use std::cell::RefCell;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 pub struct AppController {
@@ -905,9 +905,12 @@ impl AppController {
 }
 
 pub fn workspace_root() -> PathBuf {
+    if let Some(root) = bundle_resources_root() {
+        return root;
+    }
     let mut dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     for _ in 0..8 {
-        if dir.join("design").join("icon.png").is_file() && dir.join("translations").is_dir() {
+        if is_workspace_root(&dir) {
             return dir;
         }
         if !dir.pop() {
@@ -918,6 +921,20 @@ pub fn workspace_root() -> PathBuf {
         .parent()
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("."))
+}
+
+fn is_workspace_root(dir: &Path) -> bool {
+    dir.join("design").join("icon.png").is_file() && dir.join("translations").is_dir()
+}
+
+fn bundle_resources_root() -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    let macos_dir = exe.parent()?;
+    if macos_dir.file_name()?.to_str()? != "MacOS" {
+        return None;
+    }
+    let resources = macos_dir.parent()?.join("Resources");
+    is_workspace_root(&resources).then_some(resources)
 }
 
 pub type SharedController = Rc<RefCell<AppController>>;
