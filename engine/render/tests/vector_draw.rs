@@ -296,7 +296,7 @@ fn the_item_frame_is_the_layer_frame_without_the_rotate_stalk() {
     assert_eq!(item.len(), 4 * 2 + 4 * 2);
     assert_eq!(
         layer.len(),
-        4 * 2 + 1 * 2 + 5 * 2,
+        (4 + 1 + 5) * 2,
         "the stalk is one outlined edge and one handle more"
     );
     assert_eq!(

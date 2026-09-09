@@ -88,7 +88,7 @@ fn transform_overlay_draws_four_edges_a_stem_and_five_handles() {
     let corners = [(0.0, 0.0), (10.0, 0.0), (10.0, 8.0), (0.0, 8.0)];
     let rotate = (5.0, -6.0);
     let out = transform_overlay_instances((0, corners, rotate));
-    assert_eq!(out.len(), 4 * 2 + 1 * 2 + 5 * 2);
+    assert_eq!(out.len(), (4 + 1 + 5) * 2);
 
     for i in 0..4 {
         let a = corners[i];

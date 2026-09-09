@@ -333,7 +333,7 @@ pub fn box_overlay_instances(
     corners: [(f32, f32); 4],
     rotate_handle: Option<(f32, f32)>,
 ) -> Vec<StrokeInstance> {
-    let mut out = Vec::with_capacity(4 * 2 + 1 * 2 + 5 * 2);
+    let mut out = Vec::with_capacity((4 + 1 + 5) * 2);
     for i in 0..4 {
         push_outlined_segment(
             &mut out,
