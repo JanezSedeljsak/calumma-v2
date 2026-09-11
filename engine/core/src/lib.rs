@@ -1,3 +1,4 @@
+pub mod blend;
 pub mod blur;
 pub mod brush;
 pub mod brush_cursor;

@@ -131,9 +131,7 @@ pub fn sync_strings(ui: &AppWindow, l10n: &Catalog) {
     layers.set_visibility_label(put(l10n.get("layerVisibility")));
     layers.set_opacity_label(put(l10n.get("opacity")));
     layers.set_blend_label(put(l10n.get("blendMode")));
-    layers.set_blend_normal_label(put(l10n.get("blendNormal")));
-    layers.set_blend_multiply_label(put(l10n.get("blendMultiply")));
-    layers.set_blend_screen_label(put(l10n.get("blendScreen")));
+    layers.set_blend_options(blend_options(l10n));
     layers.set_filters_label(put(l10n.get("filters")));
     layers.set_brightness_label(put(l10n.get("brightness")));
     layers.set_contrast_label(put(l10n.get("contrast")));
@@ -152,4 +150,24 @@ pub fn sync_strings(ui: &AppWindow, l10n: &Catalog) {
     layers.set_export_label(put(l10n.get("exportLayer")));
     layers.set_duplicate_label(put(l10n.get("duplicateLayer")));
     layers.set_delete_label(put(l10n.get("deleteLayer")));
+}
+
+/// The blend menu in the engine's order and groups, a divider opening every group after the
+/// first — rebuilt with the rest of the strings, so switching language relabels it.
+fn blend_options(l10n: &Catalog) -> slint::ModelRc<super::SelectOption> {
+    let options: Vec<super::SelectOption> = calumma_core::BlendMode::MENU
+        .iter()
+        .enumerate()
+        .flat_map(|(group, modes)| {
+            modes
+                .iter()
+                .enumerate()
+                .map(move |(i, &mode)| super::SelectOption {
+                    label: SharedString::from(l10n.get(crate::shell::blend_label_key(mode))),
+                    value: mode.as_u32() as i32,
+                    group_start: group > 0 && i == 0,
+                })
+        })
+        .collect();
+    slint::ModelRc::new(slint::VecModel::from(options))
 }

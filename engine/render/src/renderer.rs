@@ -135,7 +135,17 @@ struct LayerData {
     saturation: f32,
     vibrance: f32,
     hue: f32,
-    _pad: f32,
+    /// `BlendMode::as_u32`. Read only by `fs_tile_blend`/`fs_solid_tile_blend`; the three
+    /// fixed-function modes are a pipeline choice and never look here.
+    blend_mode: u32,
+}
+
+/// A copy of the content target taken just before a layer that needs to read what is under it.
+/// Allocated only while some visible layer has such a mode, at the target's size and format.
+struct Backdrop {
+    texture: wgpu::Texture,
+    bind_group: wgpu::BindGroup,
+    size: (u32, u32),
 }
 
 impl Default for LayerData {
@@ -153,7 +163,7 @@ impl Default for LayerData {
             saturation: 0.0,
             vibrance: 0.0,
             hue: 0.0,
-            _pad: 0.0,
+            blend_mode: 0,
         }
     }
 }
@@ -325,6 +335,10 @@ pub struct Renderer {
     solid_pipeline_normal: wgpu::RenderPipeline,
     solid_pipeline_multiply: wgpu::RenderPipeline,
     solid_pipeline_screen: wgpu::RenderPipeline,
+    tile_blend_pipeline: wgpu::RenderPipeline,
+    solid_blend_pipeline: wgpu::RenderPipeline,
+    backdrop_bgl: wgpu::BindGroupLayout,
+    backdrop: Option<Backdrop>,
     stroke_pipeline: wgpu::RenderPipeline,
     overlay_pipeline: wgpu::RenderPipeline,
     guide_pipeline: wgpu::RenderPipeline,

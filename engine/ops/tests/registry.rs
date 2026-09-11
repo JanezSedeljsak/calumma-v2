@@ -62,9 +62,7 @@ mod mocks {
 
         fn run(&self, _input: OpInput, _params: &OpParams) -> Result<OpOutput, OpError> {
             if self.fail {
-                Err(OpError::Failed(
-                    calumma_core::names::ERR_MOCK_FAILURE.into(),
-                ))
+                Err(OpError::Failed("mock failure".into()))
             } else {
                 Ok(self.output.clone())
             }

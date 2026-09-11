@@ -115,13 +115,12 @@ are not openable, they are open.
 - **Switching is instant; the board catches up.** The tab lights up on the click, and the
   canvas holds a **skeleton** — the desk plus one sweeping rectangle — while the project is
   read back out of SQLite (opening it inline is what used to freeze the window mid-click).
-  The rectangle is the *incoming* project fitted by `calumma_core::camera::fit_size`, the engine's own fit
-  geometry, so the placeholder sits exactly where the paper lands and the switch has nothing
-  to jump. The rulers print the incoming project's ticks on that same fit camera; only the
-  canvas content is covered. A minimum-hold floor keeps a fast load reading as a load rather
-  than a flicker. This skeleton is not yet ported to `gui/` — tracked in
-  `docs/plans/02-slint-shell.md`'s parity checklist — so a tab switch there reloads inline
-  today.
+  The rectangle is the *incoming* project fitted with the same `fit-padding` token
+  `Camera::fit` uses (`CanvasSkeleton`, `gui/ui/canvas-skeleton.slint`, fed the summary's
+  width and height by `deferred_load_project`), so the placeholder sits where the paper lands.
+  That fit is the one piece of camera geometry the shell still works out itself — an engine
+  answer for it is an open gap. The ruler ticks for the incoming project and the
+  minimum-hold floor the frozen Swift shell had are not ported yet.
 - **Closing a tab is not deleting a project.** `×` takes the project off the tab bar and
   leaves it in SQLite, where Recents offers it again — the soft one. Deleting is the Landing
   / New Project recents row's trash button, it is confirmed, and it is permanent.

@@ -1,0 +1,112 @@
+import { Theme } from "CalmTheme.slint";
+import { Tokens } from "CalmTokens.slint";
+import { CalmPointer } from "CalmPointer.slint";
+import { CalmScrollView } from "CalmScrollView.slint";
+import { CalmDivider } from "CalmDivider.slint";
+
+export struct SelectOption {
+    label: string,
+    value: int,
+    group-start: bool,
+}
+
+export component CalmSelect inherits Rectangle {
+    in property <[SelectOption]> options;
+    in property <int> value;
+    in property <string> current-label;
+    in property <length> list-height: 320px;
+
+    callback picked(int);
+
+    height: Tokens.control-height;
+    border-radius: Tokens.radius-sm;
+    background: touch.has-hover ? Theme.surface-hover : Theme.surface;
+    border-width: 1px;
+    border-color: Theme.control-border;
+
+    Text {
+        x: Tokens.space-sm;
+        width: parent.width - Tokens.space-sm * 2 - chevron.width;
+        height: 100%;
+        text: root.current-label;
+        color: Theme.text;
+        font-size: Tokens.label-size;
+        font-weight: 500;
+        overflow: elide;
+        vertical-alignment: center;
+    }
+
+    chevron := Path {
+        x: parent.width - Tokens.space-sm - self.width;
+        y: (parent.height - self.height) / 2;
+        width: 8px;
+        height: 5px;
+        commands: "M 0 0 L 4 4 L 8 0";
+        stroke: Theme.text-muted;
+        stroke-width: 1.5px;
+    }
+
+    touch := CalmPointer {
+        clicked => {
+            popup.show();
+        }
+    }
+
+    popup := PopupWindow {
+        close-policy: close-on-click-outside;
+        x: 0px;
+        y: root.height + Tokens.space-xs;
+        width: root.width;
+
+        Rectangle {
+            background: Theme.surface;
+            border-radius: Tokens.radius-md;
+            border-width: 1px;
+            border-color: Theme.island-border;
+            drop-shadow-blur: 16px;
+            drop-shadow-offset-y: 4px;
+            drop-shadow-color: Theme.shadow;
+            clip: true;
+
+            CalmScrollView {
+                height: root.list-height;
+
+                VerticalLayout {
+                    padding: Tokens.space-xs;
+                    spacing: 1px;
+
+                    for option in root.options: VerticalLayout {
+                        spacing: 1px;
+
+                        if option.group-start: CalmDivider {}
+
+                        Rectangle {
+                            height: Tokens.control-height;
+                            border-radius: Tokens.radius-sm;
+                            background: row-touch.has-hover || option.value == root.value ? Theme.surface-hover : transparent;
+
+                            row-touch := CalmPointer {
+                                clicked => {
+                                    root.picked(option.value);
+                                    popup.close();
+                                }
+                            }
+
+                            Text {
+                                x: Tokens.space-xs;
+                                width: parent.width - Tokens.space-xs * 2;
+                                height: 100%;
+                                text: option.label;
+                                color: option.value == root.value ? Theme.text : Theme.text-muted;
+                                font-size: Tokens.label-size;
+                                font-weight: option.value == root.value ? 600 : 400;
+                                overflow: elide;
+                                vertical-alignment: center;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

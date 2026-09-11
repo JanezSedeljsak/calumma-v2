@@ -146,7 +146,8 @@ struct LayerData {
     saturation: f32,
     vibrance: f32,
     hue: f32,
-    _pad: f32,
+    // `BlendMode` as its `u32` — read only by the `_blend` fragment entries.
+    blend_mode: u32,
 }
 
 const LUT_MODE_IDENTITY: u32 = 0u;
@@ -373,6 +374,12 @@ fn apply_adjustments(c: vec4<f32>, layer_index: u32) -> vec4<f32> {
 
 @fragment
 fn fs_tile(input: TileVsOut) -> @location(0) vec4<f32> {
+    let c = tile_color(input);
+    return vec4<f32>(c.rgb * c.a, c.a);
+}
+
+// One tile texel as the layer shows it — adjusted and faded by opacity, straight alpha.
+fn tile_color(input: TileVsOut) -> vec4<f32> {
     // Plain `textureSample` (not `...Level`) picks its mip from the screen-space derivatives of
     // `input.uv` automatically — coarser levels as the board zooms out, blended between levels
     // by `tile_sampler`'s mipmap_filter. That is what keeps a zoomed-out pan from shimmering:
@@ -390,7 +397,7 @@ fn fs_tile(input: TileVsOut) -> @location(0) vec4<f32> {
     }
     c = apply_adjustments(c, input.layer_index);
     c.a *= layer_data[input.layer_index].opacity;
-    return vec4<f32>(c.rgb * c.a, c.a);
+    return c;
 }
 
 struct SolidVsOut {
@@ -429,10 +436,218 @@ fn vs_doc_quad(@builtin(vertex_index) idx: u32, @builtin(instance_index) layer_i
 
 @fragment
 fn fs_solid_tile(input: SolidVsOut) -> @location(0) vec4<f32> {
+    let c = solid_color(input);
+    return vec4<f32>(c.rgb * c.a, c.a);
+}
+
+fn solid_color(input: SolidVsOut) -> vec4<f32> {
     var c = textureSample(tile_tex, tile_sampler, vec2<f32>(0.5, 0.5), i32(input.slot));
     c = apply_adjustments(c, input.layer_index);
     c.a *= layer_data[input.layer_index].opacity;
-    return vec4<f32>(c.rgb * c.a, c.a);
+    return c;
+}
+
+// Mirrors `BlendMode` (`core/src/layer.rs`) value for value.
+const BLEND_NORMAL: u32 = 0u;
+const BLEND_MULTIPLY: u32 = 1u;
+const BLEND_SCREEN: u32 = 2u;
+const BLEND_DARKEN: u32 = 3u;
+const BLEND_COLOR_BURN: u32 = 4u;
+const BLEND_LINEAR_BURN: u32 = 5u;
+const BLEND_DARKER_COLOR: u32 = 6u;
+const BLEND_LIGHTEN: u32 = 7u;
+const BLEND_COLOR_DODGE: u32 = 8u;
+const BLEND_LINEAR_DODGE: u32 = 9u;
+const BLEND_LIGHTER_COLOR: u32 = 10u;
+const BLEND_OVERLAY: u32 = 11u;
+const BLEND_SOFT_LIGHT: u32 = 12u;
+const BLEND_HARD_LIGHT: u32 = 13u;
+const BLEND_VIVID_LIGHT: u32 = 14u;
+const BLEND_LINEAR_LIGHT: u32 = 15u;
+const BLEND_PIN_LIGHT: u32 = 16u;
+const BLEND_HARD_MIX: u32 = 17u;
+const BLEND_DIFFERENCE: u32 = 18u;
+const BLEND_EXCLUSION: u32 = 19u;
+const BLEND_SUBTRACT: u32 = 20u;
+const BLEND_DIVIDE: u32 = 21u;
+const BLEND_HUE: u32 = 22u;
+const BLEND_SATURATION: u32 = 23u;
+const BLEND_COLOR: u32 = 24u;
+const BLEND_LUMINOSITY: u32 = 25u;
+
+// What is already drawn under the layer being blended, copied out of the target just before
+// it — the one input fixed-function blending cannot give a shader. Read with `textureLoad` at
+// the fragment's own pixel, so the copy and the target line up exactly.
+@group(1) @binding(0) var backdrop_tex: texture_2d<f32>;
+
+fn blend_screen(b: f32, s: f32) -> f32 {
+    return b + s - b * s;
+}
+
+fn blend_hard_light(b: f32, s: f32) -> f32 {
+    if s <= 0.5 {
+        return b * 2.0 * s;
+    }
+    return blend_screen(b, 2.0 * s - 1.0);
+}
+
+fn blend_color_dodge(b: f32, s: f32) -> f32 {
+    if b <= 0.0 {
+        return 0.0;
+    }
+    if s >= 1.0 {
+        return 1.0;
+    }
+    return min(1.0, b / (1.0 - s));
+}
+
+fn blend_color_burn(b: f32, s: f32) -> f32 {
+    if b >= 1.0 {
+        return 1.0;
+    }
+    if s <= 0.0 {
+        return 0.0;
+    }
+    return 1.0 - min(1.0, (1.0 - b) / s);
+}
+
+fn blend_soft_light(b: f32, s: f32) -> f32 {
+    if s <= 0.5 {
+        return b - (1.0 - 2.0 * s) * b * (1.0 - b);
+    }
+    var d = sqrt(b);
+    if b <= 0.25 {
+        d = ((16.0 * b - 12.0) * b + 4.0) * b;
+    }
+    return b + (2.0 * s - 1.0) * (d - b);
+}
+
+fn blend_channel(mode: u32, b: f32, s: f32) -> f32 {
+    switch mode {
+        case BLEND_MULTIPLY: { return b * s; }
+        case BLEND_SCREEN: { return blend_screen(b, s); }
+        case BLEND_DARKEN: { return min(b, s); }
+        case BLEND_LIGHTEN: { return max(b, s); }
+        case BLEND_COLOR_BURN: { return blend_color_burn(b, s); }
+        case BLEND_COLOR_DODGE: { return blend_color_dodge(b, s); }
+        case BLEND_LINEAR_BURN: { return max(0.0, b + s - 1.0); }
+        case BLEND_LINEAR_DODGE: { return min(1.0, b + s); }
+        case BLEND_OVERLAY: { return blend_hard_light(s, b); }
+        case BLEND_HARD_LIGHT: { return blend_hard_light(b, s); }
+        case BLEND_SOFT_LIGHT: { return blend_soft_light(b, s); }
+        case BLEND_VIVID_LIGHT: {
+            if s <= 0.5 {
+                return blend_color_burn(b, 2.0 * s);
+            }
+            return blend_color_dodge(b, 2.0 * s - 1.0);
+        }
+        case BLEND_LINEAR_LIGHT: { return clamp(b + 2.0 * s - 1.0, 0.0, 1.0); }
+        case BLEND_PIN_LIGHT: {
+            if s <= 0.5 {
+                return min(b, 2.0 * s);
+            }
+            return max(b, 2.0 * s - 1.0);
+        }
+        case BLEND_HARD_MIX: { return select(0.0, 1.0, b + s >= 1.0); }
+        case BLEND_DIFFERENCE: { return abs(b - s); }
+        case BLEND_EXCLUSION: { return b + s - 2.0 * b * s; }
+        case BLEND_SUBTRACT: { return max(0.0, b - s); }
+        case BLEND_DIVIDE: {
+            if s <= 0.0 {
+                return select(0.0, 1.0, b > 0.0);
+            }
+            return min(1.0, b / s);
+        }
+        default: { return s; }
+    }
+}
+
+fn blend_lum(c: vec3<f32>) -> f32 {
+    return dot(c, vec3<f32>(0.3, 0.59, 0.11));
+}
+
+fn blend_sat(c: vec3<f32>) -> f32 {
+    return max(c.r, max(c.g, c.b)) - min(c.r, min(c.g, c.b));
+}
+
+fn blend_clip_color(c: vec3<f32>) -> vec3<f32> {
+    let l = blend_lum(c);
+    let n = min(c.r, min(c.g, c.b));
+    let x = max(c.r, max(c.g, c.b));
+    var out = c;
+    if n < 0.0 {
+        out = vec3<f32>(l) + (out - vec3<f32>(l)) * l / (l - n);
+    }
+    if x > 1.0 {
+        out = vec3<f32>(l) + (out - vec3<f32>(l)) * (1.0 - l) / (x - l);
+    }
+    return out;
+}
+
+fn blend_set_lum(c: vec3<f32>, l: f32) -> vec3<f32> {
+    return blend_clip_color(c + vec3<f32>(l - blend_lum(c)));
+}
+
+fn blend_set_sat(c: vec3<f32>, s: f32) -> vec3<f32> {
+    let hi = max(c.r, max(c.g, c.b));
+    let lo = min(c.r, min(c.g, c.b));
+    if hi <= lo {
+        return vec3<f32>(0.0);
+    }
+    return (c - vec3<f32>(lo)) * s / (hi - lo);
+}
+
+// The GPU twin of `blend::blend_rgb` in Rust, on gamma-encoded straight colour.
+fn blend_rgb(mode: u32, b: vec3<f32>, s: vec3<f32>) -> vec3<f32> {
+    switch mode {
+        case BLEND_DARKER_COLOR: { return select(b, s, blend_lum(s) < blend_lum(b)); }
+        case BLEND_LIGHTER_COLOR: { return select(b, s, blend_lum(s) > blend_lum(b)); }
+        case BLEND_HUE: { return blend_set_lum(blend_set_sat(s, blend_sat(b)), blend_lum(b)); }
+        case BLEND_SATURATION: { return blend_set_lum(blend_set_sat(b, blend_sat(s)), blend_lum(b)); }
+        case BLEND_COLOR: { return blend_set_lum(s, blend_lum(b)); }
+        case BLEND_LUMINOSITY: { return blend_set_lum(b, blend_lum(s)); }
+        default: {
+            return vec3<f32>(
+                blend_channel(mode, b.r, s.r),
+                blend_channel(mode, b.g, s.g),
+                blend_channel(mode, b.b, s.b),
+            );
+        }
+    }
+}
+
+fn encode_srgb(c: vec3<f32>) -> vec3<f32> {
+    return vec3<f32>(linear_to_srgb(c.r), linear_to_srgb(c.g), linear_to_srgb(c.b));
+}
+
+fn decode_srgb(c: vec3<f32>) -> vec3<f32> {
+    return vec3<f32>(srgb_to_linear(c.r), srgb_to_linear(c.g), srgb_to_linear(c.b));
+}
+
+// `src` (straight, linear) composited over the backdrop through the layer's mode, written with
+// no fixed-function blend: the result *is* the pixel. The blend itself runs on the gamma-encoded
+// colour, where Photoshop and the CPU flatten (`tile::blend_with_mode`) run it; the source-over
+// around it stays linear like every Normal layer's.
+fn blend_with_backdrop(src: vec4<f32>, layer_index: u32, frag: vec4<f32>) -> vec4<f32> {
+    let under = textureLoad(backdrop_tex, vec2<i32>(frag.xy), 0);
+    var cb = vec3<f32>(0.0);
+    if under.a > 0.0 {
+        cb = under.rgb / under.a;
+    }
+    let mode = layer_data[layer_index].blend_mode;
+    let blended = decode_srgb(blend_rgb(mode, encode_srgb(cb), encode_srgb(src.rgb)));
+    let tinted = mix(src.rgb, blended, under.a);
+    return vec4<f32>(tinted * src.a + under.rgb * (1.0 - src.a), src.a + under.a * (1.0 - src.a));
+}
+
+@fragment
+fn fs_tile_blend(input: TileVsOut) -> @location(0) vec4<f32> {
+    return blend_with_backdrop(tile_color(input), input.layer_index, input.position);
+}
+
+@fragment
+fn fs_solid_tile_blend(input: SolidVsOut) -> @location(0) vec4<f32> {
+    return blend_with_backdrop(solid_color(input), input.layer_index, input.position);
 }
 
 const TOOL_PEN: u32 = 0u;

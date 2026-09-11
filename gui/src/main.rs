@@ -158,7 +158,7 @@ fn wire_landing_callbacks(
         let ui_weak = ui_weak.clone();
         let host = host.clone();
         move || {
-            let ui = ui_weak.upgrade().unwrap();
+            let Some(ui) = ui_weak.upgrade() else { return };
             let name = ui.get_project_name().to_string();
             let width = parse_dimension(ui.get_width_text().as_ref(), DEFAULT_WIDTH);
             let height = parse_dimension(ui.get_height_text().as_ref(), DEFAULT_HEIGHT);
@@ -180,7 +180,7 @@ fn wire_landing_callbacks(
     ui.on_preset_size({
         let ui_weak = ui_weak.clone();
         move |width, height| {
-            let ui = ui_weak.upgrade().unwrap();
+            let Some(ui) = ui_weak.upgrade() else { return };
             ui.set_width_text(width.to_string().into());
             ui.set_height_text(height.to_string().into());
         }
@@ -191,7 +191,7 @@ fn wire_landing_callbacks(
         let ui_weak = ui_weak.clone();
         let host = host.clone();
         move |id| {
-            let ui = ui_weak.upgrade().unwrap();
+            let Some(ui) = ui_weak.upgrade() else { return };
             let id = id.to_string();
             let summary = {
                 let mut ctrl = controller.borrow_mut();
@@ -211,9 +211,27 @@ fn wire_landing_callbacks(
         let ui_weak = ui_weak.clone();
         let host = host.clone();
         move |id| {
-            let ui = ui_weak.upgrade().unwrap();
+            let Some(ui) = ui_weak.upgrade() else { return };
             let id = id.to_string();
-            let result = controller.borrow_mut().delete_project(&id);
+            let mut ctrl = controller.borrow_mut();
+            let untitled = ctrl.l10n.get("untitled");
+            let name = ctrl
+                .refresh_recents()
+                .into_iter()
+                .find(|project| project.id == id)
+                .map(|project| project.name)
+                .filter(|name| !name.is_empty())
+                .unwrap_or(untitled);
+            let title = ctrl.l10n.get("deleteProject");
+            let message = ctrl.l10n.format("deleteProjectMessage", &[&name]);
+            let ok = ctrl.l10n.get("deleteProject");
+            let cancel = ctrl.l10n.get("cancel");
+            let Some(result) = ctrl.delete_project_confirmed(&id, &title, &message, &ok, &cancel)
+            else {
+                sync_shell(&ui, &ctrl);
+                return;
+            };
+            drop(ctrl);
             handle_tab_close_result(
                 result,
                 controller.clone(),
@@ -229,7 +247,7 @@ fn wire_landing_callbacks(
         let ui_weak = ui_weak.clone();
         let host = host.clone();
         move || {
-            let ui = ui_weak.upgrade().unwrap();
+            let Some(ui) = ui_weak.upgrade() else { return };
             let mut ctrl = controller.borrow_mut();
             let title = ctrl.l10n.get("clearAllRecentsTitle");
             let message = ctrl.l10n.get("clearAllRecentsMessage");
@@ -296,7 +314,7 @@ fn wire_editor_callbacks(
         let ui_weak = ui_weak.clone();
         let host = host.clone();
         move |id| {
-            let ui = ui_weak.upgrade().unwrap();
+            let Some(ui) = ui_weak.upgrade() else { return };
             let id = id.to_string();
             let result = controller.borrow_mut().close_project_tab(&id);
             handle_tab_close_result(
@@ -1910,7 +1928,7 @@ fn wire_modals(
         let ui_weak = ui_weak.clone();
         let host = host.clone();
         move || {
-            let ui = ui_weak.upgrade().unwrap();
+            let Some(ui) = ui_weak.upgrade() else { return };
             let name = ui.get_project_name().to_string();
             let width = parse_dimension(ui.get_width_text().as_ref(), DEFAULT_WIDTH);
             let height = parse_dimension(ui.get_height_text().as_ref(), DEFAULT_HEIGHT);
@@ -2260,7 +2278,7 @@ fn deferred_load_project(
     host: Rc<RefCell<BoardHost>>,
 ) {
     let id = summary.id.clone();
-    let ui = ui_weak.upgrade().unwrap();
+    let Some(ui) = ui_weak.upgrade() else { return };
     ui.set_editor_open(true);
     ui.set_loading(true);
     ui.set_loading_doc_width(summary.width as f32);

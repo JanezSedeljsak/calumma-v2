@@ -265,10 +265,10 @@ fn an_empty_layer_of_any_kind_has_no_bounds() {
 /// `None` rather than silently landing on Normal.
 #[test]
 fn a_blend_mode_round_trips_through_its_wire_value_and_refuses_anything_else() {
-    for mode in [BlendMode::Normal, BlendMode::Multiply, BlendMode::Screen] {
+    for &mode in BlendMode::MENU.iter().flat_map(|group| group.iter()) {
         assert_eq!(BlendMode::from_u32(mode.as_u32()), Some(mode));
     }
-    assert_eq!(BlendMode::from_u32(3), None);
+    assert_eq!(BlendMode::from_u32(26), None);
     assert_eq!(BlendMode::from_u32(u32::MAX), None);
     assert_eq!(BlendMode::default(), BlendMode::Normal);
 }

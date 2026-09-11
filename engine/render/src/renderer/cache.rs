@@ -171,6 +171,7 @@ impl Renderer {
                 _ => LayerData::default(),
             };
             row.opacity = layer.opacity;
+            row.blend_mode = layer.blend_mode.as_u32();
             if let Some(adjustments) = layer.adjustments {
                 // `Document::set_layer_adjustments` already clears this to `None` for a neutral
                 // result, but a fresh `AdjustmentLut` re-checks: cheaper than trusting a state

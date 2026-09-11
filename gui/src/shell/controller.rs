@@ -354,6 +354,20 @@ impl AppController {
         Ok(())
     }
 
+    pub fn delete_project_confirmed(
+        &mut self,
+        id: &str,
+        title: &str,
+        message: &str,
+        ok: &str,
+        cancel: &str,
+    ) -> Option<TabCloseResult> {
+        if !confirm(title, message, ok, cancel) {
+            return None;
+        }
+        Some(self.delete_project(id))
+    }
+
     pub fn delete_project(&mut self, id: &str) -> TabCloseResult {
         self.bump_load_generation();
         self.open_tabs.retain(|tab| tab != id);

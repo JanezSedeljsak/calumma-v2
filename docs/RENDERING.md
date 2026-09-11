@@ -125,8 +125,8 @@ An **active selection** and **transform mode** are in neither, for the same reas
 modes you sit in rather than gestures you perform — a marquee lives until ⌘D — and both draw
 static overlays. Counting them as live pinned `Content` at display rate for as long as the mode
 was open: every tile resynced, the draw list rebuilt, the whole visible stack recomposited, the
-overview proxy off. Every engine entry that touches either (`Engine::deselect`,
-`Engine::toggle_transform`, `Engine::exit_transform`, the pointer commits) already
+overview proxy off. Every engine entry that touches either (`Engine::set_move_transform`,
+the tool switch, the pointer commits) already
 calls `Renderer::invalidate`, which is the one frame they need.
 
 Nothing pins `Content` any more, and only a live *gesture* pins `Overlay`. `render()` ends a

@@ -79,10 +79,6 @@ impl DeskMetrics {
         cross_arm: 3.5,
         cross_line_width: 1.1,
     };
-
-    /// How much of `grid` the cell rules take, against the full-strength crosses. The rules are
-    /// the quieter half of the pattern; without this they read as a table rather than as paper.
-    pub const LINE_ALPHA: f32 = 0.4;
 }
 
 impl Default for DeskMetrics {

@@ -1,4 +1,4 @@
-//! `Document::composite_overview` — the whole-document thumbnail behind recents, project
+//! `Document::composite_overview_rect` over the whole document — the whole-document thumbnail behind recents, project
 //! thumbs.
 //!
 //! It samples the stack per pixel rather than compositing the full document and shrinking it,
@@ -27,7 +27,7 @@ fn pixel(rgba: &[u8], w: u32, x: u32, y: u32) -> [u8; 4] {
 
 #[test]
 fn an_overview_fits_inside_the_cap_and_keeps_the_aspect() {
-    let (w, h, rgba) = doc(800, 200).composite_overview(64);
+    let (w, h, rgba) = overview(&doc(800, 200), 64);
     assert!(w <= 64 && h <= 64, "{w}x{h}");
     assert_eq!(w, 64, "the long side lands on the cap");
     assert_eq!(h, 16, "and the short side keeps the 4:1 aspect");
@@ -38,7 +38,7 @@ fn an_overview_fits_inside_the_cap_and_keeps_the_aspect() {
 /// shell would rather draw 32 real pixels than 512 blurry ones.
 #[test]
 fn a_document_smaller_than_the_cap_is_left_at_its_own_size() {
-    let (w, h, _) = doc(32, 24).composite_overview(512);
+    let (w, h, _) = overview(&doc(32, 24), 512);
     assert_eq!((w, h), (32, 24));
 }
 
@@ -46,7 +46,7 @@ fn a_document_smaller_than_the_cap_is_left_at_its_own_size() {
 #[test]
 fn a_single_pixel_axis_does_not_divide_by_zero() {
     for (dw, dh) in [(1, 64), (64, 1), (1, 1)] {
-        let (w, h, rgba) = doc(dw, dh).composite_overview(16);
+        let (w, h, rgba) = overview(&doc(dw, dh), 16);
         assert!(w >= 1 && h >= 1, "{dw}x{dh} gave {w}x{h}");
         assert_eq!(rgba.len(), (w as usize) * (h as usize) * 4);
     }
@@ -54,14 +54,14 @@ fn a_single_pixel_axis_does_not_divide_by_zero() {
 
 #[test]
 fn a_zero_cap_still_produces_at_least_one_pixel() {
-    let (w, h, rgba) = doc(64, 64).composite_overview(0);
+    let (w, h, rgba) = overview(&doc(64, 64), 0);
     assert_eq!((w, h), (1, 1));
     assert_eq!(rgba.len(), 4);
 }
 
 #[test]
 fn an_overview_of_the_default_board_is_the_paper_color() {
-    let (w, h, rgba) = doc(64, 64).composite_overview(8);
+    let (w, h, rgba) = overview(&doc(64, 64), 8);
     for y in 0..h {
         for x in 0..w {
             assert_eq!(pixel(&rgba, w, x, y), [255, 255, 255, 255]);
@@ -86,7 +86,7 @@ fn an_overview_leaves_out_what_the_board_leaves_out() {
     let empty = d.active_layer;
     assert!(d.layers[empty].content_bounds().is_none());
 
-    let (w, h, rgba) = d.composite_overview(8);
+    let (w, h, rgba) = overview(&d, 8);
     for y in 0..h {
         for x in 0..w {
             assert_eq!(
@@ -108,7 +108,7 @@ fn an_overview_composites_the_stack_in_order() {
     let over = d.active_layer;
     paint(&mut d, over, DocRect::new(0, 0, 63, 63), [0, 0, 255, 255]);
 
-    let (w, _, rgba) = d.composite_overview(8);
+    let (w, _, rgba) = overview(&d, 8);
     assert_eq!(
         pixel(&rgba, w, 4, 4),
         [0, 0, 255, 255],
@@ -124,7 +124,7 @@ fn an_overview_honours_layer_opacity_and_blend_mode() {
     paint(&mut d, over, DocRect::new(0, 0, 63, 63), [0, 0, 0, 255]);
     d.layers[over].blend_mode = BlendMode::Multiply;
 
-    let (w, _, multiplied) = d.composite_overview(8);
+    let (w, _, multiplied) = overview(&d, 8);
     assert_eq!(
         pixel(&multiplied, w, 4, 4),
         [0, 0, 0, 255],
@@ -132,7 +132,7 @@ fn an_overview_honours_layer_opacity_and_blend_mode() {
     );
 
     d.layers[over].opacity = 0.0;
-    let (w, _, transparent) = d.composite_overview(8);
+    let (w, _, transparent) = overview(&d, 8);
     assert_eq!(
         pixel(&transparent, w, 4, 4),
         [255, 255, 255, 255],
@@ -162,7 +162,7 @@ fn an_overview_includes_a_vector_layer() {
         }),
     );
 
-    let (w, _, rgba) = d.composite_overview(8);
+    let (w, _, rgba) = overview(&d, 8);
     let px = pixel(&rgba, w, 4, 4);
     assert_eq!(px[3], 255, "the shape is there: {px:?}");
     assert!(px[1] > px[0] && px[1] > px[2], "and it is the green one");
@@ -177,7 +177,7 @@ fn an_overview_agrees_with_the_full_composite() {
     let ink = d.active_layer;
     paint(&mut d, ink, DocRect::new(0, 0, 31, 63), [200, 30, 40, 255]);
 
-    let (w, _, overview) = d.composite_overview(64);
+    let (w, _, overview) = overview(&d, 64);
     let (fw, _, full) = d.composite_rgba();
     for (x, y) in [(4u32, 4u32), (10, 40), (48, 8), (60, 60)] {
         assert_eq!(
@@ -198,7 +198,7 @@ fn an_overview_samples_a_layer_through_its_transform() {
     let ink = d.active_layer;
     paint(&mut d, ink, DocRect::new(0, 0, 15, 15), [0, 0, 0, 255]);
 
-    let (w, _, before) = d.composite_overview(64);
+    let (w, _, before) = overview(&d, 64);
     assert_eq!(pixel(&before, w, 4, 4)[3], 255, "ink starts top-left");
     assert_eq!(pixel(&before, w, 40, 40)[3], 0);
 
@@ -207,7 +207,7 @@ fn an_overview_samples_a_layer_through_its_transform() {
         offset_y: 40.0,
         ..LayerTransform::default()
     });
-    let (w, _, after) = d.composite_overview(64);
+    let (w, _, after) = overview(&d, 64);
     assert_eq!(pixel(&after, w, 4, 4)[3], 0, "it left the corner");
     assert_eq!(pixel(&after, w, 44, 44)[3], 255, "and arrived down-right");
 }
@@ -243,7 +243,7 @@ fn a_mixed_document_reads_the_same_through_the_overview_and_the_flatten() {
         }),
     );
 
-    let (w, h, overview) = d.composite_overview(64);
+    let (w, h, overview) = overview(&d, 64);
     let (fw, fh, full) = d.composite_rgba();
     assert_eq!((w, h), (fw, fh));
 
@@ -271,7 +271,7 @@ fn a_mixed_document_reads_the_same_through_the_overview_and_the_flatten() {
 
 #[test]
 fn a_region_flatten_matches_the_same_window_of_the_full_overview() {
-    let (tw, th, full) = doc(64, 48).composite_overview(32);
+    let (tw, th, full) = overview(&doc(64, 48), 32);
     let x = tw / 4;
     let y = th / 4;
     let w = (tw / 2).max(1);
@@ -287,4 +287,9 @@ fn a_region_flatten_matches_the_same_window_of_the_full_overview() {
             );
         }
     }
+}
+
+fn overview(doc: &Document, max_side: u32) -> (u32, u32, Vec<u8>) {
+    let (w, h) = Document::overview_dimensions(doc.width, doc.height, max_side);
+    (w, h, doc.composite_overview_rect(max_side, 0, 0, w, h))
 }

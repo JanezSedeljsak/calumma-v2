@@ -89,7 +89,9 @@ impl Drop for Engine {
         }
         let mut inner = self.inner.lock();
         if let Some(mut doc) = inner.doc.take() {
-            let _ = inner.store.save(&mut doc);
+            if let Err(err) = inner.store.save(&mut doc) {
+                eprintln!("miw: saving project {} on quit failed: {err}", doc.id);
+            }
         }
     }
 }
@@ -692,9 +694,11 @@ impl Engine {
     pub fn flush_save(&mut self) {
         let mut inner = self.inner.lock();
         if let Some(mut doc) = inner.doc.take() {
-            let _ = inner.store.save(&mut doc);
+            match inner.store.save(&mut doc) {
+                Ok(()) => inner.dirty_save = false,
+                Err(err) => eprintln!("miw: saving project {} failed: {err}", doc.id),
+            }
             inner.doc = Some(doc);
-            inner.dirty_save = false;
         }
     }
 

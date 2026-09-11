@@ -22,7 +22,7 @@ pub use meow::{play as play_meow, preload as preload_meow};
 pub use prefs::ShellPrefs;
 pub use theme::Theme;
 pub use tool_labels::{
-    brush_icon_index, brush_label_key, grid_slot_selected, grid_slot_tip_key, grid_slot_tool,
-    tool_family_key, tool_icon_index, tool_label_key, BRUSHES, SELECT_TOOLS, SHAPE_TOOLS,
-    TOOL_GRID,
+    blend_label_key, brush_icon_index, brush_label_key, grid_slot_selected, grid_slot_tip_key,
+    grid_slot_tool, tool_family_key, tool_icon_index, tool_label_key, BRUSHES, SELECT_TOOLS,
+    SHAPE_TOOLS, TOOL_GRID,
 };

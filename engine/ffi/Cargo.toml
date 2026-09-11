@@ -14,10 +14,8 @@ calumma-io = { path = "../io" }
 calumma-ops = { path = "../ops" }
 calumma-render = { path = "../render" }
 anyhow = { workspace = true }
-bytemuck = { workspace = true, features = ["derive"] }
 parking_lot = { workspace = true }
 num_enum = { workspace = true }
-pollster = { workspace = true }
 rayon = { workspace = true }
 # Backends are per-target, same split as `calumma-render` — see the note there.
 wgpu = { workspace = true, default-features = false, features = ["wgsl"] }

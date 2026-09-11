@@ -426,37 +426,6 @@ fn svg_transform_attr_emits_a_group_carrying_offset_and_rotation() {
 }
 
 #[test]
-fn tool_makes_vector_covers_the_pen_and_every_shape_but_nothing_else() {
-    for tool in [
-        Tool::Pen,
-        Tool::Line,
-        Tool::Rect,
-        Tool::Ellipse,
-        Tool::Arrow,
-        Tool::Triangle,
-        Tool::Pentagon,
-    ] {
-        assert!(tool_makes_vector(tool), "{tool:?} should make vector ink");
-    }
-    for tool in [
-        Tool::Eraser,
-        Tool::SelectRect,
-        Tool::SelectEllipse,
-        Tool::SelectLasso,
-        Tool::Fill,
-        Tool::Transform,
-        Tool::Eyedropper,
-        Tool::Text,
-        Tool::Move,
-    ] {
-        assert!(
-            !tool_makes_vector(tool),
-            "{tool:?} should not make vector ink"
-        );
-    }
-}
-
-#[test]
 fn geometry_bounds_are_the_bare_extent_and_bounds_add_the_ink_pad() {
     let item = VectorItem::Shape(rect_shape((10.0, 20.0), (50.0, 60.0), true));
     let geometry = item.geometry_bounds().unwrap();

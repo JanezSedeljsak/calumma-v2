@@ -340,7 +340,11 @@ pub fn sync_layer_settings(ui: &AppWindow, controller: &AppController) {
         chrome.set_opacity(opacity);
         chrome.set_opacity_text(put(format!("{}", (opacity * 100.0).round() as i32)));
         chrome.set_preview(controller.thumb_cache.preview_image(index));
-        chrome.set_blend(engine.layer_blend_mode(index) as i32);
+        let blend = engine.layer_blend_mode(index);
+        chrome.set_blend(blend.as_u32() as i32);
+        chrome.set_blend_current_label(put(controller
+            .l10n
+            .get(crate::shell::blend_label_key(blend))));
         chrome.set_brightness(adjustments.brightness);
         chrome.set_contrast(adjustments.contrast);
         chrome.set_vibrance(adjustments.vibrance);
@@ -447,7 +451,7 @@ pub fn sync_layer_rows(ui: &AppWindow, controller: &mut AppController) {
             })
             .collect();
         drop(engine);
-        ui.set_layers(ModelRc::new(VecModel::from(rows)));
+        ui.set_layers(put_rows(ui.get_layers(), rows));
     }
     sync_layer_settings(ui, controller);
 }

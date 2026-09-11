@@ -320,6 +320,10 @@ impl PanCache {
         &self.working.as_ref().expect("PanCache not sized").view
     }
 
+    pub(crate) fn format(&self) -> wgpu::TextureFormat {
+        self.format
+    }
+
     /// The texture the board pass samples. Always `reference`: a full redraw writes it
     /// directly, and a shift writes `working` and then swaps it into place, so whichever
     /// route the content pass took, the current frame's pixels are here.

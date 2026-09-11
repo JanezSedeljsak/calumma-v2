@@ -12,13 +12,15 @@ export component PasteArtworkIsland inherits CalmIsland {
     callback clicked();
 
     private property <image> icon-image: @image-url("image.svg");
+    private property <bool> lit: targeted || touch.has-hover;
+    private property <float> chroma: lit ? 0.72 : 0.6;
 
     min-width: Tokens.paste-min-width;
     island-padding: 0px;
     clip: true;
     background: @linear-gradient(135deg,
-        Theme.accent-teal 0%,
-        Theme.accent-orange 50%,
+        Theme.accent-teal.mix(Theme.surface, chroma) 0%,
+        Theme.accent-orange.mix(Theme.surface, chroma) 50%,
         Theme.surface 100%);
 
     touch := CalmPointer {

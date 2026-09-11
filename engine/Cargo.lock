@@ -336,7 +336,6 @@ checksum = "fc652a48c352aef3ea3aed32080501cf3ef6ed5da78602a020c991775b0aff04"
 name = "calumma-app"
 version = "0.31.0"
 dependencies = [
- "anyhow",
  "calumma-core",
  "calumma-ffi",
 ]
@@ -360,14 +359,12 @@ name = "calumma-ffi"
 version = "0.31.0"
 dependencies = [
  "anyhow",
- "bytemuck",
  "calumma-core",
  "calumma-io",
  "calumma-ops",
  "calumma-render",
  "num_enum",
  "parking_lot",
- "pollster",
  "rayon",
  "tempfile",
  "wgpu",

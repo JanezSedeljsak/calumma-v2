@@ -22,10 +22,6 @@ impl Camera {
         )
     }
 
-    pub fn device_zoom(&self) -> f32 {
-        self.zoom * self.dpr
-    }
-
     pub fn paper_scissor(
         &self,
         doc_width: f32,
@@ -56,25 +52,5 @@ impl Camera {
             return None;
         }
         Some((x, y, x2 - x, y2 - y))
-    }
-
-    pub fn view_proj(&self) -> [[f32; 4]; 4] {
-        let (device_width, device_height) = self.device_size();
-        let width = device_width as f32;
-        let height = device_height as f32;
-        let zoom = self.device_zoom();
-        let pan_x = self.pan_x * self.dpr;
-        let pan_y = self.pan_y * self.dpr;
-        [
-            [2.0 * zoom / width, 0.0, 0.0, 0.0],
-            [0.0, -2.0 * zoom / height, 0.0, 0.0],
-            [0.0, 0.0, 1.0, 0.0],
-            [
-                2.0 * pan_x / width - 1.0,
-                1.0 - 2.0 * pan_y / height,
-                0.0,
-                1.0,
-            ],
-        ]
     }
 }

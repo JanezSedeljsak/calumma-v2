@@ -56,25 +56,10 @@ fn chroma_of(px: [u8; 4]) -> f32 {
     (r - g).abs() + (g - b).abs() + (b - r).abs()
 }
 
+/// The energy the carver reads, exactly as it reads it — the same `Workspace` a carve starts
+/// from, so a test of this is a test of what `seam_carve` actually sees.
 pub fn energy_map(rgba: &[u8], w: u32, h: u32) -> Vec<f32> {
-    let (w, h) = (w as usize, h as usize);
-    let luma: Vec<f32> = rgba
-        .par_chunks_exact(4)
-        .map(|p| luminance([p[0], p[1], p[2], p[3]]))
-        .collect();
-    let alpha: Vec<f32> = rgba
-        .par_iter()
-        .skip(3)
-        .step_by(4)
-        .map(|&a| a as f32)
-        .collect();
-    let chroma: Vec<f32> = rgba
-        .par_chunks_exact(4)
-        .map(|p| chroma_of([p[0], p[1], p[2], p[3]]))
-        .collect();
-    let mut out = vec![0f32; w * h];
-    fill_energy(&mut out, &luma, &alpha, &chroma, w, h);
-    out
+    Workspace::new(rgba.to_vec(), w as usize, h as usize).energy
 }
 
 fn fill_energy(out: &mut [f32], luma: &[f32], alpha: &[f32], chroma: &[f32], w: usize, h: usize) {
@@ -211,12 +196,7 @@ impl Workspace {
             .par_chunks_exact(4)
             .map(|p| luminance([p[0], p[1], p[2], p[3]]))
             .collect();
-        let alpha: Vec<f32> = rgba
-            .par_iter()
-            .skip(3)
-            .step_by(4)
-            .map(|&a| a as f32)
-            .collect();
+        let alpha: Vec<f32> = rgba.par_chunks_exact(4).map(|p| p[3] as f32).collect();
         let chroma: Vec<f32> = rgba
             .par_chunks_exact(4)
             .map(|p| chroma_of([p[0], p[1], p[2], p[3]]))

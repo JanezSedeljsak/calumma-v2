@@ -213,7 +213,7 @@ fn batch_paste_adds_each_image_on_its_own_layer_with_a_stagger() {
             height: 4,
         },
     ];
-    let (pasted, outcome) = doc.paste_images_as_layers(&images);
+    let (pasted, outcome) = doc.paste_sources_as_layers(&rasters(&images));
     assert_eq!(pasted, 2);
     assert_eq!(outcome, PasteOutcome::Native);
     assert_eq!(doc.layers.len(), before + 2);
@@ -246,7 +246,7 @@ fn batch_paste_is_one_undo_step() {
         },
     ];
     let before = doc.layers.len();
-    let (pasted, _) = doc.paste_images_as_layers(&images);
+    let (pasted, _) = doc.paste_sources_as_layers(&rasters(&images));
     assert_eq!(pasted, 2);
     assert_eq!(doc.layers.len(), before + 2);
     assert!(doc.history.can_undo());
@@ -274,7 +274,7 @@ fn install_images_staggered_sizes_layers_on_a_fresh_project() {
             height: 10,
         },
     ];
-    assert_eq!(doc.install_images_staggered(&images), 2);
+    assert_eq!(doc.install_sources_staggered(&rasters(&images)), 2);
     assert_eq!((doc.width, doc.height), (32, 32));
     let first = opaque_bounds(&doc, 1);
     let second = opaque_bounds(&doc, 2);
@@ -306,14 +306,14 @@ fn install_images_staggered_uses_image_names_on_extra_layers() {
             height: 4,
         },
     ];
-    assert_eq!(doc.install_images_staggered(&images), 2);
+    assert_eq!(doc.install_sources_staggered(&rasters(&images)), 2);
     assert_eq!(doc.layers[2].name, "overlay");
 }
 
 #[test]
 fn install_images_on_an_empty_list_places_nothing() {
     let mut doc = Document::new("p".into(), "t", 32, 32);
-    assert_eq!(doc.install_images_staggered(&[]), 0);
+    assert_eq!(doc.install_sources_staggered(&[]), 0);
 }
 
 #[test]
@@ -351,4 +351,14 @@ fn a_pasted_svg_is_one_vector_layer_per_item_in_one_undo_step() {
     assert!(doc.layers[before + 1].content.is_vector());
     doc.undo();
     assert_eq!(doc.layers.len(), before, "one undo removes the whole paste");
+}
+
+fn rasters<'a>(
+    images: &[calumma_core::paste::PasteImage<'a>],
+) -> Vec<calumma_core::paste::PasteSource<'a>> {
+    images
+        .iter()
+        .copied()
+        .map(calumma_core::paste::PasteSource::Raster)
+        .collect()
 }

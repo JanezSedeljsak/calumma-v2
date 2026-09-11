@@ -41,12 +41,28 @@ viewBox=\"0 0 {width} {height}\">"
     out
 }
 
+/// CSS `mix-blend-mode`. CSS has no linear, vivid, pin, hard-mix, subtract, divide, darker or
+/// lighter colour; those, like Normal, write nothing and the viewer draws the layer plainly.
 fn blend_style(mode: BlendMode) -> Option<&'static str> {
-    match mode {
-        BlendMode::Normal => None,
-        BlendMode::Multiply => Some("multiply"),
-        BlendMode::Screen => Some("screen"),
-    }
+    Some(match mode {
+        BlendMode::Multiply => "multiply",
+        BlendMode::Screen => "screen",
+        BlendMode::Overlay => "overlay",
+        BlendMode::Darken => "darken",
+        BlendMode::Lighten => "lighten",
+        BlendMode::ColorDodge => "color-dodge",
+        BlendMode::ColorBurn => "color-burn",
+        BlendMode::HardLight => "hard-light",
+        BlendMode::SoftLight => "soft-light",
+        BlendMode::Difference => "difference",
+        BlendMode::Exclusion => "exclusion",
+        BlendMode::Hue => "hue",
+        BlendMode::Saturation => "saturation",
+        BlendMode::Color => "color",
+        BlendMode::Luminosity => "luminosity",
+        BlendMode::LinearDodge => "plus-lighter",
+        _ => return None,
+    })
 }
 
 fn group_attrs(layer: &Layer, name: String) -> String {

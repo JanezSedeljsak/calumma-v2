@@ -27,11 +27,26 @@ pub fn page_size(width: u32, height: u32, dpi: f32) -> (f32, f32) {
     (width.max(1) as f32 * scale, height.max(1) as f32 * scale)
 }
 
+/// PDF's `/BM` names — the sixteen standard modes. The Photoshop-only ones have no PDF
+/// operator and fall back to Normal.
 fn blend_name(mode: BlendMode) -> &'static str {
     match mode {
-        BlendMode::Normal => "Normal",
         BlendMode::Multiply => "Multiply",
         BlendMode::Screen => "Screen",
+        BlendMode::Overlay => "Overlay",
+        BlendMode::Darken => "Darken",
+        BlendMode::Lighten => "Lighten",
+        BlendMode::ColorDodge => "ColorDodge",
+        BlendMode::ColorBurn => "ColorBurn",
+        BlendMode::HardLight => "HardLight",
+        BlendMode::SoftLight => "SoftLight",
+        BlendMode::Difference => "Difference",
+        BlendMode::Exclusion => "Exclusion",
+        BlendMode::Hue => "Hue",
+        BlendMode::Saturation => "Saturation",
+        BlendMode::Color => "Color",
+        BlendMode::Luminosity => "Luminosity",
+        _ => "Normal",
     }
 }
 

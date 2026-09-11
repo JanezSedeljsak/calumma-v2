@@ -47,9 +47,80 @@ pub enum BlendMode {
     Normal = 0,
     Multiply = 1,
     Screen = 2,
+    Darken = 3,
+    ColorBurn = 4,
+    LinearBurn = 5,
+    DarkerColor = 6,
+    Lighten = 7,
+    ColorDodge = 8,
+    LinearDodge = 9,
+    LighterColor = 10,
+    Overlay = 11,
+    SoftLight = 12,
+    HardLight = 13,
+    VividLight = 14,
+    LinearLight = 15,
+    PinLight = 16,
+    HardMix = 17,
+    Difference = 18,
+    Exclusion = 19,
+    Subtract = 20,
+    Divide = 21,
+    Hue = 22,
+    Saturation = 23,
+    Color = 24,
+    Luminosity = 25,
 }
 
 impl BlendMode {
+    /// Photoshop's blend menu, in its order and its groups — darken, lighten, contrast,
+    /// inversion, component. Dissolve is the one it has that this does not: it scatters pixels
+    /// by where they are, and a blend here is a function of the two colours alone.
+    pub const MENU: &'static [&'static [BlendMode]] = &[
+        &[BlendMode::Normal],
+        &[
+            BlendMode::Darken,
+            BlendMode::Multiply,
+            BlendMode::ColorBurn,
+            BlendMode::LinearBurn,
+            BlendMode::DarkerColor,
+        ],
+        &[
+            BlendMode::Lighten,
+            BlendMode::Screen,
+            BlendMode::ColorDodge,
+            BlendMode::LinearDodge,
+            BlendMode::LighterColor,
+        ],
+        &[
+            BlendMode::Overlay,
+            BlendMode::SoftLight,
+            BlendMode::HardLight,
+            BlendMode::VividLight,
+            BlendMode::LinearLight,
+            BlendMode::PinLight,
+            BlendMode::HardMix,
+        ],
+        &[
+            BlendMode::Difference,
+            BlendMode::Exclusion,
+            BlendMode::Subtract,
+            BlendMode::Divide,
+        ],
+        &[
+            BlendMode::Hue,
+            BlendMode::Saturation,
+            BlendMode::Color,
+            BlendMode::Luminosity,
+        ],
+    ];
+
+    /// The three modes the GPU's fixed-function blend unit can do on its own. Every other mode
+    /// needs to read what is already underneath, so the board draws it against a copy.
+    pub fn is_fixed_function(self) -> bool {
+        matches!(self, Self::Normal | Self::Multiply | Self::Screen)
+    }
+
     pub fn from_u32(value: u32) -> Option<Self> {
         Self::try_from(value).ok()
     }

@@ -15,7 +15,6 @@ pub const ERR_PLATFORM_OP_FAILED: &str = "platform op failed";
 pub const ERR_EMPTY_MASK: &str = "empty mask";
 pub const ERR_EMPTY_RASTER: &str = "empty raster";
 pub const ERR_NO_OUTPUT: &str = "no output";
-pub const ERR_MOCK_FAILURE: &str = "mock failure";
 
 pub fn numbered_layer(n: usize) -> String {
     format!("{LAYER_PREFIX} {n}")

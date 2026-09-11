@@ -160,22 +160,23 @@ pub fn blend_over(dst: [u8; 4], src: [u8; 4]) -> [u8; 4] {
     ]
 }
 
+/// `src` composited over `dst` through `mode`: the source colour becomes
+/// `(1 - αb)·Cs + αb·B(Cb, Cs)` — the blend only applies where there is a backdrop to blend
+/// with — and is then laid over `dst` like any Normal pixel.
 pub fn blend_with_mode(dst: [u8; 4], src: [u8; 4], mode: crate::layer::BlendMode) -> [u8; 4] {
-    use crate::layer::BlendMode;
-    let blended_rgb = match mode {
-        BlendMode::Normal => [src[0], src[1], src[2]],
-        BlendMode::Multiply => {
-            std::array::from_fn(|i| ((dst[i] as u32 * src[i] as u32) / ALPHA_MAX) as u8)
-        }
-        BlendMode::Screen => std::array::from_fn(|i| {
-            (ALPHA_MAX - ((ALPHA_MAX - dst[i] as u32) * (ALPHA_MAX - src[i] as u32) / ALPHA_MAX))
-                as u8
-        }),
-    };
-    blend_over(
-        dst,
-        [blended_rgb[0], blended_rgb[1], blended_rgb[2], src[3]],
-    )
+    if mode == crate::layer::BlendMode::Normal || src[3] == 0 {
+        return blend_over(dst, src);
+    }
+    let unit = |v: u8| v as f32 / ALPHA_MAX as f32;
+    let backdrop = [unit(dst[0]), unit(dst[1]), unit(dst[2])];
+    let source = [unit(src[0]), unit(src[1]), unit(src[2])];
+    let backdrop_alpha = unit(dst[3]);
+    let blended = crate::blend::blend_rgb(mode, backdrop, source);
+    let mixed: [u8; 3] = std::array::from_fn(|i| {
+        let v = (1.0 - backdrop_alpha) * source[i] + backdrop_alpha * blended[i];
+        (v.clamp(0.0, 1.0) * ALPHA_MAX as f32).round() as u8
+    });
+    blend_over(dst, [mixed[0], mixed[1], mixed[2], src[3]])
 }
 
 pub fn unpremultiply_rgba(rgba: &mut [u8]) {
@@ -749,15 +750,6 @@ impl TileGrid {
         self.paint_rect(DocRect::new(x, y, x, y), |_, _, _| Some(rgba));
     }
 
-    pub fn blend_pixel(&mut self, x: i32, y: i32, rgba: [u8; 4]) {
-        if rgba[3] == 0 {
-            return;
-        }
-        self.paint_rect(DocRect::new(x, y, x, y), |_, _, dst| {
-            Some(blend_over(dst, rgba))
-        });
-    }
-
     pub fn get_pixel(&self, x: i32, y: i32) -> [u8; 4] {
         if !self.contains_doc_point(x, y) {
             return [0; 4];
@@ -958,42 +950,6 @@ impl TileGrid {
         let mut out = [0u8; 4];
         out.copy_from_slice(&tile[i..i + CHANNELS]);
         out
-    }
-
-    pub fn stamp_disc(&mut self, cx: f32, cy: f32, radius: f32, rgba: [u8; 4]) -> usize {
-        if radius <= 0.0 || rgba[3] == 0 {
-            return 0;
-        }
-        let pad = radius + crate::limits::STAMP_COVERAGE_PADDING;
-        let rect = DocRect::from_floats(cx - pad, cy - pad, cx + pad, cy + pad);
-        let r2 = radius * radius;
-        self.paint_rect(rect, |px, py, dst| {
-            let dx = px as f32 + 0.5 - cx;
-            let dy = py as f32 + 0.5 - cy;
-            if dx * dx + dy * dy <= r2 {
-                Some(blend_over(dst, rgba))
-            } else {
-                None
-            }
-        })
-    }
-
-    pub fn stamp_disc_erase(&mut self, cx: f32, cy: f32, radius: f32) -> usize {
-        if radius <= 0.0 {
-            return 0;
-        }
-        let pad = radius + crate::limits::STAMP_COVERAGE_PADDING;
-        let rect = DocRect::from_floats(cx - pad, cy - pad, cx + pad, cy + pad);
-        let r2 = radius * radius;
-        self.paint_rect(rect, |px, py, _| {
-            let dx = px as f32 + 0.5 - cx;
-            let dy = py as f32 + 0.5 - cy;
-            if dx * dx + dy * dy <= r2 {
-                Some([0, 0, 0, 0])
-            } else {
-                None
-            }
-        })
     }
 
     pub fn blit_rgba(&mut self, rgba: &[u8], width: u32, height: u32) -> usize {

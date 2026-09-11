@@ -110,6 +110,47 @@ impl Renderer {
         }
     }
 
+    /// Keeps a backdrop texture exactly as large as the content target while any visible layer
+    /// blends through one, and gives the memory back the moment none does.
+    pub(super) fn ensure_backdrop(&mut self, needed: bool) {
+        if !needed {
+            self.backdrop = None;
+            return;
+        }
+        let size = (self.config.width.max(1), self.config.height.max(1));
+        if self.backdrop.as_ref().is_some_and(|b| b.size == size) {
+            return;
+        }
+        let texture = self.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("blend-backdrop"),
+            size: wgpu::Extent3d {
+                width: size.0,
+                height: size.1,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: self.pan_cache.format(),
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("blend-backdrop-bg"),
+            layout: &self.backdrop_bgl,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::TextureView(&view),
+            }],
+        });
+        self.backdrop = Some(Backdrop {
+            texture,
+            bind_group,
+            size,
+        });
+    }
+
     pub(super) fn ensure_tile_instance_capacity(&mut self, count: usize) {
         if count <= self.tile_instance_capacity {
             return;

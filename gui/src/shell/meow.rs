@@ -10,17 +10,21 @@ mod imp {
     use std::cell::RefCell;
 
     thread_local! {
-        static SOUND: RefCell<Option<Retained<NSSound>>> = const { RefCell::new(None) };
+        static SOUND: RefCell<Option<Option<Retained<NSSound>>>> = const { RefCell::new(None) };
     }
 
-    fn with_sound<R>(f: impl FnOnce(&Retained<NSSound>) -> R) -> R {
+    /// Decodes once and remembers the answer either way: a sound the system cannot decode is a
+    /// silent easter egg, not a crash on the next click.
+    fn with_sound(f: impl FnOnce(&Retained<NSSound>)) {
         SOUND.with(|slot| {
             let mut slot = slot.borrow_mut();
             let sound = slot.get_or_insert_with(|| {
                 let data = NSData::with_bytes(MEOW);
-                NSSound::initWithData(NSSound::alloc(), &data).expect("decoding the meow")
+                NSSound::initWithData(NSSound::alloc(), &data)
             });
-            f(sound)
+            if let Some(sound) = sound {
+                f(sound);
+            }
         })
     }
 

@@ -300,6 +300,45 @@ impl Renderer {
         let solid_pipeline_multiply = solid_pipeline_for("solid-multiply", multiply_target(format));
         let solid_pipeline_screen = solid_pipeline_for("solid-screen", screen_target(format));
 
+        let backdrop_bgl = backdrop_bgl(&device);
+        let blend_pl = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("tile-blend-pl"),
+            bind_group_layouts: &[Some(&tile_shared_bgl), Some(&backdrop_bgl)],
+            ..Default::default()
+        });
+        let blend_pipeline_for =
+            |label: &str, vs: &str, fs: &str, buffers: &[Option<wgpu::VertexBufferLayout>]| {
+                device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                    label: Some(label),
+                    layout: Some(&blend_pl),
+                    vertex: wgpu::VertexState {
+                        module: &shader,
+                        entry_point: Some(vs),
+                        compilation_options: Default::default(),
+                        buffers,
+                    },
+                    fragment: Some(wgpu::FragmentState {
+                        module: &shader,
+                        entry_point: Some(fs),
+                        compilation_options: Default::default(),
+                        targets: &[Some(replace_target(format))],
+                    }),
+                    primitive: wgpu::PrimitiveState::default(),
+                    depth_stencil: None,
+                    multisample: wgpu::MultisampleState::default(),
+                    multiview_mask: None,
+                    cache: None,
+                })
+            };
+        let tile_blend_pipeline = blend_pipeline_for(
+            "tile-blend",
+            "vs_tile",
+            "fs_tile_blend",
+            &[Some(tile_instance_layout.clone())],
+        );
+        let solid_blend_pipeline =
+            blend_pipeline_for("solid-blend", "vs_doc_quad", "fs_solid_tile_blend", &[]);
+
         let preview_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("preview-bgl"),
             entries: &[uniform_entry(0, std::mem::size_of::<PreviewUniforms>())],
@@ -566,6 +605,10 @@ impl Renderer {
             solid_pipeline_normal,
             solid_pipeline_multiply,
             solid_pipeline_screen,
+            tile_blend_pipeline,
+            solid_blend_pipeline,
+            backdrop_bgl,
+            backdrop: None,
             stroke_pipeline,
             overlay_pipeline,
             guide_pipeline,
@@ -633,17 +676,17 @@ impl Renderer {
 
     pub(super) fn tile_pipeline(&self, mode: BlendMode) -> &wgpu::RenderPipeline {
         match mode {
-            BlendMode::Normal => &self.tile_pipeline_normal,
             BlendMode::Multiply => &self.tile_pipeline_multiply,
             BlendMode::Screen => &self.tile_pipeline_screen,
+            _ => &self.tile_pipeline_normal,
         }
     }
 
     pub(super) fn solid_pipeline(&self, mode: BlendMode) -> &wgpu::RenderPipeline {
         match mode {
-            BlendMode::Normal => &self.solid_pipeline_normal,
             BlendMode::Multiply => &self.solid_pipeline_multiply,
             BlendMode::Screen => &self.solid_pipeline_screen,
+            _ => &self.solid_pipeline_normal,
         }
     }
 }
@@ -654,6 +697,22 @@ impl Renderer {
 /// A function rather than an inline descriptor so the GPU tests below build their pipelines
 /// against the *same* layout the app does; a shader/layout disagreement then fails a test
 /// instead of only the running app.
+pub(crate) fn backdrop_bgl(device: &wgpu::Device) -> wgpu::BindGroupLayout {
+    device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some("backdrop-bgl"),
+        entries: &[wgpu::BindGroupLayoutEntry {
+            binding: 0,
+            visibility: wgpu::ShaderStages::FRAGMENT,
+            ty: wgpu::BindingType::Texture {
+                sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                view_dimension: wgpu::TextureViewDimension::D2,
+                multisampled: false,
+            },
+            count: None,
+        }],
+    })
+}
+
 pub(crate) fn tile_shared_bgl(device: &wgpu::Device) -> wgpu::BindGroupLayout {
     device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
         label: Some("tile-shared-bgl"),
@@ -1001,6 +1060,58 @@ pub(super) fn fill_bind_group(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The blend pipelines only exist on a real surface-backed `Renderer`, so a mismatch
+    /// between `fs_tile_blend`'s bindings and the two layouts would otherwise first surface as a
+    /// validation panic at app start. Building them here against the same layouts catches it.
+    #[test]
+    fn the_blend_pipelines_validate_against_the_shared_and_backdrop_layouts() {
+        let Some(gpu) = crate::test_gpu::gpu() else {
+            return;
+        };
+        let shared = tile_shared_bgl(&gpu.device);
+        let backdrop = backdrop_bgl(&gpu.device);
+        let layout = gpu
+            .device
+            .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("blend-test-pl"),
+                bind_group_layouts: &[Some(&shared), Some(&backdrop)],
+                ..Default::default()
+            });
+        let instance_layout = wgpu::VertexBufferLayout {
+            array_stride: std::mem::size_of::<TileInstance>() as u64,
+            step_mode: wgpu::VertexStepMode::Instance,
+            attributes: TILE_INSTANCE_ATTRS,
+        };
+        for (vs, fs, buffers) in [
+            ("vs_tile", "fs_tile_blend", vec![Some(instance_layout)]),
+            ("vs_doc_quad", "fs_solid_tile_blend", vec![]),
+        ] {
+            let _pipeline = gpu
+                .device
+                .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                    label: Some(fs),
+                    layout: Some(&layout),
+                    vertex: wgpu::VertexState {
+                        module: &gpu.shader,
+                        entry_point: Some(vs),
+                        compilation_options: Default::default(),
+                        buffers: &buffers,
+                    },
+                    fragment: Some(wgpu::FragmentState {
+                        module: &gpu.shader,
+                        entry_point: Some(fs),
+                        compilation_options: Default::default(),
+                        targets: &[Some(replace_target(wgpu::TextureFormat::Rgba8UnormSrgb))],
+                    }),
+                    primitive: wgpu::PrimitiveState::default(),
+                    depth_stencil: None,
+                    multisample: wgpu::MultisampleState::default(),
+                    multiview_mask: None,
+                    cache: None,
+                });
+        }
+    }
 
     fn blend(target: wgpu::ColorTargetState) -> wgpu::BlendState {
         target.blend.expect("every board target blends")

@@ -162,18 +162,38 @@ impl Engine {
     }
 
     pub fn run_smart_op(&mut self, kind: OpKind) -> Result<()> {
+        self.run_smart_op_with(kind, OpParams::default())
+    }
+
+    fn run_smart_op_with(&mut self, kind: OpKind, params: OpParams) -> Result<()> {
         let index = self
             .active_layer_index()
             .context("no active layer for the smart tool")?;
-        self.run_op_on_layer(kind, index)
+        self.run_op_on_layer(kind, index, params)
     }
 
     pub fn run_upscale(&mut self) -> Result<()> {
         self.run_smart_op(OpKind::Upscale)
     }
 
+    /// With a selection live, that selection is the seed — everything outside it is background
+    /// — which is what the menu promises when it reads "Cut Out What You Drew Around".
     pub fn run_smart_matte(&mut self) -> Result<()> {
-        self.run_smart_op(OpKind::SmartMatte)
+        let seed_region = {
+            let inner = self.inner.lock();
+            inner.doc.as_ref().and_then(|doc| {
+                doc.selection
+                    .as_ref()
+                    .map(|selection| selection.to_mask(doc.width, doc.height))
+            })
+        };
+        self.run_smart_op_with(
+            OpKind::SmartMatte,
+            OpParams {
+                seed_region,
+                ..OpParams::default()
+            },
+        )
     }
 
     pub fn run_seam_carve_narrow(&mut self) -> Result<()> {
@@ -201,7 +221,7 @@ impl Engine {
         Ok(())
     }
 
-    fn run_op_on_layer(&mut self, kind: OpKind, index: usize) -> Result<()> {
+    fn run_op_on_layer(&mut self, kind: OpKind, index: usize, params: OpParams) -> Result<()> {
         let mut inner = self.inner.lock();
         if !inner.registry.available(kind) {
             anyhow::bail!("tool is not available");
@@ -213,8 +233,7 @@ impl Engine {
             ..
         } = &mut *inner;
         let doc = doc.as_mut().context("no project is open")?;
-        run_op_on_document(registry, doc, index, kind, &OpParams::default())
-            .context("running the tool")?;
+        run_op_on_document(registry, doc, index, kind, &params).context("running the tool")?;
         *dirty_save = true;
         inner.invalidate_renderer();
         Ok(())

@@ -9,36 +9,7 @@ import { CalmPointer } from "calm/CalmPointer.slint";
 import { CalmField } from "calm/CalmField.slint";
 import { CalmSectionLabel } from "calm/CalmSectionLabel.slint";
 import { LayerChrome } from "layer-chrome.slint";
-
-component BlendChip inherits Rectangle {
-    in property <string> label;
-    in property <bool> selected: false;
-
-    callback clicked();
-
-    height: Tokens.control-height;
-    min-width: chip-label.preferred-width + Tokens.space-sm * 2;
-    horizontal-stretch: 1;
-    border-radius: Tokens.radius-sm;
-    background: root.selected ? Theme.surface-hover : Theme.surface;
-    border-width: 1px;
-    border-color: root.selected ? Theme.control-focus-border : Theme.control-border;
-
-    CalmPointer {
-        clicked => {
-            root.clicked();
-        }
-    }
-
-    chip-label := Text {
-        x: (parent.width - self.width) / 2;
-        y: (parent.height - self.height) / 2;
-        text: root.label;
-        color: root.selected ? Theme.text : Theme.text-muted;
-        font-size: Tokens.label-size;
-        font-weight: 500;
-    }
-}
+import { CalmSelect } from "calm/CalmSelect.slint";
 
 export component LayerSettingsBody inherits VerticalLayout {
     in property <bool> compact: false;
@@ -137,31 +108,12 @@ export component LayerSettingsBody inherits VerticalLayout {
         text: LayerChrome.blend-label;
     }
 
-    HorizontalLayout {
-        spacing: Tokens.space-xs;
-
-        BlendChip {
-            label: LayerChrome.blend-normal-label;
-            selected: LayerChrome.blend == 0;
-            clicked => {
-                root.blend-changed(0);
-            }
-        }
-
-        BlendChip {
-            label: LayerChrome.blend-multiply-label;
-            selected: LayerChrome.blend == 1;
-            clicked => {
-                root.blend-changed(1);
-            }
-        }
-
-        BlendChip {
-            label: LayerChrome.blend-screen-label;
-            selected: LayerChrome.blend == 2;
-            clicked => {
-                root.blend-changed(2);
-            }
+    CalmSelect {
+        options: LayerChrome.blend-options;
+        value: LayerChrome.blend;
+        current-label: LayerChrome.blend-current-label;
+        picked(mode) => {
+            root.blend-changed(mode);
         }
     }
 

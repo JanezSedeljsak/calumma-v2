@@ -1,3 +1,5 @@
+import { SelectOption } from "calm/CalmSelect.slint";
+
 export global LayerChrome {
     in-out property <string> name;
     in-out property <image> preview;
@@ -35,9 +37,8 @@ export global LayerChrome {
     in-out property <string> lock-label;
     in-out property <string> opacity-label;
     in-out property <string> blend-label;
-    in-out property <string> blend-normal-label;
-    in-out property <string> blend-multiply-label;
-    in-out property <string> blend-screen-label;
+    in-out property <[SelectOption]> blend-options;
+    in-out property <string> blend-current-label;
     in-out property <string> filters-label;
     in-out property <string> brightness-label;
     in-out property <string> contrast-label;

@@ -42,14 +42,3 @@ fn device_size_scales_by_dpr() {
     let c = cam(800.0, 600.0);
     assert_eq!(c.device_size(), (1600, 1200));
 }
-
-#[test]
-fn view_proj_maps_pan_origin_to_top_left() {
-    let mut c = cam(800.0, 600.0);
-    c.fit(400.0, 300.0);
-    let m = c.view_proj();
-    let x = m[3][0];
-    let y = m[3][1];
-    assert!((-1.0..=1.0).contains(&x));
-    assert!((-1.0..=1.0).contains(&y));
-}

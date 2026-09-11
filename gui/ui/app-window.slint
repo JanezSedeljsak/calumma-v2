@@ -14,9 +14,10 @@ import { Tokens } from "calm/CalmTokens.slint";
 import { CalmTip, Tip } from "calm/CalmTip.slint";
 import { ToolChrome } from "tool-chrome.slint";
 import { LayerChrome } from "layer-chrome.slint";
+import { SelectOption } from "calm/CalmSelect.slint";
 import { SmartMenu, SmartMenuOverlay } from "smart-menu.slint";
 
-export { Theme, Tokens, RecentRow, PresetRow, LayerRow, ToolEntry, BrushEntry, GuideRow, RulerTickRow, ToolChrome, LayerChrome, Tip, SmartMenu, ProjectTabRow }
+export { Theme, Tokens, RecentRow, PresetRow, LayerRow, ToolEntry, BrushEntry, GuideRow, RulerTickRow, ToolChrome, LayerChrome, Tip, SmartMenu, ProjectTabRow, SelectOption }
 
 export component AppWindow inherits Window {
     in-out property <bool> editor-open: false;
@@ -280,8 +281,7 @@ export component AppWindow inherits Window {
     out property <bool> overlay-chrome-open: root.loading
         || root.settings-open
         || root.toast-visible
-        || SmartMenu.open
-        || (root.guides-open && guides-card.palette-open);
+        || SmartMenu.open;
 
     in property <image> app-icon;
     in property <string> brand-text;

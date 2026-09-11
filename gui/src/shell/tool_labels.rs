@@ -1,4 +1,35 @@
-use calumma_core::{Brush, Tool};
+use calumma_core::{BlendMode, Brush, Tool};
+
+pub fn blend_label_key(mode: BlendMode) -> &'static str {
+    match mode {
+        BlendMode::Normal => "blendNormal",
+        BlendMode::Multiply => "blendMultiply",
+        BlendMode::Screen => "blendScreen",
+        BlendMode::Darken => "blendDarken",
+        BlendMode::ColorBurn => "blendColorBurn",
+        BlendMode::LinearBurn => "blendLinearBurn",
+        BlendMode::DarkerColor => "blendDarkerColor",
+        BlendMode::Lighten => "blendLighten",
+        BlendMode::ColorDodge => "blendColorDodge",
+        BlendMode::LinearDodge => "blendLinearDodge",
+        BlendMode::LighterColor => "blendLighterColor",
+        BlendMode::Overlay => "blendOverlay",
+        BlendMode::SoftLight => "blendSoftLight",
+        BlendMode::HardLight => "blendHardLight",
+        BlendMode::VividLight => "blendVividLight",
+        BlendMode::LinearLight => "blendLinearLight",
+        BlendMode::PinLight => "blendPinLight",
+        BlendMode::HardMix => "blendHardMix",
+        BlendMode::Difference => "blendDifference",
+        BlendMode::Exclusion => "blendExclusion",
+        BlendMode::Subtract => "blendSubtract",
+        BlendMode::Divide => "blendDivide",
+        BlendMode::Hue => "blendHue",
+        BlendMode::Saturation => "blendSaturation",
+        BlendMode::Color => "blendColor",
+        BlendMode::Luminosity => "blendLuminosity",
+    }
+}
 
 pub const TOOL_GRID: [Tool; 12] = [
     Tool::Move,

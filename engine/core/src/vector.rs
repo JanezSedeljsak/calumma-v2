@@ -1,4 +1,4 @@
-use crate::shape::{ink_sample, sd_segment, Shape, Tool};
+use crate::shape::{ink_sample, sd_segment, Shape};
 use crate::transform::LayerTransform;
 use rayon::prelude::*;
 
@@ -416,10 +416,4 @@ pub fn item_from_points(
         ring_starts: Vec::new(),
         even_odd: true,
     }))
-}
-
-/// An eraser has no vector meaning — there is nothing to subtract from parameters — so the
-/// tools that can produce vector content are exactly the shapes plus the pen.
-pub fn tool_makes_vector(tool: Tool) -> bool {
-    tool.is_shape() || tool == Tool::Pen
 }

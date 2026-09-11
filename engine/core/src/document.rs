@@ -2689,12 +2689,6 @@ impl Document {
         acc
     }
 
-    pub fn composite_overview(&self, max_side: u32) -> (u32, u32, Vec<u8>) {
-        let (tw, th) = Self::overview_dimensions(self.width, self.height, max_side);
-        let rgba = self.composite_overview_rect(max_side, 0, 0, tw, th);
-        (tw, th, rgba)
-    }
-
     pub fn overview_dimensions(width: u32, height: u32, max_side: u32) -> (u32, u32) {
         let max_side = max_side.max(1);
         let dw = width.max(1);
@@ -3115,7 +3109,30 @@ impl Document {
             }
             return Vec::new();
         }
-        self.layer_highlight().into_iter().collect()
+        let mut out: Vec<_> = self
+            .move_selection()
+            .into_iter()
+            .filter_map(|index| {
+                self.layer_outline_corners(index)
+                    .map(|corners| (index, corners))
+            })
+            .collect();
+        if let Some((index, corners)) = self.layer_highlight() {
+            if !out.iter().any(|&(outlined, _)| outlined == index) {
+                out.push((index, corners));
+            }
+        }
+        out
+    }
+
+    /// What the Move tool would move — exactly what an arrow key nudges — outlined the same
+    /// dashed way whether the layer holds pixels, a vector or text. `⌘T` draws its own frame,
+    /// and every other tool leaves the stack alone, so both answer nothing.
+    fn move_selection(&self) -> Vec<usize> {
+        if self.tool != Tool::Move || self.transform_active {
+            return Vec::new();
+        }
+        self.nudge_layer_indices()
     }
 
     fn layer_outline_corners(&self, index: usize) -> Option<[(f32, f32); 4]> {

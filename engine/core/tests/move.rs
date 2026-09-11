@@ -484,3 +484,91 @@ fn layer_selection_skips_paper() {
     assert!(doc.layers[1].transform.is_some());
     assert!(doc.layers[0].transform.is_none() || doc.layers[0].transform.unwrap().is_identity());
 }
+
+fn outlined(doc: &Document) -> Vec<usize> {
+    doc.layer_highlights()
+        .iter()
+        .map(|&(index, _)| index)
+        .collect()
+}
+
+#[test]
+fn the_move_tool_outlines_what_it_would_move_whatever_the_layer_holds() {
+    let mut doc = doc_with_viewport();
+    doc.add_layer("Paint");
+    let pixels = doc.active_layer;
+    paint(
+        &mut doc,
+        pixels,
+        DocRect::new(10, 10, 40, 40),
+        [0, 0, 0, 255],
+    );
+    let vector = doc.add_vector_layer(
+        "V",
+        VectorItem::Shape(VectorShape {
+            shape: Shape {
+                tool: Tool::Rect,
+                start: (60.0, 60.0),
+                end: (90.0, 90.0),
+                half_width: 1.0,
+                fill: true,
+                stroke: false,
+            },
+            color: [255, 0, 0, 255],
+            stroke_color: [255, 0, 0, 255],
+        }),
+    );
+    doc.set_tool(Tool::Text);
+    let (sx, sy) = doc.camera.to_screen(120.0, 150.0);
+    doc.pointer_down(sx, sy);
+    doc.pointer_up(sx, sy);
+    doc.text_insert("Hi");
+    let text = doc.active_layer;
+    doc.set_tool(Tool::Move);
+    for layer in [pixels, vector, text] {
+        doc.set_active_layer(layer);
+        assert_eq!(outlined(&doc), vec![layer], "layer {layer}");
+    }
+}
+
+#[test]
+fn a_move_drag_on_a_vector_keeps_the_same_outline_and_no_item_frame() {
+    let mut doc = doc_with_viewport();
+    let vector = doc.add_vector_layer(
+        "V",
+        VectorItem::Shape(VectorShape {
+            shape: Shape {
+                tool: Tool::Rect,
+                start: (60.0, 60.0),
+                end: (90.0, 90.0),
+                half_width: 1.0,
+                fill: true,
+                stroke: false,
+            },
+            color: [255, 0, 0, 255],
+            stroke_color: [255, 0, 0, 255],
+        }),
+    );
+    doc.set_tool(Tool::Move);
+    drag(&mut doc, (75.0, 75.0), (80.0, 80.0));
+    assert_eq!(outlined(&doc), vec![vector]);
+    assert!(doc.transform_handles().is_none());
+}
+
+#[test]
+fn other_tools_and_transform_mode_draw_no_move_outline() {
+    let mut doc = doc_with_viewport();
+    doc.add_layer("Paint");
+    let pixels = doc.active_layer;
+    paint(
+        &mut doc,
+        pixels,
+        DocRect::new(10, 10, 40, 40),
+        [0, 0, 0, 255],
+    );
+    doc.set_tool(Tool::Pen);
+    assert!(outlined(&doc).is_empty());
+    doc.set_tool(Tool::Transform);
+    assert!(doc.transform_active);
+    assert!(outlined(&doc).is_empty(), "⌘T draws its own frame instead");
+}

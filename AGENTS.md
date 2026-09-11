@@ -354,14 +354,20 @@ pub enum LayerContent {
   buffer stays dense — do not rebuild it on `TileGrid` speculatively.
 - `layer.opacity: f32` (0–1, default 1), `layer.adjustments: Option<Adjustments>`
   (`engine/core/src/filters.rs` — brightness/contrast/vibrance/saturation/levels, `None` =
-  neutral) and `layer.blend_mode: BlendMode` (Normal/Multiply/Screen) are all non-destructive
+  neutral) and `layer.blend_mode: BlendMode` (Photoshop's blend menu less Dissolve —
+  `BlendMode::MENU` is the order and grouping the shell's dropdown shows) are all non-destructive
   and never baked into tile bytes. Opacity and adjustments join blend mode as **GPU-at-draw**:
   every document layer gets a row in the `LayerData` table (`board.wgsl`), and `fs_tile`/
   `fs_solid_tile` read opacity and evaluate the adjustment LUT per pixel off that row
   (`apply_adjustments`, mirroring `AdjustmentLut::apply` in Rust), the same way `vs_tile` already
-  read the row's transform. Blend mode alone stays a *pipeline* choice rather than a row field —
-  it needs the destination framebuffer, which per-pixel LUT work never does — see `board.wgsl`'s
-  `fs_tile` premultiply + the three `tile_pipeline_*` blend states in `renderer/pipeline.rs`. A mask is
+  read the row's transform. Normal, Multiply and Screen stay a *pipeline* choice — the three
+  `tile_pipeline_*` fixed-function blend states in `renderer/pipeline.rs`. Every other mode has to
+  read what is already underneath, which no blend state can: `draw_cached_content` ends the pass,
+  copies the scissored target into a backdrop texture (`Renderer::ensure_backdrop`, allocated only
+  while some visible layer needs it) and draws that layer through `fs_tile_blend`, which reads the
+  mode off the layer's `LayerData.blend_mode` and evaluates `blend_rgb` — the WGSL twin of
+  `core/src/blend.rs`, the W3C formulas PDF and CSS share, run on gamma-encoded colour as Photoshop
+  and the CPU flatten (`tile::blend_with_mode`) do. Vector layers still draw Normal live. A mask is
   the one survivor of the old CPU bake: it is a dense per-document buffer, not a per-layer row,
   so it still multiplies alpha at upload time (`compose::composited_tile_payload`) on whatever
   tiles actually painted. Flatten, export and picking keep the **CPU-at-flatten** path
@@ -716,7 +722,10 @@ LOD, motion mode) are documented in `docs/RENDERING.md`, not repeated here.
 - The frame loop is two `slint::Timer`s owned by `main` (`start_frame_loop` returns them). A
   `Timer` stops when it is dropped, so binding them to a local that lives until `ui.run()` is
   what keeps the board attaching, resizing and presenting at all.
-- Layer hover = dashed outline in the shader, not a shell-drawn overlay.
+- Layer hover = dashed outline in the shader, not a shell-drawn overlay. The Move tool (outside
+  `⌘T`) draws the **same** outline around what it would move — `Document::layer_highlights`
+  adds the layers an arrow key nudges — whether the layer holds pixels, a vector or text, and
+  nothing else: no handles and no item frame. `⌘T` is where handles live.
 - Board **chrome** — guides, transform and vector-item frames, the text session's box and
   caret, the hover outline — is measured in *screen* pixels, not document units, so it is the
   same size at every zoom. Guides ride `vs_guide`/`fs_guide`, everything else

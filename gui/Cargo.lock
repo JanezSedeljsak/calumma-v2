@@ -705,7 +705,6 @@ dependencies = [
 name = "calumma-app"
 version = "0.31.0"
 dependencies = [
- "anyhow",
  "calumma-core",
  "calumma-ffi",
 ]
@@ -728,14 +727,12 @@ name = "calumma-ffi"
 version = "0.31.0"
 dependencies = [
  "anyhow",
- "bytemuck",
  "calumma-core",
  "calumma-io",
  "calumma-ops",
  "calumma-render",
  "num_enum",
  "parking_lot",
- "pollster",
  "rayon",
  "wgpu",
 ]
@@ -3296,7 +3293,6 @@ dependencies = [
  "objc2-app-kit 0.3.2",
  "objc2-core-graphics",
  "objc2-foundation 0.3.2",
- "objc2-metal 0.3.2",
  "objc2-quartz-core 0.3.2",
  "raw-window-handle",
  "resvg 0.44.0",
@@ -3836,9 +3832,7 @@ checksum = "a0125f776a10d00af4152d74616409f0d4a2053a6f57fa5b7d6aa2854ac04794"
 dependencies = [
  "bitflags 2.13.1",
  "block2 0.6.2",
- "dispatch2",
  "objc2 0.6.4",
- "objc2-core-foundation",
  "objc2-foundation 0.3.2",
 ]
 

@@ -17,12 +17,41 @@ fn i32be(v: i32) -> [u8; 4] {
     v.to_be_bytes()
 }
 
+/// Photoshop's four-character key for each mode, both ways.
+const BLEND_KEYS: [(BlendMode, &[u8; 4]); 26] = [
+    (BlendMode::Normal, b"norm"),
+    (BlendMode::Multiply, b"mul "),
+    (BlendMode::Screen, b"scrn"),
+    (BlendMode::Darken, b"dark"),
+    (BlendMode::ColorBurn, b"idiv"),
+    (BlendMode::LinearBurn, b"lbrn"),
+    (BlendMode::DarkerColor, b"dkCl"),
+    (BlendMode::Lighten, b"lite"),
+    (BlendMode::ColorDodge, b"div "),
+    (BlendMode::LinearDodge, b"lddg"),
+    (BlendMode::LighterColor, b"lgCl"),
+    (BlendMode::Overlay, b"over"),
+    (BlendMode::SoftLight, b"sLit"),
+    (BlendMode::HardLight, b"hLit"),
+    (BlendMode::VividLight, b"vLit"),
+    (BlendMode::LinearLight, b"lLit"),
+    (BlendMode::PinLight, b"pLit"),
+    (BlendMode::HardMix, b"hMix"),
+    (BlendMode::Difference, b"diff"),
+    (BlendMode::Exclusion, b"smud"),
+    (BlendMode::Subtract, b"fsub"),
+    (BlendMode::Divide, b"fdiv"),
+    (BlendMode::Hue, b"hue "),
+    (BlendMode::Saturation, b"sat "),
+    (BlendMode::Color, b"colr"),
+    (BlendMode::Luminosity, b"lum "),
+];
+
 fn blend_key(mode: BlendMode) -> &'static [u8; 4] {
-    match mode {
-        BlendMode::Normal => b"norm",
-        BlendMode::Multiply => b"mul ",
-        BlendMode::Screen => b"scrn",
-    }
+    BLEND_KEYS
+        .iter()
+        .find(|(m, _)| *m == mode)
+        .map_or(b"norm", |(_, key)| *key)
 }
 
 fn pascal_name(name: &str) -> Vec<u8> {
@@ -276,17 +305,13 @@ impl<'a> Reader<'a> {
     }
 }
 
+/// A key the engine has no mode for (Dissolve, `pass` on a group) lands as Normal rather than
+/// failing the import: the right pixels in the right place are worth more than one knob.
 fn blend_mode_from_key(key: &[u8]) -> BlendMode {
-    match key {
-        b"mul " => BlendMode::Multiply,
-        b"scrn" => BlendMode::Screen,
-        // Every blend mode PSD supports beyond the three the engine models (per `AGENTS.md`
-        // STRICT SCOPE) — darken, overlay, hard light, and the rest — lands here rather than
-        // failing the import: a layer with the wrong blend mode is still the right pixels in
-        // the right place, which is worth more than refusing the whole file over one knob the
-        // engine cannot represent.
-        _ => BlendMode::Normal,
-    }
+    BLEND_KEYS
+        .iter()
+        .find(|(_, k)| k.as_slice() == key)
+        .map_or(BlendMode::Normal, |(mode, _)| *mode)
 }
 
 /// PackBits, the only compression PSD channel data uses besides raw. A control byte `n`: `n
@@ -767,10 +792,19 @@ mod tests {
 
     #[test]
     fn unmapped_blend_modes_fall_back_to_normal_rather_than_failing_the_import() {
-        assert_eq!(blend_mode_from_key(b"lddg"), BlendMode::Normal);
+        assert_eq!(blend_mode_from_key(b"diss"), BlendMode::Normal);
         assert_eq!(blend_mode_from_key(b"norm"), BlendMode::Normal);
         assert_eq!(blend_mode_from_key(b"mul "), BlendMode::Multiply);
-        assert_eq!(blend_mode_from_key(b"scrn"), BlendMode::Screen);
+        assert_eq!(blend_mode_from_key(b"lddg"), BlendMode::LinearDodge);
+    }
+
+    #[test]
+    fn every_blend_mode_round_trips_through_its_psd_key() {
+        let mut value = 0;
+        while let Some(mode) = BlendMode::from_u32(value) {
+            assert_eq!(blend_mode_from_key(blend_key(mode)), mode, "{mode:?}");
+            value += 1;
+        }
     }
 
     #[test]

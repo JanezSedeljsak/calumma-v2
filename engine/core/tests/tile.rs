@@ -8,15 +8,8 @@ fn multiply_blend_darkens_toward_black() {
     let dst = [200, 200, 200, 255];
     let src = [100, 50, 25, 255];
     let out = blend_with_mode(dst, src, BlendMode::Multiply);
-    assert_eq!(
-        out,
-        [
-            (200u32 * 100 / 255) as u8,
-            (200u32 * 50 / 255) as u8,
-            (200u32 * 25 / 255) as u8,
-            255
-        ]
-    );
+    let rounded = |s: u32| ((200 * s + 127) / 255) as u8;
+    assert_eq!(out, [rounded(100), rounded(50), rounded(25), 255]);
 }
 
 #[test]
@@ -82,56 +75,34 @@ fn edge_pixels() {
 }
 
 #[test]
-fn stamp_disc_fills_center() {
-    let mut g = TileGrid::new(64, 64);
-    g.stamp_disc(32.0, 32.0, 3.0, [10, 20, 30, 255]);
-    assert_eq!(g.get_pixel(32, 32), [10, 20, 30, 255]);
-    assert_eq!(g.get_pixel(0, 0), [0, 0, 0, 0]);
-}
-
-#[test]
-fn stamp_disc_glazes_translucent_ink() {
-    let mut g = TileGrid::new(64, 64);
-    g.stamp_disc(32.0, 32.0, 3.0, [10, 20, 30, 128]);
-    assert_eq!(g.get_pixel(32, 32), [10, 20, 30, 128]);
-    g.stamp_disc(32.0, 32.0, 3.0, [10, 20, 30, 128]);
-    let p = g.get_pixel(32, 32);
-    assert_eq!(p[0], 10);
-    assert!(p[3] > 128);
-}
-
-#[test]
 fn blend_respects_alpha() {
-    let mut g = TileGrid::new(16, 16);
-    g.set_pixel(1, 1, [255, 0, 0, 255]);
-    g.blend_pixel(1, 1, [0, 0, 255, 128]);
-    let p = g.get_pixel(1, 1);
+    let p = calumma_core::tile::blend_over([255, 0, 0, 255], [0, 0, 255, 128]);
     assert!(p[2] > 100);
     assert!(p[0] > 100);
 }
 
 #[test]
 fn blend_weights_destination_by_its_alpha() {
-    let mut g = TileGrid::new(16, 16);
-    g.set_pixel(1, 1, [255, 0, 0, 128]);
-    g.blend_pixel(1, 1, [0, 0, 255, 128]);
-    assert_eq!(g.get_pixel(1, 1), [85, 0, 170, 192]);
+    assert_eq!(
+        calumma_core::tile::blend_over([255, 0, 0, 128], [0, 0, 255, 128]),
+        [85, 0, 170, 192]
+    );
 }
 
 #[test]
 fn blend_onto_empty_keeps_source() {
-    let mut g = TileGrid::new(16, 16);
-    g.blend_pixel(2, 2, [10, 20, 30, ALPHA_OPAQUE]);
-    assert_eq!(g.get_pixel(2, 2), [10, 20, 30, ALPHA_OPAQUE]);
+    assert_eq!(
+        calumma_core::tile::blend_over([0; 4], [10, 20, 30, ALPHA_OPAQUE]),
+        [10, 20, 30, ALPHA_OPAQUE]
+    );
 }
 
 #[test]
 fn opaque_blend_is_lossless_when_repeated() {
-    let mut g = TileGrid::new(16, 16);
+    let mut p = [0u8; 4];
     for _ in 0..64 {
-        g.blend_pixel(3, 3, [200, 100, 50, 200]);
+        p = calumma_core::tile::blend_over(p, [200, 100, 50, 200]);
     }
-    let p = g.get_pixel(3, 3);
     assert_eq!([p[0], p[1], p[2]], [200, 100, 50]);
 }
 
@@ -309,21 +280,6 @@ fn memory_bytes_tracks_allocated_tiles() {
     assert_eq!(one, TILE_BYTES);
     grid.set_pixel(5 + TILE_SIZE as i32, 5, [1, 2, 3, 255]);
     assert_eq!(grid.memory_bytes(), one * 2);
-}
-
-#[test]
-fn stamp_disc_erase_clears_inside_the_radius_only() {
-    let mut grid = TileGrid::new(256, 256);
-    for y in 0..40 {
-        for x in 0..40 {
-            grid.set_pixel(x, y, [9, 9, 9, 255]);
-        }
-    }
-    let touched = grid.stamp_disc_erase(20.0, 20.0, 8.0);
-    assert!(touched > 0);
-    assert_eq!(grid.get_pixel(20, 20), [0, 0, 0, 0]);
-    assert_eq!(grid.get_pixel(39, 39), [9, 9, 9, 255]);
-    assert_eq!(grid.stamp_disc_erase(20.0, 20.0, 0.0), 0);
 }
 
 #[test]

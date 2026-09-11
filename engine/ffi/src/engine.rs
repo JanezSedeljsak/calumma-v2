@@ -161,7 +161,9 @@ impl Inner {
                     doc.camera.dpr,
                 );
             }
-            let _ = self.store.save(&mut doc);
+            if let Err(err) = self.store.save(&mut doc) {
+                eprintln!("miw: saving project {} on close failed: {err}", doc.id);
+            }
         }
         self.release_gpu_resources();
     }

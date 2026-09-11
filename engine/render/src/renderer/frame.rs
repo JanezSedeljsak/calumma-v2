@@ -20,7 +20,7 @@ fn collect_screen_overlays(doc: &Document, elapsed: f32, out: &mut Vec<StrokeIns
             .transform_handles()
             .is_some_and(|(handle_index, _, _)| handle_index == index);
         if !covered {
-            out.extend(layer_highlight_instances(corners, elapsed, doc.camera.zoom));
+            out.extend(layer_highlight_instances(corners, doc.camera.zoom));
         }
     }
 }
@@ -386,14 +386,94 @@ impl Renderer {
         out
     }
 
-    /// Replays `cached_draws` into whatever color attachment `pass` targets — the shared body
-    /// behind both a full content redraw (the whole visible tile/vector set, into a fresh
-    /// `PanCache` reference) and a blit-frame's exposed-strip repair (the same draws, scissored
-    /// down to just the strip). Positions are document-space in the instance buffer, so the
-    /// same buffers and draw calls reproduce correctly at any camera state — nothing here reads
-    /// `doc` directly.
-    pub(super) fn draw_cached_content<'a>(&'a self, pass: &mut wgpu::RenderPass<'a>) {
-        for draw in &self.cached_draws {
+    /// Replays `cached_draws` into `target` — the shared body behind both a full content redraw
+    /// (the whole visible tile/vector set, into a fresh `PanCache` reference) and a blit-frame's
+    /// exposed-strip repair (the same draws, scissored down to just the strip). Positions are
+    /// document-space in the instance buffer, so the same buffers and draw calls reproduce
+    /// correctly at any camera state — nothing here reads `doc` directly.
+    ///
+    /// It owns its render passes because a layer whose blend mode reads what is under it cannot
+    /// be drawn in the pass that is still writing that: the pass ends, the scissored region is
+    /// copied into the backdrop, and the layer is drawn against the copy in a pass of its own.
+    /// A stack of Normal, Multiply and Screen layers stays one pass, as it always was.
+    pub(super) fn draw_cached_content(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        target: &ContentTarget<'_>,
+        scissor: PxRect,
+    ) {
+        let mut draws = self.cached_draws.iter();
+        let mut load = if target.clear_all {
+            wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT)
+        } else {
+            wgpu::LoadOp::Load
+        };
+        let mut clear_scissor = !target.clear_all;
+        loop {
+            let mut blended = None;
+            {
+                let mut pass = content_pass(encoder, target, load);
+                pass.set_scissor_rect(scissor.0, scissor.1, scissor.2, scissor.3);
+                if clear_scissor {
+                    pass.set_pipeline(self.pan_cache.clear_pipeline());
+                    pass.draw(0..3, 0..1);
+                    clear_scissor = false;
+                }
+                for draw in draws.by_ref() {
+                    if self.reads_backdrop(draw) {
+                        blended = Some(draw);
+                        break;
+                    }
+                    self.draw_layer(&mut pass, draw);
+                }
+            }
+            let (Some(draw), Some(backdrop)) = (blended, self.backdrop.as_ref()) else {
+                break;
+            };
+            copy_region(encoder, target.texture, &backdrop.texture, scissor);
+            {
+                let mut pass = content_pass(encoder, target, wgpu::LoadOp::Load);
+                pass.set_scissor_rect(scissor.0, scissor.1, scissor.2, scissor.3);
+                self.draw_blended_layer(&mut pass, draw, &backdrop.bind_group);
+            }
+            load = wgpu::LoadOp::Load;
+        }
+    }
+
+    fn reads_backdrop(&self, draw: &LayerDraw) -> bool {
+        self.backdrop.is_some()
+            && matches!(
+                draw,
+                LayerDraw::Tiles(mode, _) | LayerDraw::Solid(mode, _) if !mode.is_fixed_function()
+            )
+    }
+
+    fn draw_blended_layer(
+        &self,
+        pass: &mut wgpu::RenderPass<'_>,
+        draw: &LayerDraw,
+        backdrop: &wgpu::BindGroup,
+    ) {
+        match draw {
+            LayerDraw::Tiles(_, range) => {
+                pass.set_pipeline(&self.tile_blend_pipeline);
+                pass.set_bind_group(0, self.atlas.bind_group(), &[]);
+                pass.set_bind_group(1, backdrop, &[]);
+                pass.set_vertex_buffer(0, self.tile_instance_buf.slice(..));
+                pass.draw(0..6, range.clone());
+            }
+            LayerDraw::Solid(_, layer_index) => {
+                pass.set_pipeline(&self.solid_blend_pipeline);
+                pass.set_bind_group(0, self.atlas.bind_group(), &[]);
+                pass.set_bind_group(1, backdrop, &[]);
+                pass.draw(0..6, *layer_index..*layer_index + 1);
+            }
+            LayerDraw::Vector(..) => self.draw_layer(pass, draw),
+        }
+    }
+
+    fn draw_layer(&self, pass: &mut wgpu::RenderPass<'_>, draw: &LayerDraw) {
+        {
             match draw {
                 LayerDraw::Tiles(mode, range) => {
                     pass.set_pipeline(self.tile_pipeline(*mode));
@@ -445,31 +525,13 @@ impl Renderer {
         dpr: f32,
         scissor: PxRect,
     ) {
-        {
-            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("pan-cache-full"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: self.pan_cache.reference_view(),
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color {
-                            r: 0.0,
-                            g: 0.0,
-                            b: 0.0,
-                            a: 0.0,
-                        }),
-                        store: wgpu::StoreOp::Store,
-                    },
-                    depth_slice: None,
-                })],
-                depth_stencil_attachment: None,
-                timestamp_writes: None,
-                occlusion_query_set: None,
-                ..Default::default()
-            });
-            pass.set_scissor_rect(scissor.0, scissor.1, scissor.2, scissor.3);
-            self.draw_cached_content(&mut pass);
-        }
+        let target = ContentTarget {
+            texture: self.pan_cache.reference_texture(),
+            view: self.pan_cache.reference_view(),
+            clear_all: true,
+            label: "pan-cache-full",
+        };
+        self.draw_cached_content(encoder, &target, scissor);
         self.pan_cache.commit_reference(pan, zoom, dpr, scissor);
     }
 
@@ -520,34 +582,18 @@ impl Renderer {
                 depth_or_array_layers: 1,
             },
         );
-        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("pan-cache-patch"),
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: self.pan_cache.working_view(),
-                resolve_target: None,
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Load,
-                    store: wgpu::StoreOp::Store,
-                },
-                depth_slice: None,
-            })],
-            depth_stencil_attachment: None,
-            timestamp_writes: None,
-            occlusion_query_set: None,
-            ..Default::default()
-        });
+        let target = ContentTarget {
+            texture: self.pan_cache.working_texture(),
+            view: self.pan_cache.working_view(),
+            clear_all: false,
+            label: "pan-cache-patch",
+        };
+        for strip in framebuffer::exposed_rects(scissor, dst)
+            .into_iter()
+            .flatten()
         {
-            for strip in framebuffer::exposed_rects(scissor, dst)
-                .into_iter()
-                .flatten()
-            {
-                pass.set_scissor_rect(strip.0, strip.1, strip.2, strip.3);
-                pass.set_pipeline(self.pan_cache.clear_pipeline());
-                pass.draw(0..3, 0..1);
-                self.draw_cached_content(&mut pass);
-            }
+            self.draw_cached_content(encoder, &target, strip);
         }
-        drop(pass);
         self.pan_cache.commit_shift(shift, dpr, scissor);
     }
 
@@ -571,6 +617,11 @@ impl Renderer {
         self.resize(dw, dh);
         self.pan_cache
             .resize(&self.device, self.config.width, self.config.height);
+        self.ensure_backdrop(
+            doc.layers
+                .iter()
+                .any(|layer| layer.visible && !layer.blend_mode.is_fixed_function()),
+        );
 
         let viewport = [
             (self.config.width as f32).max(1.0),
@@ -855,8 +906,8 @@ impl Renderer {
             );
             overlay_range = overlay_start..overlay_start + instances.len() as u32;
             let screen_start = overlay_range.end;
-            self.screen_overlay_scratch = screen_instances.clone();
-            instances.append(&mut screen_instances);
+            instances.extend_from_slice(&screen_instances);
+            self.screen_overlay_scratch = screen_instances;
             screen_overlay_range = screen_start..prefix_len as u32 + instances.len() as u32;
             let brush_start = screen_overlay_range.end;
             instances.append(&mut brush_instances);
@@ -1146,6 +1197,70 @@ impl Renderer {
         // caret asking to be drawn instead of counting as drawn.
         self.drawn_caret_phase = caret_phase;
     }
+}
+
+/// Where a content replay lands: the texture itself, so a blend mode can copy what is under
+/// it, and whether the replay starts from nothing or only clears its own scissor.
+pub(super) struct ContentTarget<'t> {
+    pub(super) texture: &'t wgpu::Texture,
+    pub(super) view: &'t wgpu::TextureView,
+    pub(super) clear_all: bool,
+    pub(super) label: &'static str,
+}
+
+fn content_pass<'e>(
+    encoder: &'e mut wgpu::CommandEncoder,
+    target: &ContentTarget<'_>,
+    load: wgpu::LoadOp<wgpu::Color>,
+) -> wgpu::RenderPass<'e> {
+    encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+        label: Some(target.label),
+        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+            view: target.view,
+            resolve_target: None,
+            ops: wgpu::Operations {
+                load,
+                store: wgpu::StoreOp::Store,
+            },
+            depth_slice: None,
+        })],
+        depth_stencil_attachment: None,
+        timestamp_writes: None,
+        occlusion_query_set: None,
+        ..Default::default()
+    })
+}
+
+fn copy_region(
+    encoder: &mut wgpu::CommandEncoder,
+    from: &wgpu::Texture,
+    to: &wgpu::Texture,
+    rect: PxRect,
+) {
+    let width = rect.2.min(to.width().saturating_sub(rect.0));
+    let height = rect.3.min(to.height().saturating_sub(rect.1));
+    if width == 0 || height == 0 {
+        return;
+    }
+    let at = |texture| wgpu::TexelCopyTextureInfo {
+        texture,
+        mip_level: 0,
+        origin: wgpu::Origin3d {
+            x: rect.0,
+            y: rect.1,
+            z: 0,
+        },
+        aspect: wgpu::TextureAspect::All,
+    };
+    encoder.copy_texture_to_texture(
+        at(from),
+        at(to),
+        wgpu::Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        },
+    );
 }
 
 #[cfg(test)]

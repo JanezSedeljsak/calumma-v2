@@ -75,19 +75,15 @@ const LAYER_HIGHLIGHT_COLOR: [f32; 4] = [0.24, 0.78, 0.84, 0.85];
 const LAYER_HIGHLIGHT_WIDTH_PX: f32 = 1.0;
 const LAYER_HIGHLIGHT_DASH_PX: f32 = 8.0;
 const LAYER_HIGHLIGHT_GAP_PX: f32 = 8.0;
-const LAYER_HIGHLIGHT_SPEED_PX: f32 = 40.0;
 
-/// The hover outline, dashed at a constant screen period. `vs_overlay` fixes the *width* on
-/// screen but not the dash pattern — the marching ants are cut here, in document space, one
-/// instance per dash — so the period and the march speed are divided by the zoom instead. Both
-/// halves have to be screen-anchored or the dash looks like a different pattern at every zoom.
-pub fn layer_highlight_instances(
-    corners: [(f32, f32); 4],
-    elapsed: f32,
-    zoom: f32,
-) -> Vec<StrokeInstance> {
+/// The one layer outline — hover, a Move selection and a Move drag all draw exactly this —
+/// dashed at a constant screen period. `vs_overlay` fixes the *width* on screen but not the
+/// dash pattern — the dashes are cut here, in document space, one instance per dash — so the
+/// period is divided by the zoom instead. It is still: the board only redraws when something
+/// changed, so a dash that marched would jump rather than move.
+pub fn layer_highlight_instances(corners: [(f32, f32); 4], zoom: f32) -> Vec<StrokeInstance> {
     let zoom = zoom.max(f32::MIN_POSITIVE);
-    let phase = elapsed * LAYER_HIGHLIGHT_SPEED_PX / zoom;
+    let phase = 0.0;
     let mut out = Vec::with_capacity(32);
     for i in 0..4 {
         out.extend(dashed_edge(

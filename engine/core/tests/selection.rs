@@ -239,3 +239,29 @@ fn inverting_twice_comes_back_to_the_same_pixels() {
     assert!(selection.contains(10.5, 10.5));
     assert!(!selection.contains(0.5, 0.5));
 }
+
+/// Smart Matte's seed: the selection as one byte per document pixel, sampled at pixel centres
+/// exactly as `contains` answers them.
+#[test]
+fn to_mask_marks_the_pixels_inside_the_selection() {
+    let sel = Selection {
+        shape: SelectionShape::Rect {
+            start: (2.0, 1.0),
+            end: (5.0, 3.0),
+        },
+    };
+    let (w, h) = (8, 5);
+    let mask = sel.to_mask(w, h);
+    assert_eq!(mask.len(), (w * h) as usize);
+    for y in 0..h {
+        for x in 0..w {
+            let expected = if sel.contains(x as f32 + 0.5, y as f32 + 0.5) {
+                255
+            } else {
+                0
+            };
+            assert_eq!(mask[(y * w + x) as usize], expected, "({x},{y})");
+        }
+    }
+    assert!(mask.contains(&255) && mask.contains(&0));
+}

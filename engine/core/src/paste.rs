@@ -98,12 +98,6 @@ impl Document {
         outcome
     }
 
-    pub fn paste_images_as_layers(&mut self, images: &[PasteImage<'_>]) -> (usize, PasteOutcome) {
-        let sources: Vec<PasteSource<'_>> =
-            images.iter().copied().map(PasteSource::Raster).collect();
-        self.paste_sources_as_layers(&sources)
-    }
-
     /// Every source as new layers above the stack, staggered, as **one** undo step. Returns how
     /// many sources landed and the worst outcome among them.
     pub fn paste_sources_as_layers(
@@ -147,12 +141,6 @@ impl Document {
         self.history
             .push_stack(before, Some(self.active_layer), bytes);
         (pasted, outcome)
-    }
-
-    pub fn install_images_staggered(&mut self, images: &[PasteImage<'_>]) -> usize {
-        let sources: Vec<PasteSource<'_>> =
-            images.iter().copied().map(PasteSource::Raster).collect();
-        self.install_sources_staggered(&sources)
     }
 
     /// A fresh project's content: the first raster goes into the first paint layer, everything

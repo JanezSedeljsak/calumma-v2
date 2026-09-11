@@ -72,11 +72,9 @@ bits use `{0}`, `{1}`, … filled by `l10n.formatKey(...)`. Visual tokens stay i
    board the way they did in the frozen Swift shell: the shell punches those rectangles out of
    the Metal view with a layer mask so Slint paints above the paper. Overlay chrome (modals,
    popovers, tooltips, toasts) *may* cover the whole board — the shell hides the Metal view
-   while `overlay-chrome-open` is true so those layers paint. The exception below is Swift-shell
-   behavior:
-   `CanvasSkeleton` covers the Metal view while a project loads, on the rectangle
-   `calumma_core::camera::fit_size` says the paper will occupy (frozen Swift-shell behavior —
-   `gui/` has no loading skeleton yet). Standing in for the canvas, not styling it. Board colors are
+   while `overlay-chrome-open` is true so those layers paint. The one exception:
+   `CanvasSkeleton` covers the Metal view while a project loads, on the rectangle the paper
+   will occupy once fitted. Standing in for the canvas, not styling it. Board colors are
    pushed from tokens into the engine, never hardcoded in the shader. Small chrome controls
    belong to the canvas island (the zoom pill, bottom-trailing); panels do not.
 
@@ -141,10 +139,9 @@ there). Top padding is tight (`space.xs`) so the board starts close under the ti
 While a project loads, the canvas island holds a **skeleton** rather than the outgoing
 board: the desk with its squared paper, and one sweeping band across the rectangle the paper
 is about to fill (`CanvasSkeleton`, rule 7). Rulers stay up with ticks for the incoming
-project; only the canvas content is covered. Luminance only — no spinner, no label. Every
-measurement in it is the engine's — the rectangle from `fit_size`, the grid from
-`calumma_core::DeskMetrics` — so the placeholder sits on the same lattice the shader draws on and the
-swap is invisible.
+project; only the canvas content is covered. Luminance only — no spinner, no label. The
+rectangle is fitted with the same `fit-padding` token the camera uses and the grid is the desk
+lattice (`DeskGrid`), so the placeholder sits where the paper and its desk will be.
 
 Transform grips are white discs with a **thin grey ring** under them: a white grip on white
 paper is not a grip. The ring is a slightly larger disc drawn first rather than a stroked

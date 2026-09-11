@@ -127,4 +127,25 @@ impl Selection {
     pub fn contains(&self, x: f32, y: f32) -> bool {
         self.shape.contains(x, y)
     }
+
+    /// The selection rasterized to one byte per document pixel — 255 inside, 0 outside — for
+    /// the Smart Tools, which hand a whole region to an algorithm that wants it up front
+    /// (Smart Matte's `OpParams::seed_region`). Rows are independent, so it is one rayon pass.
+    pub fn to_mask(&self, width: u32, height: u32) -> Vec<u8> {
+        use rayon::prelude::*;
+        let (w, h) = (width as usize, height as usize);
+        let mut out = vec![0u8; w * h];
+        if w == 0 {
+            return out;
+        }
+        out.par_chunks_mut(w).enumerate().for_each(|(y, row)| {
+            let cy = y as f32 + 0.5;
+            for (x, cell) in row.iter_mut().enumerate() {
+                if self.contains(x as f32 + 0.5, cy) {
+                    *cell = 255;
+                }
+            }
+        });
+        out
+    }
 }

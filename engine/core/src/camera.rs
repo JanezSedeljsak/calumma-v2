@@ -260,38 +260,3 @@ impl Camera {
         crate::ruler::ruler_ticks(self.zoom, self.pan_y, self.viewport_height)
     }
 }
-
-/// How large a document of this size lands on screen once fitted, in viewport points — the
-/// same [`Camera::fit`] geometry, answered without a camera or an open document. The shell
-/// draws the canvas placeholder from it while a project is still loading, so the placeholder
-/// and the paper that replaces it occupy the same rectangle.
-pub fn fit_size(
-    viewport_width: f32,
-    viewport_height: f32,
-    doc_width: f32,
-    doc_height: f32,
-) -> (f32, f32) {
-    let (zoom, _, _) = fit_camera(viewport_width, viewport_height, doc_width, doc_height);
-    (doc_width * zoom, doc_height * zoom)
-}
-
-/// The camera a [`Camera::fit`] would leave behind, answered without a document or an open
-/// engine. The shell asks it while a project is still loading so rulers can print the
-/// incoming project's ticks before the board catches up.
-pub fn fit_camera(
-    viewport_width: f32,
-    viewport_height: f32,
-    doc_width: f32,
-    doc_height: f32,
-) -> (f32, f32, f32) {
-    if viewport_width <= 0.0 || viewport_height <= 0.0 || doc_width <= 0.0 || doc_height <= 0.0 {
-        return (0.0, 0.0, 0.0);
-    }
-    let mut camera = Camera {
-        viewport_width,
-        viewport_height,
-        ..Camera::default()
-    };
-    camera.fit(doc_width, doc_height);
-    (camera.zoom, camera.pan_x, camera.pan_y)
-}
