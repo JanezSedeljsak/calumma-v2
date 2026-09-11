@@ -50,16 +50,30 @@ fn polygon_svg(verts: &[(f32, f32)], paint: &str) -> String {
 pub fn item_svg(item: &VectorItem) -> Option<String> {
     match item {
         VectorItem::Path(p) => {
-            let (&first, rest) = p.points.split_first()?;
-            let mut d = format!("M {} {}", first.0, first.1);
-            for &(x, y) in rest {
-                d.push_str(&format!(" L {x} {y}"));
+            let mut d = String::new();
+            for ring in p.rings() {
+                let (&first, rest) = ring.split_first()?;
+                if !d.is_empty() {
+                    d.push(' ');
+                }
+                d.push_str(&format!("M {} {}", first.0, first.1));
+                for &(x, y) in rest {
+                    d.push_str(&format!(" L {x} {y}"));
+                }
+                if p.closed {
+                    d.push_str(" Z");
+                }
             }
-            if p.closed {
-                d.push_str(" Z");
+            if d.is_empty() {
+                return None;
             }
+            let rule = if p.even_odd && p.fill && p.closed {
+                " fill-rule=\"evenodd\""
+            } else {
+                ""
+            };
             Some(format!(
-                "<path d=\"{d}\" {} />",
+                "<path d=\"{d}\"{rule} {} />",
                 svg_paint(
                     (p.fill && p.closed).then_some(p.color),
                     p.stroke.then_some((p.stroke_color, p.stroke_width)),

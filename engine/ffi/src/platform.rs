@@ -16,24 +16,6 @@ pub enum CalmOpKind {
     SmartMatte = 6,
 }
 
-impl CalmOpKind {
-    fn from_u32(v: u32) -> Option<Self> {
-        Self::try_from(v).ok()
-    }
-
-    fn to_op_kind(self) -> OpKind {
-        match self {
-            Self::RemoveBackground => OpKind::RemoveBackground,
-            Self::GenerateTexture => OpKind::GenerateTexture,
-            Self::Vectorize => OpKind::Vectorize,
-            Self::SuggestShape => OpKind::SuggestShape,
-            Self::Upscale => OpKind::Upscale,
-            Self::SeamCarve => OpKind::SeamCarve,
-            Self::SmartMatte => OpKind::SmartMatte,
-        }
-    }
-}
-
 #[repr(u32)]
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum CalmOpOutputKind {
@@ -189,8 +171,4 @@ fn free_platform_output(ops: &CalmPlatformOps, out: &mut CalmOpOutput) {
             free_output(out);
         }));
     }
-}
-
-pub fn parse_op_kind(v: u32) -> Option<OpKind> {
-    CalmOpKind::from_u32(v).map(|k| k.to_op_kind())
 }

@@ -1,15 +1,12 @@
+use super::clipboard::{read_image_files, NamedImage, IMAGE_EXTENSIONS};
 use std::path::Path;
 
-pub fn pick_artwork_file(filter: &str) -> Option<Vec<u8>> {
-    let path = rfd::FileDialog::new()
-        .add_filter(
-            filter,
-            &[
-                "png", "jpg", "jpeg", "webp", "avif", "heic", "heif", "psd", "svg",
-            ],
-        )
-        .pick_file();
-    path.and_then(|path| std::fs::read(path).ok())
+pub fn pick_artwork_files(filter: &str) -> Vec<NamedImage> {
+    let paths = rfd::FileDialog::new()
+        .add_filter(filter, IMAGE_EXTENSIONS)
+        .pick_files()
+        .unwrap_or_default();
+    read_image_files(&paths)
 }
 
 pub fn save_bytes(bytes: &[u8], suggested: &str, extension: &str) -> bool {

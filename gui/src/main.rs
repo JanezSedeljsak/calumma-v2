@@ -9,10 +9,14 @@ use board::{board_layout, hole_in_board, BoardHost, BoardLayout, BoardRect, Modi
 use calumma_io::RasterFormat;
 use i_slint_backend_winit::WinitWindowAccessor;
 use input::{
-    handle_key_press_for_modifiers, handle_key_release, handle_shell_key, EditorKeyAction,
-    KeyPressModifierAction, KeyReleaseAction, Modifiers, ShellKeyAction,
+    apply_text_key, handle_key_press_for_modifiers, handle_key_release, handle_shell_key,
+    handle_text_key, DropHandler, DropQueue, EditorKeyAction, KeyPressModifierAction,
+    KeyReleaseAction, Modifiers, ShellKeyAction,
 };
-use shell::{pick_artwork_file, shared, workspace_root, SharedController, TabCloseResult, Theme};
+use shell::{
+    pick_artwork_files, shared, workspace_root, ClipboardContent, NamedImage, SharedController,
+    TabCloseResult, Theme,
+};
 use slint::ComponentHandle;
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
@@ -37,8 +41,9 @@ impl InputState {
     }
 }
 
-fn init_platform() -> Result<(), Box<dyn std::error::Error>> {
-    let mut builder = i_slint_backend_winit::Backend::builder();
+fn init_platform(drops: &DropQueue) -> Result<(), Box<dyn std::error::Error>> {
+    let mut builder = i_slint_backend_winit::Backend::builder()
+        .with_custom_application_handler(Box::new(DropHandler(drops.clone())));
     #[cfg(target_os = "macos")]
     {
         use winit::platform::macos::WindowAttributesExtMacOS;
@@ -58,7 +63,8 @@ fn init_platform() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    init_platform()?;
+    let drops = DropQueue::default();
+    init_platform(&drops)?;
 
     let root = workspace_root();
     let window_metrics = Theme::window_metrics(&root)?;
@@ -135,7 +141,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         host.clone(),
     );
 
-    let _frame_timers = start_frame_loop(ui_weak, host, controller);
+    let _frame_timers = start_frame_loop(ui_weak, host, controller, drops);
 
     ui.run()?;
     Ok(())
@@ -251,22 +257,11 @@ fn wire_landing_callbacks(
         let host = host.clone();
         move || {
             let filter = controller.borrow().l10n.get("imagesFilter");
-            let Some(bytes) = pick_artwork_file(&filter) else {
+            let images = pick_artwork_files(&filter);
+            if images.is_empty() {
                 return;
-            };
-            let ui = ui_weak.upgrade().unwrap();
-            let mut ctrl = controller.borrow_mut();
-            if ctrl.import_artwork(&bytes).is_ok() {
-                set_editor_open(&ui, &mut ctrl, true);
-                host.borrow_mut().set_active(true);
-                setup_board(&ui_weak, &host);
-            } else {
-                ctrl.show_toast_key("artworkImportFailed", true);
             }
-            sync_shell(&ui, &ctrl);
-            if ctrl.toast_visible {
-                schedule_toast_hide(&ui_weak, controller.clone());
-            }
+            deliver_images(images, &controller, &ui_weak, &host);
         }
     });
 }
@@ -834,6 +829,17 @@ fn wire_editor_callbacks(
                 sync_guides(&ui, &ctrl);
             }
             wake(&ui_weak);
+        }
+    });
+    ui.on_ruler_has_guide({
+        let controller = controller.clone();
+        move |x, y| {
+            controller
+                .borrow()
+                .engine
+                .borrow()
+                .guide_axis_at(x, y)
+                .is_some()
         }
     });
 
@@ -1993,6 +1999,88 @@ fn schedule_toast_hide(ui_weak: &SharedUi, controller: SharedController) {
     });
 }
 
+fn deliver_images(
+    images: Vec<NamedImage>,
+    controller: &SharedController,
+    ui_weak: &SharedUi,
+    host: &Rc<RefCell<BoardHost>>,
+) {
+    let Some(ui) = ui_weak.upgrade() else {
+        return;
+    };
+    let mut ctrl = controller.borrow_mut();
+    if images.is_empty() {
+        ctrl.show_toast_key("artworkImportFailed", true);
+    } else if ctrl.editor_open {
+        ctrl.paste_images(&images);
+        sync_editor(&ui, &mut ctrl);
+        sync_layers(&ui, &mut ctrl);
+    } else if ctrl.import_artworks(&images).is_ok() {
+        set_editor_open(&ui, &mut ctrl, true);
+        host.borrow_mut().set_active(true);
+        setup_board(ui_weak, host);
+    } else {
+        ctrl.show_toast_key("artworkImportFailed", true);
+    }
+    sync_shell(&ui, &ctrl);
+    if ctrl.toast_visible {
+        schedule_toast_hide(ui_weak, controller.clone());
+    }
+    drop(ctrl);
+    wake(ui_weak);
+}
+
+fn paste_from_clipboard(
+    controller: &SharedController,
+    ui_weak: &SharedUi,
+    host: &Rc<RefCell<BoardHost>>,
+) {
+    match shell::read_clipboard() {
+        ClipboardContent::Images(images) => deliver_images(images, controller, ui_weak, host),
+        ClipboardContent::Text(text) if controller.borrow().engine.borrow().text_editing() => {
+            let engine = controller.borrow().engine.clone();
+            engine.borrow_mut().text_insert(&text);
+            wake(ui_weak);
+        }
+        ClipboardContent::Text(_) | ClipboardContent::Empty => {
+            let mut ctrl = controller.borrow_mut();
+            ctrl.show_toast_key("clipboardNoImage", true);
+            if let Some(ui) = ui_weak.upgrade() {
+                sync_shell(&ui, &ctrl);
+            }
+            schedule_toast_hide(ui_weak, controller.clone());
+        }
+    }
+}
+
+fn route_text_key(
+    text: &str,
+    mods: Modifiers,
+    controller: &SharedController,
+    ui_weak: &SharedUi,
+) -> bool {
+    let engine = {
+        let ctrl = controller.borrow();
+        if !ctrl.editor_open || ctrl.any_modal_open() {
+            return false;
+        }
+        ctrl.engine.clone()
+    };
+    if !engine.borrow().text_editing() {
+        return false;
+    }
+    if !apply_text_key(&mut engine.borrow_mut(), handle_text_key(text, mods)) {
+        return false;
+    }
+    if let Some(ui) = ui_weak.upgrade() {
+        let mut ctrl = controller.borrow_mut();
+        sync_editor(&ui, &mut ctrl);
+        sync_layers(&ui, &mut ctrl);
+    }
+    wake(ui_weak);
+    true
+}
+
 fn wire_shell_keys(
     ui: &AppWindow,
     controller: SharedController,
@@ -2012,6 +2100,10 @@ fn wire_shell_keys(
                 shift,
                 alt,
             };
+            if route_text_key(&text, mods, &controller, &ui_weak) {
+                refresh_board_cursor(&host, &controller, &input);
+                return;
+            }
             {
                 let mut state = input.borrow_mut();
                 match handle_key_press_for_modifiers(&text, mods) {
@@ -2066,6 +2158,9 @@ fn wire_shell_keys(
                 }
                 ShellKeyAction::OpenSettings => {
                     controller.borrow_mut().open_settings();
+                }
+                ShellKeyAction::Paste => {
+                    paste_from_clipboard(&controller, &ui_weak, &host);
                 }
                 ShellKeyAction::NewProject => {
                     controller.borrow_mut().new_project_open = true;
@@ -2413,6 +2508,7 @@ fn start_frame_loop(
     ui_weak: SharedUi,
     host: Rc<RefCell<BoardHost>>,
     controller: SharedController,
+    drops: DropQueue,
 ) -> Vec<slint::Timer> {
     let icon_done = Rc::new(Cell::new(false));
     let board = slint::Timer::default();
@@ -2427,6 +2523,11 @@ fn start_frame_loop(
         let last_present = last_present.clone();
         let last_geo = last_geo.clone();
         move || {
+            let dropped = drops.take();
+            if !dropped.is_empty() {
+                let images = shell::read_image_files(&dropped);
+                deliver_images(images, &controller, &ui_weak, &host);
+            }
             if !icon_done.get() {
                 if let Some(ui) = ui_weak.upgrade() {
                     set_window_icon(&ui);
@@ -2463,6 +2564,7 @@ fn start_frame_loop(
             if !present {
                 return;
             }
+            host.borrow_mut().reconcile_cursor();
             let ctrl = controller.borrow();
             let next = camera_signature(&ctrl);
             if *camera.borrow() != next {

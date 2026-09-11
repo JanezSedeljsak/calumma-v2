@@ -7,17 +7,20 @@ impl Renderer {
         self.cached_tile_instances.clear();
         self.cached_strokes.clear();
         self.cached_shapes.clear();
+        self.cached_fills.clear();
+        self.cached_fill_edges.clear();
         self.cached_draws.clear();
     }
 
     pub(super) fn rebuild_layer_cache(&mut self, doc: &Document) {
         let mut tile_instances = Vec::new();
-        let mut strokes = Vec::new();
-        let mut shapes = Vec::new();
-        let draws = self.build_layer_draws(doc, &mut tile_instances, &mut strokes, &mut shapes);
+        let mut vectors = VectorInstances::default();
+        let draws = self.build_layer_draws(doc, &mut tile_instances, &mut vectors);
         self.cached_tile_instances = tile_instances;
-        self.cached_strokes = strokes;
-        self.cached_shapes = shapes;
+        self.cached_strokes = vectors.strokes;
+        self.cached_shapes = vectors.shapes;
+        self.cached_fills = vectors.fills;
+        self.cached_fill_edges = vectors.fill_edges;
         self.cached_draws = draws;
         self.cached_retained_span = Self::retained_span(doc, self.budget.retention_margin_tiles());
         self.cached_visible_span = Self::visible_span(doc);

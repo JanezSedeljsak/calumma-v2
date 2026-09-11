@@ -164,15 +164,32 @@ impl Document {
         true
     }
 
+    pub fn screen_on_paper(&self, screen_x: f32, screen_y: f32) -> bool {
+        let (dx, dy) = self.camera.to_doc(screen_x, screen_y);
+        dx >= 0.0 && dy >= 0.0 && dx < self.width as f32 && dy < self.height as f32
+    }
+
     /// Pulls a new guide off a ruler. The screen point is the pointer in *board* coordinates,
     /// so a drag that has not left the ruler strip yet is simply a negative one — which is also
-    /// what makes releasing it there throw the guide away (`end_guide_drag`).
+    /// what makes releasing it there throw the guide away (`end_guide_drag`). A press on the
+    /// other ruler's tick for an existing guide grabs that guide instead of creating another.
     pub fn begin_guide_drag_from_ruler(
         &mut self,
         axis: GuideAxis,
         screen_x: f32,
         screen_y: f32,
     ) -> bool {
+        let tick_axis = match axis {
+            GuideAxis::Horizontal => GuideAxis::Vertical,
+            GuideAxis::Vertical => GuideAxis::Horizontal,
+        };
+        let tick_pos = self.guide_position_at(tick_axis, screen_x, screen_y);
+        if let Some(index) =
+            self.guide_index_near(tick_axis, tick_pos, self.doc_units(GUIDE_PICK_SLACK_PX))
+        {
+            self.guide_drag = Some(GuideDrag { index });
+            return true;
+        }
         let position = self.guide_position_at(axis, screen_x, screen_y);
         let Some(index) = self.add_guide(axis, position) else {
             return false;

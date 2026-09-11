@@ -165,27 +165,6 @@ impl Engine {
         Ok(id)
     }
 
-    pub fn create_project_from_encoded(&mut self, name: &str, bytes: &[u8]) -> Result<String> {
-        let (width, height, rgba) =
-            calumma_io::decode_encoded(bytes).with_context(|| "decoding artwork bytes")?;
-        let mut inner = self.inner.lock();
-        inner.close_document();
-        let mut doc = inner
-            .store
-            .create(name, width, height)
-            .with_context(|| format!("creating project {name} at {width}x{height}"))?;
-        if !doc.place_image(&rgba, width, height) {
-            anyhow::bail!("placing imported image into the first paint layer");
-        }
-        inner
-            .store
-            .save(&mut doc)
-            .context("saving imported project")?;
-        let id = doc.id.clone();
-        inner.install_document(doc);
-        Ok(id)
-    }
-
     pub fn project_thumbnail_rgba(&self, id: &str) -> Option<(u32, u32, Vec<u8>)> {
         let inner = self.inner.lock();
         let png = inner.store.project_thumbnail(id).ok()?;
@@ -513,6 +492,14 @@ impl Engine {
         })
     }
 
+    pub fn screen_on_paper(&self, x: f32, y: f32) -> bool {
+        self.inner
+            .lock()
+            .doc
+            .as_ref()
+            .is_some_and(|doc| doc.screen_on_paper(x, y))
+    }
+
     pub fn set_shift_held(&mut self, held: bool) {
         let mut inner = self.inner.lock();
         if let Some(doc) = &mut inner.doc {
@@ -783,6 +770,7 @@ mod guides;
 mod knobs;
 mod layers;
 mod ops;
+mod paste;
 mod shell;
 mod text;
 

@@ -147,6 +147,7 @@ export component AppWindow inherits Window {
     callback guide-pressed(bool, float, float);
     callback guide-moved(float, float);
     callback guide-released();
+    callback ruler-has-guide(float, float) -> bool;
     callback open-guides();
     callback guides-dismissed();
     callback add-guide();
@@ -279,7 +280,8 @@ export component AppWindow inherits Window {
     out property <bool> overlay-chrome-open: root.loading
         || root.settings-open
         || root.toast-visible
-        || SmartMenu.open;
+        || SmartMenu.open
+        || (root.guides-open && guides-card.palette-open);
 
     in property <image> app-icon;
     in property <string> brand-text;
@@ -583,6 +585,9 @@ export component AppWindow inherits Window {
             guide-released => {
                 root.guide-released();
             }
+            ruler-has-guide(x, y) => {
+                return root.ruler-has-guide(x, y);
+            }
             layers-open: root.layers-open;
             layers-title: root.layers-title;
             add-layer-tip: root.add-layer-label;
@@ -755,6 +760,7 @@ export component AppWindow inherits Window {
                 root.color-hex-changed(text);
             }
             pointer-pressed(x, y, middle, meta, alt, shift) => {
+                focus-scope.focus();
                 root.pointer-pressed(x, y, middle, meta, alt, shift);
             }
             pointer-moved(x, y) => {

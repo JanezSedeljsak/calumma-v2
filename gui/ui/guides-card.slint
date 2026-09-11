@@ -5,7 +5,8 @@ import { CalmModal, CalmModalCard } from "calm/CalmModal.slint";
 import { CalmButton } from "calm/CalmButton.slint";
 import { CalmField } from "calm/CalmField.slint";
 import { CalmPointer } from "calm/CalmPointer.slint";
-import { CalmPalettePopover } from "calm/CalmPalettePopover.slint";
+import { CalmDot } from "calm/CalmDot.slint";
+import { CalmPaletteRow } from "calm/CalmPaletteRow.slint";
 import { CalmMuted, CalmTitle } from "calm/CalmText.slint";
 import { CalmScrollView } from "calm/CalmScrollView.slint";
 import { CalmIconButton } from "calm/CalmToolButton.slint";
@@ -66,12 +67,36 @@ export component GuidesCard inherits Rectangle {
     callback set-color(int, int);
 
     private property <image> icon-trash: @image-url("trash.svg");
+    private property <bool> picker-open: false;
+    private property <int> picker-guide: -1;
+    private property <int> picker-selected: 0;
+    private property <length> picker-x: 0px;
+    private property <length> picker-y: 0px;
 
+    out property <bool> palette-open: picker-open;
     out property <length> card-x: card.absolute-position.x;
     out property <length> card-y: card.absolute-position.y;
     out property <length> card-width: card.width;
     out property <length> card-height: card.height;
     out property <length> card-radius: card.border-radius;
+
+    function open-picker(index: int, selected: int, abs-x: length, abs-y: length, well-h: length) {
+        root.picker-guide = index;
+        root.picker-selected = selected;
+        root.picker-x = abs-x - root.absolute-position.x;
+        root.picker-y = abs-y - root.absolute-position.y + well-h + Tokens.space-xs;
+        root.picker-open = true;
+    }
+
+    function close-picker() {
+        root.picker-open = false;
+    }
+
+    changed open => {
+        if (!root.open) {
+            root.close-picker();
+        }
+    }
 
     width: 100%;
     height: 100%;
@@ -90,7 +115,7 @@ export component GuidesCard inherits Rectangle {
             height: min(Tokens.guides-card-max-height, parent.height - Tokens.space-xl * 2);
             x: (parent.width - self.width) / 2;
             y: (parent.height - self.height) / 2;
-            clip: true;
+            clip: false;
 
             VerticalLayout {
                 padding: Tokens.space-lg;
@@ -164,12 +189,21 @@ export component GuidesCard inherits Rectangle {
                                 }
                             }
 
-                            CalmPalettePopover {
-                                palette: root.palette;
-                                selected-index: row.palette-index;
-                                well-size: Tokens.control-height;
-                                picked(index) => {
-                                    root.set-color(row.index, index);
+                            Rectangle {
+                                width: Tokens.control-height;
+                                height: Tokens.control-height;
+
+                                CalmDot {
+                                    dot-color: root.palette.length == 0 ? Theme.accent-teal : root.palette[max(0, min(row.palette-index, root.palette.length - 1))];
+                                    dot-size: Tokens.control-height;
+                                    x: (parent.width - self.width) / 2;
+                                    y: (parent.height - self.height) / 2;
+                                }
+
+                                CalmPointer {
+                                    clicked => {
+                                        root.open-picker(row.index, row.palette-index, self.absolute-position.x, self.absolute-position.y, parent.height);
+                                    }
                                 }
                             }
 
@@ -243,6 +277,41 @@ export component GuidesCard inherits Rectangle {
                     clicked => {
                         root.clear-guides();
                     }
+                }
+            }
+        }
+    }
+
+    if root.picker-open: CalmPointer {
+        z: 30;
+        width: 100%;
+        height: 100%;
+        clicked => {
+            root.close-picker();
+        }
+    }
+
+    if root.picker-open: picker := Rectangle {
+        z: 31;
+        x: min(max(Tokens.space-sm, root.picker-x + Tokens.control-height - self.width), parent.width - self.width - Tokens.space-sm);
+        y: min(max(Tokens.space-sm, root.picker-y), parent.height - self.height - Tokens.space-sm);
+        background: Theme.surface;
+        border-radius: Tokens.radius-md;
+        border-width: 1px;
+        border-color: Theme.island-border;
+        drop-shadow-blur: 16px;
+        drop-shadow-offset-y: 4px;
+        drop-shadow-color: Theme.shadow;
+
+        HorizontalLayout {
+            padding: Tokens.space-sm;
+
+            CalmPaletteRow {
+                palette: root.palette;
+                selected-index: root.picker-selected;
+                picked(index) => {
+                    root.set-color(root.picker-guide, index);
+                    root.close-picker();
                 }
             }
         }

@@ -224,6 +224,8 @@ fn paths_output_adds_vector_layer() {
         stroke: true,
         stroke_color: [0, 0, 0, 255],
         stroke_width: 1.0,
+        ring_starts: Vec::new(),
+        even_odd: true,
     }];
     apply_output(&mut doc, 0, OpOutput::Paths(paths)).unwrap();
     assert_eq!(doc.layers.len(), before + 1);

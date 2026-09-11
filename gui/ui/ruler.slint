@@ -14,9 +14,11 @@ export component RulerStrip inherits Rectangle {
     callback guide-pressed(length, length);
     callback guide-moved(length, length);
     callback guide-released();
+    callback has-guide(length, length) -> bool;
 
     private property <length> major-length: Tokens.ruler-thickness * 0.55;
     private property <length> minor-length: Tokens.ruler-thickness * 0.28;
+    private property <bool> over-guide: false;
 
     background: Theme.surface;
     clip: true;
@@ -45,7 +47,9 @@ export component RulerStrip inherits Rectangle {
     touch := TouchArea {
         width: 100%;
         height: 100%;
-        mouse-cursor: root.vertical ? MouseCursor.ew-resize : MouseCursor.ns-resize;
+        mouse-cursor: root.over-guide
+            ? (root.vertical ? MouseCursor.ns-resize : MouseCursor.ew-resize)
+            : (root.vertical ? MouseCursor.ew-resize : MouseCursor.ns-resize);
 
         pointer-event(event) => {
             if (event.button == PointerEventButton.left) {
@@ -60,6 +64,16 @@ export component RulerStrip inherits Rectangle {
         moved => {
             if (self.pressed) {
                 root.guide-moved(self.mouse-x, self.mouse-y);
+            } else {
+                root.over-guide = root.has-guide(self.mouse-x, self.mouse-y);
+            }
+        }
+
+        changed has-hover => {
+            if (self.has-hover) {
+                root.over-guide = root.has-guide(self.mouse-x, self.mouse-y);
+            } else {
+                root.over-guide = false;
             }
         }
     }

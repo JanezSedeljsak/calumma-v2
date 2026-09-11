@@ -315,3 +315,40 @@ fn install_images_on_an_empty_list_places_nothing() {
     let mut doc = Document::new("p".into(), "t", 32, 32);
     assert_eq!(doc.install_images_staggered(&[]), 0);
 }
+
+#[test]
+fn a_pasted_svg_is_one_vector_layer_per_item_in_one_undo_step() {
+    use calumma_core::paste::{PasteSource, PasteVector};
+    use calumma_core::vector::{VectorItem, VectorPath};
+    let mut doc = Document::new("p".into(), "t", 200, 200);
+    let square = |x: f32| {
+        VectorItem::Path(VectorPath {
+            points: vec![(x, 0.0), (x + 10.0, 0.0), (x + 10.0, 10.0), (x, 10.0)],
+            closed: true,
+            fill: true,
+            color: [0, 0, 0, 255],
+            stroke: false,
+            stroke_color: [0, 0, 0, 255],
+            stroke_width: 1.0,
+            ring_starts: Vec::new(),
+            even_odd: false,
+        })
+    };
+    let items = [square(0.0), square(20.0)];
+    let before = doc.layers.len();
+    let (pasted, outcome) = doc.paste_sources_as_layers(&[PasteSource::Vector(PasteVector {
+        name: "logo",
+        items: &items,
+        width: 30,
+        height: 10,
+    })]);
+    assert_eq!(
+        (pasted, outcome),
+        (1, calumma_core::paste::PasteOutcome::Native)
+    );
+    assert_eq!(doc.layers.len(), before + 2);
+    assert_eq!(doc.layers[before].name, "logo 1");
+    assert!(doc.layers[before + 1].content.is_vector());
+    doc.undo();
+    assert_eq!(doc.layers.len(), before, "one undo removes the whole paste");
+}

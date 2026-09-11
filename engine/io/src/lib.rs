@@ -11,6 +11,7 @@ mod raster_psd;
 mod raster_svg;
 mod store;
 mod svg;
+mod svg_vector;
 mod text_blob;
 mod transform_blob;
 mod vector_blob;
@@ -19,6 +20,7 @@ pub use png::{decode_png_rgba, encode_png_rgba};
 pub use raster::{decode_encoded, encode_rgba, RasterFormat};
 pub use store::{ProjectListItem, ProjectStore, StoreError};
 pub use svg::encode_svg;
+pub use svg_vector::{decode_svg_vector, SvgVector};
 
 pub use pdf::{page_size as pdf_page_size, PDF_DEFAULT_DPI};
 pub use psd::{DecodedLayer, DecodedPsd};

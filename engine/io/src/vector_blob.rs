@@ -6,10 +6,13 @@ use calumma_core::{Shape, Tool, VectorItem, VectorPath, VectorShape};
 /// a vector. v3 splits the single color and `fill` flag into an independent fill and
 /// stroke, so a shape can carry both at once. Older blobs still decode: v1 items come back
 /// as `Path`s, and a v2 item's one color becomes whichever of the two it was being used
-/// as — see `legacy_paint`.
+/// as — see `legacy_paint`. v4 appends a path's ring starts and fill rule, so an imported SVG
+/// keeps its holes; an older path decodes as one ring under the even-odd rule it always drew
+/// with.
 const VERSION_PATHS_ONLY: u32 = 1;
 const VERSION_ONE_COLOR: u32 = 2;
-const VERSION: u32 = 3;
+const VERSION_SPLIT_PAINT: u32 = 3;
+const VERSION: u32 = 4;
 
 const TAG_PATH: u8 = 0;
 const TAG_SHAPE: u8 = 1;
@@ -82,6 +85,11 @@ fn encode_path(out: &mut Vec<u8>, path: &VectorPath) {
     out.extend_from_slice(&path.stroke_width.to_le_bytes());
     out.push(u8::from(path.stroke));
     out.extend_from_slice(&path.stroke_color);
+    out.extend_from_slice(&(path.ring_starts.len() as u32).to_le_bytes());
+    for &start in &path.ring_starts {
+        out.extend_from_slice(&start.to_le_bytes());
+    }
+    out.push(u8::from(path.even_odd));
 }
 
 fn decode_path(r: &mut Reader, version: u32) -> Option<VectorPath> {
@@ -94,10 +102,20 @@ fn decode_path(r: &mut Reader, version: u32) -> Option<VectorPath> {
     let fill = r.bool()?;
     let color = r.rgba()?;
     let stroke_width = r.f32()?;
-    let (color, stroke, stroke_color) = if version < VERSION {
+    let (color, stroke, stroke_color) = if version < VERSION_SPLIT_PAINT {
         legacy_paint(fill && closed, color)
     } else {
         (color, r.bool()?, r.rgba()?)
+    };
+    let (ring_starts, even_odd) = if version >= VERSION {
+        let n = r.u32()? as usize;
+        let mut starts = Vec::with_capacity(n.min(4096));
+        for _ in 0..n {
+            starts.push(r.u32()?);
+        }
+        (starts, r.bool()?)
+    } else {
+        (Vec::new(), true)
     };
     Some(VectorPath {
         points,
@@ -107,6 +125,8 @@ fn decode_path(r: &mut Reader, version: u32) -> Option<VectorPath> {
         stroke,
         stroke_color,
         stroke_width,
+        ring_starts,
+        even_odd,
     })
 }
 
@@ -128,7 +148,7 @@ fn decode_shape(r: &mut Reader, version: u32) -> Option<VectorShape> {
     let half_width = r.f32()?;
     let fill = r.bool()?;
     let color = r.rgba()?;
-    let (color, stroke, stroke_color) = if version < VERSION {
+    let (color, stroke, stroke_color) = if version < VERSION_SPLIT_PAINT {
         legacy_paint(fill && tool.takes_fill(), color)
     } else {
         (color, r.bool()?, r.rgba()?)
@@ -178,7 +198,7 @@ pub fn decode(bytes: &[u8]) -> Option<Vec<VectorItem>> {
     for _ in 0..count {
         let item = match version {
             VERSION_PATHS_ONLY => VectorItem::Path(decode_path(&mut r, version)?),
-            VERSION_ONE_COLOR | VERSION => match r.u8()? {
+            VERSION_ONE_COLOR | VERSION_SPLIT_PAINT | VERSION => match r.u8()? {
                 TAG_PATH => VectorItem::Path(decode_path(&mut r, version)?),
                 TAG_SHAPE => VectorItem::Shape(decode_shape(&mut r, version)?),
                 _ => return None,
@@ -194,6 +214,29 @@ pub fn decode(bytes: &[u8]) -> Option<Vec<VectorItem>> {
 mod tests {
     use super::*;
 
+    #[test]
+    fn rings_and_the_fill_rule_round_trip() {
+        let item = VectorItem::Path(VectorPath {
+            points: vec![
+                (0.0, 0.0),
+                (10.0, 0.0),
+                (10.0, 10.0),
+                (3.0, 3.0),
+                (7.0, 3.0),
+                (7.0, 7.0),
+            ],
+            closed: true,
+            fill: true,
+            color: [1, 2, 3, 255],
+            stroke: false,
+            stroke_color: [0, 0, 0, 255],
+            stroke_width: 1.0,
+            ring_starts: vec![3],
+            even_odd: false,
+        });
+        assert_eq!(decode(&encode(&item)).unwrap(), vec![item]);
+    }
+
     fn sample_path() -> VectorItem {
         VectorItem::Path(VectorPath {
             points: vec![(0.0, 0.0), (10.0, 0.0), (10.0, 5.0), (0.0, 5.0)],
@@ -203,6 +246,8 @@ mod tests {
             stroke: true,
             stroke_color: [0, 0, 0, 255],
             stroke_width: 2.5,
+            ring_starts: Vec::new(),
+            even_odd: true,
         })
     }
 

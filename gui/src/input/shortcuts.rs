@@ -41,6 +41,10 @@ pub fn handle_shell_key(
         return ShellKeyAction::None;
     }
 
+    if (mods.meta || mods.control) && !mods.shift && !mods.alt && text.eq_ignore_ascii_case("v") {
+        return ShellKeyAction::Paste;
+    }
+
     if editor_open && (text == "\n" || text == "\r") {
         return ShellKeyAction::Return;
     }
@@ -135,6 +139,7 @@ pub enum ShellKeyAction {
     Return,
     OpenSettings,
     NewProject,
+    Paste,
     ToggleLayers,
     ClipLayer,
     Editor(EditorKeyAction),
@@ -184,6 +189,24 @@ mod tests {
         assert!(matches!(
             handle_shell_key("\n", mods(), false, true, false, false),
             ShellKeyAction::Return
+        ));
+    }
+
+    #[test]
+    fn command_v_pastes_in_the_editor_and_on_the_landing_screen() {
+        let command = Modifiers {
+            meta: true,
+            ..mods()
+        };
+        for editor_open in [true, false] {
+            assert!(matches!(
+                handle_shell_key("v", command, false, editor_open, false, false),
+                ShellKeyAction::Paste
+            ));
+        }
+        assert!(matches!(
+            handle_shell_key("v", mods(), false, true, false, false),
+            ShellKeyAction::Editor(EditorKeyAction::PickTool(_))
         ));
     }
 

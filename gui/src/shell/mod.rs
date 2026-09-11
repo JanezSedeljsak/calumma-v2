@@ -1,3 +1,4 @@
+mod clipboard;
 mod color;
 mod controller;
 mod dialogs;
@@ -10,9 +11,10 @@ mod prefs;
 mod theme;
 mod tool_labels;
 
+pub use clipboard::{read_clipboard, read_image_files, ClipboardContent, NamedImage};
 pub use color::{hue_color, slint_color, QuickColors};
 pub use controller::{shared, workspace_root, AppController, SharedController, TabCloseResult};
-pub use export::pick_artwork_file;
+pub use export::pick_artwork_files;
 pub use format::{format_bytes, relative_time};
 pub use l10n::Catalog;
 pub use layers::LayerThumbCache;

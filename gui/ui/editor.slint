@@ -111,6 +111,7 @@ export component Editor inherits Rectangle {
     callback guide-pressed(bool, float, float);
     callback guide-moved(float, float);
     callback guide-released();
+    callback ruler-has-guide(float, float) -> bool;
     callback pick-tool(int);
     callback pick-brush(int);
     callback brush-size-changed(float);
@@ -312,6 +313,9 @@ export component Editor inherits Rectangle {
                             guide-released => {
                                 root.guide-released();
                             }
+                            has-guide(x, y) => {
+                                return root.ruler-has-guide(root.strip-to-board-x(h-ruler.absolute-position.x, x), root.strip-to-board-y(h-ruler.absolute-position.y, y));
+                            }
                         }
                     }
 
@@ -330,6 +334,9 @@ export component Editor inherits Rectangle {
                             }
                             guide-released => {
                                 root.guide-released();
+                            }
+                            has-guide(x, y) => {
+                                return root.ruler-has-guide(root.strip-to-board-x(v-ruler.absolute-position.x, x), root.strip-to-board-y(v-ruler.absolute-position.y, y));
                             }
                         }
 
@@ -409,8 +416,8 @@ export component Editor inherits Rectangle {
 
                             zoom-pill := ZoomPill {
                                 visible: !root.layer-settings-open;
-                                x: parent.width - self.width - Tokens.space-md;
-                                y: parent.height - self.height - Tokens.space-md;
+                                x: parent.width - self.width - Tokens.space-sm;
+                                y: parent.height - self.height - Tokens.space-sm;
                                 z: 2;
                                 zoom-unit <=> root.zoom-unit;
                                 zoom-text: root.zoom-text;

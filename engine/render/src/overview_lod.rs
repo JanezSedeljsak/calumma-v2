@@ -170,6 +170,8 @@ fn hash_vector_item(item: &VectorItem, hasher: &mut FxHasher) {
             p.fill.hash(hasher);
             p.stroke.hash(hasher);
             p.stroke_width.to_bits().hash(hasher);
+            p.even_odd.hash(hasher);
+            p.ring_starts.hash(hasher);
             p.points.len().hash(hasher);
             for &(x, y) in &p.points {
                 x.to_bits().hash(hasher);

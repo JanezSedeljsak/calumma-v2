@@ -131,12 +131,15 @@ impl Document {
     /// Selecting and grabbing are the same gesture: whatever the click lands on becomes the
     /// selection *and* starts moving, so an item never needs two clicks to be dragged.
     ///
-    /// A corner handle of the item already selected is checked first. Handles outrank content
-    /// the same way the layer frame's do — otherwise a handle sitting over another item would
-    /// select that one instead of resizing this one.
+    /// Inside `⌘T` a corner handle of the item already selected is checked first. Handles
+    /// outrank content the same way the layer frame's do — otherwise a handle sitting over
+    /// another item would select that one instead of resizing this one. Plain Move has no
+    /// handles: it drags a vector exactly the way it drags painted pixels.
     pub fn begin_vector_item_drag(&mut self, doc_x: f32, doc_y: f32) -> bool {
-        if let Some((pick, handle)) = self.selected_vector_handle_at(doc_x, doc_y) {
-            return self.begin_item_drag(pick, handle, (doc_x, doc_y));
+        if self.transform_active {
+            if let Some((pick, handle)) = self.selected_vector_handle_at(doc_x, doc_y) {
+                return self.begin_item_drag(pick, handle, (doc_x, doc_y));
+            }
         }
         let Some(pick) = self.vector_item_at(doc_x, doc_y) else {
             return false;

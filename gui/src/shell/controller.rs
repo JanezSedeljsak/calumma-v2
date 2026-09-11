@@ -324,12 +324,25 @@ impl AppController {
         Ok(())
     }
 
-    pub fn import_artwork(&mut self, bytes: &[u8]) -> Result<()> {
+    pub fn paste_images(&mut self, images: &[super::NamedImage]) {
+        let encoded = encoded_images(images);
+        let (_, outcome) = self.engine.borrow_mut().paste_encoded_images(&encoded);
+        match outcome {
+            calumma_core::paste::PasteOutcome::Failed => self.show_toast_key("pasteFailed", true),
+            calumma_core::paste::PasteOutcome::Overflowing => {
+                self.show_toast_key("pasteOverflows", false)
+            }
+            calumma_core::paste::PasteOutcome::Native => {}
+        }
+    }
+
+    pub fn import_artworks(&mut self, images: &[super::NamedImage]) -> Result<()> {
         let name = self.l10n.get("untitled");
+        let encoded = encoded_images(images);
         let id = self
             .engine
             .borrow_mut()
-            .create_project_from_encoded(&name, bytes)?;
+            .create_project_from_encoded_images(&name, &encoded)?;
         self.add_open_tab(&id);
         self.active_project_id = Some(id.clone());
         self.prefs.set_last_active_project(Some(&id));
@@ -944,4 +957,11 @@ pub type SharedController = Rc<RefCell<AppController>>;
 
 pub fn shared(root: PathBuf) -> Result<SharedController> {
     Ok(Rc::new(RefCell::new(AppController::new(root)?)))
+}
+
+fn encoded_images(images: &[super::NamedImage]) -> Vec<(&str, &[u8])> {
+    images
+        .iter()
+        .map(|image| (image.name.as_str(), image.bytes.as_slice()))
+        .collect()
 }

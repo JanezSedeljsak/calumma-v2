@@ -30,6 +30,49 @@ fn ink_pixels(doc: &Document, index: usize) -> usize {
 }
 
 #[test]
+fn a_typed_text_layer_gets_transform_handles() {
+    let mut doc = board();
+    click(&mut doc, 100.0, 100.0);
+    doc.text_insert("Hello");
+    let layer = doc.active_layer;
+    assert!(doc.set_tool(Tool::Transform));
+    assert!(doc
+        .transform_handles()
+        .is_some_and(|(index, _, _)| index == layer));
+}
+
+#[test]
+fn a_typed_text_layer_drags_in_transform_mode() {
+    let mut doc = board();
+    click(&mut doc, 100.0, 100.0);
+    doc.text_insert("Hello");
+    let layer = doc.active_layer;
+    assert!(doc.set_tool(Tool::Transform));
+    let (x0, y0, x1, y1) = doc.layers[layer].content_bounds().unwrap();
+    let (cx, cy) = ((x0 + x1) * 0.5, (y0 + y1) * 0.5);
+    let (sx, sy) = doc.camera.to_screen(cx, cy);
+    doc.pointer_down(sx, sy);
+    let (ex, ey) = doc.camera.to_screen(cx + 30.0, cy + 10.0);
+    doc.pointer_move(ex, ey);
+    doc.pointer_up(ex, ey);
+    let t = doc.layer_transform(layer);
+    assert!((t.offset_x - 30.0).abs() < 0.5);
+    assert!((t.offset_y - 10.0).abs() < 0.5);
+}
+
+#[test]
+fn option_backspace_deletes_the_word_behind_the_caret() {
+    let mut doc = board();
+    click(&mut doc, 40.0, 100.0);
+    doc.text_insert("hello world");
+    doc.text_delete_word(false);
+    assert_eq!(
+        doc.active_text_run().map(|run| run.text.as_str()),
+        Some("hello ")
+    );
+}
+
+#[test]
 fn clicking_with_the_text_tool_opens_a_new_text_layer() {
     let mut doc = board();
     let before = doc.layers.len();

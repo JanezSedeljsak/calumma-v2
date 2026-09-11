@@ -57,12 +57,6 @@ impl Document {
         self.layers.iter().find(|l| l.id == base_id)
     }
 
-    pub fn clip_base_layer(&self, index: usize) -> Option<&Layer> {
-        self.layers
-            .get(index)
-            .and_then(|layer| self.clip_base_for_layer(layer))
-    }
-
     pub fn is_layer_clipped(&self, index: usize) -> bool {
         self.layers.get(index).is_some_and(|l| l.clips_to.is_some())
     }

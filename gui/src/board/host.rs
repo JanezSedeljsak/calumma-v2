@@ -18,9 +18,12 @@ pub struct BoardHost {
     panning: bool,
     stroke_active: bool,
     pointer_inside: bool,
+    surface_hidden: bool,
     hover: (f32, f32),
     last_pan: (f32, f32),
     cursor: CursorController,
+    cursor_mods: ModifierState,
+    cursor_modal: bool,
     last_sync: Option<(i32, i32, u32, u32, i32, u32, bool, u64)>,
     #[cfg(target_os = "macos")]
     surface: Option<BoardSurface>,
@@ -36,9 +39,12 @@ impl BoardHost {
             panning: false,
             stroke_active: false,
             pointer_inside: false,
+            surface_hidden: true,
             hover: (0.0, 0.0),
             last_pan: (0.0, 0.0),
             cursor: CursorController::new(icons_root),
+            cursor_mods: ModifierState::default(),
+            cursor_modal: false,
             last_sync: None,
             #[cfg(target_os = "macos")]
             surface: None,
@@ -68,17 +74,23 @@ impl BoardHost {
     }
 
     pub fn refresh_cursor(&mut self, modal_open: bool, mods: ModifierState) {
+        self.cursor_mods = mods;
+        self.cursor_modal = modal_open;
         let engine = self.engine.borrow();
         let input = BoardCursorInput {
             pointer_inside: self.pointer_inside,
             panning: self.panning,
             painting: self.stroke_active,
-            modal_open,
+            modal_open: modal_open || self.surface_hidden,
             hover_x: self.hover.0,
             hover_y: self.hover.1,
             mods,
         };
         self.cursor.refresh(&engine, &input);
+    }
+
+    pub fn reconcile_cursor(&mut self) {
+        self.refresh_cursor(self.cursor_modal, self.cursor_mods);
     }
 
     pub fn try_attach_winit(
@@ -132,6 +144,7 @@ impl BoardHost {
         overlay: bool,
         holes: &[super::layout::BoardRect],
     ) {
+        self.surface_hidden = !self.active || overlay;
         let hole_sig = super::layout::holes_signature(holes);
         let key = (
             (layout.x * 100.0).round() as i32,
@@ -270,6 +283,9 @@ impl BoardHost {
         };
         if should_track_hover(&input, tool) {
             self.engine.borrow_mut().set_pointer_hover(x, y);
+        }
+        if self.pointer_inside {
+            self.cursor.invalidate();
         }
         self.refresh_cursor(modal_open, mods);
     }

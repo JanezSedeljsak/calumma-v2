@@ -29,6 +29,8 @@ fn open_path(points: Vec<(f32, f32)>) -> VectorPath {
         stroke: true,
         stroke_color: [1, 2, 3, 255],
         stroke_width: 4.0,
+        ring_starts: Vec::new(),
+        even_odd: true,
     }
 }
 
@@ -153,23 +155,71 @@ fn transformed_bounds_matches_the_untransformed_bounds_with_no_transform() {
     assert_eq!(transformed_bounds(&item, None), item.bounds());
 }
 
-#[test]
-fn draws_on_gpu_is_always_true_for_shapes() {
-    let item = VectorItem::Shape(rect_shape((0.0, 0.0), (10.0, 10.0), true));
-    assert!(draws_on_gpu(&item));
+fn square_with_hole(inner_reversed: bool, even_odd: bool) -> VectorItem {
+    let mut inner = vec![(3.0, 3.0), (7.0, 3.0), (7.0, 7.0), (3.0, 7.0)];
+    if inner_reversed {
+        inner.reverse();
+    }
+    let mut points = vec![(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)];
+    points.extend(inner);
+    VectorItem::Path(VectorPath {
+        points,
+        closed: true,
+        fill: true,
+        color: [1, 2, 3, 255],
+        stroke: false,
+        stroke_color: [1, 2, 3, 255],
+        stroke_width: 1.0,
+        ring_starts: vec![4],
+        even_odd,
+    })
 }
 
 #[test]
-fn draws_on_gpu_is_false_only_for_a_closed_filled_path() {
-    let mut open = open_path(vec![(0.0, 0.0), (10.0, 10.0)]);
-    assert!(draws_on_gpu(&VectorItem::Path(open.clone())));
-    open.closed = true;
+fn an_even_odd_hole_is_empty_whichever_way_it_winds() {
+    for reversed in [false, true] {
+        let item = square_with_hole(reversed, true);
+        assert!(item.distance(5.0, 5.0) > 0.0, "the hole is outside");
+        assert!(item.distance(1.5, 5.0) < 0.0, "the band is inside");
+    }
+}
+
+#[test]
+fn a_nonzero_hole_needs_the_opposite_winding() {
+    assert!(square_with_hole(false, false).distance(5.0, 5.0) < 0.0);
+    assert!(square_with_hole(true, false).distance(5.0, 5.0) > 0.0);
+}
+
+#[test]
+fn a_single_ring_path_fills_exactly_as_before_rings_existed() {
+    let triangle = VectorItem::Path(VectorPath {
+        points: vec![(0.0, 0.0), (10.0, 0.0), (0.0, 10.0)],
+        closed: true,
+        fill: true,
+        color: [1, 2, 3, 255],
+        stroke: false,
+        stroke_color: [1, 2, 3, 255],
+        stroke_width: 1.0,
+        ring_starts: Vec::new(),
+        even_odd: true,
+    });
+    let expected =
+        calumma_core::shape::sd_polygon((2.0, 2.0), &[(0.0, 0.0), (10.0, 0.0), (0.0, 10.0)]);
+    assert!((triangle.distance(2.0, 2.0) - expected).abs() < 1e-5);
+}
+
+#[test]
+fn rings_are_stroked_separately_without_a_bridge_between_them() {
+    let VectorItem::Path(mut path) = square_with_hole(false, true) else {
+        unreachable!()
+    };
+    path.fill = false;
+    path.stroke = true;
+    let item = VectorItem::Path(path);
     assert!(
-        draws_on_gpu(&VectorItem::Path(open.clone())),
-        "closed but unfilled still stroke-draws"
+        item.distance(1.5, 1.5) > 0.0,
+        "no segment joins the outer ring's last point to the hole's first"
     );
-    open.fill = true;
-    assert!(!draws_on_gpu(&VectorItem::Path(open)));
 }
 
 #[test]

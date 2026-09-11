@@ -42,6 +42,7 @@
   "artworkImportFailed": "That image could not be read",
   "pasteOverflows": "Pasted at full size — it runs past the canvas.",
   "pasteFailed": "That image could not be pasted.",
+  "clipboardNoImage": "There is no image on the clipboard to paste.",
   "layers": "Layers",
   "layerAlign": "Align",
   "layerAlignLeft": "Align Left",

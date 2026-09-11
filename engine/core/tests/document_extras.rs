@@ -88,6 +88,8 @@ fn vector_layer_content_and_bounds() {
             color: [0, 0, 0, 255],
             stroke_color: [0, 0, 0, 255],
             stroke_width: 1.0,
+            ring_starts: Vec::new(),
+            even_odd: true,
         }),
     );
     assert!(matches!(layer.content, LayerContent::Vector(_)));

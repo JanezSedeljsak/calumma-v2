@@ -15,11 +15,16 @@
 //! Only the *storage* grew. The document is still `width` × `height`: masks are sized to it,
 //! export walks it, and `Camera::paper_scissor` still clips every layer to it, so an
 //! overflowing layer draws exactly the part of itself that is on the paper.
+//!
+//! An SVG arrives as a [`PasteVector`] instead: its items are placed by the same rule a raster
+//! of the same size would be, one vector layer per item because a vector layer holds exactly
+//! one.
 
 use crate::document::Document;
 use crate::history::stack_snapshot_bytes;
 use crate::limits::PASTE_STAGGER_PX;
 use crate::tile::DocRect;
+use crate::vector::VectorItem;
 
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 
@@ -32,11 +37,37 @@ pub enum PasteOutcome {
     Overflowing = 2,
 }
 
+#[derive(Clone, Copy)]
 pub struct PasteImage<'a> {
     pub name: &'a str,
     pub rgba: &'a [u8],
     pub width: u32,
     pub height: u32,
+}
+
+/// Vector items laid out on a `width` × `height` canvas whose origin is the item space origin
+/// — an SVG's own page, scaled to fit the import limit.
+#[derive(Clone, Copy)]
+pub struct PasteVector<'a> {
+    pub name: &'a str,
+    pub items: &'a [VectorItem],
+    pub width: u32,
+    pub height: u32,
+}
+
+#[derive(Clone, Copy)]
+pub enum PasteSource<'a> {
+    Raster(PasteImage<'a>),
+    Vector(PasteVector<'a>),
+}
+
+impl PasteSource<'_> {
+    fn size(&self) -> (u32, u32) {
+        match self {
+            Self::Raster(image) => (image.width, image.height),
+            Self::Vector(vector) => (vector.width, vector.height),
+        }
+    }
 }
 
 impl Document {
@@ -68,26 +99,41 @@ impl Document {
     }
 
     pub fn paste_images_as_layers(&mut self, images: &[PasteImage<'_>]) -> (usize, PasteOutcome) {
-        if images.is_empty() {
+        let sources: Vec<PasteSource<'_>> =
+            images.iter().copied().map(PasteSource::Raster).collect();
+        self.paste_sources_as_layers(&sources)
+    }
+
+    /// Every source as new layers above the stack, staggered, as **one** undo step. Returns how
+    /// many sources landed and the worst outcome among them.
+    pub fn paste_sources_as_layers(
+        &mut self,
+        sources: &[PasteSource<'_>],
+    ) -> (usize, PasteOutcome) {
+        if sources.is_empty() {
             return (0, PasteOutcome::Failed);
         }
         let before = self.snapshot_stack();
         let mut pasted = 0usize;
         let mut outcome = PasteOutcome::Failed;
-        for (i, image) in images.iter().enumerate() {
-            let (ox, oy) = self.paste_origin(image.width, image.height, i);
-            let layer_name = if image.name.is_empty() {
-                crate::names::numbered_pasted_layer(self.layers.len() + pasted + 1)
-            } else {
-                image.name.to_string()
+        for (i, source) in sources.iter().enumerate() {
+            let (width, height) = source.size();
+            let origin = self.paste_origin(width, height, i);
+            let one = match source {
+                PasteSource::Raster(image) => {
+                    let layer_name = if image.name.is_empty() {
+                        crate::names::numbered_pasted_layer(self.layers.len() + 1)
+                    } else {
+                        image.name.to_string()
+                    };
+                    let named = PasteImage {
+                        name: &layer_name,
+                        ..*image
+                    };
+                    self.paste_image_as_layer_at_inner(&named, origin)
+                }
+                PasteSource::Vector(vector) => self.paste_vector_at(vector, origin),
             };
-            let named = PasteImage {
-                name: &layer_name,
-                rgba: image.rgba,
-                width: image.width,
-                height: image.height,
-            };
-            let one = self.paste_image_as_layer_at_inner(&named, (ox, oy));
             if one != PasteOutcome::Failed {
                 pasted += 1;
                 outcome = merge_paste_outcome(outcome, one);
@@ -104,30 +150,72 @@ impl Document {
     }
 
     pub fn install_images_staggered(&mut self, images: &[PasteImage<'_>]) -> usize {
+        let sources: Vec<PasteSource<'_>> =
+            images.iter().copied().map(PasteSource::Raster).collect();
+        self.install_sources_staggered(&sources)
+    }
+
+    /// A fresh project's content: the first raster goes into the first paint layer, everything
+    /// after it stacks above, staggered. No history — there is nothing before it to undo to.
+    pub fn install_sources_staggered(&mut self, sources: &[PasteSource<'_>]) -> usize {
         let mut placed = 0usize;
-        for (i, image) in images.iter().enumerate() {
+        for (i, source) in sources.iter().enumerate() {
             let d = (i as i32) * PASTE_STAGGER_PX;
-            let ok = if i == 0 {
-                self.place_image_at(image.rgba, image.width, image.height, d, d)
-            } else {
-                let layer_name = if image.name.is_empty() {
-                    crate::names::numbered_layer(self.layers.len() + 1)
-                } else {
-                    image.name.to_string()
-                };
-                let named = PasteImage {
-                    name: &layer_name,
-                    rgba: image.rgba,
-                    width: image.width,
-                    height: image.height,
-                };
-                self.paste_image_as_layer_at_inner(&named, (d, d)) != PasteOutcome::Failed
+            let ok = match source {
+                PasteSource::Raster(image) if i == 0 => {
+                    self.place_image_at(image.rgba, image.width, image.height, d, d)
+                }
+                PasteSource::Raster(image) => {
+                    let layer_name = if image.name.is_empty() {
+                        crate::names::numbered_layer(self.layers.len() + 1)
+                    } else {
+                        image.name.to_string()
+                    };
+                    let named = PasteImage {
+                        name: &layer_name,
+                        ..*image
+                    };
+                    self.paste_image_as_layer_at_inner(&named, (d, d)) != PasteOutcome::Failed
+                }
+                PasteSource::Vector(vector) => {
+                    self.paste_vector_at(vector, (d, d)) != PasteOutcome::Failed
+                }
             };
             if ok {
                 placed += 1;
             }
         }
         placed
+    }
+
+    /// One vector layer per item, named after the source and numbered when there is more than
+    /// one, moved so the source's own origin lands on `origin`.
+    fn paste_vector_at(&mut self, vector: &PasteVector<'_>, origin: (i32, i32)) -> PasteOutcome {
+        if vector.items.is_empty() {
+            return PasteOutcome::Failed;
+        }
+        let base = if vector.name.is_empty() {
+            let n = self.layers.iter().filter(|l| l.content.is_vector()).count() + 1;
+            crate::names::numbered_vector_layer(n)
+        } else {
+            vector.name.to_string()
+        };
+        let numbered = vector.items.len() > 1;
+        for (i, item) in vector.items.iter().enumerate() {
+            let mut item = item.clone();
+            item.translate(origin.0 as f32, origin.1 as f32);
+            let name = if numbered {
+                format!("{base} {}", i + 1)
+            } else {
+                base.clone()
+            };
+            self.add_vector_layer(name, item);
+        }
+        if vector.width <= self.width && vector.height <= self.height {
+            PasteOutcome::Native
+        } else {
+            PasteOutcome::Overflowing
+        }
     }
 
     fn paste_image_as_layer_at_inner(

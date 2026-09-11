@@ -301,7 +301,7 @@ fn matte(
             }
         })
         .collect();
-    let alpha: Vec<u8> = small.par_iter().skip(3).step_by(4).copied().collect();
+    let alpha: Vec<u8> = small.par_chunks_exact(4).map(|p| p[3]).collect();
 
     let drawn = region
         .filter(|r| r.len() == (w as usize) * (h as usize))

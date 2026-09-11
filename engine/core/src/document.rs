@@ -1048,15 +1048,6 @@ impl Document {
         self.clear_vector_selection();
     }
 
-    pub fn toggle_transform(&mut self) -> bool {
-        if self.transform_active {
-            self.exit_transform();
-            false
-        } else {
-            self.enter_transform()
-        }
-    }
-
     /// The rotate grip: always `ROTATE_HANDLE_OFFSET_PX` clear of the middle of the frame's
     /// top edge and square to it, at every rotation, scale and flip.
     ///
@@ -1095,9 +1086,6 @@ impl Document {
         }
         let index = self.active_layer;
         let layer = self.layers.get(index)?;
-        if layer.content.is_text() {
-            return None;
-        }
         let raw_bounds = layer.content_bounds()?;
         let pivot = bounds_center(raw_bounds);
         let t = layer.transform.unwrap_or_default();
@@ -1109,9 +1097,6 @@ impl Document {
     fn transform_handle_at(&self, doc_x: f32, doc_y: f32) -> Option<TransformDrag> {
         let index = self.active_layer;
         let layer = self.layers.get(index)?;
-        if layer.content.is_text() {
-            return None;
-        }
         let raw_bounds = layer.content_bounds()?;
         let pivot = bounds_center(raw_bounds);
         let t = layer.transform.unwrap_or_default();
@@ -1588,14 +1573,14 @@ impl Document {
             self.begin_crop_drag(dx, dy);
             return;
         }
-        if self.tool == Tool::Move {
+        let on_paper = self.screen_on_paper(screen_x, screen_y);
+        if self.tool == Tool::Move || !on_paper {
             self.commit_text();
-            // A guide sits on top of everything it crosses, so it is what the Move tool grabs
-            // first. Every other tool draws straight through one — a rule you cannot paint
-            // across would be worse than no rule at all.
             if self.begin_guide_drag(screen_x, screen_y) {
                 return;
             }
+        }
+        if self.tool == Tool::Move {
             self.begin_move_at(dx, dy);
             return;
         }
@@ -1673,6 +1658,9 @@ impl Document {
         // Keeps the brush cursor under the pointer mid-stroke without the shell having to
         // send the position twice.
         self.pointer_hover = Some((dx, dy));
+        if self.update_guide_drag(screen_x, screen_y) {
+            return false;
+        }
         if self.transform_active {
             if !self.update_vector_item_drag(dx, dy) {
                 self.update_transform_drag(dx, dy);
@@ -1684,11 +1672,6 @@ impl Document {
             return true;
         }
         if self.tool == Tool::Move {
-            // A guide is redrawn from scratch every frame, so moving one invalidates no cache —
-            // it is the cheapest kind of overlay frame there is.
-            if self.update_guide_drag(screen_x, screen_y) {
-                return false;
-            }
             self.update_move_drag(dx, dy);
             return true;
         }
@@ -1711,6 +1694,9 @@ impl Document {
     pub fn pointer_up(&mut self, screen_x: f32, screen_y: f32) {
         let (dx, dy) = self.camera.to_doc(screen_x, screen_y);
         self.pointer_hover = Some((dx, dy));
+        if self.end_guide_drag() {
+            return;
+        }
         if self.transform_active {
             self.commit_vector_drag_history();
             self.commit_transform_drag_history();
@@ -1721,9 +1707,6 @@ impl Document {
             return;
         }
         if self.tool == Tool::Move {
-            if self.end_guide_drag() {
-                return;
-            }
             self.end_move_drag();
             return;
         }
@@ -2744,21 +2727,26 @@ impl Document {
         let dh = self.height.max(1);
         let mut rgba = vec![0u8; (w as usize) * (h as usize) * 4];
         let contributing = self.contributing_layers();
-        rgba.par_chunks_mut(4).enumerate().for_each(|(index, px)| {
-            let tx = x + (index as u32) % w;
-            let ty = y + (index as u32) / w;
-            let doc_x = if tw <= 1 {
-                0.0
-            } else {
-                tx as f32 * (dw - 1) as f32 / (tw - 1) as f32
-            };
-            let doc_y = if th <= 1 {
-                0.0
-            } else {
-                ty as f32 * (dh - 1) as f32 / (th - 1) as f32
-            };
-            px.copy_from_slice(&self.composite_pixel_of(&contributing, doc_x, doc_y));
-        });
+        let row_bytes = (w as usize) * 4;
+        rgba.par_chunks_mut(row_bytes)
+            .enumerate()
+            .for_each(|(row, line)| {
+                let ty = y + row as u32;
+                let doc_y = if th <= 1 {
+                    0.0
+                } else {
+                    ty as f32 * (dh - 1) as f32 / (th - 1) as f32
+                };
+                for (col, px) in line.chunks_exact_mut(4).enumerate() {
+                    let tx = x + col as u32;
+                    let doc_x = if tw <= 1 {
+                        0.0
+                    } else {
+                        tx as f32 * (dw - 1) as f32 / (tw - 1) as f32
+                    };
+                    px.copy_from_slice(&self.composite_pixel_of(&contributing, doc_x, doc_y));
+                }
+            });
         rgba
     }
 
@@ -3027,12 +3015,6 @@ impl Document {
             return;
         }
         self.history.push_layer_tiles(layer_id, snap, Some(active));
-    }
-
-    pub fn mark_all_layers_dirty(&mut self) {
-        for layer in &mut self.layers {
-            layer.mark_all_dirty();
-        }
     }
 
     pub fn clear_layer_dirty(&mut self, channel: DirtyChannel) {

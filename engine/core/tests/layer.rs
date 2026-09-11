@@ -13,6 +13,8 @@ fn unbound_item() -> VectorItem {
         color: [0, 0, 0, 255],
         stroke_color: [0, 0, 0, 255],
         stroke_width: 1.0,
+        ring_starts: Vec::new(),
+        even_odd: true,
     })
 }
 
@@ -25,6 +27,8 @@ fn stroked_path() -> VectorItem {
         color: [0, 0, 0, 255],
         stroke_color: [0, 0, 0, 255],
         stroke_width: 2.0,
+        ring_starts: Vec::new(),
+        even_odd: true,
     })
 }
 

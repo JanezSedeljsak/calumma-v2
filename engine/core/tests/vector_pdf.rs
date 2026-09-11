@@ -31,6 +31,8 @@ fn path_item(points: Vec<(f32, f32)>, closed: bool, fill: bool, stroke: bool) ->
         stroke,
         stroke_color: [0, 0, 0, 255],
         stroke_width: 3.0,
+        ring_starts: Vec::new(),
+        even_odd: true,
     })
 }
 
@@ -64,13 +66,53 @@ fn a_closed_filled_path_closes_and_paints_both() {
     let pdf = item_pdf(&item).expect("path");
 
     assert!(pdf.contains("h "), "{pdf}");
-    assert_eq!(paint_op(&pdf), "B");
+    assert_eq!(
+        paint_op(&pdf),
+        "B*",
+        "a pen path fills even-odd, as the board draws it"
+    );
 }
 
 #[test]
 fn a_closed_path_with_no_stroke_is_filled_only() {
     let item = path_item(vec![(0.0, 0.0), (4.0, 0.0), (4.0, 4.0)], true, true, false);
+    assert_eq!(paint_op(&item_pdf(&item).expect("path")), "f*");
+}
+
+#[test]
+fn a_nonzero_path_uses_the_nonzero_operators() {
+    let mut item = path_item(vec![(0.0, 0.0), (4.0, 0.0), (4.0, 4.0)], true, true, false);
+    if let VectorItem::Path(path) = &mut item {
+        path.even_odd = false;
+    }
     assert_eq!(paint_op(&item_pdf(&item).expect("path")), "f");
+}
+
+#[test]
+fn every_ring_is_its_own_closed_subpath() {
+    let mut item = path_item(
+        vec![
+            (0.0, 0.0),
+            (8.0, 0.0),
+            (8.0, 8.0),
+            (2.0, 2.0),
+            (4.0, 2.0),
+            (4.0, 4.0),
+        ],
+        true,
+        true,
+        false,
+    );
+    if let VectorItem::Path(path) = &mut item {
+        path.ring_starts = vec![3];
+    }
+    let pdf = item_pdf(&item).expect("path");
+    assert_eq!(
+        pdf.matches(" m ").count() + usize::from(pdf.starts_with("0 0 m")),
+        2,
+        "{pdf}"
+    );
+    assert_eq!(pdf.matches("h ").count(), 2, "{pdf}");
 }
 
 /// `n` — paint nothing — still emits the path. A subpath that neither fills nor strokes is

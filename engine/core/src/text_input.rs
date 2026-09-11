@@ -85,6 +85,24 @@ impl Document {
         };
         self.place_caret(caret, false);
     }
+
+    /// `⌥⌫` / `⌥⌦`: widen an empty range to the word on that side, then delete it the way a
+    /// selection is deleted. A live selection is deleted as it stands, like any other delete.
+    pub fn text_delete_word(&mut self, forward: bool) {
+        if self.text_range().is_some_and(|range| range.is_empty()) {
+            let step = if forward {
+                Step::WordRight
+            } else {
+                Step::WordLeft
+            };
+            self.text_step_caret(step, true);
+        }
+        if forward {
+            self.text_delete_forward();
+        } else {
+            self.text_backspace();
+        }
+    }
 }
 
 /// The range an edit is about to replace, with any composition dropped first.

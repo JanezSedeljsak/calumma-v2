@@ -121,6 +121,7 @@ fn vector_item_bytes(item: Option<&VectorItem>) -> usize {
     match item {
         Some(VectorItem::Path(path)) => {
             BASE + path.points.len() * std::mem::size_of::<(f32, f32)>()
+                + path.ring_starts.len() * std::mem::size_of::<u32>()
         }
         Some(VectorItem::Shape(_)) | None => BASE,
     }

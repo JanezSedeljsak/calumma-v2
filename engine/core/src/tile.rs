@@ -34,11 +34,6 @@ impl TileCoord {
     }
 
     #[inline]
-    pub fn from_doc(x: f32, y: f32) -> Self {
-        Self::from_doc_i32(x.floor() as i32, y.floor() as i32)
-    }
-
-    #[inline]
     pub fn origin(&self) -> (i32, i32) {
         (self.x * TILE_SIZE as i32, self.y * TILE_SIZE as i32)
     }

@@ -35,12 +35,14 @@ fn rgb(color: [u8; 4]) -> (f32, f32, f32) {
 /// The paint operator for a subpath: fill, stroke, both, or neither. PDF spells the
 /// combination as one operator rather than as two attributes, so the either/or that
 /// `vector_svg` writes as separate `fill=` / `stroke=` collapses to a single letter here.
-fn paint_op(fill: bool, stroke: bool, closed: bool) -> &'static str {
-    match (fill && closed, stroke) {
-        (true, true) => "B",
-        (true, false) => "f",
-        (false, true) => "S",
-        (false, false) => "n",
+fn paint_op(fill: bool, stroke: bool, closed: bool, even_odd: bool) -> &'static str {
+    match (fill && closed, stroke, even_odd) {
+        (true, true, false) => "B",
+        (true, true, true) => "B*",
+        (true, false, false) => "f",
+        (true, false, true) => "f*",
+        (false, true, _) => "S",
+        (false, false, _) => "n",
     }
 }
 
@@ -102,19 +104,26 @@ fn ellipse(cx: f32, cy: f32, rx: f32, ry: f32) -> String {
 pub fn item_pdf(item: &VectorItem) -> Option<String> {
     match item {
         VectorItem::Path(p) => {
-            let (&first, rest) = p.points.split_first()?;
             let mut out = color_ops(
                 (p.fill && p.closed).then_some(p.color),
                 p.stroke.then_some((p.stroke_color, p.stroke_width)),
             );
-            out.push_str(&format!("{} {} m ", n(first.0), n(first.1)));
-            for &(x, y) in rest {
-                out.push_str(&format!("{} {} l ", n(x), n(y)));
+            let mut drawn = false;
+            for ring in p.rings() {
+                let (&first, rest) = ring.split_first()?;
+                out.push_str(&format!("{} {} m ", n(first.0), n(first.1)));
+                for &(x, y) in rest {
+                    out.push_str(&format!("{} {} l ", n(x), n(y)));
+                }
+                if p.closed {
+                    out.push_str("h ");
+                }
+                drawn = true;
             }
-            if p.closed {
-                out.push_str("h ");
+            if !drawn {
+                return None;
             }
-            out.push_str(paint_op(p.fill, p.stroke, p.closed));
+            out.push_str(paint_op(p.fill, p.stroke, p.closed, p.even_odd));
             Some(out)
         }
         VectorItem::Shape(s) => {
@@ -127,7 +136,7 @@ pub fn item_pdf(item: &VectorItem) -> Option<String> {
                 strokes.then_some((s.stroke_color, shape.half_width * 2.0)),
             );
             out.push_str(&shape_path(&shape)?);
-            out.push_str(paint_op(fills, strokes, shape.tool != Tool::Line));
+            out.push_str(paint_op(fills, strokes, shape.tool != Tool::Line, false));
             Some(out)
         }
     }

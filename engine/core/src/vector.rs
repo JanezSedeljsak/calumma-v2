@@ -1,11 +1,13 @@
-use crate::shape::{ink_sample, sd_polygon, sd_segment, Shape, Tool};
+use crate::shape::{ink_sample, sd_segment, Shape, Tool};
 use crate::transform::LayerTransform;
 use rayon::prelude::*;
 
-/// A freehand path: the points the pointer actually travelled, kept as points rather than
-/// stamped into pixels. Stroked by default; `fill` closes and fills it in `color`, which
-/// only the flattening path implements (see [`VectorItem`]). The two are independent, so a
-/// filled path can also carry an outline in `stroke_color`.
+/// A freehand or imported path, kept as points rather than stamped into pixels. Stroked by
+/// default; `fill` closes and fills it in `color`. The two are independent, so a filled path
+/// can also carry an outline in `stroke_color`.
+///
+/// A path may hold several **rings** — an imported SVG letter "O" is an outer ring and a hole
+/// — which is still one item: rings are one outline, not a group of items.
 #[derive(Clone, Debug, PartialEq)]
 pub struct VectorPath {
     pub points: Vec<(f32, f32)>,
@@ -15,6 +17,39 @@ pub struct VectorPath {
     pub stroke: bool,
     pub stroke_color: [u8; 4],
     pub stroke_width: f32,
+    /// Where each ring after the first begins in `points`. Empty is one ring, which is every
+    /// path the pen draws and every path stored before rings existed.
+    pub ring_starts: Vec<u32>,
+    /// SVG's `evenodd` fill rule rather than `nonzero`. The two agree on any simple ring;
+    /// they differ on self-intersections and on holes wound the same way as their outline.
+    pub even_odd: bool,
+}
+
+impl VectorPath {
+    /// Each ring as a slice of `points`. A start past the end or out of order yields no empty
+    /// ring rather than a panic, so a damaged blob draws what it can.
+    pub fn rings(&self) -> impl Iterator<Item = &[(f32, f32)]> + '_ {
+        let len = self.points.len();
+        let bounds = std::iter::once(0)
+            .chain(self.ring_starts.iter().map(move |&s| (s as usize).min(len)))
+            .chain(std::iter::once(len));
+        bounds
+            .clone()
+            .zip(bounds.skip(1))
+            .filter(|(a, b)| b > a)
+            .map(|(a, b)| &self.points[a..b])
+    }
+
+    fn copy_style_from(&mut self, src: &Self) {
+        self.closed = src.closed;
+        self.fill = src.fill;
+        self.color = src.color;
+        self.stroke = src.stroke;
+        self.stroke_color = src.stroke_color;
+        self.stroke_width = src.stroke_width;
+        self.ring_starts.clone_from(&src.ring_starts);
+        self.even_odd = src.even_odd;
+    }
 }
 
 /// A parametric shape: the two drag endpoints and the style, which is all a rect, ellipse,
@@ -185,12 +220,7 @@ impl VectorItem {
                 dst.points.clear();
                 dst.points
                     .extend(src.points.iter().map(|&(x, y)| (x + dx, y + dy)));
-                dst.closed = src.closed;
-                dst.fill = src.fill;
-                dst.color = src.color;
-                dst.stroke = src.stroke;
-                dst.stroke_color = src.stroke_color;
-                dst.stroke_width = src.stroke_width;
+                dst.copy_style_from(src);
             }
             (dst, src) => {
                 *dst = src.clone();
@@ -218,12 +248,7 @@ impl VectorItem {
             (Self::Path(dst), Self::Path(src)) => {
                 dst.points.clear();
                 dst.points.extend(src.points.iter().copied().map(map));
-                dst.closed = src.closed;
-                dst.fill = src.fill;
-                dst.color = src.color;
-                dst.stroke = src.stroke;
-                dst.stroke_color = src.stroke_color;
-                dst.stroke_width = src.stroke_width;
+                dst.copy_style_from(src);
             }
             (Self::Shape(dst), Self::Shape(src)) => {
                 dst.color = src.color;
@@ -239,32 +264,65 @@ impl VectorItem {
     }
 }
 
-/// The filled interior of a closed path, or `None` when the path is open or unfilled.
+/// The filled interior of a closed path, or `None` when the path is open or unfilled. Every
+/// ring's edges count toward both the distance and the winding number, which is how a hole
+/// stays empty. The CPU twin of `fs_vector_fill` in `board.wgsl`, edge for edge.
 fn path_fill_distance(path: &VectorPath, x: f32, y: f32) -> Option<f32> {
     if !path.fill || !path.closed || path.points.len() < 3 {
         return None;
     }
-    Some(sd_polygon((x, y), &path.points))
+    let p = (x, y);
+    let mut nearest = f32::MAX;
+    let mut winding = 0i32;
+    for ring in path.rings() {
+        for (i, &a) in ring.iter().enumerate() {
+            let b = ring[(i + 1) % ring.len()];
+            nearest = nearest.min(sd_segment(p, a, b));
+            winding += winding_step(p, a, b);
+        }
+    }
+    let inside = if path.even_odd {
+        winding % 2 != 0
+    } else {
+        winding != 0
+    };
+    Some(if inside { -nearest } else { nearest })
 }
 
-/// The stroked polyline: the nearest segment, widened. Independent of the fill, so a filled
-/// path can carry a border and an unfilled one is nothing but this.
+/// How much one edge winds around `p`: +1 crossing upward with `p` on its left, -1 crossing
+/// downward with `p` on its right, 0 otherwise. Summed over every edge, that is the winding
+/// number both fill rules read.
+pub fn winding_step(p: (f32, f32), a: (f32, f32), b: (f32, f32)) -> i32 {
+    let side = (b.0 - a.0) * (p.1 - a.1) - (p.0 - a.0) * (b.1 - a.1);
+    if a.1 <= p.1 {
+        i32::from(b.1 > p.1 && side > 0.0)
+    } else {
+        -i32::from(b.1 <= p.1 && side < 0.0)
+    }
+}
+
+/// The stroked outline: the nearest segment of any ring, widened. Independent of the fill, so
+/// a filled path can carry a border and an unfilled one is nothing but this.
 fn path_stroke_distance(path: &VectorPath, x: f32, y: f32) -> Option<f32> {
     if !path.stroke {
         return None;
     }
     let p = (x, y);
-    let (&first, rest) = path.points.split_first()?;
-    let mut d = sd_segment(p, first, first);
-    let mut previous = first;
-    for &point in rest {
-        d = d.min(sd_segment(p, previous, point));
-        previous = point;
+    let mut nearest: Option<f32> = None;
+    for ring in path.rings() {
+        let (&first, rest) = ring.split_first()?;
+        let mut d = sd_segment(p, first, first);
+        let mut previous = first;
+        for &point in rest {
+            d = d.min(sd_segment(p, previous, point));
+            previous = point;
+        }
+        if path.closed {
+            d = d.min(sd_segment(p, previous, first));
+        }
+        nearest = Some(nearest.map_or(d, |n| n.min(d)));
     }
-    if path.closed {
-        d = d.min(sd_segment(p, previous, first));
-    }
-    Some(d - path.stroke_width * 0.5)
+    Some(nearest? - path.stroke_width * 0.5)
 }
 
 pub fn transformed_bounds(
@@ -273,19 +331,6 @@ pub fn transformed_bounds(
 ) -> Option<(f32, f32, f32, f32)> {
     let raw = item.bounds()?;
     Some(crate::transform::transformed_aabb(raw, transform))
-}
-
-/// Whether an item's own signed-distance function can be evaluated by `board.wgsl`.
-/// A parametric shape always can. A path is drawn as stroke segments, which the stroke
-/// pipeline handles — but an arbitrary *filled* polygon has no GPU path today (the shader
-/// only carries fixed-arity `sd_polygon3`/`sd_polygon5`), so those fall back to the
-/// rasterizer at flatten time and simply do not appear live. Nothing the tools produce
-/// creates one; the case exists only for data built directly in Rust.
-pub fn draws_on_gpu(item: &VectorItem) -> bool {
-    match item {
-        VectorItem::Shape(_) => true,
-        VectorItem::Path(p) => !(p.closed && p.fill),
-    }
 }
 
 /// Rasterize a whole vector layer into a tightly packed document-sized RGBA buffer.
@@ -368,6 +413,8 @@ pub fn item_from_points(
         stroke: true,
         stroke_color: color,
         stroke_width,
+        ring_starts: Vec::new(),
+        even_odd: true,
     }))
 }
 

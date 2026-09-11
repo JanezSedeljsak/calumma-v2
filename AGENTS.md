@@ -181,10 +181,23 @@ have to be read together.
   overlay now, not a separate OS window the way the frozen Swift shell opened one.
 - Artwork import: drop / `⌘V` / click on the Paste Artwork island creates a project sized to
   the image with the pixels in the first paint layer. The shell passes **file bytes**;
-  `engine/io` decodes them (`decode_encoded`) and fits to `limits::IMPORT_MAX_SIDE`. This is
-  product spec, not current `gui/` behavior — `Engine` has no artwork-import entry point yet
-  since the ffi rewrite (only `create_project(name, width, height)` exists), so the Paste
-  Artwork island itself is not yet wired up in `gui/`.
+  `engine/io` decodes them (`decode_encoded`) and fits to `limits::IMPORT_MAX_SIDE`. Several
+  images at once (multi-file drop, multi-select picker, several files copied in Finder) make
+  one project sized to the **first**, with the rest as staggered layers
+  (`Engine::create_project_from_encoded_images` → `Document::install_sources_staggered`).
+  Inside an open project the same three gestures paste instead
+  (`Engine::paste_encoded_images` → `Document::paste_sources_as_layers`, one undo step).
+  Formats: PNG, JPEG, WebP, AVIF, HEIC/HEIF, ICO, TIFF, PSD (flattened) and SVG. An SVG pastes
+  as **vectors** — `calumma_io::decode_svg_vector` turns each SVG path into one `VectorPath`
+  (curves flattened at `SVG_FLATTEN_TOLERANCE_PX`, subpaths kept as rings, fill rule kept) and
+  each lands on its own vector layer under the 1:1 rule. An SVG using anything a path cannot
+  say (gradient, pattern, image, clip, mask, filter) or holding more than
+  `SVG_VECTOR_MAX_PATHS` paths pastes as pixels instead. A filled path draws live through
+  `fs_vector_fill`, which walks the path's edges from a storage buffer for the distance and the
+  winding number together — the CPU twin is `path_fill_distance` in `vector.rs`. The
+  shell only gathers bytes: `gui/src/shell/clipboard.rs` reads `NSPasteboard` (file URLs
+  first, raw PNG/TIFF/JPEG/HEIC data otherwise) and `gui/src/input/file_drop.rs` collects
+  winit `DroppedFile` events, drained once per frame tick so one drop of N files is one paste.
 - Pasting into an *open* project is a different path (`engine/core/src/paste.rs`): an image
   bigger than the paper is placed at **native size, centred, and the layer overflows**. It is
   never cropped (that was the bug) and the canvas is never resized. `TileGrid` carries an
@@ -410,8 +423,9 @@ pub enum LayerContent {
     per-frame draw list (`Renderer::build_layer_draws`) in stack order
     against tile layers. There is nothing to coalesce inside the layer.
   - Clicking a vector selects **the layer** (`Document::vector_item_at`).
-    Move and `⌘T` then move / scale that layer's one item
-    (`begin_vector_item_drag`). Picking treats a closed shape as solid
+    Move drags that layer's one item and `⌘T` also scales it from the item's
+    corners (`begin_vector_item_drag`) — the corner frame is `⌘T`-only, so plain
+    Move behaves the same on a vector as on painted pixels. Picking treats a closed shape as solid
     (`VectorItem::pick_distance`) even when it is drawn as an outline.
   - A resize edits the *parameters* — `VectorItem::set_scaled` about the
     item's `geometry_bounds` centre, re-derived from the pointer-down
@@ -420,8 +434,7 @@ pub enum LayerContent {
     reach, because a resize deliberately leaves ink weight alone.
   - Known gaps: a *rotated* vector layer draws its parametric shape
     unrotated live (the shader's SDFs are axis-aligned) while flatten/export
-    stay correct; a filled closed freehand path has no GPU path at all and
-    appears only once flattened; vector item edits undo via `VectorDiff` or a
+    stay correct; vector item edits undo via `VectorDiff` or a
     stack snapshot when the whole layer is added or removed.
 - `Document.selection: Option<Selection>` (`engine/core/src/selection.rs`) is a **document**-
   level concept, not a layer or a mask — a rect/ellipse/lasso shape (parameters only, not a

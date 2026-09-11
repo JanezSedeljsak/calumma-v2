@@ -90,6 +90,26 @@ impl Renderer {
         self.vector_shape_capacity = next;
     }
 
+    pub(super) fn ensure_vector_fill_capacity(&mut self, instances: usize, edges: usize) {
+        use crate::vector_draw::{FILL_EDGE_CAPACITY, FILL_INSTANCE_CAPACITY};
+        if instances > self.vector_fill_capacity {
+            let next = instances.next_power_of_two().max(FILL_INSTANCE_CAPACITY);
+            self.vector_fill_buf = super::pipeline::vector_fill_buffer(&self.device, next);
+            self.vector_fill_capacity = next;
+        }
+        if edges > self.fill_edge_capacity {
+            let next = edges.next_power_of_two().max(FILL_EDGE_CAPACITY);
+            self.fill_edge_buf = super::pipeline::fill_edge_buffer(&self.device, next);
+            self.fill_edge_capacity = next;
+            self.fill_bg = super::pipeline::fill_bind_group(
+                &self.device,
+                &self.fill_bgl,
+                &self.preview_buf,
+                &self.fill_edge_buf,
+            );
+        }
+    }
+
     pub(super) fn ensure_tile_instance_capacity(&mut self, count: usize) {
         if count <= self.tile_instance_capacity {
             return;

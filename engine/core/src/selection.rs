@@ -1,7 +1,6 @@
 use crate::selection_mask::SelectionMask;
 use crate::shape::{Shape, Tool};
 use crate::tile::DocRect;
-use rayon::prelude::*;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum SelectionShape {
@@ -127,25 +126,5 @@ impl Selection {
 
     pub fn contains(&self, x: f32, y: f32) -> bool {
         self.shape.contains(x, y)
-    }
-
-    /// The selection rasterized to one byte per document pixel — 255 inside, 0 outside.
-    ///
-    /// The odd one out among the callers of `contains`: paint clipping, copy, cut and the rest
-    /// are already walking pixels for their own reasons and just ask per pixel. The Smart Tools
-    /// are not — they hand a whole region to an algorithm that wants it up front — which is why
-    /// this materializes the buffer instead. Rows are independent, so it is one rayon pass.
-    pub fn to_mask(&self, width: u32, height: u32) -> Vec<u8> {
-        let (w, h) = (width as usize, height as usize);
-        let mut out = vec![0u8; w * h];
-        out.par_chunks_mut(w).enumerate().for_each(|(y, row)| {
-            let cy = y as f32 + 0.5;
-            for (x, cell) in row.iter_mut().enumerate() {
-                if self.contains(x as f32 + 0.5, cy) {
-                    *cell = 255;
-                }
-            }
-        });
-        out
     }
 }

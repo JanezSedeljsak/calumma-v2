@@ -222,12 +222,22 @@ impl CoverageProgress {
     }
 }
 
+/// Every vector instance one draw-list rebuild produces, one buffer per [`VectorRun`].
+#[derive(Default)]
+struct VectorInstances {
+    strokes: Vec<StrokeInstance>,
+    shapes: Vec<VectorShapeInstance>,
+    fills: Vec<crate::vector_draw::VectorFillInstance>,
+    fill_edges: Vec<[f32; 4]>,
+}
+
 /// Which instance buffer a vector run draws from: parametric shapes evaluate an SDF per
-/// pixel, freehand paths are stroke segments.
+/// pixel, open or unfilled paths are stroke segments, and filled paths walk their edges.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum VectorRun {
     Shapes,
     Paths,
+    Fills,
 }
 
 /// One entry of the board's draw list, in stack order. Vector layers used to be drawn before
@@ -321,6 +331,9 @@ pub struct Renderer {
     stroke_coverage: StrokeCoverage,
     shape_pipeline: wgpu::RenderPipeline,
     vector_shape_pipeline: wgpu::RenderPipeline,
+    vector_fill_pipeline: wgpu::RenderPipeline,
+    fill_bgl: wgpu::BindGroupLayout,
+    fill_bg: wgpu::BindGroup,
     paper_buf: wgpu::Buffer,
     paper_bgl: wgpu::BindGroupLayout,
     paper_bg: wgpu::BindGroup,
@@ -338,6 +351,10 @@ pub struct Renderer {
     guide_scratch: Vec<GuideInstance>,
     vector_shape_buf: wgpu::Buffer,
     vector_shape_capacity: usize,
+    vector_fill_buf: wgpu::Buffer,
+    vector_fill_capacity: usize,
+    fill_edge_buf: wgpu::Buffer,
+    fill_edge_capacity: usize,
     tile_instance_buf: wgpu::Buffer,
     tile_instance_capacity: usize,
     samplers: TileSamplers,
@@ -363,6 +380,8 @@ pub struct Renderer {
     last_overlay_range: std::ops::Range<u32>,
     screen_overlay_start: u32,
     cached_shapes: Vec<VectorShapeInstance>,
+    cached_fills: Vec<crate::vector_draw::VectorFillInstance>,
+    cached_fill_edges: Vec<[f32; 4]>,
     cached_draws: Vec<LayerDraw>,
     overview: OverviewPass,
     camera_motion: bool,

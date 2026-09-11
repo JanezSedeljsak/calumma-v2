@@ -522,8 +522,9 @@ live in `engine/core`; PNG/JPEG/WebP/AVIF/HEIC encode and decode live in `engine
   and drag it; the arrow keys nudge it and `⌫` deletes the layer. A click on an outlined shape
   counts anywhere inside it, not only on the outline. Item edits undo with the rest of document
   history (`VectorDiff` for nudge/drag, `StackSnapshot` for add/delete).
-- **Resizing a vector:** selecting it puts a box with four corner handles around it, and
-  dragging one resizes *that item* — the layer's one shape. Proportional by
+- **Resizing a vector:** inside `⌘T`, selecting it puts a box with four corner handles around
+  it, and dragging one resizes *that item* — the layer's one shape. Plain Move draws no box and
+  has no handles: it drags a vector exactly the way it drags painted pixels, from anywhere on it. Proportional by
   default, **Shift** frees the two axes. It edits the shape's parameters, so nothing is
   resampled and the result is as sharp at any size as the original. Stroke weight stays put,
   the way it does in Figma and Photoshop.

@@ -107,6 +107,8 @@ fn a_layer_that_refuses_paint_shows_no_ring() {
             stroke: true,
             stroke_color: [0, 0, 0, 255],
             stroke_width: 2.0,
+            ring_starts: Vec::new(),
+            even_odd: true,
         }),
     );
     assert!(

@@ -27,6 +27,8 @@ fn path_item(points: Vec<(f32, f32)>, closed: bool, fill: bool) -> VectorItem {
         stroke: !fill,
         stroke_color: [0, 0, 255, 255],
         stroke_width: 4.0,
+        ring_starts: Vec::new(),
+        even_odd: true,
     })
 }
 
@@ -75,7 +77,7 @@ fn a_single_point_path_still_draws_a_dot() {
 }
 
 #[test]
-fn a_filled_closed_path_is_left_to_the_rasterizer() {
+fn a_filled_path_without_an_outline_has_no_stroke_segments() {
     let mut out = Vec::new();
     let VectorItem::Path(path) = path_item(vec![(0.0, 0.0), (10.0, 0.0), (10.0, 10.0)], true, true)
     else {
@@ -83,6 +85,54 @@ fn a_filled_closed_path_is_left_to_the_rasterizer() {
     };
     push_path_instances(&path, None, &mut out);
     assert!(out.is_empty());
+}
+
+#[test]
+fn a_filled_path_is_one_instance_over_every_edge_of_every_ring() {
+    let VectorItem::Path(mut path) = path_item(
+        vec![
+            (0.0, 0.0),
+            (10.0, 0.0),
+            (10.0, 10.0),
+            (3.0, 3.0),
+            (6.0, 3.0),
+            (6.0, 6.0),
+        ],
+        true,
+        true,
+    ) else {
+        unreachable!()
+    };
+    path.ring_starts = vec![3];
+    let (mut fills, mut edges) = (Vec::new(), Vec::new());
+    push_fill_instance(&path, None, &mut fills, &mut edges);
+    assert_eq!(fills.len(), 1);
+    assert_eq!(
+        fills[0].edge_count, 6,
+        "three edges per ring, each ring closed on itself"
+    );
+    assert_eq!(edges[2], [10.0, 10.0, 0.0, 0.0]);
+    assert_eq!(edges[5], [6.0, 6.0, 3.0, 3.0]);
+    assert_eq!(fills[0].flags, FILL_FLAG_FILL | FILL_FLAG_EVEN_ODD);
+    assert_eq!(fills[0].lo, [-1.0, -1.0], "padded by the antialiased pixel");
+}
+
+#[test]
+fn a_fill_instance_follows_the_layer_offset() {
+    let VectorItem::Path(path) = path_item(vec![(0.0, 0.0), (10.0, 0.0), (10.0, 10.0)], true, true)
+    else {
+        unreachable!()
+    };
+    let layer = layer_with(
+        VectorItem::Path(path.clone()),
+        Some(LayerTransform {
+            offset_x: 100.0,
+            ..LayerTransform::default()
+        }),
+    );
+    let (mut fills, mut edges) = (Vec::new(), Vec::new());
+    push_fill_instance(&path, vector_placement(&layer), &mut fills, &mut edges);
+    assert_eq!(edges[0], [100.0, 0.0, 110.0, 0.0]);
 }
 
 #[test]
@@ -196,6 +246,8 @@ fn vector_placement_is_none_for_an_empty_transformed_layer() {
             color: [0, 0, 0, 255],
             stroke_color: [0, 0, 0, 255],
             stroke_width: 1.0,
+            ring_starts: Vec::new(),
+            even_odd: true,
         }),
         Some(LayerTransform {
             offset_x: 5.0,
@@ -215,6 +267,8 @@ fn a_boundless_item_is_never_visible() {
         stroke: true,
         stroke_color: [0, 0, 0, 255],
         stroke_width: 1.0,
+        ring_starts: Vec::new(),
+        even_odd: true,
     });
     let visible = DocRect::new(0, 0, 200, 200);
     assert!(!item_visible(&boundless, None, visible));
@@ -254,6 +308,7 @@ fn vector_selection_instances_draws_four_edges_and_four_corner_dots() {
     doc.fit_to_view();
     let index = doc.add_vector_layer("V", shape_item((10.0, 10.0), (40.0, 40.0)));
     doc.set_active_layer(index);
+    assert!(doc.enter_transform());
     assert!(doc.select_vector_item_at(20.0, 20.0));
 
     let out = vector_selection_instances(&doc);
@@ -278,8 +333,21 @@ fn selected_doc() -> Document {
     doc.fit_to_view();
     let index = doc.add_vector_layer("V", shape_item((10.0, 10.0), (40.0, 40.0)));
     doc.set_active_layer(index);
+    assert!(doc.enter_transform());
     assert!(doc.select_vector_item_at(20.0, 20.0));
     doc
+}
+
+#[test]
+fn plain_move_draws_no_item_frame() {
+    let mut doc = Document::new("p".into(), "t", 200, 200);
+    doc.resize_viewport(200.0, 200.0, 1.0);
+    doc.fit_to_view();
+    let index = doc.add_vector_layer("V", shape_item((10.0, 10.0), (40.0, 40.0)));
+    doc.set_active_layer(index);
+    doc.set_tool(Tool::Move);
+    assert!(doc.select_vector_item_at(20.0, 20.0));
+    assert!(vector_selection_instances(&doc).is_empty());
 }
 
 /// The item frame is the layer frame minus the rotate stalk — one fewer edge and one fewer

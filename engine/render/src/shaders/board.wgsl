@@ -1001,6 +1001,95 @@ fn fs_vector_shape(input: VectorShapeOut) -> @location(0) vec4<f32> {
     );
 }
 
+@group(0) @binding(1) var<storage, read> fill_edges: array<vec4<f32>>;
+
+const FILL_FLAG_FILL: u32 = 1u;
+const FILL_FLAG_STROKE: u32 = 2u;
+const FILL_FLAG_EVEN_ODD: u32 = 4u;
+
+struct VectorFillIn {
+    @location(0) lo: vec2<f32>,
+    @location(1) hi: vec2<f32>,
+    @location(2) color: vec4<f32>,
+    @location(3) stroke_color: vec4<f32>,
+    @location(4) half_width: f32,
+    @location(5) first_edge: u32,
+    @location(6) edge_count: u32,
+    @location(7) flags: u32,
+}
+
+struct VectorFillOut {
+    @builtin(position) position: vec4<f32>,
+    @location(0) doc: vec2<f32>,
+    @location(1) color: vec4<f32>,
+    @location(2) stroke_color: vec4<f32>,
+    @location(3) half_width: f32,
+    @location(4) @interpolate(flat) first_edge: u32,
+    @location(5) @interpolate(flat) edge_count: u32,
+    @location(6) @interpolate(flat) flags: u32,
+}
+
+@vertex
+fn vs_vector_fill(input: VectorFillIn, @builtin(vertex_index) idx: u32) -> VectorFillOut {
+    var corners = array<vec2<f32>, 6>(
+        vec2<f32>(0.0, 0.0),
+        vec2<f32>(1.0, 0.0),
+        vec2<f32>(0.0, 1.0),
+        vec2<f32>(0.0, 1.0),
+        vec2<f32>(1.0, 0.0),
+        vec2<f32>(1.0, 1.0),
+    );
+    let doc = mix(input.lo, input.hi, corners[idx]);
+    let device = (doc * pu.zoom + pu.pan) * pu.dpr;
+    var out: VectorFillOut;
+    out.position = vec4<f32>(
+        (device.x / max(pu.viewport.x, 1.0)) * 2.0 - 1.0,
+        1.0 - (device.y / max(pu.viewport.y, 1.0)) * 2.0,
+        0.0,
+        1.0,
+    );
+    out.doc = doc;
+    out.color = input.color;
+    out.stroke_color = input.stroke_color;
+    out.half_width = input.half_width;
+    out.first_edge = input.first_edge;
+    out.edge_count = input.edge_count;
+    out.flags = input.flags;
+    return out;
+}
+
+fn winding_step(p: vec2<f32>, a: vec2<f32>, b: vec2<f32>) -> i32 {
+    let side = (b.x - a.x) * (p.y - a.y) - (p.x - a.x) * (b.y - a.y);
+    if a.y <= p.y {
+        return select(0, 1, b.y > p.y && side > 0.0);
+    }
+    return select(0, -1, b.y <= p.y && side < 0.0);
+}
+
+@fragment
+fn fs_vector_fill(input: VectorFillOut) -> @location(0) vec4<f32> {
+    var nearest = 1e30;
+    var winding = 0;
+    let end = input.first_edge + input.edge_count;
+    for (var i = input.first_edge; i < end; i = i + 1u) {
+        let edge = fill_edges[i];
+        nearest = min(nearest, sd_segment_pts(input.doc, edge.xy, edge.zw));
+        winding = winding + winding_step(input.doc, edge.xy, edge.zw);
+    }
+    var inside = winding != 0;
+    if (input.flags & FILL_FLAG_EVEN_ODD) != 0u {
+        inside = (winding % 2) != 0;
+    }
+    var out = vec4<f32>(0.0);
+    if (input.flags & FILL_FLAG_FILL) != 0u {
+        out = ink_sample(select(nearest, -nearest, inside), input.color);
+    }
+    if (input.flags & FILL_FLAG_STROKE) != 0u {
+        out = ink_over(out, ink_sample(nearest - input.half_width, input.stroke_color));
+    }
+    return out;
+}
+
 @vertex
 fn vs_shape_preview(@builtin(vertex_index) idx: u32) -> VsOut {
     var pos = array<vec2<f32>, 3>(

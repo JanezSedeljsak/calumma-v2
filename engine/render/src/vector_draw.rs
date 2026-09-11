@@ -92,18 +92,94 @@ pub fn push_path_instances(
             brush: brush_params(radius, &BrushProfile::HARD),
         });
     };
-    match path.points.as_slice() {
-        [] => {}
-        [only] => segment(*only, *only),
-        points => {
-            for pair in points.windows(2) {
-                segment(pair[0], pair[1]);
-            }
-            if path.closed {
-                segment(points[points.len() - 1], points[0]);
+    for ring in path.rings() {
+        match ring {
+            [only] => segment(*only, *only),
+            points => {
+                for pair in points.windows(2) {
+                    segment(pair[0], pair[1]);
+                }
+                if path.closed {
+                    segment(points[points.len() - 1], points[0]);
+                }
             }
         }
     }
+}
+
+pub const FILL_FLAG_FILL: u32 = 1;
+pub const FILL_FLAG_STROKE: u32 = 2;
+pub const FILL_FLAG_EVEN_ODD: u32 = 4;
+pub const FILL_INSTANCE_CAPACITY: usize = 64;
+pub const FILL_EDGE_CAPACITY: usize = 4096;
+
+/// A filled path as one instance: the box it can paint in, and the run of the shared edge
+/// buffer holding every edge of every ring, already placed in document space. The fragment
+/// shader walks that run for the distance and the winding number together, so rotation is
+/// exact here — the edges were rotated on the CPU — unlike a parametric shape's.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq, Pod, Zeroable)]
+pub struct VectorFillInstance {
+    pub lo: [f32; 2],
+    pub hi: [f32; 2],
+    pub color: [f32; 4],
+    pub stroke_color: [f32; 4],
+    pub half_width: f32,
+    pub first_edge: u32,
+    pub edge_count: u32,
+    pub flags: u32,
+}
+
+pub fn push_fill_instance(
+    path: &VectorPath,
+    placement: VectorPlacement,
+    fills: &mut Vec<VectorFillInstance>,
+    edges: &mut Vec<[f32; 4]>,
+) {
+    let first_edge = edges.len();
+    let mut lo = (f32::MAX, f32::MAX);
+    let mut hi = (f32::MIN, f32::MIN);
+    for ring in path.rings() {
+        for (i, &a) in ring.iter().enumerate() {
+            let (a, b) = (
+                place(placement, a),
+                place(placement, ring[(i + 1) % ring.len()]),
+            );
+            lo = (lo.0.min(a.0), lo.1.min(a.1));
+            hi = (hi.0.max(a.0), hi.1.max(a.1));
+            edges.push([a.0, a.1, b.0, b.1]);
+        }
+    }
+    let edge_count = edges.len() - first_edge;
+    if edge_count == 0 {
+        return;
+    }
+    let half_width = if path.stroke {
+        path.stroke_width * 0.5 * placement_scale(placement)
+    } else {
+        0.0
+    };
+    let pad = half_width + 1.0;
+    let mut flags = 0;
+    if path.fill {
+        flags |= FILL_FLAG_FILL;
+    }
+    if path.stroke {
+        flags |= FILL_FLAG_STROKE;
+    }
+    if path.even_odd {
+        flags |= FILL_FLAG_EVEN_ODD;
+    }
+    fills.push(VectorFillInstance {
+        lo: [lo.0 - pad, lo.1 - pad],
+        hi: [hi.0 + pad, hi.1 + pad],
+        color: rgba_unit(path.color),
+        stroke_color: rgba_unit(path.stroke_color),
+        half_width,
+        first_edge: first_edge as u32,
+        edge_count: edge_count as u32,
+        flags,
+    });
 }
 
 /// A parametric shape, placed. Translation and scale fold into the parameters exactly;
@@ -124,11 +200,14 @@ pub fn shape_instance(shape: &VectorShape, placement: VectorPlacement) -> Vector
     }
 }
 
-/// The frame around the selected item, drawn whenever one is selected — under the Move tool
-/// as well as inside `⌘T`, because its corners are what resizes the item and a handle you
-/// cannot see is a handle you cannot use. No rotate stalk: item rotation is not a thing the
-/// board can draw yet, so the frame does not offer it.
+/// The frame around the selected item, drawn only inside `⌘T` — its corners are what resizes
+/// the item, and plain Move does not resize, so under Move a vector drags frameless like any
+/// painted layer. No rotate stalk: item rotation is not a thing the board can draw yet, so the
+/// frame does not offer it.
 pub fn vector_selection_instances(doc: &Document) -> Vec<StrokeInstance> {
+    if !doc.transform_active {
+        return Vec::new();
+    }
     let Some(corners) = doc.selected_vector_item_corners() else {
         return Vec::new();
     };

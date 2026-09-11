@@ -92,7 +92,10 @@ pub fn document_memory(doc: &Document) -> DocumentMemory {
 fn vector_bytes(item: &VectorItem) -> usize {
     std::mem::size_of::<VectorItem>()
         + match item {
-            VectorItem::Path(p) => p.points.capacity() * std::mem::size_of::<(f32, f32)>(),
+            VectorItem::Path(p) => {
+                p.points.capacity() * std::mem::size_of::<(f32, f32)>()
+                    + p.ring_starts.capacity() * std::mem::size_of::<u32>()
+            }
             VectorItem::Shape(_) => 0,
         }
 }

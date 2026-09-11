@@ -465,6 +465,59 @@ impl Renderer {
                 cache: None,
             });
 
+        let fill_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("vector-fill-bgl"),
+            entries: &[
+                uniform_entry(0, std::mem::size_of::<PreviewUniforms>()),
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: true },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+            ],
+        });
+        let fill_pl = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("vector-fill-pl"),
+            bind_group_layouts: &[Some(&fill_bgl)],
+            ..Default::default()
+        });
+        let vector_fill_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("vector-fill"),
+            layout: Some(&fill_pl),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_vector_fill"),
+                compilation_options: Default::default(),
+                buffers: &[Some(wgpu::VertexBufferLayout {
+                    array_stride: std::mem::size_of::<crate::vector_draw::VectorFillInstance>()
+                        as u64,
+                    step_mode: wgpu::VertexStepMode::Instance,
+                    attributes: VECTOR_FILL_ATTRS,
+                })],
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_vector_fill"),
+                compilation_options: Default::default(),
+                targets: &[Some(alpha_target(format))],
+            }),
+            primitive: wgpu::PrimitiveState::default(),
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview_mask: None,
+            cache: None,
+        });
+        let vector_fill_capacity = crate::vector_draw::FILL_INSTANCE_CAPACITY;
+        let vector_fill_buf = vector_fill_buffer(&device, vector_fill_capacity);
+        let fill_edge_capacity = crate::vector_draw::FILL_EDGE_CAPACITY;
+        let fill_edge_buf = fill_edge_buffer(&device, fill_edge_capacity);
+        let fill_bg = fill_bind_group(&device, &fill_bgl, &preview_buf, &fill_edge_buf);
+
         let stroke_capacity = STROKE_INSTANCE_CAPACITY;
         let stroke_buf = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("stroke-instances"),
@@ -519,6 +572,9 @@ impl Renderer {
             stroke_coverage,
             shape_pipeline,
             vector_shape_pipeline,
+            vector_fill_pipeline,
+            fill_bgl,
+            fill_bg,
             paper_buf,
             paper_bgl,
             paper_bg,
@@ -533,6 +589,10 @@ impl Renderer {
             stroke_capacity,
             vector_shape_buf,
             vector_shape_capacity,
+            vector_fill_buf,
+            vector_fill_capacity,
+            fill_edge_buf,
+            fill_edge_capacity,
             tile_instance_buf,
             tile_instance_capacity,
             layer_data_buf,
@@ -556,6 +616,8 @@ impl Renderer {
             last_overlay_range: 0..0,
             screen_overlay_start: 0,
             cached_shapes: Vec::new(),
+            cached_fills: Vec::new(),
+            cached_fill_edges: Vec::new(),
             cached_draws: Vec::new(),
             overview,
             camera_motion: false,
@@ -846,6 +908,89 @@ pub(super) const VECTOR_SHAPE_ATTRS: &[wgpu::VertexAttribute] = &[
         format: wgpu::VertexFormat::Float32,
     },
 ];
+
+pub(super) const VECTOR_FILL_ATTRS: &[wgpu::VertexAttribute] = &[
+    wgpu::VertexAttribute {
+        offset: 0,
+        shader_location: 0,
+        format: wgpu::VertexFormat::Float32x2,
+    },
+    wgpu::VertexAttribute {
+        offset: 8,
+        shader_location: 1,
+        format: wgpu::VertexFormat::Float32x2,
+    },
+    wgpu::VertexAttribute {
+        offset: 16,
+        shader_location: 2,
+        format: wgpu::VertexFormat::Float32x4,
+    },
+    wgpu::VertexAttribute {
+        offset: 32,
+        shader_location: 3,
+        format: wgpu::VertexFormat::Float32x4,
+    },
+    wgpu::VertexAttribute {
+        offset: 48,
+        shader_location: 4,
+        format: wgpu::VertexFormat::Float32,
+    },
+    wgpu::VertexAttribute {
+        offset: 52,
+        shader_location: 5,
+        format: wgpu::VertexFormat::Uint32,
+    },
+    wgpu::VertexAttribute {
+        offset: 56,
+        shader_location: 6,
+        format: wgpu::VertexFormat::Uint32,
+    },
+    wgpu::VertexAttribute {
+        offset: 60,
+        shader_location: 7,
+        format: wgpu::VertexFormat::Uint32,
+    },
+];
+
+pub(super) fn vector_fill_buffer(device: &wgpu::Device, capacity: usize) -> wgpu::Buffer {
+    device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("vector-fill-instances"),
+        size: (capacity * std::mem::size_of::<crate::vector_draw::VectorFillInstance>()) as u64,
+        usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    })
+}
+
+pub(super) fn fill_edge_buffer(device: &wgpu::Device, capacity: usize) -> wgpu::Buffer {
+    device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("vector-fill-edges"),
+        size: (capacity * std::mem::size_of::<[f32; 4]>()) as u64,
+        usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    })
+}
+
+pub(super) fn fill_bind_group(
+    device: &wgpu::Device,
+    layout: &wgpu::BindGroupLayout,
+    uniforms: &wgpu::Buffer,
+    edges: &wgpu::Buffer,
+) -> wgpu::BindGroup {
+    device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("vector-fill-bg"),
+        layout,
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: uniforms.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: edges.as_entire_binding(),
+            },
+        ],
+    })
+}
 
 /// Everything a `Renderer` does needs a `wgpu::Surface`, which needs a window, so what can be
 /// tested here without one is what the renderer *decides* rather than what it draws: the blend

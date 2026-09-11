@@ -35,6 +35,8 @@ fn path_item(points: Vec<(f32, f32)>) -> VectorItem {
         color: [0, 0, 255, 255],
         stroke_color: [0, 0, 255, 255],
         stroke_width: 4.0,
+        ring_starts: Vec::new(),
+        even_odd: true,
     })
 }
 
@@ -47,6 +49,8 @@ fn filled_rect_path(x0: f32, y0: f32, x1: f32, y1: f32) -> VectorItem {
         color: [255, 0, 0, 255],
         stroke_color: [255, 0, 0, 255],
         stroke_width: 1.0,
+        ring_starts: Vec::new(),
+        even_odd: true,
     })
 }
 
@@ -233,6 +237,26 @@ fn move_tool_can_grab_a_visible_vector_layer_as_a_whole() {
     doc.set_tool(Tool::Move);
     assert_eq!(doc.layer_at(30.0, 30.0), Some(layer));
     assert!(doc.begin_move_at(30.0, 30.0));
+}
+
+#[test]
+fn plain_move_drags_a_selected_item_by_its_corner_instead_of_resizing() {
+    let mut doc = doc_with_viewport();
+    let layer = vector_layer(&mut doc, rect_item((10.0, 10.0), (40.0, 40.0)));
+    doc.set_tool(Tool::Move);
+    drag(&mut doc, (20.0, 20.0), (20.0, 20.0));
+    assert_eq!(doc.selected_vector_item(), Some(VectorPick { layer }));
+    assert!(!doc.transform_active);
+    let before = item_bounds(&doc, layer);
+    drag(
+        &mut doc,
+        (before.0, before.1),
+        (before.0 - 5.0, before.1 - 5.0),
+    );
+    let after = item_bounds(&doc, layer);
+    assert!(((after.2 - after.0) - (before.2 - before.0)).abs() < 0.01);
+    assert!((after.0 - (before.0 - 5.0)).abs() < 0.01);
+    assert!(!doc.transform_active);
 }
 
 #[test]
@@ -671,19 +695,6 @@ fn a_resize_inside_a_scaled_layer_reads_the_pointer_through_the_layer() {
         item_bounds(&doc, layer),
         (-RECT_PAD, -RECT_PAD, 50.0 + RECT_PAD, 50.0 + RECT_PAD),
     );
-}
-
-#[test]
-fn the_move_tool_resizes_from_the_same_corners() {
-    let mut doc = doc_with_viewport();
-    let layer = vector_layer(&mut doc, rect_item((10.0, 10.0), (40.0, 40.0)));
-    doc.set_active_layer(layer);
-    doc.set_tool(Tool::Move);
-    assert!(doc.select_vector_item_at(20.0, 20.0));
-
-    let corner = item_corner(&doc, 2);
-    drag(&mut doc, corner, (corner.0 + 20.0, corner.1 + 20.0));
-    assert_bounds(item_bounds(&doc, layer), dragged_rect_bounds());
 }
 
 #[test]

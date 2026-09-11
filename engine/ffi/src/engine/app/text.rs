@@ -1,7 +1,8 @@
 use super::Engine;
 use calumma_core::{
     font_families as list_font_families, font_family_styles, text_size_from_unit, text_size_unit,
-    Document, TextAlign, Tool, TEXT_LINE_HEIGHT_MAX, TEXT_LINE_HEIGHT_MIN, TEXT_WRAP_MIN_WIDTH,
+    Document, Step, TextAlign, Tool, TEXT_LINE_HEIGHT_MAX, TEXT_LINE_HEIGHT_MIN,
+    TEXT_WRAP_MIN_WIDTH,
 };
 
 #[derive(Clone, Debug)]
@@ -140,6 +141,53 @@ impl Engine {
             doc.set_text_wrap_width(wrap);
             true
         });
+    }
+
+    pub fn text_insert(&mut self, text: &str) {
+        self.edit_text_session(|doc| doc.text_insert(text));
+    }
+
+    pub fn text_backspace(&mut self) {
+        self.edit_text_session(Document::text_backspace);
+    }
+
+    pub fn text_delete_forward(&mut self) {
+        self.edit_text_session(Document::text_delete_forward);
+    }
+
+    pub fn text_delete_word(&mut self, forward: bool) {
+        self.edit_text_session(|doc| doc.text_delete_word(forward));
+    }
+
+    pub fn text_step_caret(&mut self, step: Step, extend: bool) {
+        self.edit_text_session(|doc| doc.text_step_caret(step, extend));
+    }
+
+    pub fn text_select_all(&mut self) -> bool {
+        self.edit_text_session(Document::text_select_all)
+            .unwrap_or(false)
+    }
+
+    pub fn commit_text(&mut self) {
+        let mut inner = self.inner.lock();
+        let Some(doc) = inner.doc.as_mut() else {
+            return;
+        };
+        if !doc.text_editing() {
+            return;
+        }
+        doc.commit_text();
+        inner.dirty_save = true;
+        inner.invalidate_renderer();
+    }
+
+    fn edit_text_session<R>(&mut self, f: impl FnOnce(&mut Document) -> R) -> Option<R> {
+        let mut inner = self.inner.lock();
+        let doc = inner.doc.as_mut().filter(|doc| doc.text_editing())?;
+        let out = f(doc);
+        inner.dirty_save = true;
+        inner.invalidate_renderer();
+        Some(out)
     }
 
     fn with_doc<R>(&self, f: impl FnOnce(&Document) -> R) -> Option<R> {

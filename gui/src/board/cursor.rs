@@ -71,15 +71,19 @@ pub fn pick_cursor(engine: &Engine, input: &BoardCursorInput) -> BoardCursor {
         return BoardCursor::ZoomIn;
     }
     let tool = engine.active_tool().unwrap_or(Tool::Pen);
+    if let Some(axis) = engine.guide_axis_at(input.hover_x, input.hover_y) {
+        if tool == Tool::Move || !engine.screen_on_paper(input.hover_x, input.hover_y) {
+            return match axis {
+                GuideAxis::Horizontal => BoardCursor::ResizeVertical,
+                GuideAxis::Vertical => BoardCursor::ResizeHorizontal,
+            };
+        }
+    }
     if tool == Tool::Text {
         return BoardCursor::IBeam;
     }
     if tool == Tool::Move {
-        return match engine.guide_axis_at(input.hover_x, input.hover_y) {
-            Some(GuideAxis::Horizontal) => BoardCursor::ResizeVertical,
-            Some(GuideAxis::Vertical) => BoardCursor::ResizeHorizontal,
-            None => BoardCursor::Default,
-        };
+        return BoardCursor::Default;
     }
     if engine.brush_ring_visible() {
         return BoardCursor::BrushRing;
@@ -149,6 +153,10 @@ impl CursorController {
         self.last = Some(choice);
         #[cfg(target_os = "macos")]
         cursor_macos::apply(choice, &self.icons_root, &mut self.cache);
+    }
+
+    pub fn invalidate(&mut self) {
+        self.last = None;
     }
 
     pub fn reset(&mut self) {

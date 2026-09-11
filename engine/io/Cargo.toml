@@ -14,7 +14,7 @@ uuid = { workspace = true, features = ["v4"] }
 png = { workspace = true }
 flate2 = { workspace = true }
 rustc-hash = { workspace = true }
-image = { workspace = true, features = ["jpeg", "png", "webp", "tiff", "avif", "rayon"] }
+image = { workspace = true, features = ["jpeg", "png", "webp", "tiff", "avif", "ico", "rayon"] }
 resvg = { workspace = true }
 heif-rs = { workspace = true }
 aom-decode = { workspace = true }

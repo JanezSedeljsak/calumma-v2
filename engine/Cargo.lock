@@ -368,6 +368,7 @@ dependencies = [
  "num_enum",
  "parking_lot",
  "pollster",
+ "rayon",
  "tempfile",
  "wgpu",
 ]

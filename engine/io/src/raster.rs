@@ -149,7 +149,7 @@ fn quality_u8(quality: f32) -> u8 {
     (quality * 100.0).round().clamp(1.0, 100.0) as u8
 }
 
-fn looks_like_svg(bytes: &[u8]) -> bool {
+pub(crate) fn looks_like_svg(bytes: &[u8]) -> bool {
     let Ok(text) = std::str::from_utf8(bytes) else {
         return false;
     };

@@ -341,3 +341,13 @@ pub const GUIDES_LIMIT: usize = 10;
 /// actually wants — this is a *coarsening* of the position, not a snap to something nearby, so
 /// it is unrelated to `GUIDE_SNAP_PX`.
 pub const GUIDE_SHIFT_STEP: f32 = 10.0;
+
+/// An SVG pasted as vectors becomes one layer per path, so a file past this many paths is
+/// pasted as pixels instead: a stack of hundreds of layers is not something anyone edits.
+pub const SVG_VECTOR_MAX_PATHS: usize = 256;
+/// How far, in document pixels, a flattened SVG curve may stray from the true curve. The board
+/// stores points, not béziers (`AGENTS.md`, basic vector editing only), so this is the error a
+/// pasted curve carries at 100% zoom.
+pub const SVG_FLATTEN_TOLERANCE_PX: f32 = 0.2;
+/// Upper bound on the chords one bézier segment is flattened into, whatever its size.
+pub const SVG_FLATTEN_MAX_STEPS: u32 = 256;

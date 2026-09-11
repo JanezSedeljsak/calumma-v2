@@ -295,8 +295,7 @@ impl Renderer {
         &mut self,
         doc: &Document,
         tiles: &mut Vec<TileInstance>,
-        strokes: &mut Vec<StrokeInstance>,
-        shapes: &mut Vec<VectorShapeInstance>,
+        vectors: &mut VectorInstances,
     ) -> Vec<LayerDraw> {
         let Some(visible) = doc.visible_rect() else {
             return Vec::new();
@@ -314,20 +313,35 @@ impl Renderer {
                 }
                 match item {
                     VectorItem::Shape(shape) => {
-                        let start = shapes.len() as u32;
-                        shapes.push(shape_instance(shape, placement));
+                        let start = vectors.shapes.len() as u32;
+                        vectors.shapes.push(shape_instance(shape, placement));
                         out.push(LayerDraw::Vector(
                             VectorRun::Shapes,
-                            start..shapes.len() as u32,
+                            start..vectors.shapes.len() as u32,
                         ));
                     }
+                    VectorItem::Path(path) if path.fill && path.closed => {
+                        let start = vectors.fills.len() as u32;
+                        crate::vector_draw::push_fill_instance(
+                            path,
+                            placement,
+                            &mut vectors.fills,
+                            &mut vectors.fill_edges,
+                        );
+                        if vectors.fills.len() as u32 > start {
+                            out.push(LayerDraw::Vector(
+                                VectorRun::Fills,
+                                start..vectors.fills.len() as u32,
+                            ));
+                        }
+                    }
                     VectorItem::Path(path) => {
-                        let start = strokes.len() as u32;
-                        push_path_instances(path, placement, strokes);
-                        if strokes.len() as u32 > start {
+                        let start = vectors.strokes.len() as u32;
+                        push_path_instances(path, placement, &mut vectors.strokes);
+                        if vectors.strokes.len() as u32 > start {
                             out.push(LayerDraw::Vector(
                                 VectorRun::Paths,
-                                start..strokes.len() as u32,
+                                start..vectors.strokes.len() as u32,
                             ));
                         }
                     }
@@ -395,12 +409,23 @@ impl Renderer {
                     pass.draw(0..6, *layer_index..*layer_index + 1);
                 }
                 LayerDraw::Vector(kind, range) => {
-                    let (pipeline, buf) = match kind {
-                        VectorRun::Shapes => (&self.vector_shape_pipeline, &self.vector_shape_buf),
-                        VectorRun::Paths => (&self.stroke_pipeline, &self.stroke_buf),
+                    let (pipeline, bind_group, buf) = match kind {
+                        VectorRun::Shapes => (
+                            &self.vector_shape_pipeline,
+                            &self.preview_bg,
+                            &self.vector_shape_buf,
+                        ),
+                        VectorRun::Paths => {
+                            (&self.stroke_pipeline, &self.preview_bg, &self.stroke_buf)
+                        }
+                        VectorRun::Fills => (
+                            &self.vector_fill_pipeline,
+                            &self.fill_bg,
+                            &self.vector_fill_buf,
+                        ),
                     };
                     pass.set_pipeline(pipeline);
-                    pass.set_bind_group(0, &self.preview_bg, &[]);
+                    pass.set_bind_group(0, bind_group, &[]);
                     pass.set_vertex_buffer(0, buf.slice(..));
                     pass.draw(0..6, range.clone());
                 }
@@ -856,14 +881,6 @@ impl Renderer {
             self.last_overlay_range = overlay_range.clone();
             self.screen_overlay_start = screen_start;
             self.overlay_scratch = instances;
-            if need_draw_rebuild && !self.cached_shapes.is_empty() {
-                self.ensure_vector_shape_capacity(self.cached_shapes.len());
-                self.queue.write_buffer(
-                    &self.vector_shape_buf,
-                    0,
-                    bytemuck::cast_slice(&self.cached_shapes),
-                );
-            }
         } else {
             overlay_range = self.last_overlay_range.clone();
             let mut screen_instances = std::mem::take(&mut self.screen_overlay_scratch);
@@ -904,6 +921,27 @@ impl Renderer {
             self.screen_overlay_scratch = screen_instances;
         }
 
+        if need_draw_rebuild && !self.cached_shapes.is_empty() {
+            self.ensure_vector_shape_capacity(self.cached_shapes.len());
+            self.queue.write_buffer(
+                &self.vector_shape_buf,
+                0,
+                bytemuck::cast_slice(&self.cached_shapes),
+            );
+        }
+        if need_draw_rebuild && !self.cached_fills.is_empty() {
+            self.ensure_vector_fill_capacity(self.cached_fills.len(), self.cached_fill_edges.len());
+            self.queue.write_buffer(
+                &self.vector_fill_buf,
+                0,
+                bytemuck::cast_slice(&self.cached_fills),
+            );
+            self.queue.write_buffer(
+                &self.fill_edge_buf,
+                0,
+                bytemuck::cast_slice(&self.cached_fill_edges),
+            );
+        }
         if need_draw_rebuild && !self.cached_tile_instances.is_empty() {
             self.ensure_tile_instance_capacity(self.cached_tile_instances.len());
             self.queue.write_buffer(

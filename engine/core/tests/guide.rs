@@ -142,6 +142,56 @@ fn a_ruler_click_that_never_reaches_the_board_leaves_nothing_behind() {
 }
 
 #[test]
+fn dragging_a_ruler_tick_moves_the_guide_that_made_it() {
+    let mut doc = doc_at_unit_zoom();
+    doc.add_guide(GuideAxis::Vertical, 100.0);
+    assert!(doc.begin_guide_drag_from_ruler(GuideAxis::Horizontal, 100.0, -12.0));
+    assert_eq!(doc.guides().len(), 1);
+    assert_eq!(doc.dragged_guide(), Some(0));
+    doc.update_guide_drag(180.0, -12.0);
+    assert_eq!(doc.guides()[0].axis, GuideAxis::Vertical);
+    assert_eq!(doc.guides()[0].position, 180.0);
+    doc.end_guide_drag();
+    assert_eq!(doc.guides().len(), 1);
+
+    doc.add_guide(GuideAxis::Horizontal, 80.0);
+    assert!(doc.begin_guide_drag_from_ruler(GuideAxis::Vertical, -8.0, 80.0));
+    assert_eq!(doc.guides().len(), 2);
+    doc.update_guide_drag(-8.0, 140.0);
+    assert_eq!(doc.guides()[1].axis, GuideAxis::Horizontal);
+    assert_eq!(doc.guides()[1].position, 140.0);
+}
+
+#[test]
+fn a_ruler_press_away_from_a_tick_still_pulls_a_new_guide() {
+    let mut doc = doc_at_unit_zoom();
+    doc.add_guide(GuideAxis::Vertical, 100.0);
+    assert!(doc.begin_guide_drag_from_ruler(GuideAxis::Horizontal, 250.0, -12.0));
+    assert_eq!(doc.guides().len(), 2);
+    assert_eq!(doc.guides()[1].axis, GuideAxis::Horizontal);
+}
+
+#[test]
+fn a_pen_grabs_a_guide_from_the_desk() {
+    let mut doc = Document::new("p".into(), "t", 200, 200);
+    doc.resize_viewport(400.0, 400.0, 1.0);
+    doc.camera.zoom = 1.0;
+    doc.camera.pan_x = 0.0;
+    doc.camera.pan_y = 0.0;
+    doc.set_tool(Tool::Pen);
+    doc.add_guide(GuideAxis::Horizontal, 50.0);
+
+    doc.pointer_down(300.0, 50.0);
+    assert!(doc.is_dragging_guide());
+    assert!(!doc.stroke_active);
+    doc.pointer_move(300.0, 90.0);
+    assert_eq!(doc.guides()[0].position, 90.0);
+    doc.pointer_up(300.0, 90.0);
+    assert!(!doc.is_dragging_guide());
+    assert_eq!(doc.guides()[0].position, 90.0);
+}
+
+#[test]
 fn the_move_tool_grabs_a_guide_before_anything_under_it() {
     let mut doc = doc_at_unit_zoom();
     paint(&mut doc, 1, DocRect::new(0, 0, 399, 399));

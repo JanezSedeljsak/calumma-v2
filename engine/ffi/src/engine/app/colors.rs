@@ -37,30 +37,6 @@ impl Engine {
             .unwrap_or([0, 0, 0, 255])
     }
 
-    pub fn set_ink_color(&mut self, color: [u8; 4]) {
-        let mut inner = self.inner.lock();
-        if let Some(doc) = &mut inner.doc {
-            doc.set_color(color);
-            inner.invalidate_renderer();
-        }
-    }
-
-    pub fn set_stroke_color(&mut self, color: [u8; 4]) {
-        let mut inner = self.inner.lock();
-        if let Some(doc) = &mut inner.doc {
-            doc.stroke_color = color;
-            inner.invalidate_renderer();
-        }
-    }
-
-    pub fn set_shape_fill_color(&mut self, color: [u8; 4]) {
-        let mut inner = self.inner.lock();
-        if let Some(doc) = &mut inner.doc {
-            doc.shape_fill_color = color;
-            inner.invalidate_renderer();
-        }
-    }
-
     pub fn set_select_color(&mut self, color: [u8; 4]) {
         let mut inner = self.inner.lock();
         if let Some(doc) = &mut inner.doc {
