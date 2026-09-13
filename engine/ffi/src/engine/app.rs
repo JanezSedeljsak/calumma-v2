@@ -121,8 +121,14 @@ impl Engine {
     pub fn resize(&mut self, width: u32, height: u32, scale: f32) {
         let mut inner = self.inner.lock();
         inner.remember_viewport(width as f32, height as f32, scale);
+        let mut camera_changed = false;
         if let Some(doc) = &mut inner.doc {
+            let before = doc.camera;
             doc.resize_viewport(width as f32, height as f32, scale);
+            camera_changed = doc.camera != before;
+        }
+        if camera_changed {
+            inner.invalidate_camera();
         }
         if let Some(renderer) = &mut inner.renderer {
             let dpr = scale.max(1.0);

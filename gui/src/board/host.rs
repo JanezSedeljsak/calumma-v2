@@ -99,6 +99,7 @@ impl BoardHost {
         winit_window: &winit::window::Window,
         width: u32,
         height: u32,
+        scale: f32,
     ) -> bool {
         if !self.active {
             return false;
@@ -106,9 +107,8 @@ impl BoardHost {
         if self.attached || self.attach_failed {
             return self.attached;
         }
-        match BoardSurface::install(winit_window) {
+        match BoardSurface::install(winit_window, scale as f64) {
             Ok(surface) => {
-                let scale = surface.scale() as f32;
                 let native = surface.native();
                 match self
                     .engine
@@ -165,7 +165,7 @@ impl BoardHost {
             return;
         }
         if !self.attached {
-            self.try_attach_winit(winit_window, layout.width, layout.height);
+            self.try_attach_winit(winit_window, layout.width, layout.height, scale);
         }
         if let Some(surface) = &self.surface {
             surface.set_frame(
@@ -174,8 +174,9 @@ impl BoardHost {
                 layout.width as f64,
                 layout.height as f64,
                 content_height as f64,
+                scale as f64,
             );
-            surface.set_holes(holes);
+            surface.set_holes(holes, scale as f64);
         }
         if self.attached {
             self.engine

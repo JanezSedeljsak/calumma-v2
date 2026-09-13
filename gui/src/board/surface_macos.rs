@@ -27,11 +27,10 @@ define_class!(
 pub struct BoardSurface {
     view: Retained<BoardView>,
     layer: Retained<CAMetalLayer>,
-    scale: f64,
 }
 
 impl BoardSurface {
-    pub fn install(winit_window: &winit::window::Window) -> Result<Self> {
+    pub fn install(winit_window: &winit::window::Window, scale: f64) -> Result<Self> {
         let handle = winit_window
             .window_handle()
             .context("the Slint window has no native handle yet")?;
@@ -42,7 +41,6 @@ impl BoardSurface {
             }
             other => anyhow::bail!("expected an AppKit window handle, got {other:?}"),
         };
-        let scale = winit_window.scale_factor();
         let mtm = MainThreadMarker::new()
             .context("the board surface must be installed on the main thread")?;
         let board: Retained<BoardView> = unsafe {
@@ -59,14 +57,18 @@ impl BoardSurface {
         board.setLayer(Some(&layer));
         layer.setContentsScale(scale);
         layer.setDrawableSize(NSSize::new(scale, scale));
-        Ok(Self {
-            view: board,
-            layer,
-            scale,
-        })
+        Ok(Self { view: board, layer })
     }
 
-    pub fn set_frame(&self, x: f64, y_top: f64, width: f64, height: f64, content_height: f64) {
+    pub fn set_frame(
+        &self,
+        x: f64,
+        y_top: f64,
+        width: f64,
+        height: f64,
+        content_height: f64,
+        scale: f64,
+    ) {
         if width < 1.0 || height < 1.0 {
             self.view.setHidden(true);
             return;
@@ -81,15 +83,14 @@ impl BoardSurface {
         let frame = NSRect::new(NSPoint::new(x, y), NSSize::new(width, height));
         self.view.setFrame(frame);
         self.view.setHidden(false);
-        self.layer
-            .setDrawableSize(NSSize::new(width * self.scale, height * self.scale));
+        self.layer.setContentsScale(scale);
     }
 
     pub fn set_hidden(&self, hidden: bool) {
         self.view.setHidden(hidden);
     }
 
-    pub fn set_holes(&self, holes: &[BoardRect]) {
+    pub fn set_holes(&self, holes: &[BoardRect], _scale: f64) {
         if holes.is_empty() {
             unsafe {
                 self.layer.setMask(None);
@@ -127,10 +128,6 @@ impl BoardSurface {
         unsafe {
             self.layer.setMask(Some(mask.as_super()));
         }
-    }
-
-    pub fn scale(&self) -> f64 {
-        self.scale
     }
 
     pub fn layer_ptr(&self) -> *mut c_void {

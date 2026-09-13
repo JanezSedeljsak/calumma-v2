@@ -65,11 +65,10 @@ fn px(value: f64, scale: f64) -> i32 {
 
 pub struct BoardSurface {
     hwnd: HWND,
-    scale: f64,
 }
 
 impl BoardSurface {
-    pub fn install(winit_window: &winit::window::Window) -> Result<Self> {
+    pub fn install(winit_window: &winit::window::Window, _scale: f64) -> Result<Self> {
         register_class()?;
         let parent = parent_hwnd(winit_window)?;
         let instance = unsafe { GetModuleHandleW(None) }?;
@@ -89,18 +88,22 @@ impl BoardSurface {
                 None,
             )
         }?;
-        Ok(Self {
-            hwnd,
-            scale: winit_window.scale_factor(),
-        })
+        Ok(Self { hwnd })
     }
 
-    pub fn set_frame(&self, x: f64, y_top: f64, width: f64, height: f64, _content_height: f64) {
+    pub fn set_frame(
+        &self,
+        x: f64,
+        y_top: f64,
+        width: f64,
+        height: f64,
+        _content_height: f64,
+        scale: f64,
+    ) {
         if width < 1.0 || height < 1.0 {
             self.set_hidden(true);
             return;
         }
-        let scale = self.scale;
         let _ = unsafe {
             SetWindowPos(
                 self.hwnd,
@@ -120,7 +123,7 @@ impl BoardSurface {
         let _ = unsafe { ShowWindow(self.hwnd, cmd) };
     }
 
-    pub fn set_holes(&self, holes: &[BoardRect]) {
+    pub fn set_holes(&self, holes: &[BoardRect], scale: f64) {
         let mut rect = RECT::default();
         if unsafe { GetClientRect(self.hwnd, &mut rect) }.is_err() {
             return;
@@ -134,7 +137,6 @@ impl BoardSurface {
         if full.is_invalid() {
             return;
         }
-        let scale = self.scale;
         for hole in holes {
             let x = px(hole.x as f64, scale);
             let y = px(hole.y as f64, scale);
@@ -153,10 +155,6 @@ impl BoardSurface {
             let _ = unsafe { DeleteObject(punch.into()) };
         }
         let _ = unsafe { SetWindowRgn(self.hwnd, Some(full), true) };
-    }
-
-    pub fn scale(&self) -> f64 {
-        self.scale
     }
 
     pub fn native(&self) -> calumma_app::NativeSurface {

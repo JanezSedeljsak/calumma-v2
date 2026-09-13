@@ -18,11 +18,10 @@ pub struct BoardSurface {
     xfixes: XFixes,
     display: *mut Display,
     window: Window,
-    scale: f64,
 }
 
 impl BoardSurface {
-    pub fn install(winit_window: &winit::window::Window) -> Result<Self> {
+    pub fn install(winit_window: &winit::window::Window, _scale: f64) -> Result<Self> {
         let display_handle = winit_window
             .display_handle()
             .context("the Slint window has no display handle yet")?;
@@ -59,16 +58,22 @@ impl BoardSurface {
             xfixes,
             display,
             window,
-            scale: winit_window.scale_factor(),
         })
     }
 
-    pub fn set_frame(&self, x: f64, y_top: f64, width: f64, height: f64, _content_height: f64) {
+    pub fn set_frame(
+        &self,
+        x: f64,
+        y_top: f64,
+        width: f64,
+        height: f64,
+        _content_height: f64,
+        scale: f64,
+    ) {
         if width < 1.0 || height < 1.0 {
             self.set_hidden(true);
             return;
         }
-        let scale = self.scale;
         unsafe {
             (self.xlib.XMoveResizeWindow)(
                 self.display,
@@ -94,7 +99,7 @@ impl BoardSurface {
         }
     }
 
-    pub fn set_holes(&self, holes: &[BoardRect]) {
+    pub fn set_holes(&self, holes: &[BoardRect], scale: f64) {
         let mut attrs: xlib::XWindowAttributes = unsafe { std::mem::zeroed() };
         let status =
             unsafe { (self.xlib.XGetWindowAttributes)(self.display, self.window, &mut attrs) };
@@ -109,7 +114,6 @@ impl BoardSurface {
         };
         unsafe {
             let bounding = (self.xfixes.XFixesCreateRegion)(self.display, &mut full, 1);
-            let scale = self.scale;
             for hole in holes {
                 let mut rect = XRectangle {
                     x: px(hole.x as f64, scale) as i16,
@@ -143,10 +147,6 @@ impl BoardSurface {
             (self.xfixes.XFixesDestroyRegion)(self.display, empty);
             (self.xlib.XFlush)(self.display);
         }
-    }
-
-    pub fn scale(&self) -> f64 {
-        self.scale
     }
 
     pub fn native(&self) -> calumma_app::NativeSurface {
