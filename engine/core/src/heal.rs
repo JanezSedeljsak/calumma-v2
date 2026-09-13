@@ -19,9 +19,8 @@
 
 use crate::blur::{
     box_blur_premultiplied, disc_coverage, pass_radius_for, premultiply, snapshot_margin,
-    to_premultiplied, unpremultiply,
+    stamp_target, to_premultiplied, unpremultiply,
 };
-use crate::limits::STAMP_COVERAGE_PADDING;
 use crate::selection::Selection;
 use crate::tile::{DocRect, TileGrid};
 
@@ -41,17 +40,7 @@ pub fn heal_stamps(
     if radius <= 0.0 || stamps.is_empty() {
         return 0;
     }
-    let pad = radius + STAMP_COVERAGE_PADDING;
-    let (mut min_x, mut min_y) = (f32::INFINITY, f32::INFINITY);
-    let (mut max_x, mut max_y) = (f32::NEG_INFINITY, f32::NEG_INFINITY);
-    for &(x, y) in stamps {
-        min_x = min_x.min(x);
-        min_y = min_y.min(y);
-        max_x = max_x.max(x);
-        max_y = max_y.max(y);
-    }
-    let target = DocRect::from_floats(min_x - pad, min_y - pad, max_x + pad, max_y + pad);
-    let Some(target) = target.intersect(grid.bounds()) else {
+    let Some(target) = stamp_target(grid, stamps, radius) else {
         return 0;
     };
 

@@ -18,7 +18,7 @@ type Release = {
 
 /// A platform is offered when a release actually carries an installer for it, and says
 /// "coming soon" when it does not. Nothing here hardcodes which platforms have shipped — the
-/// day a `.msi` or an `.AppImage` lands in a release, that card becomes a download on its own.
+/// day a Windows `.zip` or a Linux `.deb` lands in a release, that card becomes a download on its own.
 const PLATFORMS = [
   {
     id: "macos",
@@ -26,6 +26,7 @@ const PLATFORMS = [
     note: "Apple silicon, macOS 26 or later.",
     // `.sha256` sits beside every installer in the release; it is not one.
     match: (n: string) => n.endsWith(".dmg"),
+    prefer: [".dmg"] as const,
     icon: (
       <path d="M16.4 12.7c0-2.2 1.8-3.3 1.9-3.4-1-1.5-2.6-1.7-3.2-1.7-1.4-.1-2.7.8-3.3.8-.7 0-1.7-.8-2.8-.8-1.5 0-2.8.8-3.6 2.1-1.5 2.6-.4 6.5 1.1 8.6.7 1 1.6 2.2 2.7 2.2 1.1 0 1.5-.7 2.8-.7s1.7.7 2.8.7c1.2 0 1.9-1.1 2.6-2.1.8-1.2 1.2-2.4 1.2-2.4-.1 0-2.2-.9-2.2-3.3zM14.2 6.2c.6-.7 1-1.7.9-2.7-.9 0-2 .6-2.6 1.3-.6.6-1.1 1.7-.9 2.6 1 .1 2-.5 2.6-1.2z" />
     ),
@@ -34,7 +35,11 @@ const PLATFORMS = [
     id: "windows",
     name: "Windows",
     note: "Windows 11 or later, 64-bit.",
-    match: (n: string) => n.endsWith(".msi") || n.endsWith(".exe"),
+    match: (n: string) =>
+      n.endsWith(".msi") ||
+      n.endsWith(".exe") ||
+      (n.endsWith(".zip") && n.toLowerCase().includes("windows")),
+    prefer: [".msi", ".exe", ".zip"] as const,
     icon: (
       <path d="M3 5.4 10.3 4.4v6.9H3V5.4zm0 13.2 7.3 1v-6.8H3v5.8zM11.4 4.2 21 3v8.3h-9.6V4.2zm0 8.2H21V21l-9.6-1.3v-7.3z" />
     ),
@@ -42,9 +47,13 @@ const PLATFORMS = [
   {
     id: "linux",
     name: "Linux",
-    note: "x86_64, distribution-independent.",
+    note: "x86_64. .deb for Debian/Ubuntu, .tar.gz otherwise.",
     match: (n: string) =>
-      n.endsWith(".AppImage") || n.endsWith(".deb") || n.endsWith(".rpm"),
+      n.endsWith(".AppImage") ||
+      n.endsWith(".deb") ||
+      n.endsWith(".rpm") ||
+      (n.endsWith(".tar.gz") && n.toLowerCase().includes("linux")),
+    prefer: [".AppImage", ".deb", ".rpm", ".tar.gz"] as const,
     icon: (
       <path d="M12 2c-2.5 0-4 1.9-4 4.3 0 1.4.2 2.3.2 3.2 0 1-1.1 2.2-1.9 3.6-.8 1.4-1.6 2.9-1.6 4.4 0 1.1.5 1.9 1.3 2.4.9.5 2 .6 3 .5.5-.1.9-.3 1.3-.5.5-.3 1-.4 1.7-.4s1.2.1 1.7.4c.4.2.8.4 1.3.5 1 .1 2.1 0 3-.5.8-.5 1.3-1.3 1.3-2.4 0-1.5-.8-3-1.6-4.4-.8-1.4-1.9-2.6-1.9-3.6 0-.9.2-1.8.2-3.2C16 3.9 14.5 2 12 2zm-1.7 3.1c.5 0 .9.6.9 1.3s-.4 1.3-.9 1.3-.9-.6-.9-1.3.4-1.3.9-1.3zm3.4 0c.5 0 .9.6.9 1.3s-.4 1.3-.9 1.3-.9-.6-.9-1.3.4-1.3.9-1.3zM12 8.6c.9 0 1.9.4 1.9.9 0 .3-.3.5-.7.8-.4.3-.8.5-1.2.5s-.8-.2-1.2-.5c-.4-.3-.7-.5-.7-.8 0-.5 1-.9 1.9-.9z" />
     ),
@@ -69,6 +78,18 @@ function useRoute(): Route {
 }
 
 const formatSize = (bytes: number) => `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+
+const pickInstaller = (
+  assets: Asset[],
+  platform: (typeof PLATFORMS)[number],
+) => {
+  const hits = assets.filter((a) => platform.match(a.name));
+  for (const suffix of platform.prefer) {
+    const hit = hits.find((a) => a.name.endsWith(suffix));
+    if (hit) return hit;
+  }
+  return hits[0];
+};
 
 const formatDate = (iso: string) =>
   new Date(iso).toLocaleDateString(undefined, {
@@ -158,7 +179,7 @@ function DownloadView({
 
       <div className="grid">
         {PLATFORMS.map((platform) => {
-          const asset = latest?.assets.find((a) => platform.match(a.name));
+          const asset = latest ? pickInstaller(latest.assets, platform) : undefined;
           return (
             <article className="card" key={platform.id}>
               <div className="card-icon">

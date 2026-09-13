@@ -69,35 +69,30 @@ enum LayerKind {
     Text,
 }
 
-/// The content-shaped columns of one `layers` row. Which blob a layer writes and whether it
-/// carries a mask both follow from its content, so the three answers are decided together.
-struct LayerColumns<'a> {
+/// The content-shaped columns of one `layers` row, which all follow from its content.
+struct LayerColumns {
     content_kind: i64,
     vector_data: Option<Vec<u8>>,
     text_data: Option<Vec<u8>>,
-    mask: Option<&'a [u8]>,
 }
 
-impl<'a> LayerColumns<'a> {
-    fn of(layer: &'a Layer) -> Self {
+impl LayerColumns {
+    fn of(layer: &Layer) -> Self {
         match &layer.content {
             LayerContent::Raster(_) => Self {
                 content_kind: 0,
                 vector_data: None,
                 text_data: None,
-                mask: layer.mask(),
             },
             LayerContent::Vector(item) => Self {
                 content_kind: 1,
                 vector_data: Some(vector_blob::encode(item)),
                 text_data: None,
-                mask: None,
             },
             LayerContent::Text { run, .. } => Self {
                 content_kind: 2,
                 vector_data: None,
                 text_data: Some(text_blob::encode(run)),
-                mask: layer.mask(),
             },
         }
     }
@@ -144,7 +139,6 @@ impl ProjectStore {
                 name TEXT NOT NULL,
                 visible INTEGER NOT NULL,
                 z_index INTEGER NOT NULL,
-                mask BLOB,
                 content_kind INTEGER NOT NULL DEFAULT 0,
                 vector_data BLOB,
                 opacity REAL NOT NULL DEFAULT 1.0,
@@ -325,27 +319,25 @@ impl ProjectStore {
         doc.layers.clear();
 
         let mut layer_stmt = self.conn.prepare(
-            "SELECT layer_id, name, visible, mask, content_kind, vector_data, opacity, blend_mode, adjustments, text_data, transform, locked, clips_to FROM layers WHERE project_id = ?1 ORDER BY z_index ASC",
+            "SELECT layer_id, name, visible, content_kind, vector_data, opacity, blend_mode, adjustments, text_data, transform, locked, clips_to FROM layers WHERE project_id = ?1 ORDER BY z_index ASC",
         )?;
         let layer_rows = layer_stmt.query_map(params![id], |row| {
             Ok((
                 row.get::<_, String>(0)?,
                 row.get::<_, String>(1)?,
                 row.get::<_, i64>(2)? != 0,
-                row.get::<_, Option<Vec<u8>>>(3)?,
-                row.get::<_, i64>(4)?,
-                row.get::<_, Option<Vec<u8>>>(5)?,
-                row.get::<_, f64>(6)? as f32,
-                row.get::<_, i64>(7)? as u32,
+                row.get::<_, i64>(3)?,
+                row.get::<_, Option<Vec<u8>>>(4)?,
+                row.get::<_, f64>(5)? as f32,
+                row.get::<_, i64>(6)? as u32,
+                row.get::<_, Option<Vec<u8>>>(7)?,
                 row.get::<_, Option<Vec<u8>>>(8)?,
                 row.get::<_, Option<Vec<u8>>>(9)?,
-                row.get::<_, Option<Vec<u8>>>(10)?,
-                row.get::<_, i64>(11)? != 0,
-                row.get::<_, Option<String>>(12)?,
+                row.get::<_, i64>(10)? != 0,
+                row.get::<_, Option<String>>(11)?,
             ))
         })?;
 
-        let mask_len = (width as usize) * (height as usize);
         let mut solid_tiles: FxHashMap<[u8; 4], Arc<Vec<u8>>> = FxHashMap::default();
         let mut tile_stmt = self
             .conn
@@ -356,7 +348,6 @@ impl ProjectStore {
                 layer_id,
                 name,
                 visible,
-                mask,
                 content_kind,
                 vector_data,
                 opacity,
@@ -420,9 +411,6 @@ impl ProjectStore {
             layer.transform = transform.as_deref().and_then(transform_blob::decode);
             layer.locked = locked;
             layer.clips_to = clips_to;
-            if kind != LayerKind::Vector {
-                layer.set_mask(mask.filter(|m| m.len() == mask_len));
-            }
             if kind == LayerKind::Text {
                 layer.clear_dirty(DirtyChannel::Store);
             }
@@ -516,12 +504,11 @@ impl ProjectStore {
 
         {
             let mut upsert_layer = tx.prepare(
-                "INSERT INTO layers (project_id, layer_id, name, visible, z_index, mask, content_kind, vector_data, opacity, blend_mode, adjustments, text_data, transform, locked, clips_to) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)
+                "INSERT INTO layers (project_id, layer_id, name, visible, z_index, content_kind, vector_data, opacity, blend_mode, adjustments, text_data, transform, locked, clips_to) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
                  ON CONFLICT(project_id, layer_id) DO UPDATE SET
                     name = excluded.name,
                     visible = excluded.visible,
                     z_index = excluded.z_index,
-                    mask = excluded.mask,
                     content_kind = excluded.content_kind,
                     vector_data = excluded.vector_data,
                     opacity = excluded.opacity,
@@ -545,7 +532,6 @@ impl ProjectStore {
                     content_kind,
                     vector_data,
                     text_data,
-                    mask,
                 } = LayerColumns::of(layer);
                 let adjustments = layer.adjustments.as_ref().map(adjustments_blob::encode);
                 let transform = layer.transform.as_ref().map(transform_blob::encode);
@@ -555,7 +541,6 @@ impl ProjectStore {
                     layer.name,
                     if layer.visible { 1 } else { 0 },
                     z as i64,
-                    mask,
                     content_kind,
                     vector_data,
                     layer.opacity as f64,

@@ -6,12 +6,11 @@
 use calumma_core::limits::{MAX_CANVAS_SIDE, MIN_CANVAS_SIDE};
 use calumma_core::{Document, LayerContent};
 use calumma_ops::{
-    run_op_on_document, Backend, Op, OpError, OpInput, OpKind, OpOutput, OpParams, OpRegistry,
-    SeamCarveOp,
+    run_op_on_document, Op, OpError, OpInput, OpKind, OpOutput, OpParams, OpRegistry, SeamCarveOp,
 };
 
 fn raster(w: u32, h: u32) -> OpInput {
-    OpInput::Raster {
+    OpInput {
         rgba: vec![120u8; (w as usize) * (h as usize) * 4],
         w,
         h,
@@ -29,7 +28,6 @@ fn sized(w: u32, h: u32) -> OpParams {
 fn is_a_core_op_always_available() {
     let op = SeamCarveOp;
     assert_eq!(op.kind(), OpKind::SeamCarve);
-    assert_eq!(op.backend(), Backend::Core);
     assert!(op.available());
 }
 
@@ -81,18 +79,9 @@ fn a_target_outside_the_canvas_limits_is_refused() {
 }
 
 #[test]
-fn non_raster_input_is_refused() {
-    let op = SeamCarveOp;
-    assert_eq!(
-        op.run(OpInput::None, &sized(20, 20)),
-        Err(OpError::BadInput)
-    );
-}
-
-#[test]
 fn running_it_on_a_document_adds_a_new_carved_layer() {
     let mut registry = OpRegistry::new();
-    registry.register_core(Box::new(SeamCarveOp));
+    registry.register(Box::new(SeamCarveOp));
     let mut doc = Document::new("p".into(), "t", 32, 32);
     doc.add_layer("Source");
     let index = doc.layers.len() - 1;

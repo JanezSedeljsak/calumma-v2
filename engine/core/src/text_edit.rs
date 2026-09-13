@@ -122,22 +122,6 @@ impl Document {
         }
     }
 
-    /// A wrapped text box, from the rectangle a drag swept. The engine has honoured
-    /// `wrap_width` since text existed — this is the gesture that finally reaches it, and the
-    /// only difference from a click-placed run is that the origin is the box's corner rather
-    /// than a baseline guess.
-    pub fn begin_text_box(&mut self, x0: f32, y0: f32, x1: f32, y1: f32) {
-        self.commit_text();
-        let (min_x, max_x) = (x0.min(x1), x0.max(x1));
-        let min_y = y0.min(y1);
-        self.push_text_layer(TextRun {
-            origin: (min_x, min_y),
-            color: self.color,
-            wrap_width: Some(max_x - min_x),
-            ..self.text_style.clone()
-        });
-    }
-
     fn push_text_layer(&mut self, run: TextRun) {
         let n = self.layers.iter().filter(|l| l.is_text()).count() + 1;
         let layer = Layer::text(
@@ -276,12 +260,6 @@ impl Document {
         let Some(index) = self.text_edit_index(&edit) else {
             return;
         };
-        if let Some(run) = self.layers.get_mut(index).and_then(|l| l.content.run_mut()) {
-            if !run.marked.is_empty() {
-                run.marked.clear();
-                self.resync_text(index);
-            }
-        }
         let empty = self
             .layers
             .get(index)

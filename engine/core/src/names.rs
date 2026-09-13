@@ -11,10 +11,6 @@ pub const ERR_OP_UNAVAILABLE: &str = "op unavailable";
 pub const ERR_OP_FAILED_PREFIX: &str = "op failed: ";
 pub const ERR_BAD_INPUT: &str = "bad op input";
 pub const ERR_BAD_LAYER: &str = "bad layer";
-pub const ERR_PLATFORM_OP_FAILED: &str = "platform op failed";
-pub const ERR_EMPTY_MASK: &str = "empty mask";
-pub const ERR_EMPTY_RASTER: &str = "empty raster";
-pub const ERR_NO_OUTPUT: &str = "no output";
 
 pub fn numbered_layer(n: usize) -> String {
     format!("{LAYER_PREFIX} {n}")

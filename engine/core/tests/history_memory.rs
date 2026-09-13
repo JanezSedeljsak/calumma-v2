@@ -21,24 +21,6 @@ fn many_strokes_respect_memory_budget() {
 }
 
 #[test]
-fn layer_add_and_clear() {
-    let mut doc = Document::new("id".into(), "n", 128, 128);
-    doc.add_layer("Layer 2");
-    assert_eq!(doc.layers.len(), 3);
-    doc.set_active_layer(2);
-    doc.resize_viewport(128.0, 128.0, 1.0);
-    doc.fit_to_view();
-    let (sx, sy) = doc.camera.to_screen(10.0, 10.0);
-    doc.pointer_down(sx, sy);
-    doc.pointer_up(sx, sy);
-    doc.clear_active_layer();
-    assert!(
-        doc.layers[2].tiles().unwrap().is_empty()
-            || doc.layers[2].tiles().unwrap().get_pixel(10, 10) == [0, 0, 0, 0]
-    );
-}
-
-#[test]
 fn tool_switch_shape_line() {
     let mut doc = Document::new("id".into(), "n", 200, 200);
     doc.tool = Tool::Line;

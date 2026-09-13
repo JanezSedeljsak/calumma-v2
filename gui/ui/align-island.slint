@@ -1,0 +1,94 @@
+import { Tokens } from "calm/CalmTokens.slint";
+import { CalmIsland } from "calm/CalmIsland.slint";
+import { CalmToolButton } from "calm/CalmToolButton.slint";
+import { LayerChrome } from "layer-chrome.slint";
+
+export component AlignIsland inherits CalmIsland {
+    private property <image> icon-left: @image-url("object-align-left.svg");
+    private property <image> icon-center-h: @image-url("object-align-center-h.svg");
+    private property <image> icon-right: @image-url("object-align-right.svg");
+    private property <image> icon-top: @image-url("object-align-top.svg");
+    private property <image> icon-center-v: @image-url("object-align-center-v.svg");
+    private property <image> icon-bottom: @image-url("object-align-bottom.svg");
+    private property <image> icon-distribute-h: @image-url("object-distribute-h.svg");
+    private property <image> icon-distribute-v: @image-url("object-distribute-v.svg");
+
+    island-padding: Tokens.space-xs;
+
+    HorizontalLayout {
+        padding: root.island-padding;
+        alignment: space-between;
+
+        CalmToolButton {
+            icon: root.icon-left;
+            tip: LayerChrome.align-left-label;
+            tip-leading: true;
+            clicked => {
+                LayerChrome.align(0);
+            }
+        }
+
+        CalmToolButton {
+            icon: root.icon-center-h;
+            tip: LayerChrome.align-center-h-label;
+            tip-leading: true;
+            clicked => {
+                LayerChrome.align(1);
+            }
+        }
+
+        CalmToolButton {
+            icon: root.icon-right;
+            tip: LayerChrome.align-right-label;
+            tip-leading: true;
+            clicked => {
+                LayerChrome.align(2);
+            }
+        }
+
+        CalmToolButton {
+            icon: root.icon-top;
+            tip: LayerChrome.align-top-label;
+            tip-leading: true;
+            clicked => {
+                LayerChrome.align(3);
+            }
+        }
+
+        CalmToolButton {
+            icon: root.icon-center-v;
+            tip: LayerChrome.align-center-v-label;
+            tip-leading: true;
+            clicked => {
+                LayerChrome.align(4);
+            }
+        }
+
+        CalmToolButton {
+            icon: root.icon-bottom;
+            tip: LayerChrome.align-bottom-label;
+            tip-leading: true;
+            clicked => {
+                LayerChrome.align(5);
+            }
+        }
+
+        CalmToolButton {
+            icon: root.icon-distribute-h;
+            tip: LayerChrome.distribute-h-label;
+            tip-leading: true;
+            clicked => {
+                LayerChrome.distribute(true);
+            }
+        }
+
+        CalmToolButton {
+            icon: root.icon-distribute-v;
+            tip: LayerChrome.distribute-v-label;
+            tip-leading: true;
+            clicked => {
+                LayerChrome.distribute(false);
+            }
+        }
+    }
+}

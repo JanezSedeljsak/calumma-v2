@@ -182,32 +182,6 @@ fn clearing_an_override_takes_that_field_and_leaves_the_others() {
 }
 
 #[test]
-fn an_ime_composition_sits_inside_the_span_that_holds_the_caret() {
-    let mut r = run("ab");
-    r.apply_style(0, 1, &bold());
-    r.marked = "ん".to_string();
-    r.marked_at = 1;
-    let display = r.display_spans();
-    assert_eq!(display.len(), 1);
-    assert_eq!(
-        (display[0].start, display[0].end),
-        (0, 1 + "ん".len()),
-        "the composition takes the style of the span it was typed at the end of"
-    );
-}
-
-#[test]
-fn a_composition_before_a_span_does_not_adopt_it() {
-    let mut r = run("ab");
-    r.apply_style(1, 2, &bold());
-    r.marked = "ん".to_string();
-    r.marked_at = 1;
-    let display = r.display_spans();
-    let shift = "ん".len();
-    assert_eq!((display[0].start, display[0].end), (1 + shift, 2 + shift));
-}
-
-#[test]
 fn applying_nothing_over_a_range_leaves_the_run_alone() {
     let mut r = run("hello");
     r.apply_style(0, 5, &SpanStyle::default());

@@ -1,3 +1,4 @@
+import { LayerChrome } from "layer-chrome.slint";
 import { LayerRow } from "models.slint";
 import { Theme } from "calm/CalmTheme.slint";
 import { Tokens } from "calm/CalmTokens.slint";
@@ -39,7 +40,7 @@ component LayerListRow inherits HorizontalLayout {
     in property <bool> drop-target;
     in property <bool> dragging;
 
-    callback row-clicked();
+    callback row-clicked(bool);
     callback toggle-visible();
     callback open-settings(float, float);
     callback delete-layer();
@@ -84,7 +85,7 @@ component LayerListRow inherits HorizontalLayout {
         horizontal-stretch: 1;
         radius: Tokens.radius-sm;
         bordered: true;
-        hover: root.layer-row.active || root.drop-target;
+        hover: root.layer-row.active || root.layer-row.selected || root.drop-target;
         focused: root.layer-row.active || root.drop-target;
 
         HorizontalLayout {
@@ -110,7 +111,7 @@ component LayerListRow inherits HorizontalLayout {
                         if (root.drag-armed) {
                             root.drag-finished();
                         } else {
-                            root.row-clicked();
+                            root.row-clicked(event.modifiers.meta || event.modifiers.control || event.modifiers.shift);
                         }
                         root.drag-armed = false;
                     }
@@ -353,8 +354,12 @@ export component LayersPanel inherits CalmIsland {
                     delete-tip: root.delete-tip;
                     dragging: root.drag-from == i;
                     drop-target: root.drag-from >= 0 && root.drop-row == i && root.drag-from != i && !layer.paper;
-                    row-clicked => {
-                        root.pick-layer(layer.index);
+                    row-clicked(extend) => {
+                        if (extend) {
+                            LayerChrome.toggle-layer-selected(layer.index);
+                        } else {
+                            root.pick-layer(layer.index);
+                        }
                     }
                     toggle-visible => {
                         root.toggle-layer-visible(layer.index);

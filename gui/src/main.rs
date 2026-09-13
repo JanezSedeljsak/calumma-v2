@@ -1,17 +1,19 @@
 mod app_icon;
 mod board;
 mod input;
+mod layer_selection;
 mod shell;
 mod ui_bridge;
 mod window_chrome;
+mod window_frame;
 
 use board::{board_layout, hole_in_board, BoardHost, BoardLayout, BoardRect, ModifierState};
 use calumma_io::RasterFormat;
 use i_slint_backend_winit::WinitWindowAccessor;
 use input::{
     apply_text_key, handle_key_press_for_modifiers, handle_key_release, handle_shell_key,
-    handle_text_key, DropHandler, DropQueue, EditorKeyAction, KeyPressModifierAction,
-    KeyReleaseAction, Modifiers, ShellKeyAction,
+    handle_text_key, DropHandler, DropQueue, EditorKeyAction, FrameSignal, KeyPressModifierAction,
+    KeyReleaseAction, Modifiers, ShellEvents, ShellKeyAction,
 };
 use shell::{
     pick_artwork_files, shared, workspace_root, ClipboardContent, NamedImage, SharedController,
@@ -41,9 +43,22 @@ impl InputState {
     }
 }
 
-fn init_platform(drops: &DropQueue) -> Result<(), Box<dyn std::error::Error>> {
-    let mut builder = i_slint_backend_winit::Backend::builder()
-        .with_custom_application_handler(Box::new(DropHandler(drops.clone())));
+fn init_platform(
+    drops: &DropQueue,
+    frame_changed: &FrameSignal,
+) -> Result<(), Box<dyn std::error::Error>> {
+    #[cfg(target_os = "linux")]
+    if std::env::var_os("WINIT_UNIX_BACKEND").is_none() {
+        unsafe {
+            std::env::set_var("WINIT_UNIX_BACKEND", "x11");
+        }
+    }
+    let mut builder = i_slint_backend_winit::Backend::builder().with_custom_application_handler(
+        Box::new(ShellEvents {
+            drops: DropHandler(drops.clone()),
+            frame_changed: frame_changed.clone(),
+        }),
+    );
     #[cfg(target_os = "macos")]
     {
         use winit::platform::macos::WindowAttributesExtMacOS;
@@ -64,7 +79,8 @@ fn init_platform(drops: &DropQueue) -> Result<(), Box<dyn std::error::Error>> {
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let drops = DropQueue::default();
-    init_platform(&drops)?;
+    let frame_changed = FrameSignal::default();
+    init_platform(&drops, &frame_changed)?;
 
     let root = workspace_root();
     let window_metrics = Theme::window_metrics(&root)?;
@@ -78,12 +94,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let ui = AppWindow::new()?;
     set_window_icon(&ui);
     window_chrome::apply(&ui, controller.borrow().prefs.is_dark());
-    {
-        ui.window().set_size(slint::LogicalSize::new(
-            window_metrics.width as f32,
-            window_metrics.height as f32,
-        ));
-    }
+    let landing_size =
+        slint::LogicalSize::new(window_metrics.width as f32, window_metrics.height as f32);
     let ui_weak = ui.as_weak();
 
     let restored = {
@@ -103,6 +115,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         restored
     };
+    let editor_open_at_start = restored.is_some();
+    if editor_open_at_start {
+        window_frame::apply_editor(&ui, controller.borrow().prefs.editor_window);
+    } else {
+        ui.window().set_size(landing_size);
+    }
+    let _window_frame_timer = window_frame::wire(
+        &ui,
+        controller.clone(),
+        frame_changed,
+        landing_size,
+        editor_open_at_start,
+    );
     if let Some(summary) = restored {
         deferred_load_project(summary, controller.clone(), ui_weak.clone(), host.clone());
     }
@@ -131,6 +156,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
     wire_exports(&ui, controller.clone(), ui_weak.clone());
     wire_layer_actions(&ui, controller.clone(), ui_weak.clone(), filter_debounce);
+    layer_selection::wire(&ui, controller.clone(), ui_weak.clone());
     wire_tools(&ui, controller.clone(), ui_weak.clone());
     wire_color_picker(&ui, controller.clone(), ui_weak.clone());
     wire_shell_keys(

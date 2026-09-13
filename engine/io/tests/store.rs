@@ -234,30 +234,6 @@ fn layer_transform_round_trip() {
 }
 
 #[test]
-fn layer_mask_round_trip() {
-    let (_dir, store) = store();
-    let mut doc = store.create("Masked", 32, 16).unwrap();
-    let mut mask = vec![0u8; 32 * 16];
-    mask[7] = 200;
-    let i = paint_index(&doc);
-    doc.layers[i].set_mask(Some(mask));
-    store.save(&mut doc).unwrap();
-
-    let loaded = store.open_project(&doc.id).unwrap();
-    let i = paint_index(&loaded);
-    let loaded_mask = loaded.layers[i].mask().unwrap();
-    assert_eq!(loaded_mask.len(), 32 * 16);
-    assert_eq!(loaded_mask[7], 200);
-
-    let mut cleared = loaded;
-    let i = paint_index(&cleared);
-    cleared.layers[i].set_mask(None);
-    store.save(&mut cleared).unwrap();
-    let reopened = store.open_project(&cleared.id).unwrap();
-    assert!(reopened.layers[paint_index(&reopened)].mask().is_none());
-}
-
-#[test]
 fn save_writes_only_dirty_tiles() {
     let (_dir, store) = store();
     let mut doc = store.create("Incremental", 1024, 1024).unwrap();
@@ -306,7 +282,8 @@ fn cleared_tiles_are_deleted_from_disk() {
     store.save(&mut doc).unwrap();
     assert_eq!(tile_rows(&store, &doc.id), paper_tile_count(512, 512) + 1);
 
-    doc.clear_active_layer();
+    let active = doc.active_layer;
+    let _ = doc.layers[active].clear();
     store.save(&mut doc).unwrap();
     assert_eq!(tile_rows(&store, &doc.id), paper_tile_count(512, 512));
     let loaded = store.open_project(&doc.id).unwrap();

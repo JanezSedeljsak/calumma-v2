@@ -4,11 +4,11 @@
 //! a new layer via the same `OpOutput::Raster` path every other image-producing op uses.
 
 use calumma_core::{Document, LayerContent};
-use calumma_ops::{apply_output, run_op_on_document, Backend, Op, OpError, OpInput, OpParams};
+use calumma_ops::{apply_output, run_op_on_document, Op, OpError, OpInput, OpParams};
 use calumma_ops::{OpKind, OpRegistry, UpscaleOp};
 
 fn raster(w: u32, h: u32) -> OpInput {
-    OpInput::Raster {
+    OpInput {
         rgba: vec![10u8; (w as usize) * (h as usize) * 4],
         w,
         h,
@@ -19,7 +19,6 @@ fn raster(w: u32, h: u32) -> OpInput {
 fn is_a_core_op_always_available() {
     let op = UpscaleOp;
     assert_eq!(op.kind(), OpKind::Upscale);
-    assert_eq!(op.backend(), Backend::Core);
     assert!(op.available());
 }
 
@@ -77,19 +76,6 @@ fn a_non_finite_scale_is_refused_rather_than_panicking() {
 }
 
 #[test]
-fn non_raster_input_is_refused() {
-    let op = UpscaleOp;
-    assert_eq!(
-        op.run(OpInput::None, &OpParams::default()),
-        Err(OpError::BadInput)
-    );
-    assert_eq!(
-        op.run(OpInput::Prompt("x".into()), &OpParams::default()),
-        Err(OpError::BadInput)
-    );
-}
-
-#[test]
 fn an_absurd_scale_clamps_to_the_canvas_ceiling_rather_than_allocating_forever() {
     let op = UpscaleOp;
     let params = OpParams {
@@ -107,7 +93,7 @@ fn an_absurd_scale_clamps_to_the_canvas_ceiling_rather_than_allocating_forever()
 #[test]
 fn running_it_on_a_document_adds_a_new_upscaled_layer() {
     let mut registry = OpRegistry::new();
-    registry.register_core(Box::new(UpscaleOp));
+    registry.register(Box::new(UpscaleOp));
     let mut doc = Document::new("p".into(), "t", 8, 8);
     doc.add_layer("Source");
     let index = doc.layers.len() - 1;

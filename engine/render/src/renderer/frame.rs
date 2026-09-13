@@ -49,7 +49,7 @@ impl Renderer {
             return;
         };
         let retained = visible.expanded_by_tiles(self.budget.retention_margin_tiles());
-        let doc_width = doc.width;
+        let _doc_width = doc.width;
 
         let dirty_bases: Vec<usize> = doc
             .layers
@@ -125,7 +125,7 @@ impl Renderer {
             }
         }
 
-        // Bake the mask for every dirty tile up front and in parallel, alongside the mip chain
+        // Bake clip alpha into every dirty tile up front and in parallel, alongside the mip chain
         // every upload needs regardless — both are pure pixel math that scales with tile count,
         // so both go through rayon rather than running sequentially on the frame thread once the
         // wgpu upload loop below gets to them. Adjustments and opacity no longer bake here at
@@ -150,8 +150,7 @@ impl Renderer {
                     .clips_to
                     .as_deref()
                     .and_then(|id| doc.layers.iter().find(|l| l.id == id));
-                let composited =
-                    composited_tile_payload(pixels, *coord, layer, clip_base, doc_width);
+                let composited = composited_tile_payload(pixels, *coord, layer, clip_base);
                 let base: &[u8] = composited.as_deref().unwrap_or(pixels.as_slice());
                 let mips = tile_upload_mips(base, *skip_mips);
                 Some((composited, mips))

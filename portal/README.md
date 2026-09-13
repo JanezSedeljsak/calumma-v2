@@ -23,13 +23,12 @@ hard refresh unless the site shipped a catch-all, while a hash never leaves the 
 Both pages come from **one** request for the release list, made on load — the API is
 unauthenticated and allows 60 requests per hour per IP, so a visitor who reads both pages
 should still only spend one. Each platform is matched against a release's assets: `.dmg` for
-macOS, `.msi`/`.exe` for Windows, `.AppImage`/`.deb`/`.rpm` for Linux. A platform with a
-matching asset gets a download button carrying the file size and a link to its `.sha256`; a
-platform without one says **Coming soon**.
+macOS, `.zip` (or `.msi`/`.exe`) for Windows, `.deb`/`.tar.gz` (or `.AppImage`/`.rpm`) for
+Linux. A platform with a matching asset gets a download button carrying the file size and a
+link to its `.sha256`; a platform without one says **Coming soon**.
 
-Nothing hardcodes which platforms have shipped. Today only the macOS `.dmg` exists, so only
-that card is a download — the day a Windows or Linux installer lands in a release, that card
-becomes one on its own with no change here.
+Nothing hardcodes which platforms have shipped. A card becomes a download the moment that
+platform's installer lands in a GitHub release.
 
 Because the fetch happens in the browser rather than at build time, **a new release shows up
 on the site the moment it is published** — there is no redeploy to wait for, and the workflow

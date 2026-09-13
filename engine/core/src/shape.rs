@@ -309,10 +309,17 @@ impl Shape {
     /// needs, derived from the same head geometry `arrow_distance` hit-tests against so the
     /// exported arrow matches the drawn one.
     pub fn arrow_outline(&self) -> Vec<(f32, f32)> {
+        match self.arrow_barbs() {
+            Some((left, right)) => vec![self.start, self.end, left, self.end, right],
+            None => vec![self.start, self.end],
+        }
+    }
+
+    fn arrow_barbs(&self) -> Option<((f32, f32), (f32, f32))> {
         let (dx, dy) = (self.end.0 - self.start.0, self.end.1 - self.start.1);
         let span = length(dx, dy);
         if span <= f32::MIN_POSITIVE {
-            return vec![self.start, self.end];
+            return None;
         }
         let head = self.head_len().min(span);
         let (ux, uy) = (-dx / span * head, -dy / span * head);
@@ -325,7 +332,7 @@ impl Shape {
             self.end.0 + ux * cos + uy * sin,
             self.end.1 - ux * sin + uy * cos,
         );
-        vec![self.start, self.end, left, self.end, right]
+        Some((left, right))
     }
 
     fn center(&self) -> (f32, f32) {
@@ -344,22 +351,9 @@ impl Shape {
 
     fn arrow_distance(&self, p: (f32, f32)) -> f32 {
         let shaft = sd_segment(p, self.start, self.end);
-        let (dx, dy) = (self.end.0 - self.start.0, self.end.1 - self.start.1);
-        let span = length(dx, dy);
-        if span <= f32::MIN_POSITIVE {
+        let Some((left, right)) = self.arrow_barbs() else {
             return shaft;
-        }
-        let head = self.head_len().min(span);
-        let (ux, uy) = (-dx / span * head, -dy / span * head);
-        let (sin, cos) = (BARB_ANGLE.sin(), BARB_ANGLE.cos());
-        let left = (
-            self.end.0 + ux * cos - uy * sin,
-            self.end.1 + ux * sin + uy * cos,
-        );
-        let right = (
-            self.end.0 + ux * cos + uy * sin,
-            self.end.1 - ux * sin + uy * cos,
-        );
+        };
         shaft
             .min(sd_segment(p, self.end, left))
             .min(sd_segment(p, self.end, right))

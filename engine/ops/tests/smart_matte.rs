@@ -5,8 +5,7 @@
 
 use calumma_core::{Document, Layer};
 use calumma_ops::{
-    run_op_on_document, Backend, Op, OpError, OpInput, OpKind, OpOutput, OpParams, OpRegistry,
-    SmartMatteOp,
+    run_op_on_document, Op, OpError, OpInput, OpKind, OpOutput, OpParams, OpRegistry, SmartMatteOp,
 };
 
 /// A red square on a blue field, as an `OpInput`.
@@ -18,22 +17,14 @@ fn blob(w: u32, h: u32) -> OpInput {
             rgba[i..i + 4].copy_from_slice(&[220, 30, 30, 255]);
         }
     }
-    OpInput::Raster { rgba, w, h }
+    OpInput { rgba, w, h }
 }
 
 #[test]
 fn is_a_core_op_always_available() {
     let op = SmartMatteOp;
     assert_eq!(op.kind(), OpKind::SmartMatte);
-    assert_eq!(op.backend(), Backend::Core);
     assert!(op.available());
-}
-
-/// Its own kind, deliberately — sharing `RemoveBackground` would put it behind Vision in the
-/// registry's platform-beats-core resolution and it would never run.
-#[test]
-fn it_does_not_collide_with_the_vision_remove_background_op() {
-    assert_ne!(SmartMatteOp.kind(), OpKind::RemoveBackground);
 }
 
 #[test]
@@ -51,7 +42,7 @@ fn it_returns_a_mask_the_size_of_its_input() {
 #[test]
 fn an_empty_layer_is_a_refusal_not_an_all_zero_mask() {
     let op = SmartMatteOp;
-    let empty = OpInput::Raster {
+    let empty = OpInput {
         rgba: vec![0u8; 32 * 32 * 4],
         w: 32,
         h: 32,
@@ -62,21 +53,12 @@ fn an_empty_layer_is_a_refusal_not_an_all_zero_mask() {
     ));
 }
 
-#[test]
-fn non_raster_input_is_refused() {
-    let op = SmartMatteOp;
-    assert_eq!(
-        op.run(OpInput::None, &OpParams::default()),
-        Err(OpError::BadInput)
-    );
-}
-
-/// The payoff of reusing `OpOutput::Mask`: it lands through `apply_remove_background_mask`,
+/// The payoff of reusing `OpOutput::Mask`: it lands through `apply_matte_mask`,
 /// which is already undoable, so the tool gets ⌘Z for free rather than inventing a history step.
 #[test]
 fn running_it_on_a_document_bakes_the_matte_and_is_undoable() {
     let mut registry = OpRegistry::new();
-    registry.register_core(Box::new(SmartMatteOp));
+    registry.register(Box::new(SmartMatteOp));
     let (w, h) = (48u32, 48u32);
     let mut doc = Document::new("p".into(), "t", w, h);
     doc.layers.push(Layer::new("Subject", w, h));
@@ -147,7 +129,7 @@ fn a_seed_region_reaches_the_segmentation_and_changes_the_result() {
     };
     let OpOutput::Mask(drawn) = op
         .run(
-            OpInput::Raster {
+            OpInput {
                 rgba: rgba.clone(),
                 w,
                 h,

@@ -20,36 +20,8 @@ impl Renderer {
             ..Default::default()
         }))
         .map_err(|e| e.to_string())?;
-
-        // The tile atlas wants as many array layers as the adapter will give it, up to our own
-        // safety ceiling — a low-end/downlevel adapter reporting only the WebGPU baseline (256)
-        // still works fine, it just evicts prefetch-margin tiles under pressure sooner.
-        let adapter_array_layers = adapter.limits().max_texture_array_layers;
-        let atlas_max_capacity = adapter_array_layers.min(TILE_ATLAS_MAX_CAPACITY);
-        // Classified here rather than anywhere later because it decides how the *device* is
-        // created, not just how the atlas is sized. The adapter is the only thing that ever
-        // answers this; a tier is fixed for the life of the surface.
-        let budget = GpuBudget::new(DeviceTier::classify(
-            gpu_kind(adapter.get_info().device_type),
-            adapter_array_layers,
-        ));
-
-        let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
-            label: Some("calumma-render"),
-            required_features: wgpu::Features::empty(),
-            required_limits: wgpu::Limits {
-                max_texture_array_layers: atlas_max_capacity,
-                ..wgpu::Limits::default()
-            },
-            memory_hints: if budget.tier().prefers_small_allocations() {
-                wgpu::MemoryHints::MemoryUsage
-            } else {
-                wgpu::MemoryHints::Performance
-            },
-            trace: wgpu::Trace::Off,
-            ..Default::default()
-        }))
-        .map_err(|e| e.to_string())?;
+        let (device, queue, budget, atlas_max_capacity) =
+            Self::request_device(&adapter, "calumma-render").map_err(|e| e.to_string())?;
 
         let caps = surface.get_capabilities(&adapter);
         let format = caps
@@ -99,28 +71,8 @@ impl Renderer {
     pub fn new_headless(width: u32, height: u32) -> Option<Self> {
         let instance = crate::test_gpu::headless_instance();
         let adapter = crate::test_gpu::request_test_adapter(&instance)?;
-        let adapter_array_layers = adapter.limits().max_texture_array_layers;
-        let atlas_max_capacity = adapter_array_layers.min(TILE_ATLAS_MAX_CAPACITY);
-        let budget = GpuBudget::new(DeviceTier::classify(
-            gpu_kind(adapter.get_info().device_type),
-            adapter_array_layers,
-        ));
-        let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
-            label: Some("calumma-render-headless"),
-            required_features: wgpu::Features::empty(),
-            required_limits: wgpu::Limits {
-                max_texture_array_layers: atlas_max_capacity,
-                ..wgpu::Limits::default()
-            },
-            memory_hints: if budget.tier().prefers_small_allocations() {
-                wgpu::MemoryHints::MemoryUsage
-            } else {
-                wgpu::MemoryHints::Performance
-            },
-            trace: wgpu::Trace::Off,
-            ..Default::default()
-        }))
-        .ok()?;
+        let (device, queue, budget, atlas_max_capacity) =
+            Self::request_device(&adapter, "calumma-render-headless").ok()?;
         let format = wgpu::TextureFormat::Bgra8UnormSrgb;
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
@@ -143,6 +95,41 @@ impl Renderer {
             budget,
             atlas_max_capacity,
         ))
+    }
+
+    fn request_device(
+        adapter: &wgpu::Adapter,
+        label: &'static str,
+    ) -> Result<(wgpu::Device, wgpu::Queue, GpuBudget, u32), wgpu::RequestDeviceError> {
+        // The tile atlas wants as many array layers as the adapter will give it, up to our own
+        // safety ceiling — a low-end/downlevel adapter reporting only the WebGPU baseline (256)
+        // still works fine, it just evicts prefetch-margin tiles under pressure sooner.
+        let adapter_array_layers = adapter.limits().max_texture_array_layers;
+        let atlas_max_capacity = adapter_array_layers.min(TILE_ATLAS_MAX_CAPACITY);
+        // Classified here rather than anywhere later because it decides how the *device* is
+        // created, not just how the atlas is sized. The adapter is the only thing that ever
+        // answers this; a tier is fixed for the life of the surface.
+        let budget = GpuBudget::new(DeviceTier::classify(
+            gpu_kind(adapter.get_info().device_type),
+            adapter_array_layers,
+        ));
+        let (device, queue) =
+            pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+                label: Some(label),
+                required_features: wgpu::Features::empty(),
+                required_limits: wgpu::Limits {
+                    max_texture_array_layers: atlas_max_capacity,
+                    ..wgpu::Limits::default()
+                },
+                memory_hints: if budget.tier().prefers_small_allocations() {
+                    wgpu::MemoryHints::MemoryUsage
+                } else {
+                    wgpu::MemoryHints::Performance
+                },
+                trace: wgpu::Trace::Off,
+                ..Default::default()
+            }))?;
+        Ok((device, queue, budget, atlas_max_capacity))
     }
 
     pub(super) fn assemble(

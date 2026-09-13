@@ -214,5 +214,13 @@
   "megabyteUnit": "{0} MB",
   "gigabyteUnit": "{0} GB",
   "terabyteUnit": "{0} TB",
-  "zoomPercent": "{0}%"
+  "zoomPercent": "{0}%",
+  "alignLeft": "Align Left",
+  "alignCenterH": "Align Horizontal Centers",
+  "alignRight": "Align Right",
+  "alignTop": "Align Top",
+  "alignCenterV": "Align Vertical Centers",
+  "alignBottom": "Align Bottom",
+  "distributeH": "Distribute Horizontally",
+  "distributeV": "Distribute Vertically"
 }

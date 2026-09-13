@@ -1,12 +1,13 @@
 name: main
 
-# Four stages, in order: lint, then security, then per-OS tests, then a macOS .dmg only when
-# the workspace version actually moved (or someone dispatched the workflow). Each earlier gate
-# is cheap and runs on the cheapest machine that can answer it, so a formatting slip or a
-# vulnerable dependency is reported in a couple of minutes and never spends a macOS runner.
+# Five stages, in order: lint, security, the full Linux pass (tests plus a release build of the
+# shell), the same on Windows and macOS, then a GitHub release only when the workspace version
+# actually moved (or on a `v*` tag, or a dispatch with `publish`). Each gate runs on the cheapest
+# machine that can answer it, so a formatting slip, a vulnerable dependency, a failing test or a
+# broken build is reported from ubuntu and never spends a Windows or macOS runner.
 #
-#   lint (ubuntu)  ->  security (ubuntu)  ->  test-linux / test-windows / test-macos
-#                                        ->  macos-dmg (version bump / dispatch / tag)
+#   lint  ->  security  ->  test-linux / build-linux
+#         ->  test-windows / build-windows / test-macos / build-macos  ->  release
 #
 # `pre-commit-autofix` deliberately sits outside that chain: it is the *fixer*, and gating it
 # behind `lint` would deadlock — lint fails, the autofix that would have healed it never runs.
@@ -16,13 +17,13 @@ on:
     paths-ignore:
       - '**.md'
       - 'portal/**'
-      - '**.yml'
+      - '.github/workflows/portal.yml'
       - '**/.gitignore'
   pull_request:
     paths-ignore:
       - '**.md'
       - 'portal/**'
-      - '**.yml'
+      - '.github/workflows/portal.yml'
       - '**/.gitignore'
   workflow_dispatch:
     inputs:
@@ -163,7 +164,9 @@ jobs:
           # runnable locally, where a built `engine/target` alone is minutes of scanning.
           skip-dirs: engine/target,.venv,portal/node_modules
 
-  # Stage 3, one job per operating system.
+  # Stage 3. Everything on Linux first — engine tests and a release build of the shell, side by
+  # side. The build is the only thing that links `gui/` and the native codec crates (libaom,
+  # heif-rs) here, so a compile break surfaces on ubuntu before Windows or macOS is spent on it.
   test-linux:
     name: test (ubuntu-latest)
     needs: security
@@ -192,10 +195,49 @@ jobs:
       - name: coverage core
         run: ./manage.py coverage --package calumma-core
 
+  build-linux:
+    name: build (ubuntu-latest)
+    needs: security
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+          cache: pip
+      - run: python -m pip install -r requirements.txt
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            engine -> target
+            gui -> target
+      # libclang for heif-rs's bindgen, cmake/ninja/nasm for libaom, and the rest for Slint's
+      # winit backend (fontconfig, xkbcommon, wayland, udev).
+      - name: native build deps
+        run: |
+          sudo apt-get update && sudo apt-get install -y \
+            libclang-dev cmake ninja-build nasm \
+            libfontconfig1-dev libudev-dev libxkbcommon-dev libwayland-dev \
+            libx11-dev libxext-dev libxfixes-dev
+      - name: package
+        id: package
+        env:
+          VERSION_INPUT: ${{ inputs.version }}
+        run: ./manage.py ci-release package
+      - uses: actions/upload-artifact@v4
+        with:
+          name: miw-linux-x86_64
+          path: |
+            dist/*.tar.gz
+            dist/*.deb
+            dist/*.sha256
+
+  # Stage 4. Windows and macOS, only once Linux is fully green. Each OS packages its installer
+  # into dist/; stage 5 publishes every artifact when the version actually moved.
   test-windows:
     name: test (windows-latest)
-    needs: security
-    if: github.event_name == 'workflow_dispatch'
+    needs: [test-linux, build-linux]
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -208,7 +250,7 @@ jobs:
 
   test-macos:
     name: test (macos-26)
-    needs: security
+    needs: [test-linux, build-linux]
     runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
@@ -234,40 +276,43 @@ jobs:
       - name: build ffi
         run: cargo build --manifest-path engine/Cargo.toml -p calumma-ffi
 
-  version-check:
-    name: check for a workspace version bump
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    outputs:
-      changed: ${{ steps.check.outputs.changed }}
-      version: ${{ steps.check.outputs.version }}
+  build-windows:
+    name: build (windows-latest, .zip)
+    needs: [test-linux, build-linux]
+    runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 2
       - uses: actions/setup-python@v5
         with:
           python-version: "3.14"
           cache: pip
       - run: python -m pip install -r requirements.txt
-      - name: diff engine/Cargo.toml version against the previous commit
-        id: check
-        run: ./manage.py version-check
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            engine -> target
+            gui -> target
+      # cmake and LLVM (for bindgen) ship on the image; nasm, which libaom's x86 asm needs, does not.
+      - uses: ilammy/setup-nasm@v1
+      - name: package
+        id: package
+        env:
+          VERSION_INPUT: ${{ inputs.version }}
+        run: python ./manage.py ci-release package
+      - uses: actions/upload-artifact@v4
+        with:
+          name: miw-windows-x86_64
+          path: |
+            dist/*.zip
+            dist/*.sha256
 
-  macos-dmg:
-    name: macos installable (.dmg)
-    needs: [version-check, test-linux, test-windows, test-macos]
-    if: |
-      always() &&
-      (github.event_name == 'workflow_dispatch' ||
-       github.ref_type == 'tag' ||
-       needs.version-check.outputs.changed == 'true') &&
-      needs.test-linux.result == 'success' &&
-      needs.test-macos.result == 'success' &&
-      (needs.test-windows.result == 'success' || needs.test-windows.result == 'skipped')
+  build-macos:
+    name: build (macos-26, .dmg)
+    needs: [test-linux, build-linux]
     runs-on: macos-26
-    permissions:
-      contents: write
+    outputs:
+      version: ${{ steps.package.outputs.version }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -294,11 +339,62 @@ jobs:
           path: |
             dist/*.dmg
             dist/*.sha256
+
+  version-check:
+    name: check for a workspace version bump
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    outputs:
+      changed: ${{ steps.check.outputs.changed }}
+      version: ${{ steps.check.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+          cache: pip
+      - run: python -m pip install -r requirements.txt
+      - name: diff engine/Cargo.toml version against the previous commit
+        id: check
+        run: ./manage.py version-check
+
+  # Stage 5. Publishing is just `gh` against artifacts that already exist, so it runs on
+  # ubuntu rather than holding a macOS runner. `always()` is only there because `version-check`
+  # is skipped off `main`; every platform job still has to have actually succeeded.
+  release:
+    name: release
+    needs: [version-check, test-linux, build-linux, test-windows, build-windows, test-macos, build-macos]
+    if: |
+      always() &&
+      (github.ref_type == 'tag' ||
+       inputs.publish ||
+       needs.version-check.outputs.changed == 'true') &&
+      needs.test-linux.result == 'success' &&
+      needs.build-linux.result == 'success' &&
+      needs.test-windows.result == 'success' &&
+      needs.build-windows.result == 'success' &&
+      needs.test-macos.result == 'success' &&
+      needs.build-macos.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+          cache: pip
+      - run: python -m pip install -r requirements.txt
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: miw-*
+          path: dist
+          merge-multiple: true
       - name: publish release
-        if: github.ref_type == 'tag' || inputs.publish || needs.version-check.outputs.changed == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           AUTO_RELEASE: ${{ needs.version-check.outputs.changed }}
-          VERSION: ${{ steps.package.outputs.version }}
-          DMG: ${{ steps.package.outputs.dmg }}
+          VERSION: ${{ needs.build-macos.outputs.version }}
         run: ./manage.py ci-release publish

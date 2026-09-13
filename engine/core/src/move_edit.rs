@@ -1,5 +1,4 @@
 use crate::document::{Document, TransformDrag, TransformTarget};
-use crate::limits::LAYER_NUDGE_STEP;
 use crate::shape::Tool;
 use crate::transform::bounds_center;
 
@@ -62,16 +61,6 @@ impl Document {
         vector || layer
     }
 
-    pub fn nudge_move_target(&mut self, steps_x: f32, steps_y: f32) -> bool {
-        if self.nudge_selected_vector_item(steps_x, steps_y) {
-            return true;
-        }
-        if self.tool != Tool::Move && !self.transform_active {
-            return false;
-        }
-        self.nudge_active_layer(steps_x, steps_y)
-    }
-
     fn begin_layer_move(&mut self, index: usize, doc_x: f32, doc_y: f32) -> bool {
         let indices = self.movable_selection_for_click(index);
         if indices.is_empty() {
@@ -99,18 +88,5 @@ impl Document {
         }
         self.transform_drag = Some(TransformDrag::layer_move(targets, (doc_x, doc_y)));
         true
-    }
-
-    fn nudge_active_layer(&mut self, steps_x: f32, steps_y: f32) -> bool {
-        let indices = self.nudge_layer_indices();
-        if indices.is_empty() {
-            return false;
-        }
-        self.record_transforms_for_indices(&indices);
-        self.offset_layers(
-            &indices,
-            steps_x * LAYER_NUDGE_STEP,
-            steps_y * LAYER_NUDGE_STEP,
-        )
     }
 }

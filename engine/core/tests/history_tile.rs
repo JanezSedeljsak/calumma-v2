@@ -57,7 +57,6 @@ impl HistoryMutator for TileHost<'_> {
         }
         HistoryCommand {
             diffs,
-            masks: Vec::new(),
             runs: Vec::new(),
             transforms,
             props: Vec::new(),

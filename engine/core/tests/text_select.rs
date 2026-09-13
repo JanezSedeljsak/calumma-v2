@@ -131,22 +131,6 @@ fn select_all_with_no_session_still_selects_the_canvas() {
     assert!(doc.selection.is_some());
 }
 
-#[test]
-fn a_double_click_selects_the_word_under_it() {
-    let mut doc = typed("hello world");
-    let (x, y) = (run(&doc).origin.0 + 8.0, run(&doc).origin.1 + 8.0);
-    doc.text_select_word_at(x, y);
-    assert_eq!(doc.text_selection(), Some((0, 5)));
-}
-
-#[test]
-fn a_triple_click_selects_the_paragraph_under_it() {
-    let mut doc = typed("one two\nthree");
-    let run_origin = run(&doc).origin;
-    doc.text_select_paragraph_at(run_origin.0 + 8.0, run_origin.1 + 8.0);
-    assert_eq!(doc.text_selection(), Some((0, 7)));
-}
-
 /// Pointer-down anchors, pointer-move extends: the whole of drag-select, and the reason the
 /// board forwards a Text-tool drag at all.
 #[test]
@@ -256,17 +240,6 @@ fn a_selection_never_lands_inside_a_codepoint() {
     assert!(run.text.is_char_boundary(start));
     assert!(run.text.is_char_boundary(end));
     assert_eq!(end, run.text.len());
-}
-
-#[test]
-fn a_composition_replaces_the_selection_before_it_is_shown() {
-    let mut doc = typed("hello world");
-    doc.text_step_caret(Step::WordLeft, true);
-    doc.text_set_marked("ん");
-    let run = run(&doc);
-    assert_eq!(run.text, "hello ", "the selected word went first");
-    assert_eq!(run.display_text(), "hello ん");
-    assert_eq!(doc.text_selection(), None);
 }
 
 /// Shift-click extends rather than re-anchoring, which means it is the one Text-tool press

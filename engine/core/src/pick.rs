@@ -30,8 +30,6 @@ pub(crate) struct PickProbe {
     x: f32,
     y: f32,
     slack: f32,
-    doc_w: u32,
-    doc_h: u32,
 }
 
 impl PickProbe {
@@ -76,13 +74,7 @@ impl PickProbe {
     }
 
     fn sample(&self, layer: &Layer, dx: i32, dy: i32) -> bool {
-        let alpha = layer_alpha_at(
-            layer,
-            self.x + dx as f32,
-            self.y + dy as f32,
-            self.doc_w,
-            self.doc_h,
-        );
+        let alpha = layer_alpha_at(layer, self.x + dx as f32, self.y + dy as f32);
         alpha >= LAYER_PICK_MIN_ALPHA
     }
 
@@ -139,8 +131,6 @@ impl Document {
             x: doc_x,
             y: doc_y,
             slack: (LAYER_PICK_SLACK_PX / self.camera.zoom.max(1e-6)).min(LAYER_PICK_MAX_SLACK),
-            doc_w: self.width,
-            doc_h: self.height,
         }
     }
 
@@ -155,12 +145,6 @@ impl Document {
 
     pub fn layer_at_for_move(&self, doc_x: f32, doc_y: f32) -> Option<usize> {
         self.topmost(doc_x, doc_y, false, PickScan::Move)
-    }
-
-    /// The topmost *locked* layer under the point. Nothing picks with this — it exists so a
-    /// click that fell through a locked layer can name what it fell through.
-    pub fn locked_layer_at(&self, doc_x: f32, doc_y: f32) -> Option<usize> {
-        self.topmost(doc_x, doc_y, true, PickScan::Slack)
     }
 
     pub fn locked_layer_at_for_move(&self, doc_x: f32, doc_y: f32) -> Option<usize> {

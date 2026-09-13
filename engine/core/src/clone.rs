@@ -9,8 +9,7 @@
 //! (`Document::clone_pending_stamps`), the same nearest-neighbour trade-off the layer-transform
 //! flatten already makes, so this kernel never has to resample.
 
-use crate::blur::{disc_coverage, premultiply, unpremultiply};
-use crate::limits::STAMP_COVERAGE_PADDING;
+use crate::blur::{disc_coverage, premultiply, stamp_target, unpremultiply};
 use crate::selection::Selection;
 use crate::tile::{DocRect, TileGrid};
 
@@ -30,17 +29,7 @@ pub fn clone_stamps(
     if radius <= 0.0 || stamps.is_empty() {
         return 0;
     }
-    let pad = radius + STAMP_COVERAGE_PADDING;
-    let (mut min_x, mut min_y) = (f32::INFINITY, f32::INFINITY);
-    let (mut max_x, mut max_y) = (f32::NEG_INFINITY, f32::NEG_INFINITY);
-    for &(x, y) in stamps {
-        min_x = min_x.min(x);
-        min_y = min_y.min(y);
-        max_x = max_x.max(x);
-        max_y = max_y.max(y);
-    }
-    let target = DocRect::from_floats(min_x - pad, min_y - pad, max_x + pad, max_y + pad);
-    let Some(target) = target.intersect(grid.bounds()) else {
+    let Some(target) = stamp_target(grid, stamps, radius) else {
         return 0;
     };
     let source = DocRect::new(

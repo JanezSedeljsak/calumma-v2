@@ -35,7 +35,7 @@ use std::time::Instant;
 type TileKey = (u32, i32, i32);
 
 /// One tile's upload, as the parallel bake hands it to the sequential wgpu loop: the baked
-/// base level when the layer needed one (mask, adjustments or opacity), and the mip chain above
+/// base level when the layer needed one (a clip), and the mip chain above
 /// it. `None` for the base means nothing was baked, so the upload reads the tile's own `Arc`
 /// and the tile may share an atlas slot with its siblings.
 type TilePayload = (Option<Vec<u8>>, Vec<Vec<u8>>);

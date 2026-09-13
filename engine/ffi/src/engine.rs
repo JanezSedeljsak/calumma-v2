@@ -1,5 +1,4 @@
 use crate::active_renderer::ActiveRenderer;
-use crate::platform::CalmPlatformOps;
 use crate::surface::CalmNativeSurface;
 use anyhow::bail;
 #[cfg(not(test))]
@@ -20,7 +19,6 @@ pub(crate) struct Inner {
     dirty_save: bool,
     autosave_thread: Option<crate::autosave::AutosaveThread>,
     registry: OpRegistry,
-    platform_ops: Option<CalmPlatformOps>,
     last_shape_tool: Tool,
     last_select_tool: Tool,
     viewport_width: f32,
@@ -70,7 +68,6 @@ impl Inner {
             dirty_save: false,
             autosave_thread: None,
             registry: base_op_registry(),
-            platform_ops: None,
             last_shape_tool: Tool::Rect,
             last_select_tool: Tool::SelectRect,
             viewport_width: 0.0,
@@ -279,9 +276,9 @@ impl Inner {
 
 pub(crate) fn base_op_registry() -> OpRegistry {
     let mut registry = OpRegistry::new();
-    registry.register_core(Box::new(UpscaleOp));
-    registry.register_core(Box::new(SeamCarveOp));
-    registry.register_core(Box::new(SmartMatteOp));
+    registry.register(Box::new(UpscaleOp));
+    registry.register(Box::new(SeamCarveOp));
+    registry.register(Box::new(SmartMatteOp));
     registry
 }
 

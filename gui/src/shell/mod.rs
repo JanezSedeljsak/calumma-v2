@@ -19,7 +19,7 @@ pub use format::{format_bytes, relative_time};
 pub use l10n::Catalog;
 pub use layers::LayerThumbCache;
 pub use meow::{play as play_meow, preload as preload_meow};
-pub use prefs::ShellPrefs;
+pub use prefs::{EditorWindow, ShellPrefs, WindowBounds};
 pub use theme::Theme;
 pub use tool_labels::{
     blend_label_key, brush_icon_index, brush_label_key, grid_slot_selected, grid_slot_tip_key,

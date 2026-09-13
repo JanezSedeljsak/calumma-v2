@@ -98,34 +98,6 @@ fn layer_at_is_pixel_accurate_not_tile_accurate() {
 }
 
 #[test]
-fn layer_at_respects_a_mask() {
-    let mut doc = doc_with_viewport();
-    paint(&mut doc, 1, DocRect::new(10, 10, 90, 90), [255, 0, 0, 255]);
-    let mut mask = vec![255u8; (DOC as usize) * (DOC as usize)];
-    for y in 20..70u32 {
-        for x in 20..70u32 {
-            mask[(y * DOC + x) as usize] = 0;
-        }
-    }
-    doc.layers[1].set_mask(Some(mask));
-    assert_eq!(doc.layer_at(45.5, 45.5), None, "well inside the hole");
-    assert_eq!(doc.layer_at(85.5, 85.5), Some(1), "well outside it");
-}
-
-/// The mask hole above has to be bigger than the pick slack to hide the layer, which is the
-/// point: a single masked-out pixel is a pinhole nobody aimed at, and it used to be enough to
-/// make a click pass straight through a layer that visibly fills the cursor.
-#[test]
-fn a_one_pixel_mask_hole_does_not_swallow_a_click() {
-    let mut doc = doc_with_viewport();
-    paint(&mut doc, 1, DocRect::new(10, 10, 40, 40), [255, 0, 0, 255]);
-    let mut mask = vec![255u8; (DOC as usize) * (DOC as usize)];
-    mask[(20 * DOC + 20) as usize] = 0;
-    doc.layers[1].set_mask(Some(mask));
-    assert_eq!(doc.layer_at(20.5, 20.5), Some(1));
-}
-
-#[test]
 fn layer_at_treats_zero_opacity_as_unpickable() {
     let mut doc = doc_with_viewport();
     paint(&mut doc, 1, DocRect::new(10, 10, 40, 40), [255, 0, 0, 255]);

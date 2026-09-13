@@ -233,7 +233,6 @@ pub fn encode(doc: &Document) -> Vec<u8> {
 /// possibly offset) rect keeps every caller's life the same shape as `layer_rgba`/`place_image`
 /// already assume: one canvas-sized buffer per layer, no separate offset to thread through.
 pub struct DecodedLayer {
-    #[allow(dead_code)]
     pub name: String,
     pub visible: bool,
     pub opacity: f32,

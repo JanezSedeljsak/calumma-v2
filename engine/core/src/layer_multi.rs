@@ -1,6 +1,10 @@
 use crate::document::Document;
 
 impl Document {
+    pub fn layer_selection(&self) -> &[usize] {
+        &self.layer_selection
+    }
+
     pub fn set_layer_selection(&mut self, indices: &[usize]) {
         self.layer_selection.clear();
         for &index in indices {

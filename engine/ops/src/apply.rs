@@ -1,6 +1,6 @@
 use crate::registry::OpRegistry;
 use crate::types::{OpError, OpInput, OpKind, OpOutput, OpParams};
-use calumma_core::{Document, Layer, LayerContent, VectorItem};
+use calumma_core::{Document, Layer, LayerContent};
 
 pub fn run_op(
     registry: &OpRegistry,
@@ -41,7 +41,7 @@ pub fn apply_output(
             if !layer.content.is_raster() {
                 return Err(OpError::BadLayer);
             }
-            if !doc.apply_remove_background_mask(layer_index, mask) {
+            if !doc.apply_matte_mask(layer_index, mask) {
                 return Err(OpError::BadInput);
             }
             Ok(())
@@ -62,19 +62,6 @@ pub fn apply_output(
             doc.active_layer = doc.layers.len() - 1;
             Ok(())
         }
-        OpOutput::Paths(paths) => {
-            for path in paths {
-                let layer = Layer::vector(
-                    calumma_core::names::numbered_vector_layer(doc.layers.len() + 1),
-                    VectorItem::Path(path),
-                );
-                doc.layers.push(layer);
-            }
-            if !doc.layers.is_empty() {
-                doc.active_layer = doc.layers.len() - 1;
-            }
-            Ok(())
-        }
     }
 }
 
@@ -86,7 +73,7 @@ pub fn layer_input(doc: &Document, layer_index: usize) -> Result<OpInput, OpErro
             let h = tiles.height();
             let mut rgba = vec![0u8; (w as usize) * (h as usize) * 4];
             tiles.copy_into_rgba(&mut rgba, w, h);
-            Ok(OpInput::Raster { rgba, w, h })
+            Ok(OpInput { rgba, w, h })
         }
         LayerContent::Vector(_) => Err(OpError::BadInput),
     }

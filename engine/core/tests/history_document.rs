@@ -3,7 +3,6 @@ use calumma_core::filters::Adjustments;
 use calumma_core::history::History;
 use calumma_core::layer::BlendMode;
 use calumma_core::layer_align::{AlignEdge, DistributeAxis};
-use calumma_core::limits;
 use calumma_core::paste::PasteOutcome;
 use calumma_core::transform::LayerTransform;
 use calumma_core::vector::{VectorItem, VectorShape};
@@ -267,20 +266,6 @@ fn undo_transform_mode_corner_drag() {
 }
 
 #[test]
-fn undo_nudge_move_target() {
-    let mut doc = fresh_doc();
-    let layer = doc.active_layer;
-    paint(&mut doc, layer, 10, 10, [255, 0, 0, 255]);
-    clear_history(&mut doc);
-    doc.set_tool(Tool::Move);
-    assert!(doc.nudge_move_target(2.0, 0.0));
-    let offset = doc.layers[doc.active_layer].transform.unwrap().offset_x;
-    assert!(offset > 0.0);
-    assert!(doc.undo());
-    assert!(doc.layers[doc.active_layer].transform.is_none());
-}
-
-#[test]
 fn undo_resize_document() {
     let mut doc = fresh_doc();
     clear_history(&mut doc);
@@ -401,20 +386,6 @@ fn undo_vector_item_drag() {
     assert!(doc.undo());
     let restored = item_bounds(&doc, layer);
     assert!((restored.0 - before.0).abs() < 0.01);
-}
-
-#[test]
-fn undo_delete_vector_item() {
-    let mut doc = fresh_doc();
-    let layer = doc.add_vector_layer("V", rect_item((10.0, 10.0), (40.0, 40.0)));
-    let before = doc.layers.len();
-    doc.select_vector_item_at(25.0, 25.0);
-    clear_history(&mut doc);
-    assert!(doc.delete_selected_vector_item());
-    assert_eq!(doc.layers.len(), before - 1);
-    assert!(doc.undo());
-    assert_eq!(doc.layers.len(), before);
-    assert!(doc.layers[layer].content.item().is_some());
 }
 
 #[test]
@@ -571,42 +542,6 @@ fn undo_move_layer_up() {
         names_before
     );
     assert_eq!(doc.layers[b].name, "B");
-}
-
-#[test]
-fn undo_stack_op_restores_multi_layer_selection() {
-    let mut doc = fresh_doc();
-    doc.add_layer("B");
-    paint_rect(&mut doc, 1, DocRect::new(10, 10, 30, 30), [255, 0, 0, 255]);
-    paint_rect(&mut doc, 2, DocRect::new(50, 50, 70, 70), [0, 255, 0, 255]);
-    doc.set_layer_selection(&[1, 2]);
-    clear_history(&mut doc);
-    doc.add_layer("C");
-    assert!(doc.undo());
-    doc.set_tool(Tool::Move);
-    assert!(doc.nudge_move_target(1.0, 0.0));
-    let step = limits::LAYER_NUDGE_STEP;
-    let t1 = doc.layers[1].transform.expect("layer 1 nudged");
-    let t2 = doc.layers[2].transform.expect("layer 2 nudged");
-    assert!((t1.offset_x - step).abs() < 0.01);
-    assert!((t2.offset_x - step).abs() < 0.01);
-}
-
-#[test]
-fn undo_vector_nudge() {
-    let mut doc = fresh_doc();
-    let layer = doc.add_vector_layer("V", rect_item((10.0, 10.0), (40.0, 40.0)));
-    doc.set_active_layer(layer);
-    assert!(doc.select_vector_item_at(25.0, 25.0));
-    let before = item_bounds(&doc, layer);
-    clear_history(&mut doc);
-    assert!(doc.nudge_selected_vector_item(3.0, -2.0));
-    let after = item_bounds(&doc, layer);
-    assert!((after.0 - before.0).abs() > 0.5);
-    assert!(doc.undo());
-    let restored = item_bounds(&doc, layer);
-    assert!((restored.0 - before.0).abs() < 0.01);
-    assert!((restored.1 - before.1).abs() < 0.01);
 }
 
 #[test]

@@ -165,12 +165,6 @@ impl HistoryMutator for Document {
                 tiles.restore_tiles(&diff.tiles);
             }
         }
-        for diff in &command.masks {
-            let Some(&index) = layer_at.get(&diff.layer_id) else {
-                continue;
-            };
-            self.layers[index].set_mask(diff.mask.clone());
-        }
         for diff in &command.props {
             let Some(&index) = layer_at.get(&diff.layer_id) else {
                 continue;
@@ -210,21 +204,15 @@ impl HistoryMutator for Document {
             let stack = self.snapshot_stack();
             let bytes = stack_snapshot_bytes(&stack);
             return HistoryCommand {
-                diffs: Vec::new(),
-                masks: Vec::new(),
-                runs: Vec::new(),
-                transforms: Vec::new(),
-                props: Vec::new(),
-                vectors: Vec::new(),
                 stack: Some(stack),
                 active_layer_index: Some(self.active_layer),
                 bytes,
+                ..Default::default()
             };
         }
 
         let layer_at = layer_indices_by_id(&self.layers);
         let mut diffs = Vec::with_capacity(command.diffs.len());
-        let mut masks = Vec::with_capacity(command.masks.len());
         let mut runs = Vec::with_capacity(command.runs.len());
         let mut transforms = Vec::with_capacity(command.transforms.len());
         let mut props = Vec::with_capacity(command.props.len());
@@ -258,17 +246,6 @@ impl HistoryMutator for Document {
             runs.push(crate::history::RunDiff {
                 layer_id: diff.layer_id.clone(),
                 run: Box::new(run.clone()),
-            });
-        }
-        for diff in &command.masks {
-            let Some(&index) = layer_at.get(&diff.layer_id) else {
-                continue;
-            };
-            let mask = self.layers[index].mask_owned();
-            bytes += mask.as_ref().map(|m| m.len()).unwrap_or(0);
-            masks.push(crate::history::MaskDiff {
-                layer_id: diff.layer_id.clone(),
-                mask,
             });
         }
         for diff in &command.props {
@@ -310,7 +287,6 @@ impl HistoryMutator for Document {
         }
         HistoryCommand {
             diffs,
-            masks,
             runs,
             transforms,
             props,

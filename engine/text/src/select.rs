@@ -38,8 +38,8 @@ pub fn selection_rects(run: &TextRun, start: usize, end: usize) -> Vec<Selection
     if low >= high {
         return Vec::new();
     }
-    let from = run.display_index(low);
-    let to = run.display_index(high);
+    let from = run.clamp_index(low);
+    let to = run.clamp_index(high);
     let break_width = run.size * BREAK_WIDTH_RATIO;
     with_buffer(run, |buffer, _| {
         let offsets = line_offsets(buffer);

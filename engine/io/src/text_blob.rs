@@ -1,12 +1,6 @@
 use calumma_core::{SpanStyle, StyleSpan, TextAlign, TextRun};
 
-/// Blob layout in use. Version 1 knew no weight or slant and version 2 no style spans; both
-/// are still read — the older fields answered as off, a missing span section as "uniform" —
-/// so a project saved before either keeps opening. This is the same versioned-header shape
-/// `vector_blob.rs` uses.
 const VERSION: u8 = 3;
-const VERSION_UNSTYLED: u8 = 1;
-const VERSION_UNIFORM: u8 = 2;
 
 /// Which fields a span carries, as a bitmask ahead of its payload. A span states only what it
 /// overrides, so the mask is what keeps `None` distinguishable from a written default.
@@ -54,7 +48,6 @@ fn take_str(bytes: &[u8], at: &mut usize) -> Option<String> {
 /// on open. That keeps the project file small (a paragraph instead of a bitmap) and is what
 /// makes text still editable in a project reopened months later.
 ///
-/// `marked` is deliberately absent: an IME composition is never committed content.
 pub fn encode(run: &TextRun) -> Vec<u8> {
     let mut out = Vec::new();
     out.push(VERSION);
@@ -148,21 +141,15 @@ fn take_spans(bytes: &[u8], at: &mut usize) -> Option<Vec<StyleSpan>> {
 }
 
 pub fn decode(bytes: &[u8]) -> Option<TextRun> {
-    let version = bytes.first().copied()?;
-    if !matches!(version, VERSION | VERSION_UNIFORM | VERSION_UNSTYLED) {
+    if bytes.first().copied()? != VERSION {
         return None;
     }
     let mut at = 1usize;
     let text = take_str(bytes, &mut at)?;
     let family = take_str(bytes, &mut at)?;
-    let (bold, italic) = if version == VERSION_UNSTYLED {
-        (false, false)
-    } else {
-        let bold = bytes.get(at).copied()? != 0;
-        let italic = bytes.get(at + 1).copied()? != 0;
-        at += 2;
-        (bold, italic)
-    };
+    let bold = bytes.get(at).copied()? != 0;
+    let italic = bytes.get(at + 1).copied()? != 0;
+    at += 2;
     let size = take_f32(bytes, &mut at)?;
     let line_height = take_f32(bytes, &mut at)?;
     let color = <[u8; 4]>::try_from(bytes.get(at..at + 4)?).ok()?;
@@ -181,16 +168,10 @@ pub fn decode(bytes: &[u8]) -> Option<TextRun> {
             None
         }
     };
-    let spans = if version == VERSION {
-        take_spans(bytes, &mut at)?
-    } else {
-        Vec::new()
-    };
+    let spans = take_spans(bytes, &mut at)?;
     Some(
         TextRun {
             text,
-            marked: String::new(),
-            marked_at: 0,
             family,
             bold,
             italic,

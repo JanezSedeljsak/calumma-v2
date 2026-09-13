@@ -9,10 +9,7 @@ use crate::document::Document;
 use crate::layer::Layer;
 use crate::text_edit::TextRange;
 use crate::text_layer;
-use calumma_text::{
-    caret_rect, index_at_point, paragraph_range, selection_rects, step_index, word_range,
-    SelectionRect, Step,
-};
+use calumma_text::{caret_rect, index_at_point, selection_rects, step_index, SelectionRect, Step};
 
 impl Document {
     pub fn text_caret(&self) -> Option<usize> {
@@ -54,14 +51,6 @@ impl Document {
         self.place_caret(next, extend);
     }
 
-    pub fn text_set_caret_at(&mut self, doc_x: f32, doc_y: f32) {
-        let Some(run) = self.editing_run() else {
-            return;
-        };
-        let caret = index_at_point(run, doc_x, doc_y);
-        self.place_caret(caret, false);
-    }
-
     /// Drag-select: the anchor stays where the press landed and the caret follows the pointer.
     pub fn text_extend_to(&mut self, doc_x: f32, doc_y: f32) {
         let Some(run) = self.editing_run() else {
@@ -80,32 +69,6 @@ impl Document {
         self.place_caret(0, false);
         self.place_caret(len, true);
         true
-    }
-
-    /// Double-click: the word under the pointer, anchored at its far end so a shift-drag from
-    /// there keeps extending by the same gesture.
-    pub fn text_select_word_at(&mut self, doc_x: f32, doc_y: f32) {
-        self.select_span_at(doc_x, doc_y, word_range);
-    }
-
-    /// Triple-click: the whole paragraph, wrap or no wrap.
-    pub fn text_select_paragraph_at(&mut self, doc_x: f32, doc_y: f32) {
-        self.select_span_at(doc_x, doc_y, paragraph_range);
-    }
-
-    fn select_span_at(
-        &mut self,
-        doc_x: f32,
-        doc_y: f32,
-        range: impl Fn(&calumma_text::TextRun, usize) -> (usize, usize),
-    ) {
-        let Some(run) = self.editing_run() else {
-            return;
-        };
-        let at = index_at_point(run, doc_x, doc_y);
-        let (start, end) = range(run, at);
-        self.place_caret(start, false);
-        self.place_caret(end, true);
     }
 
     /// The one place caret and anchor are written. `extend` is the whole difference between a

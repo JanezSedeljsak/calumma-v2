@@ -336,34 +336,6 @@ fn out_of_range_sizes_are_clamped_by_the_engine() {
 }
 
 #[test]
-fn a_composition_shows_before_it_is_committed() {
-    let mut doc = board();
-    click(&mut doc, 100.0, 100.0);
-    let layer = doc.active_layer;
-    doc.text_set_marked("˚");
-    assert!(
-        ink_pixels(&doc, layer) > 0,
-        "marked text draws on the board"
-    );
-    assert_eq!(doc.active_text_run().unwrap().text, "");
-    doc.text_insert("å");
-    assert_eq!(doc.active_text_run().unwrap().text, "å");
-    assert!(doc.active_text_run().unwrap().marked.is_empty());
-}
-
-#[test]
-fn an_abandoned_composition_does_not_survive_commit() {
-    let mut doc = board();
-    click(&mut doc, 100.0, 100.0);
-    doc.text_insert("ok");
-    doc.text_set_marked("¨");
-    doc.commit_text();
-    let run = doc.layers.last().unwrap().run().unwrap();
-    assert_eq!(run.text, "ok");
-    assert!(run.marked.is_empty());
-}
-
-#[test]
 fn text_layers_composite_and_export_like_any_layer() {
     let mut doc = board();
     click(&mut doc, 100.0, 100.0);
@@ -554,23 +526,6 @@ fn committing_text_follows_the_layer_id_not_a_stale_index() {
         "the edited layer survived"
     );
     assert!(doc.layers[0].is_paper(), "and Paper was not the casualty");
-}
-
-/// Every mutator in `text_input.rs` goes through `with_run`, which answers `None` with nothing
-/// open to edit — so each has to be a safe no-op rather than assuming a session is live, since
-/// a stray keystroke can always outrace the click that starts one.
-#[test]
-fn edits_without_an_open_session_are_a_no_op() {
-    let mut doc = board();
-    assert!(!doc.text_editing());
-
-    doc.text_insert("hello");
-    doc.text_set_marked("˚");
-    doc.text_backspace();
-    doc.text_delete_forward();
-
-    assert!(!doc.text_editing());
-    assert_eq!(doc.layers.len(), 2, "Paper and the default paint layer");
 }
 
 #[test]

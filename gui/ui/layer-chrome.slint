@@ -1,6 +1,19 @@
 import { SelectOption } from "calm/CalmSelect.slint";
 
 export global LayerChrome {
+    in property <bool> align-visible;
+    in property <string> align-left-label;
+    in property <string> align-center-h-label;
+    in property <string> align-right-label;
+    in property <string> align-top-label;
+    in property <string> align-center-v-label;
+    in property <string> align-bottom-label;
+    in property <string> distribute-h-label;
+    in property <string> distribute-v-label;
+    callback toggle-layer-selected(int);
+    callback align(int);
+    callback distribute(bool);
+
     in-out property <string> name;
     in-out property <image> preview;
     in-out property <bool> visible: true;

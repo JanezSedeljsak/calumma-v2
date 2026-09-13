@@ -9,6 +9,7 @@ pub fn apply_theme(ui: &AppWindow, theme: &Theme) {
     palette.set_surface(theme.surface);
     palette.set_surface_hover(theme.surface_hover);
     palette.set_text(theme.text);
+    palette.set_text_soft(theme.text_soft);
     palette.set_text_muted(theme.text_muted);
     palette.set_accent_teal(theme.accent_teal);
     palette.set_accent_orange(theme.accent_orange);

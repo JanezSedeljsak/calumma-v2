@@ -83,6 +83,7 @@ COLOR_KEYS = (
     "surface",
     "surfaceHover",
     "text",
+    "textSoft",
     "textMuted",
     "danger",
     "desk",
@@ -131,6 +132,7 @@ BIN_HDIUTIL = "hdiutil"
 BIN_CODESIGN = "codesign"
 BIN_DITTO = "ditto"
 BIN_ICONUTIL = "iconutil"
+BIN_DPKG_DEB = "dpkg-deb"
 BIN_GH = "gh"
 BIN_GIT = "git"
 
@@ -143,7 +145,14 @@ APPLICATIONS_LINK = "Applications"
 APPLICATIONS_TARGET = "/Applications"
 DMG_FORMAT = "UDZO"
 DMG_SUFFIX = ".dmg"
+ZIP_SUFFIX = ".zip"
+TAR_GZ_SUFFIX = ".tar.gz"
 CHECKSUM_SUFFIX = ".sha256"
+WINDOWS_ARCH = "x86_64"
+LINUX_ARCH = "x86_64"
+DEB_ARCH = "amd64"
+LINUX_BIN = "miw"
+LINUX_SHARE = "miw"
 SIGN_IDENTITY_ADHOC = "-"
 SIGN_OPTIONS_RUNTIME = "runtime"
 ICONSET_DIR_NAME = "AppIcon.iconset"
@@ -161,7 +170,11 @@ MSG_N_A = "n/a"
 MSG_NO_APP = "release build produced no app binary at"
 MSG_PACKAGED = "packaged"
 MSG_SIGNED_ADHOC = "ad-hoc signed (no Developer ID); Gatekeeper will require right-click → Open"
-MSG_PACKAGE_MACOS_ONLY = "package is macOS-only (needs codesign, hdiutil, iconutil)"
+MSG_PACKAGE_MACOS_ONLY = "macOS package needs codesign, hdiutil, iconutil"
+MSG_PACKAGE_WINDOWS_ONLY = "Windows package needs to run on Windows"
+MSG_PACKAGE_LINUX_ONLY = "Linux package needs to run on Linux"
+MSG_PACKAGE_UNSUPPORTED = "package supports macOS, Windows, and Linux"
+MSG_NO_DPKG_DEB = "dpkg-deb is required to build the Linux .deb"
 
 ENV_GITHUB_OUTPUT = "GITHUB_OUTPUT"
 ENV_GITHUB_STEP_SUMMARY = "GITHUB_STEP_SUMMARY"
@@ -173,11 +186,9 @@ ENV_RUNNER_TEMP = "RUNNER_TEMP"
 ENV_VERSION_INPUT = "VERSION_INPUT"
 ENV_AUTO_RELEASE = "AUTO_RELEASE"
 ENV_RELEASE_VERSION = "VERSION"
-ENV_RELEASE_DMG = "DMG"
 ENV_MACOSX_DEPLOYMENT_TARGET = "MACOSX_DEPLOYMENT_TARGET"
 REF_TYPE_TAG = "tag"
 FILE_NOTES_MD = "notes.md"
-OUTPUT_KEY_DMG = "dmg"
 OUTPUT_KEY_VERSION = "version"
 
 MSG_VERSION_UNCHANGED = "workspace version unchanged"

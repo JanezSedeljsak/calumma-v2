@@ -46,18 +46,24 @@ Landing → create/preset/recent → editor with tools panel and board embed.
 
 ## Install
 
-macOS: GitHub Releases ships `Miw-<version>.dmg` whenever the workspace version in
-`engine/Cargo.toml` is bumped on `main` (must match `gui/Cargo.toml`). Ad-hoc signed, not
-notarized — right-click → Open the first time, or `xattr -dr com.apple.quarantine /Applications/Miw.app`.
+GitHub Releases ships an installer for each OS whenever the workspace version in
+`engine/Cargo.toml` is bumped on `main` (must match `gui/Cargo.toml`):
+
+- **macOS:** `Miw-<version>.dmg` — ad-hoc signed, not notarized. Right-click → Open the first
+  time, or `xattr -dr com.apple.quarantine /Applications/Miw.app`.
+- **Windows:** `Miw-<version>-windows-x86_64.zip` — unzip and run `Miw.exe`. Windows 11, 64-bit.
+- **Linux:** `Miw-<version>-linux-amd64.deb` for Debian/Ubuntu, or
+  `Miw-<version>-linux-x86_64.tar.gz` elsewhere. Needs Vulkan and X11 (or XWayland).
 
 ```bash
-./manage.py package   # local macOS build of the same .dmg
+./manage.py package   # host-native installer into dist/
 ./manage.py dev       # or run from source
 ./manage.py build
 ```
 
-CI (`.github/workflows/main.yml`) lints, security-scans, runs the engine tests, and packages
-the macOS installer on a version bump. Windows and Linux installers are still open work.
+CI (`.github/workflows/main.yml`) lints, security-scans, then tests and packages on Linux
+first and on Windows and macOS only once Linux passes. All three installers are published as
+a GitHub release on a version bump.
 
 ## Notes
 

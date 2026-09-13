@@ -157,14 +157,6 @@ impl Engine {
             .is_some_and(|layer| layer.tiles().is_some())
     }
 
-    pub fn op_available(&self, kind: OpKind) -> bool {
-        self.inner.lock().registry.available(kind)
-    }
-
-    pub fn run_smart_op(&mut self, kind: OpKind) -> Result<()> {
-        self.run_smart_op_with(kind, OpParams::default())
-    }
-
     fn run_smart_op_with(&mut self, kind: OpKind, params: OpParams) -> Result<()> {
         let index = self
             .active_layer_index()
@@ -173,7 +165,7 @@ impl Engine {
     }
 
     pub fn run_upscale(&mut self) -> Result<()> {
-        self.run_smart_op(OpKind::Upscale)
+        self.run_smart_op_with(OpKind::Upscale, OpParams::default())
     }
 
     /// With a selection live, that selection is the seed — everything outside it is background
@@ -197,35 +189,33 @@ impl Engine {
     }
 
     pub fn run_seam_carve_narrow(&mut self) -> Result<()> {
-        let mut inner = self.inner.lock();
-        let Inner {
-            doc,
-            registry,
-            dirty_save,
-            ..
-        } = &mut *inner;
-        let doc = doc.as_mut().context("no project is open")?;
-        let index = doc.active_layer;
-        let (w, h, _) = doc
-            .layer_rgba(index)
-            .context("seam carve needs a pixel layer")?;
-        let target_w = (w * 9 / 10).max(1);
-        let params = OpParams {
-            target_size: Some((target_w, h)),
-            ..Default::default()
-        };
-        run_op_on_document(registry, doc, index, OpKind::SeamCarve, &params)
-            .context("running seam carve")?;
-        *dirty_save = true;
-        inner.invalidate_renderer();
-        Ok(())
+        self.run_core_op(OpKind::SeamCarve, "running seam carve", |doc| {
+            let index = doc.active_layer;
+            let (w, h, _) = doc
+                .layer_rgba(index)
+                .context("seam carve needs a pixel layer")?;
+            let params = OpParams {
+                target_size: Some(((w * 9 / 10).max(1), h)),
+                ..Default::default()
+            };
+            Ok((index, params))
+        })
     }
 
     fn run_op_on_layer(&mut self, kind: OpKind, index: usize, params: OpParams) -> Result<()> {
-        let mut inner = self.inner.lock();
-        if !inner.registry.available(kind) {
+        if !self.inner.lock().registry.available(kind) {
             anyhow::bail!("tool is not available");
         }
+        self.run_core_op(kind, "running the tool", |_| Ok((index, params)))
+    }
+
+    fn run_core_op(
+        &mut self,
+        kind: OpKind,
+        what: &'static str,
+        target: impl FnOnce(&calumma_core::Document) -> Result<(usize, OpParams)>,
+    ) -> Result<()> {
+        let mut inner = self.inner.lock();
         let Inner {
             doc,
             registry,
@@ -233,7 +223,8 @@ impl Engine {
             ..
         } = &mut *inner;
         let doc = doc.as_mut().context("no project is open")?;
-        run_op_on_document(registry, doc, index, kind, &params).context("running the tool")?;
+        let (index, params) = target(doc)?;
+        run_op_on_document(registry, doc, index, kind, &params).context(what)?;
         *dirty_save = true;
         inner.invalidate_renderer();
         Ok(())

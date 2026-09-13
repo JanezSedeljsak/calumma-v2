@@ -7,6 +7,8 @@ import { CalmMuted } from "calm/CalmText.slint";
 import { Tip } from "calm/CalmTip.slint";
 import { ToolsPanel } from "tools-panel.slint";
 import { LayersPanel, LayerHoverCard } from "layers-panel.slint";
+import { AlignIsland } from "align-island.slint";
+import { LayerChrome } from "layer-chrome.slint";
 import { ZoomPill } from "zoom-pill.slint";
 import { CanvasSkeleton } from "canvas-skeleton.slint";
 import { RulerStrip, RulerTickRow } from "ruler.slint";
@@ -369,7 +371,9 @@ export component Editor inherits Rectangle {
                                             height: 100%;
 
                                             pointer-event(event) => {
-                                                if (event.button == PointerEventButton.left || event.button == PointerEventButton.middle) {
+                                                if (event.kind == PointerEventKind.move) {
+                                                    root.pointer-moved(self.mouse-x / 1px, self.mouse-y / 1px);
+                                                } else if (event.button == PointerEventButton.left || event.button == PointerEventButton.middle) {
                                                     if (event.kind == PointerEventKind.down) {
                                                         root.pointer-pressed(
                                                             self.mouse-x / 1px,
@@ -383,10 +387,6 @@ export component Editor inherits Rectangle {
                                                         root.pointer-released(self.mouse-x / 1px, self.mouse-y / 1px);
                                                     }
                                                 }
-                                            }
-
-                                            moved => {
-                                                root.pointer-moved(self.mouse-x / 1px, self.mouse-y / 1px);
                                             }
 
                                             scroll-event(event) => {
@@ -511,13 +511,14 @@ export component Editor inherits Rectangle {
                 }
             }
 
-            if root.layers-open: layers-slot := Rectangle {
+            if root.layers-open: layers-slot := VerticalLayout {
                 width: Tokens.layers-panel-width;
-                clip: false;
+                spacing: Tokens.space-sm;
+
+                if LayerChrome.align-visible: AlignIsland { }
 
                 LayersPanel {
-                    width: 100%;
-                    height: 100%;
+                    vertical-stretch: 1;
                     title-text: root.layers-title;
                     add-tip: root.add-layer-tip;
                     visibility-tip: root.layer-visibility-tip;

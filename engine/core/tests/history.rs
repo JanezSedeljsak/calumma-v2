@@ -132,23 +132,6 @@ fn discarded_redo_releases_budget() {
 }
 
 #[test]
-fn undo_redo_mask() {
-    let mut doc = Document::new("p".into(), "t", 4, 4);
-    let layer_index = doc.active_layer;
-    let mut history = std::mem::take(&mut doc.history);
-    let layer = &mut doc.layers[layer_index];
-    let before = layer.mask_owned();
-    layer.set_mask(Some(vec![255; 16]));
-    history.push_layer_mask(layer.id.clone(), before, Some(layer_index));
-    doc.history = history;
-    assert!(doc.layers[layer_index].mask().is_some());
-    assert!(doc.undo());
-    assert!(doc.layers[layer_index].mask().is_none());
-    assert!(doc.redo());
-    assert_eq!(doc.layers[layer_index].mask().map(|m| m.len()), Some(16));
-}
-
-#[test]
 fn undo_restores_active_layer() {
     let mut doc = Document::new("p".into(), "t", 64, 64);
     doc.add_layer("B");
@@ -182,7 +165,6 @@ fn a_command_with_no_diffs_at_all_is_not_pushed() {
     let mut history = History::default();
     history.push(HistoryCommand {
         diffs: Vec::new(),
-        masks: Vec::new(),
         runs: Vec::new(),
         transforms: Vec::new(),
         props: Vec::new(),
@@ -300,33 +282,5 @@ fn a_new_edit_after_an_undo_drops_the_redo_branch_and_its_budget() {
     assert!(
         doc.history.memory_used() <= with_redo,
         "the dropped branch gave its bytes back"
-    );
-}
-
-#[test]
-fn a_mask_undo_leaves_the_pixels_alone() {
-    let mut doc = Document::new("p".into(), "t", 4, 4);
-    let layer_index = doc.active_layer;
-    let mut history = std::mem::take(&mut doc.history);
-    doc.layers[layer_index]
-        .tiles_mut()
-        .unwrap()
-        .set_pixel(1, 1, [9, 9, 9, 255]);
-
-    let before = doc.layers[layer_index].mask_owned();
-    doc.layers[layer_index].set_mask(Some(vec![128; 16]));
-    history.push_layer_mask(
-        doc.layers[layer_index].id.clone(),
-        before,
-        Some(layer_index),
-    );
-    doc.history = history;
-
-    assert!(doc.undo());
-    assert!(doc.layers[layer_index].mask().is_none());
-    assert_eq!(
-        pixel(&doc.layers[layer_index], 1, 1),
-        [9, 9, 9, 255],
-        "the mask step did not touch the tiles"
     );
 }

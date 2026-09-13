@@ -71,9 +71,6 @@ pub fn document_memory(doc: &Document) -> DocumentMemory {
                 }
             }
         }
-        if let Some(mask) = layer.mask() {
-            out.mask_bytes += mask.len();
-        }
         match &layer.content {
             LayerContent::Vector(item) => out.vector_bytes += vector_bytes(item),
             LayerContent::Text { run, .. } => out.text_bytes += run.text.capacity(),

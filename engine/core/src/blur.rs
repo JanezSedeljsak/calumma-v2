@@ -49,17 +49,7 @@ pub fn blur_stamps(
     if radius <= 0.0 || strength <= 0.0 || stamps.is_empty() {
         return 0;
     }
-    let pad = radius + STAMP_COVERAGE_PADDING;
-    let (mut min_x, mut min_y) = (f32::INFINITY, f32::INFINITY);
-    let (mut max_x, mut max_y) = (f32::NEG_INFINITY, f32::NEG_INFINITY);
-    for &(x, y) in stamps {
-        min_x = min_x.min(x);
-        min_y = min_y.min(y);
-        max_x = max_x.max(x);
-        max_y = max_y.max(y);
-    }
-    let target = DocRect::from_floats(min_x - pad, min_y - pad, max_x + pad, max_y + pad);
-    let Some(target) = target.intersect(grid.bounds()) else {
+    let Some(target) = stamp_target(grid, stamps, radius) else {
         return 0;
     };
 
@@ -264,4 +254,18 @@ fn box_pass_vertical(
             }
         }
     }
+}
+
+pub(crate) fn stamp_target(grid: &TileGrid, stamps: &[(f32, f32)], radius: f32) -> Option<DocRect> {
+    let pad = radius + STAMP_COVERAGE_PADDING;
+    let (mut min_x, mut min_y) = (f32::INFINITY, f32::INFINITY);
+    let (mut max_x, mut max_y) = (f32::NEG_INFINITY, f32::NEG_INFINITY);
+    for &(x, y) in stamps {
+        min_x = min_x.min(x);
+        min_y = min_y.min(y);
+        max_x = max_x.max(x);
+        max_y = max_y.max(y);
+    }
+    DocRect::from_floats(min_x - pad, min_y - pad, max_x + pad, max_y + pad)
+        .intersect(grid.bounds())
 }

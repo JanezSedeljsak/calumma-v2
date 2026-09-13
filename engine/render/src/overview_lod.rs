@@ -101,7 +101,6 @@ pub(crate) fn stack_stamp(doc: &Document) -> u64 {
         layer.visible.hash(&mut hasher);
         layer.opacity.to_bits().hash(&mut hasher);
         layer.blend_mode.as_u32().hash(&mut hasher);
-        hash_mask(layer.mask(), &mut hasher);
         match layer.transform {
             Some(t) => {
                 t.offset_x.to_bits().hash(&mut hasher);
@@ -127,25 +126,6 @@ pub(crate) fn stack_stamp(doc: &Document) -> u64 {
         }
     }
     hasher.finish()
-}
-
-fn hash_mask(mask: Option<&[u8]>, hasher: &mut FxHasher) {
-    let Some(mask) = mask else {
-        0u8.hash(hasher);
-        return;
-    };
-    1u8.hash(hasher);
-    mask.len().hash(hasher);
-    if let Some(b) = mask.first() {
-        b.hash(hasher);
-    }
-    if let Some(b) = mask.last() {
-        b.hash(hasher);
-    }
-    let step = (mask.len() / 16).max(1);
-    for b in mask.iter().step_by(step) {
-        b.hash(hasher);
-    }
 }
 
 fn hash_vector_item(item: &VectorItem, hasher: &mut FxHasher) {
@@ -387,20 +367,6 @@ mod tests {
             ..Adjustments::default()
         });
         assert_ne!(stack_stamp(&d), before);
-    }
-
-    #[test]
-    fn attaching_a_mask_moves_the_stamp() {
-        let mut d = doc(8, 8);
-        let before = stack_stamp(&d);
-        d.layers[1].set_mask(Some(vec![255u8; 8 * 8]));
-        assert_ne!(stack_stamp(&d), before);
-        let mut mask = vec![255u8; 8 * 8];
-        mask[0] = 0;
-        d.layers[1].set_mask(Some(mask));
-        let with_hole = stack_stamp(&d);
-        d.layers[1].set_mask(Some(vec![255u8; 8 * 8]));
-        assert_ne!(stack_stamp(&d), with_hole);
     }
 
     #[test]

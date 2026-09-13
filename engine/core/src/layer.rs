@@ -2,17 +2,15 @@ use crate::filters::Adjustments;
 use crate::history::TileSnapshot;
 use crate::limits::PAPER_WHITE;
 use crate::tile::{DirtyChannel, DocRect, TileGrid, TileSet};
-use crate::transform::{bounds_center, LayerTransform};
+use crate::transform::LayerTransform;
 use crate::vector::VectorItem;
 use calumma_text::TextRun;
 use parking_lot::Mutex;
-use rayon::prelude::*;
 use std::sync::Arc;
 use uuid::Uuid;
 
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 
-type MaskedBoundsCache = Arc<Mutex<Option<(DocRect, Option<DocRect>)>>>;
 type VectorBoundsCache = Arc<Mutex<Option<(VectorBoundsKey, Option<(f32, f32, f32, f32)>)>>>;
 
 /// A cheap stand-in for "have this path's points changed" that costs nothing to compute,
@@ -133,7 +131,7 @@ impl BlendMode {
 /// `Text` keeps its pixels in a `TileGrid` like any painted layer, but that grid is a
 /// *cache* of `run` rather than the content itself — `text_layer::resync` rebuilds it
 /// whenever the run changes. That is what lets a text layer stay editable forever while
-/// compositing, masks, blend modes, export and the GPU upload path keep reading plain tiles
+/// compositing, blend modes, export and the GPU upload path keep reading plain tiles
 /// and needing to know nothing about glyphs.
 #[derive(Clone, Debug, PartialEq)]
 pub enum LayerContent {
@@ -225,79 +223,11 @@ pub struct Layer {
     /// stray stroke, not against a deliberate press of the button next to it.
     pub locked: bool,
     pub clips_to: Option<String>,
-    mask: Option<Vec<u8>>,
-    masked_bounds: MaskedBoundsCache,
     vector_bounds: VectorBoundsCache,
-}
-
-fn fresh_masked_bounds_cache() -> MaskedBoundsCache {
-    Arc::new(Mutex::new(None))
 }
 
 fn fresh_vector_bounds_cache() -> VectorBoundsCache {
     Arc::new(Mutex::new(None))
-}
-
-pub(crate) fn scan_masked_bounds(
-    tiles: &TileGrid,
-    mask: &[u8],
-    transform: Option<LayerTransform>,
-) -> Option<DocRect> {
-    let crop = tiles.opaque_bounds()?;
-    let doc_w = tiles.width();
-    let doc_h = tiles.height();
-    let pivot = bounds_center((
-        crop.min_x as f32,
-        crop.min_y as f32,
-        crop.max_x as f32 + 1.0,
-        crop.max_y as f32 + 1.0,
-    ));
-    let t = transform.unwrap_or_default();
-    let has_transform = transform.is_some_and(|t| !t.is_identity());
-    let rows: Vec<_> = (crop.min_y..=crop.max_y)
-        .into_par_iter()
-        .filter_map(|y| {
-            let mut min_x = i32::MAX;
-            let mut max_x = i32::MIN;
-            let mut any = false;
-            for x in crop.min_x..=crop.max_x {
-                let px = tiles.get_pixel(x, y);
-                if px[3] == 0 {
-                    continue;
-                }
-                let (doc_x, doc_y) = if has_transform {
-                    t.forward(pivot, (x as f32, y as f32))
-                } else {
-                    (x as f32, y as f32)
-                };
-                let ix = doc_x.floor() as i32;
-                let iy = doc_y.floor() as i32;
-                if ix < 0 || iy < 0 || (ix as u32) >= doc_w || (iy as u32) >= doc_h {
-                    continue;
-                }
-                let index = (iy as u32 * doc_w + ix as u32) as usize;
-                let m = mask.get(index).copied().unwrap_or(255);
-                if m == 0 {
-                    continue;
-                }
-                if ((px[3] as u32 * m as u32) / 255) == 0 {
-                    continue;
-                }
-                any = true;
-                min_x = min_x.min(x);
-                max_x = max_x.max(x);
-            }
-            any.then_some((y, min_x, max_x))
-        })
-        .collect();
-    if rows.is_empty() {
-        return None;
-    }
-    let min_y = rows.iter().map(|(y, _, _)| *y).min()?;
-    let max_y = rows.iter().map(|(y, _, _)| *y).max()?;
-    let min_x = rows.iter().map(|(_, x0, _)| *x0).min()?;
-    let max_x = rows.iter().map(|(_, _, x1)| *x1).max()?;
-    Some(DocRect::new(min_x, min_y, max_x, max_y))
 }
 
 impl Layer {
@@ -306,39 +236,31 @@ impl Layer {
     }
 
     pub fn with_id(id: String, name: impl Into<String>, width: u32, height: u32) -> Self {
+        Self::from_content(id, name.into(), LayerContent::raster(width, height))
+    }
+
+    fn from_content(id: String, name: String, content: LayerContent) -> Self {
         Self {
             id,
-            name: name.into(),
+            name,
             visible: true,
-            content: LayerContent::raster(width, height),
+            content,
             opacity: 1.0,
             blend_mode: BlendMode::Normal,
             adjustments: None,
             transform: None,
             locked: false,
             clips_to: None,
-            mask: None,
-            masked_bounds: fresh_masked_bounds_cache(),
             vector_bounds: fresh_vector_bounds_cache(),
         }
     }
 
     pub fn vector(name: impl Into<String>, item: VectorItem) -> Self {
-        Self {
-            id: Uuid::new_v4().to_string(),
-            name: name.into(),
-            visible: true,
-            content: LayerContent::Vector(item),
-            opacity: 1.0,
-            blend_mode: BlendMode::Normal,
-            adjustments: None,
-            transform: None,
-            locked: false,
-            clips_to: None,
-            mask: None,
-            masked_bounds: fresh_masked_bounds_cache(),
-            vector_bounds: fresh_vector_bounds_cache(),
-        }
+        Self::from_content(
+            Uuid::new_v4().to_string(),
+            name.into(),
+            LayerContent::Vector(item),
+        )
     }
 
     pub fn paper(width: u32, height: u32) -> Self {
@@ -351,21 +273,11 @@ impl Layer {
     }
 
     pub fn text(name: impl Into<String>, run: TextRun, width: u32, height: u32) -> Self {
-        let mut layer = Self {
-            id: Uuid::new_v4().to_string(),
-            name: name.into(),
-            visible: true,
-            content: LayerContent::text(run, width, height),
-            opacity: 1.0,
-            blend_mode: BlendMode::Normal,
-            adjustments: None,
-            transform: None,
-            locked: false,
-            clips_to: None,
-            mask: None,
-            masked_bounds: fresh_masked_bounds_cache(),
-            vector_bounds: fresh_vector_bounds_cache(),
-        };
+        let mut layer = Self::from_content(
+            Uuid::new_v4().to_string(),
+            name.into(),
+            LayerContent::text(run, width, height),
+        );
         crate::text_layer::resync(&mut layer);
         layer
     }
@@ -404,90 +316,11 @@ impl Layer {
         self.content.tiles_mut()
     }
 
-    pub fn mask(&self) -> Option<&[u8]> {
-        self.mask.as_deref()
-    }
-
-    pub fn mask_owned(&self) -> Option<Vec<u8>> {
-        self.mask.clone()
-    }
-
-    pub fn set_mask(&mut self, mask: Option<Vec<u8>>) {
-        self.mask = mask;
-        *self.masked_bounds.lock() = None;
-        self.mark_all_dirty();
-    }
-
-    pub fn resize_mask(
-        &mut self,
-        old_width: u32,
-        old_height: u32,
-        new_width: u32,
-        new_height: u32,
-    ) {
-        let Some(old) = &self.mask else {
-            return;
-        };
-        let mut next = vec![255u8; (new_width as usize) * (new_height as usize)];
-        let copy_w = old_width.min(new_width) as usize;
-        let copy_h = old_height.min(new_height) as usize;
-        for y in 0..copy_h {
-            let src = y * old_width as usize;
-            let dst = y * new_width as usize;
-            next[dst..dst + copy_w].copy_from_slice(&old[src..src + copy_w]);
-        }
-        self.set_mask(Some(next));
-    }
-
-    /// `resize_mask`'s general form: the new mask's `(x, y)` reads the old one's
-    /// `(x + origin_x, y + origin_y)` rather than assuming the two share a top-left corner.
-    /// `resize_mask(ow, oh, nw, nh)` is exactly `shift_mask(0, 0, ow, oh, nw, nh)` — used to
-    /// keep a mask aligned with content a canvas crop/expand has shifted via `layer.transform`,
-    /// since the mask itself is a plain document-space buffer with no transform of its own
-    /// (`layer_composited_pixel` indexes it by raw `(doc_x, doc_y)`).
-    pub fn shift_mask(
-        &mut self,
-        origin_x: i32,
-        origin_y: i32,
-        old_width: u32,
-        old_height: u32,
-        new_width: u32,
-        new_height: u32,
-    ) {
-        let Some(old) = &self.mask else {
-            return;
-        };
-        let mut next = vec![255u8; (new_width as usize) * (new_height as usize)];
-        // The overlap is one contiguous run of columns, the same in every row — `dst_x0` is
-        // where `-origin_x` first lands inside `[0, new_width)`, `dst_x1` where the old width
-        // runs out — so each row is one `copy_from_slice` rather than a per-pixel scan, and
-        // rows are independent, so they run across every core the same way `copy_layer_into_
-        // rgba`'s row loop does.
-        let dst_x0 = (-origin_x).clamp(0, new_width as i32) as usize;
-        let dst_x1 = (old_width as i32 - origin_x).clamp(0, new_width as i32) as usize;
-        if dst_x0 < dst_x1 {
-            let copy_w = dst_x1 - dst_x0;
-            let src_x0 = dst_x0 as i32 + origin_x;
-            next.par_chunks_mut(new_width as usize)
-                .enumerate()
-                .for_each(|(y, row)| {
-                    let sy = y as i32 + origin_y;
-                    if sy < 0 || sy as u32 >= old_height {
-                        return;
-                    }
-                    let src_start = (sy as usize) * (old_width as usize) + src_x0 as usize;
-                    row[dst_x0..dst_x1].copy_from_slice(&old[src_start..src_start + copy_w]);
-                });
-        }
-        self.set_mask(Some(next));
-    }
-
     pub fn dirty_tiles(&self, channel: DirtyChannel) -> Option<&TileSet> {
         self.tiles().map(|t| t.dirty_tiles(channel))
     }
 
     pub fn mark_all_dirty(&mut self) {
-        *self.masked_bounds.lock() = None;
         if let Some(tiles) = self.tiles_mut() {
             tiles.mark_all_dirty();
         }
@@ -604,27 +437,7 @@ impl Layer {
     pub fn content_bounds(&self) -> Option<(f32, f32, f32, f32)> {
         match &self.content {
             LayerContent::Raster(tiles) | LayerContent::Text { tiles, .. } => {
-                let r = if let Some(mask) = self.mask.as_deref() {
-                    let opaque = tiles.opaque_bounds()?;
-                    let mut cache = self.masked_bounds.lock();
-                    if let Some((key, answer)) = *cache {
-                        if key == opaque {
-                            return answer.map(|r| {
-                                (
-                                    r.min_x as f32,
-                                    r.min_y as f32,
-                                    r.max_x as f32 + 1.0,
-                                    r.max_y as f32 + 1.0,
-                                )
-                            });
-                        }
-                    }
-                    let answer = scan_masked_bounds(tiles, mask, self.transform);
-                    *cache = Some((opaque, answer));
-                    answer?
-                } else {
-                    tiles.opaque_bounds()?
-                };
+                let r = tiles.opaque_bounds()?;
                 Some((
                     r.min_x as f32,
                     r.min_y as f32,
@@ -663,6 +476,5 @@ impl PartialEq for Layer {
             && self.transform == other.transform
             && self.locked == other.locked
             && self.clips_to == other.clips_to
-            && self.mask == other.mask
     }
 }

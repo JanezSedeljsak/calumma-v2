@@ -101,30 +101,6 @@ fn history_only_charges_for_what_it_alone_holds() {
     assert!(report.total() >= report.tile_bytes);
 }
 
-#[test]
-fn masks_and_vectors_are_counted_where_they_live() {
-    let mut doc = doc();
-    doc.add_vector_layer(
-        "V",
-        VectorItem::Path(VectorPath {
-            points: vec![(0.0, 0.0); 100],
-            closed: false,
-            fill: false,
-            color: [0, 0, 0, 255],
-            stroke: true,
-            stroke_color: [0, 0, 0, 255],
-            stroke_width: 2.0,
-            ring_starts: Vec::new(),
-            even_odd: true,
-        }),
-    );
-    doc.layers[0].set_mask(Some(vec![255; (SIDE * SIDE) as usize]));
-
-    let report = document_memory(&doc);
-    assert_eq!(report.mask_bytes, (SIDE * SIDE) as usize);
-    assert!(report.vector_bytes >= 100 * std::mem::size_of::<(f32, f32)>());
-}
-
 /// A shape item owns no heap allocation of its own, unlike a path's point list — `vector_bytes`
 /// has a dedicated zero-cost arm for it that a path-only test can never reach.
 #[test]
@@ -183,6 +159,26 @@ fn a_text_layers_string_is_counted_as_text_rather_than_tiles() {
     assert_eq!(report.vector_bytes, 0);
 }
 
+#[test]
+fn a_stack_snapshot_charges_shared_paper_once() {
+    let mut doc = doc();
+    assert_eq!(document_memory(&doc).tile_bytes, TILE_BYTES);
+    let before_used = doc.history.memory_used();
+    assert!(doc.duplicate_layer(1));
+    let charged = doc.history.memory_used() - before_used;
+    assert!(
+        charged < 4 * TILE_BYTES,
+        "paper's shared fill must not be charged once per tile, got {charged}"
+    );
+    assert!(charged >= TILE_BYTES);
+    let report = document_memory(&doc);
+    assert_eq!(report.tile_bytes, TILE_BYTES);
+    assert!(
+        report.history_bytes < TILE_BYTES,
+        "the snapshot still shares Paper with the live document"
+    );
+}
+
 /// A wand selection owns a bitmap; a rect selection is four floats. Only the one that owns
 /// storage may be charged for it, or the report drifts from what the process actually holds.
 #[test]
@@ -212,24 +208,4 @@ fn only_a_mask_selection_costs_anything() {
 
     assert!(owned > 0);
     assert_eq!(document_memory(&doc).mask_bytes, plain + owned);
-}
-
-#[test]
-fn a_stack_snapshot_charges_shared_paper_once() {
-    let mut doc = doc();
-    assert_eq!(document_memory(&doc).tile_bytes, TILE_BYTES);
-    let before_used = doc.history.memory_used();
-    assert!(doc.duplicate_layer(1));
-    let charged = doc.history.memory_used() - before_used;
-    assert!(
-        charged < 4 * TILE_BYTES,
-        "paper's shared fill must not be charged once per tile, got {charged}"
-    );
-    assert!(charged >= TILE_BYTES);
-    let report = document_memory(&doc);
-    assert_eq!(report.tile_bytes, TILE_BYTES);
-    assert!(
-        report.history_bytes < TILE_BYTES,
-        "the snapshot still shares Paper with the live document"
-    );
 }

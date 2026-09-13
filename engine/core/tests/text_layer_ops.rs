@@ -153,8 +153,6 @@ fn paint_tools_are_refused_on_a_text_layer() {
     click(&mut doc, 350.0, 350.0);
     assert_eq!(ink(&doc, layer), glyphs, "nor a fill");
 
-    doc.clear_active_layer();
-    assert_eq!(ink(&doc, layer), glyphs, "nor a clear");
     assert_eq!(doc.history.undo_depth(), 1, "a refused paint is not a step");
     assert!(doc.layers[layer].is_text(), "the run is still editable");
 }

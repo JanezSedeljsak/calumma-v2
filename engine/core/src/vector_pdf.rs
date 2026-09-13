@@ -14,7 +14,7 @@ use crate::vector::VectorItem;
 /// how `Tool::Ellipse` survives as geometry rather than being flattened to a polygon.
 const KAPPA: f32 = 0.552_284_8;
 
-fn n(value: f32) -> String {
+pub(crate) fn n(value: f32) -> String {
     let text = format!("{value:.4}");
     let trimmed = text.trim_end_matches('0').trim_end_matches('.');
     if trimmed.is_empty() || trimmed == "-" {

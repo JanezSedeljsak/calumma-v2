@@ -33,40 +33,12 @@ pub fn flood_region_pixels<F>(
     start_x: i32,
     start_y: i32,
     tolerance: u8,
-    mut pixel: F,
+    pixel: F,
 ) -> Option<SelectionMask>
 where
     F: FnMut(i32, i32) -> [u8; 4],
 {
-    if !scope.contains(start_x, start_y) || scope.is_empty() {
-        return None;
-    }
-    let target = pixel(start_x, start_y);
-    let tol2 = (tolerance as u32) * (tolerance as u32) * 4;
-    let origin = (scope.min_x, scope.min_y);
-    let width = (scope.max_x - scope.min_x + 1) as u32;
-    let height = (scope.max_y - scope.min_y + 1) as u32;
-
-    let mut visited = SelectionMask::new(origin, width, height);
-    let mut reached = SelectionMask::new(origin, width, height);
-    let mut queue = VecDeque::new();
-    queue.push_back((start_x, start_y));
-    visited.set(start_x, start_y);
-
-    while let Some((x, y)) = queue.pop_front() {
-        if color_distance(pixel(x, y), target) > tol2 {
-            continue;
-        }
-        reached.set(x, y);
-        for (nx, ny) in [(x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)] {
-            if !scope.contains(nx, ny) || visited.get(nx, ny) {
-                continue;
-            }
-            visited.set(nx, ny);
-            queue.push_back((nx, ny));
-        }
-    }
-    reached.finish()
+    flood(scope, start_x, start_y, tolerance, pixel, |_, _| true)
 }
 
 fn grow_one_step(
@@ -147,10 +119,28 @@ pub fn flood_region(
     selection: Option<&Selection>,
     tolerance: u8,
 ) -> Option<SelectionMask> {
+    flood(
+        scope,
+        start_x,
+        start_y,
+        tolerance,
+        |x, y| tiles.get_pixel(x, y),
+        |x, y| selection.map_or(true, |sel| sel.contains(x as f32 + 0.5, y as f32 + 0.5)),
+    )
+}
+
+fn flood(
+    scope: DocRect,
+    start_x: i32,
+    start_y: i32,
+    tolerance: u8,
+    mut pixel: impl FnMut(i32, i32) -> [u8; 4],
+    may_visit: impl Fn(i32, i32) -> bool,
+) -> Option<SelectionMask> {
     if !scope.contains(start_x, start_y) || scope.is_empty() {
         return None;
     }
-    let target = tiles.get_pixel(start_x, start_y);
+    let target = pixel(start_x, start_y);
     let tol2 = (tolerance as u32) * (tolerance as u32) * 4;
     let origin = (scope.min_x, scope.min_y);
     let width = (scope.max_x - scope.min_x + 1) as u32;
@@ -163,18 +153,13 @@ pub fn flood_region(
     visited.set(start_x, start_y);
 
     while let Some((x, y)) = queue.pop_front() {
-        if color_distance(tiles.get_pixel(x, y), target) > tol2 {
+        if color_distance(pixel(x, y), target) > tol2 {
             continue;
         }
         reached.set(x, y);
         for (nx, ny) in [(x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)] {
-            if !scope.contains(nx, ny) || visited.get(nx, ny) {
+            if !scope.contains(nx, ny) || visited.get(nx, ny) || !may_visit(nx, ny) {
                 continue;
-            }
-            if let Some(sel) = selection {
-                if !sel.contains(nx as f32 + 0.5, ny as f32 + 0.5) {
-                    continue;
-                }
             }
             visited.set(nx, ny);
             queue.push_back((nx, ny));

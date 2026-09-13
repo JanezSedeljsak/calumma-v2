@@ -122,7 +122,7 @@ struct TileCamera {
 //
 // `opacity`, `lut_mode`, `tone`, `saturation`, `vibrance` and `hue` are plan 23's addition: a
 // layer's non-destructive adjustments, evaluated by `apply_adjustments` in `fs_tile` instead of
-// baked into tile bytes by the CPU (`compose::composited_tile_payload`, mask only now). Nothing
+// baked into tile bytes by the CPU (`compose::composited_tile_payload`, clip only now). Nothing
 // here is per *tile*: the whole point is that the table is written once per content rebuild —
 // or once per slider sample, which no longer touches a tile at all — not once per draw.
 //

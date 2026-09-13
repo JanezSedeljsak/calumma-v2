@@ -48,6 +48,13 @@ already is (New Project, as a modal card over the board). The Paste Artwork isla
 with the layout rather than sitting at a fixed size. Sizes come from
 `design/tokens.json` → `Tokens.Window`.
 
+**Landing is a fixed size; the editor is not.** Landing sizes the main window to
+`window.mainWidth × mainHeight`, centred on its screen. Opening the editor restores the frame it
+had last time — size, position, maximised or full screen — from `editor_window` in
+`prefs.toml`, and fills the screen (maximised) the first time, before there is one to restore.
+The frame is remembered as it changes while the editor is showing (`gui/src/window_frame.rs`);
+going back to Landing snaps the window back to the landing size.
+
 ---
 
 ## Landing
@@ -179,10 +186,7 @@ are not openable, they are open.
   Hover shows a thumbnail popover; each row also carries a persistent thumbnail.
 - **Tools:** tools-island `✦` menu (labelled "Tools" — the sparkle is the hint). Upscale
   (Lanczos-3), Cut Out Subject (graph cut, selection-aware label when a region is active),
-  and Content-Aware Narrow (seam carving, 10% width). All three are `Backend::Core`: always
-  available on raster layers, no platform dependency. Remove Background (macOS Vision) is
-  engine-shipped but not exposed in the Slint shell menu — desktop parity targets the three
-  core tools only. Matte bakes into the active layer's mask; the two resizing tools add a new
+  and Content-Aware Narrow (seam carving, 10% width). All three run in core Rust and are always available on raster layers. Matte bakes into the active layer's pixels; the two resizing tools add a new
   layer.
 - **Zoom:** a pill pinned **bottom-trailing inside the canvas island** — `−`, slider, `+`,
   percentage, Fit. The two ends are independent: zoom out until the paper fills ~20% of the
@@ -213,7 +217,7 @@ persist across launches.
 | Paint / place shape | Click-drag on the board (pointer down → move → up). Engine converts **screen** coords. |
 | Brush size floor | The slider's floor is `BRUSH_SIZE_MIN` (8 document pixels), but the brush carries a **second floor in screen pixels** that rises as the board is zoomed out: never under `BRUSH_MIN_SCREEN_PX` (3) across. On a 4096px board fitted to a window a whole document pixel is a fraction of a screen one, so the finest brush would be invisible — and a stroke you cannot see is one you cannot aim. Zooming *in* never shrinks it below the document floor: the floor is on what can be seen, and zoomed in it can be. `Document::effective_brush_size` is the one answer, read by the ring, the GPU preview and the commit alike — two of them disagreeing is exactly how a stroke moves when the preview hands over. A brush of size 0 stays 0 (no brush, not a small one), and **vector mode is exempt**: its width is stored in the item and redrawn at every zoom, so folding today's camera into it would bake the zoom into the document. |
 | See the brush | Pen, Eraser, Blur, Clone and Heal draw a **ring at the pointer, the size of the brush** — document geometry, so it scales with the zoom exactly as the stamp does, with the line held at one screen pixel by `vs_overlay`. Two rings a pixel apart, light inside dark, because one colour cannot stay legible over both white paper and black ink. Under ~3px across it collapses to a dot. It is withheld exactly where a stroke would be refused — a text, vector or locked layer, or inside `⌘T` — so no ring means no stroke. `Document::brush_ring` owns every one of those rules; the shell only forwards the pointer (`Engine::set_pointer_hover`) and takes it away while panning or zoom-chording. |
-| Move a layer or vector item | Select **Move** on the tools island, then drag painted pixels or a vector item. Arrow keys nudge the same target. Turn **Transform** on (options toggle or `⌘T`) for scale/rotate of that layer; the same press selects it. Picking Move does *not* turn it on — it is a mode you ask for. |
+| Move a layer or vector item | Select **Move** on the tools island, then drag painted pixels or a vector item.  Turn **Transform** on (options toggle or `⌘T`) for scale/rotate of that layer; the same press selects it. Picking Move does *not* turn it on — it is a mode you ask for. |
 | Resize a vector item | Select it (Move or `⌘T`), then drag a corner of its box. Proportional by default, **Shift** frees the two axes — the same polarity as a `⌘T` corner. |
 | Constrain a shape | Hold **Shift** while dragging **Rect** or **Ellipse** (and their marquee twins) for a square or circle. Corner-anchored, and the *longer* side wins, so the shape fills the drag. Press or release Shift mid-drag and the board snaps immediately — the clamp is derived from the raw drag on every frame, not baked in on the last mouse-move. Line, Arrow, Triangle and Pentagon are unconstrained (angle snap and regular-polygon lock are different clamps, not built). |
 | Pull a guide | Drag off the top ruler for a horizontal rule, off the left ruler for a vertical one; drag one with **Move** to reposition it, and release it back over a ruler to discard it. Hold **Shift** while dragging to land on a whole `GUIDE_SHIFT_STEP` (10 document pixels). Layers, shapes and scale handles snap to guides within `GUIDE_SNAP_PX`. |
@@ -482,11 +486,8 @@ live in `engine/core`; PNG/JPEG/WebP/AVIF/HEIC encode and decode live in `engine
   selected the options behave as they always did and make the whole block agree — a knob
   turned with no selection clears that one property's overrides rather than reading as having
   failed, and leaves the others alone.
-- All keyboard input goes through `NSTextInputClient`, so dead keys, the accent popover, the
-  emoji picker and IME compositions all work; a composition in progress is drawn at the
-  caret. While typing, only ⌘-chords still act as editor shortcuts.
-- A text layer is a normal layer everywhere else: opacity, blend mode, masks, filters, Remove
-  Background, thumbnails, PNG/PSD/SVG export. `⌘T` transform mode is the exception and refuses
+- Text arrives as committed characters — there is no IME composition. While typing, only ⌘-chords still act as editor shortcuts.
+- A text layer is a normal layer everywhere else: opacity, blend mode, filters, thumbnails, PNG/PSD/SVG export. `⌘T` transform mode is the exception and refuses
   it — change the size instead. Projects store the *text*, not its pixels, and re-render it
   on open.
 - **Paint tools are refused on a text layer**, because its pixels are a cache the next
@@ -515,12 +516,11 @@ live in `engine/core`; PNG/JPEG/WebP/AVIF/HEIC encode and decode live in `engine
   `Document::shape_paint`, so nothing downstream has to re-ask which tool it is dealing with.
   SVG export now writes real `fill` *and* `stroke`/`stroke-width` attributes rather than one
   or the other, which is a closer match to the format than the either/or it replaced.
-  A shape saved before this carries its one color into whichever half it was being used as
-  (`vector_blob` v3; v1 and v2 blobs still load).
+  
 - **Moving a vector:** with the Move tool or inside `⌘T`, click a vector to select its layer
-  and drag it; the arrow keys nudge it and `⌫` deletes the layer. A click on an outlined shape
+  and drag it. A click on an outlined shape
   counts anywhere inside it, not only on the outline. Item edits undo with the rest of document
-  history (`VectorDiff` for nudge/drag, `StackSnapshot` for add/delete).
+  history (`VectorDiff` for drags, `StackSnapshot` for add/delete).
 - **Resizing a vector:** inside `⌘T`, selecting it puts a box with four corner handles around
   it, and dragging one resizes *that item* — the layer's one shape. Plain Move draws no box and
   has no handles: it drags a vector exactly the way it drags painted pixels, from anywhere on it. Proportional by
@@ -609,9 +609,9 @@ live in `engine/core`; PNG/JPEG/WebP/AVIF/HEIC encode and decode live in `engine
   and an all-whitespace name is refused. **Paper cannot be renamed, and nothing else can be
   renamed *to* Paper** — `Layer::is_paper` is name-matched, so merge-down, clip-down and
   click-to-pick all key off that string; letting it move would break all three silently.
+- **Multi-select and align:** ⌘- or ⇧-click a layer row to add it to the selection, or take it back out; a plain click selects just that layer again. With two or more layers selected, an align island opens above the layers island and pushes it down: align left / horizontal centres / right / top / vertical centres / bottom, and distribute horizontally or vertically (three or more layers — the outer two stay put). Paper, empty and clip-locked layers never join the selection (`Document::set_layer_selection`). Each align or distribute is one undo step, and grabbing any selected layer with Move drags them all.
 - **Lock** (the padlock beside the eye): refuses everything that would change the layer's
-  pixels or where they sit — paint, fill, clear, transform (`⌘T` and Reset Transform), Move,
-  arrow-key nudge, the bounds strip, and vector item drags. A locked layer is also invisible
+  pixels or where they sit — paint, fill, transform (`⌘T` and Reset Transform), Move, the bounds strip, and vector item drags. A locked layer is also invisible
   to click-to-pick, so a lock cannot be stolen by clicking its pixels on the board. Locking
   the layer you are mid-transform on drops the handles rather than leaving a box that refuses
   to drag. Visibility, duplicate, export and the opacity/blend/filter sliders still work, and
@@ -721,31 +721,17 @@ live in `engine/core`; PNG/JPEG/WebP/AVIF/HEIC encode and decode live in `engine
   region, and Move is the tool that picks. That is Photoshop's split rather than Figma's, and
   overloading marquee-click to also pick would make an empty-space click ambiguous when it
   currently starts a region drag.
-- **Remove Background:** Smart Tools menu on the tools island → macOS Vision via
-  `Engine::run_op` when available. Shell never mutates the stack after the op. Details:
-  `AGENTS.md` → AI ops. It needs **a raster layer** — the engine's `Layer::is_raster()`, which
-  is deliberately false for a text layer as well as a vector one — and says so in a toast
-  rather than running Vision over a text layer's tile cache or a vector layer that has no
-  pixels at all. The menu item stays pressable and explains itself, which is the same shape as
-  the tool-block notice; it is not greyed out, because the reason is worth reading once rather
-  than guessing at.
 - **Upscale:** Smart Tools menu → Lanczos-3 resampling (`engine/core/src/smarttools/resample.rs`), 2× the
-  active layer's own size, via `Engine::run_upscale`. Deterministic core Rust —
-  `OpKind::Upscale` is `Backend::Core` and always available, unlike Remove Background's Vision
-  dependency — so the menu item is never greyed out for platform reasons, only while another
+  active layer's own size, via `Engine::run_upscale`. Deterministic core Rust and always available, so the menu item is only greyed out while another
   Smart Tool is already running or the active layer is not raster. Adds the result as a new
-  layer on top of the stack rather than replacing the source, the same `OpOutput::Raster` path
-  a future generative op would use, so the original is always still there to compare against or
+  layer on top of the stack rather than replacing the source, via `OpOutput::Raster`, so the original is always still there to compare against or
   discard.
 - **Cut Out Subject:** Smart Tools menu → GrabCut-style graph cut (`engine/core/src/smarttools/grabcut.rs`
   over `engine/core/src/smarttools/maxflow.rs`), via `Engine::run_smart_matte`. Two k-means-fit colour
   GMMs, a contrast-sensitive 8-connected grid graph, and a min cut. Runs at a capped work resolution
   (512 px long edge): the work image is box-downsampled so colour models are not fed Lanczos
   ringing, and the matte is bilinearly upsampled back. That is what keeps an exact min
-  cut interactive on a large layer. Writes `layer.mask` through the same path Vision's Remove
-  Background uses, so it is undoable the same way. It is a **separate** `OpKind` from Remove
-  Background rather than a core fallback for it: the registry resolves platform ahead of core,
-  so a core op sharing that kind would be permanently shadowed by Vision and never run.
+  cut interactive on a large layer. Bakes the matte into the layer's pixels (`Document::apply_matte_mask`) as one undoable step.
   - **Draw around the subject first.** Any selection — lasso, marquee, ellipse, wand — becomes
     the seed: everything outside it is *definite* background, everything inside stays free, so
     background caught inside a rough loop is still cut away. This is GrabCut's own interaction
@@ -849,11 +835,6 @@ a locked layer refuses them.
 | `⌘A` | Select All — the whole canvas as one rect, matching Photoshop rather than the active
   layer's painted bounds. While a text layer is open it selects all of the **text** instead:
   one shortcut, always whatever is in front of you |
-| `⌘⇧I` | Invert Selection — everything the current selection leaves out, clipped to the
-  canvas. With no selection it selects all, the way Photoshop answers an inverted nothing.
-  The result is always a `SelectionShape::Mask`, since the parametric shapes have no buffer
-  to flip; inverting a full-canvas selection reaches no pixel and so leaves *no* selection,
-  the same rule the wand follows for a click that reaches nothing. |
 | `Esc` | Deselect |
 | `⌘C` | Copy — the selection (from the active layer) if one exists, otherwise the whole
   composited canvas. Always PNG on the clipboard. |
@@ -1056,8 +1037,6 @@ panel toggles are shell knobs.
 | `S` | Toggle shape stroke — independent of fill, so a shape can carry both | — (Figma has both by default) |
 | `⇧` (held while dragging) | Constrain Rect / Ellipse to a square / circle; on a `⌘T` or vector-item corner, free the two axes instead; on a `⌘T` rotate grip, lock the angle to the nearest 45°; on a **guide**, round its position to a whole 10 | Yes (Ps shape constrain) |
 | `⇧V` | Toggle vector mode (shapes and the pen each commit as their own vector layer). It moved off bare `V` when Move took that key back, and is checked **before** the tool table — `charactersIgnoringModifiers` reports the same letter shifted or not | — (Ps has no equivalent; closest is Figma's vector tools) |
-| `←` `→` `↑` `↓` | Nudge the selected vector item, or the active layer when Move / `⌘T` is the current tool | Yes (Ps nudge) |
-| `⌫` / `⌦` | Delete the selected vector item (falls back to the old clear behaviour when none is selected) | Yes |
 | `[` / `]` | Brush smaller / larger; with the Eyedropper, sample size | Yes |
 
 ### Layers / view
@@ -1065,13 +1044,12 @@ panel toggles are shell knobs.
 | Shortcut | Action |
 | --- | --- |
 | `⌘⇧N` | Add layer |
-| `⌘⌫` | Clear the selection's pixels, or the whole active layer if no selection |
 | `⌘C` / `⌘X` / `⌘V` | Copy / cut / paste — see Selection in the section above |
 | `Return` | Exit transform mode (only while it is on) — see Tools above |
 | `Esc` | Deselect — which also exits transform |
 | `⌘=` / `⌘+` | Zoom in one core step (`limits::ZOOM_STEP`) |
 | `⌘-` | Zoom out one core step |
-| `⌘A` / `⌘⇧I` | Select All / Invert Selection — see Selection above |
+| `⌘A` | Select All — see Selection above |
 | Caret and selection keys while a text layer is open | Everything `NSTextInputClient` names:
   arrows, ⌥-arrows by word, Home/End, ⌘↑/⌘↓, each of them shift-extended into a selection, plus
   ⌥⌫ / ⌥⌦ by word — see the Text tool above. Only ⌘-chords still reach the editor shortcuts |
@@ -1108,6 +1086,12 @@ also drawn *outside* the paper scissor, like the guides, for the same reason. Ge
 wrong is visible immediately: the shell hides its own cursor for exactly as long as there is a
 ring, so a ring the renderer then clipped away left no pointer at all over the canvas island.
 Vector mode is exempt — it commits into a layer of its own and has no grid to fall off.
+
+**The ring follows the pointer whether or not a button is down.** The board's `TouchArea` feeds
+`pointer-moved` from `pointer-event` with `kind == move`, never from `moved`: Slint only fires
+`moved` while the area holds a grab, so hover moves never reached `Engine::set_pointer_hover`, and
+after a stroke the ring stayed parked where the button came up, with the blank cursor hiding
+the real pointer.
 
 **Where the board already rings the pointer, the shell shows nothing at all.** Pen, Eraser and
 Blur draw a ring the size of the stroke, in document units so it scales with the zoom — that
@@ -1148,7 +1132,7 @@ zoom-in while ⌘/Option held over the board, pointing hand on chrome controls.
    prints it once the tools panel has tooltips (`gui/ui/tools-panel.slint` does not yet).
    Document every user-facing chord in this file in the same change.
 3. Do not invent conflicting chords for engine vs chrome; one map, one place to look.
-4. Windows / future shells: same *actions*, OS-native modifiers (`Ctrl` vs `⌘`).
+4. Windows and Linux: same *actions*, OS-native modifiers (`Ctrl` vs `⌘`).
 
 ---
 

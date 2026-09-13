@@ -120,20 +120,6 @@ fn stroke_only_dirties_tiles_it_touched() {
 }
 
 #[test]
-fn undo_after_clear_restores_pixels() {
-    let mut doc = Document::new("p".into(), "t", 128, 128);
-    let i = doc.active_layer;
-    doc.layers[i]
-        .tiles_mut()
-        .unwrap()
-        .set_pixel(5, 5, [1, 2, 3, 255]);
-    doc.clear_active_layer();
-    assert_eq!(pixel(&doc, doc.active_layer, 5, 5), [0, 0, 0, 0]);
-    assert!(doc.undo());
-    assert_eq!(pixel(&doc, doc.active_layer, 5, 5), [1, 2, 3, 255]);
-}
-
-#[test]
 fn place_image_fills_the_first_paint_layer() {
     let mut doc = Document::new("p".into(), "art", 4, 2);
     let mut rgba = vec![0u8; 4 * 2 * 4];
@@ -152,66 +138,6 @@ fn place_image_rejects_a_short_buffer() {
     let mut doc = Document::new("p".into(), "art", 4, 4);
     assert!(!doc.place_image(&[0u8; 8], 4, 4));
     assert!(doc.layers[1].tiles().unwrap().is_empty());
-}
-
-#[test]
-fn clearing_empty_layer_pushes_no_history() {
-    let mut doc = Document::new("p".into(), "t", 128, 128);
-    doc.clear_active_layer();
-    assert!(!doc.history.can_undo());
-}
-
-#[test]
-fn rect_select_then_copy_extracts_only_selected_pixels() {
-    let mut doc = Document::new("p".into(), "t", 64, 64);
-    doc.layers[doc.active_layer]
-        .tiles_mut()
-        .unwrap()
-        .set_pixel(10, 10, [1, 2, 3, 255]);
-    doc.layers[doc.active_layer]
-        .tiles_mut()
-        .unwrap()
-        .set_pixel(40, 40, [9, 9, 9, 255]);
-    doc.tool = Tool::SelectRect;
-    doc.resize_viewport(64.0, 64.0, 1.0);
-    doc.fit_to_view();
-    let (s0x, s0y) = doc.camera.to_screen(5.0, 5.0);
-    let (s1x, s1y) = doc.camera.to_screen(20.0, 20.0);
-    doc.pointer_down(s0x, s0y);
-    doc.pointer_move(s1x, s1y);
-    doc.pointer_up(s1x, s1y);
-    assert!(doc.selection.is_some());
-
-    let (w, h, rgba) = doc.selection_rgba().expect("selection copy");
-    assert!((w as usize) * (h as usize) * 4 == rgba.len());
-    let has_orange = rgba.chunks_exact(4).any(|px| px == [1, 2, 3, 255]);
-    assert!(has_orange);
-    let has_far_pixel = rgba.chunks_exact(4).any(|px| px == [9, 9, 9, 255]);
-    assert!(!has_far_pixel);
-}
-
-#[test]
-fn clear_selection_pixels_only_touches_selection_and_is_undoable() {
-    let mut doc = Document::new("p".into(), "t", 64, 64);
-    doc.layers[doc.active_layer]
-        .tiles_mut()
-        .unwrap()
-        .set_pixel(10, 10, [1, 2, 3, 255]);
-    doc.layers[doc.active_layer]
-        .tiles_mut()
-        .unwrap()
-        .set_pixel(40, 40, [9, 9, 9, 255]);
-    doc.selection = Some(Selection {
-        shape: SelectionShape::Rect {
-            start: (0.0, 0.0),
-            end: (20.0, 20.0),
-        },
-    });
-    assert!(doc.clear_selection_pixels());
-    assert_eq!(pixel(&doc, doc.active_layer, 10, 10), [0, 0, 0, 0]);
-    assert_eq!(pixel(&doc, doc.active_layer, 40, 40), [9, 9, 9, 255]);
-    assert!(doc.undo());
-    assert_eq!(pixel(&doc, doc.active_layer, 10, 10), [1, 2, 3, 255]);
 }
 
 #[test]
@@ -556,26 +482,6 @@ fn apply_canvas_shift_never_deletes_content_the_new_window_cropped_away() {
     let (w, _h, rgba) = doc.composite_rgba();
     let i = ((5usize) * (w as usize) + 5) * 4;
     assert_eq!(&rgba[i..i + 4], &[4, 5, 6, 255]);
-}
-
-#[test]
-fn apply_canvas_shift_keeps_a_mask_aligned_with_its_shifted_content() {
-    let mut doc = Document::new("p".into(), "t", 64, 64);
-    let active = doc.active_layer;
-    doc.layers[active].tiles_mut().unwrap().fill_uniform(
-        calumma_core::tile::DocRect::from_size(64, 64),
-        [1, 1, 1, 255],
-    );
-    let mut mask = vec![255u8; 64 * 64];
-    mask[10 * 64 + 30] = 0; // fully masked out at local (30, 10)
-    doc.layers[active].set_mask(Some(mask));
-
-    doc.apply_canvas_shift(20, 5, 64, 64);
-
-    // The masked-out point moved with the content: local (30,10) is now at (10,5).
-    let mask = doc.layers[active].mask().unwrap();
-    assert_eq!(mask[5 * 64 + 10], 0);
-    assert_eq!(mask[10 * 64 + 30], 255, "that slot is unmasked space now");
 }
 
 #[test]

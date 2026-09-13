@@ -32,7 +32,7 @@ pub struct PdfGlyph {
     pub glyph_id: u16,
     pub x: f32,
     pub y: f32,
-    /// The source text this glyph covers (`display_text()[start..end]`) — a ToUnicode CMap
+    /// The source text this glyph covers (`text[start..end]`) — a ToUnicode CMap
     /// entry maps the glyph code back to this, so copying the exported text out of a PDF
     /// reader gives the real string back rather than nothing or the wrong codepoints. Usually
     /// one character; more than one for a ligature, since a CMap range may map a single code
@@ -65,7 +65,7 @@ pub struct PdfFont {
 
 /// The run laid out for PDF export, grouped into `PdfRun`s — `None` for nothing to show,
 /// matching `rasterize`'s own empty check. Marked (in-progress IME) text never reaches export,
-/// so this reads `run.text` through the ordinary shaped buffer rather than `display_text()`.
+/// so this reads `run.text` through the ordinary shaped buffer.
 pub fn layout_for_pdf(run: &TextRun) -> Option<Vec<PdfRun>> {
     if run.text.is_empty() {
         return None;

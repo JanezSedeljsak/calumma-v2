@@ -635,25 +635,17 @@ pub fn stroke_instances_from(
         .collect()
 }
 
-/// Mask baked into a tile before upload — the one remaining CPU fold. Adjustments and opacity
-/// moved to the GPU (`LayerData.tone`/`opacity` in `board.wgsl`'s `fs_tile`, written by
-/// `Renderer::write_layer_data`); a mask stays here because it is a dense per-document buffer,
-/// not a per-layer row, and nothing in plan 23 reshapes that storage (`docs/plans/23-gpu-
-/// adjustment-evaluation.md` — masks are out of scope). Returns `None` when the layer has no
-/// mask and the tile's own bytes can go to the GPU untouched — the common case, and the reason
-/// this allocates only for layers that actually carry one.
+/// Clip alpha baked into a tile before upload — the one remaining CPU fold. Adjustments and
+/// opacity are evaluated on the GPU (`LayerData.tone`/`opacity` in `board.wgsl`'s `fs_tile`).
+/// Returns `None` when the layer is not clipped and the tile's own bytes can go to the GPU
+/// untouched — the common case, and the reason this allocates only for clipped layers.
 pub fn composited_tile_payload(
     pixels: &[u8],
     coord: TileCoord,
     layer: &Layer,
     clip_base: Option<&Layer>,
-    doc_width: u32,
 ) -> Option<Vec<u8>> {
-    let mask = layer.mask();
-    let needs_clip = clip_base.is_some();
-    if mask.is_none() && !needs_clip {
-        return None;
-    }
+    let base = clip_base?;
     let mut out = Vec::with_capacity(TILE_BYTES);
     out.extend_from_slice(pixels);
     out.resize(TILE_BYTES, 0);
@@ -663,22 +655,8 @@ pub fn composited_tile_payload(
             let x = ox + tx as i32;
             let y = oy + ty as i32;
             let i = ((ty * TILE_SIZE + tx) * 4) as usize;
-            if let Some(mask) = mask {
-                if x >= 0 && y >= 0 {
-                    let mi = (y as u32)
-                        .saturating_mul(doc_width)
-                        .saturating_add(x as u32) as usize;
-                    if let Some(&m) = mask.get(mi) {
-                        let a = out[i + 3] as u16 * m as u16 / 255;
-                        out[i + 3] = a as u8;
-                    }
-                }
-            }
-            if let Some(base) = clip_base {
-                let base_alpha =
-                    calumma_core::clip::clip_base_alpha_for_layer_pixel(layer, base, x, y);
-                out[i + 3] = calumma_core::clip::multiply_clip_alpha(out[i + 3], base_alpha);
-            }
+            let base_alpha = calumma_core::clip::clip_base_alpha_for_layer_pixel(layer, base, x, y);
+            out[i + 3] = calumma_core::clip::multiply_clip_alpha(out[i + 3], base_alpha);
         }
     }
     Some(out)

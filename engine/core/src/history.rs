@@ -20,12 +20,6 @@ pub struct TileDiff {
 }
 
 #[derive(Clone, Debug)]
-pub struct MaskDiff {
-    pub layer_id: String,
-    pub mask: Option<Vec<u8>>,
-}
-
-#[derive(Clone, Debug)]
 pub struct RunDiff {
     pub layer_id: String,
     pub run: Box<TextRun>,
@@ -63,10 +57,9 @@ pub struct StackSnapshot {
     pub selected_vector_layer: Option<usize>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct HistoryCommand {
     pub diffs: Vec<TileDiff>,
-    pub masks: Vec<MaskDiff>,
     pub runs: Vec<RunDiff>,
     pub transforms: Vec<TransformDiff>,
     pub props: Vec<LayerPropDiff>,
@@ -133,9 +126,6 @@ fn stack_snapshot_held_bytes(
                 bytes += tile_bytes(tile);
             }
         }
-        if let Some(mask) = layer.mask() {
-            bytes += mask.len();
-        }
         if let Some(run) = layer.run() {
             bytes += run.text.len();
         }
@@ -198,12 +188,6 @@ impl History {
                     total += tile.held_bytes(&mut tile_bytes);
                 }
             }
-            total += command
-                .masks
-                .iter()
-                .filter_map(|m| m.mask.as_ref())
-                .map(Vec::len)
-                .sum::<usize>();
             total += command.runs.iter().map(|r| r.run.text.len()).sum::<usize>();
             if let Some(stack) = &command.stack {
                 total += stack_snapshot_held_bytes(stack, &mut tile_bytes);
@@ -214,7 +198,6 @@ impl History {
 
     pub fn push(&mut self, command: HistoryCommand) {
         if command.diffs.is_empty()
-            && command.masks.is_empty()
             && command.runs.is_empty()
             && command.transforms.is_empty()
             && command.props.is_empty()
@@ -244,14 +227,9 @@ impl History {
         let bytes = snapshot_bytes(&tiles);
         self.push(HistoryCommand {
             diffs: vec![TileDiff { layer_id, tiles }],
-            masks: Vec::new(),
-            runs: Vec::new(),
-            transforms: Vec::new(),
-            props: Vec::new(),
-            vectors: Vec::new(),
-            stack: None,
             active_layer_index,
             bytes,
+            ..Default::default()
         });
     }
 
@@ -273,21 +251,17 @@ impl History {
                 layer_id: layer_id.clone(),
                 tiles,
             }],
-            masks: Vec::new(),
-            runs: Vec::new(),
             transforms: vec![TransformDiff {
                 layer_id,
                 transform: Some(transform_before),
             }],
-            props: Vec::new(),
-            vectors: Vec::new(),
-            stack: None,
             active_layer_index,
             bytes,
+            ..Default::default()
         });
     }
 
-    pub fn push_remove_background(
+    pub fn push_baked_mask(
         &mut self,
         layer_id: String,
         tiles: TileSnapshot,
@@ -300,17 +274,13 @@ impl History {
                 layer_id: layer_id.clone(),
                 tiles,
             }],
-            masks: Vec::new(),
-            runs: Vec::new(),
             transforms: vec![TransformDiff {
                 layer_id,
                 transform,
             }],
-            props: Vec::new(),
-            vectors: Vec::new(),
-            stack: None,
             active_layer_index,
             bytes,
+            ..Default::default()
         });
     }
 
@@ -327,37 +297,10 @@ impl History {
                 layer_id: layer_id.clone(),
                 tiles,
             }],
-            masks: Vec::new(),
             runs: vec![RunDiff { layer_id, run }],
-            transforms: Vec::new(),
-            props: Vec::new(),
-            vectors: Vec::new(),
-            stack: None,
             active_layer_index,
             bytes,
-        });
-    }
-
-    pub fn push_layer_mask(
-        &mut self,
-        layer_id: String,
-        before: Option<Vec<u8>>,
-        active_layer_index: Option<usize>,
-    ) {
-        let bytes = before.as_ref().map(|m| m.len()).unwrap_or(0);
-        self.push(HistoryCommand {
-            diffs: Vec::new(),
-            masks: vec![MaskDiff {
-                layer_id,
-                mask: before,
-            }],
-            runs: Vec::new(),
-            transforms: Vec::new(),
-            props: Vec::new(),
-            vectors: Vec::new(),
-            stack: None,
-            active_layer_index,
-            bytes,
+            ..Default::default()
         });
     }
 
@@ -368,15 +311,10 @@ impl History {
         bytes: usize,
     ) {
         self.push(HistoryCommand {
-            diffs: Vec::new(),
-            masks: Vec::new(),
-            runs: Vec::new(),
-            transforms: Vec::new(),
-            props: Vec::new(),
-            vectors: Vec::new(),
             stack: Some(stack),
             active_layer_index,
             bytes,
+            ..Default::default()
         });
     }
 
@@ -387,15 +325,10 @@ impl History {
         bytes: usize,
     ) {
         self.push(HistoryCommand {
-            diffs: Vec::new(),
-            masks: Vec::new(),
-            runs: Vec::new(),
-            transforms: Vec::new(),
             props,
-            vectors: Vec::new(),
-            stack: None,
             active_layer_index,
             bytes,
+            ..Default::default()
         });
     }
 
@@ -406,15 +339,10 @@ impl History {
         bytes: usize,
     ) {
         self.push(HistoryCommand {
-            diffs: Vec::new(),
-            masks: Vec::new(),
-            runs: Vec::new(),
             transforms,
-            props: Vec::new(),
-            vectors: Vec::new(),
-            stack: None,
             active_layer_index,
             bytes,
+            ..Default::default()
         });
     }
 
@@ -425,15 +353,10 @@ impl History {
         bytes: usize,
     ) {
         self.push(HistoryCommand {
-            diffs: Vec::new(),
-            masks: Vec::new(),
-            runs: Vec::new(),
-            transforms: Vec::new(),
-            props: Vec::new(),
             vectors: vec![vector],
-            stack: None,
             active_layer_index,
             bytes,
+            ..Default::default()
         });
     }
 

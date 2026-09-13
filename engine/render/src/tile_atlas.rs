@@ -234,7 +234,7 @@ impl TileAtlas {
     /// Writes a whole mip chain for one tile — `levels[0]` is the base 256×256 image, each
     /// entry after it half the size of the one before, as built by `compose::tile_mip_chain`.
     /// Base level and mip chain are passed separately because the base is very often the
-    /// tile's own `Arc<Vec<u8>>` — an unmasked, unadjusted, fully opaque layer needs no bake,
+    /// tile's own `Arc<Vec<u8>>` — an unclipped layer needs no bake,
     /// and `queue.write_texture` can read those bytes where they already live. Folding it into
     /// the level vector meant a 256 KiB allocation and memcpy per tile per upload for pixels
     /// that were about to be copied again anyway.
@@ -273,7 +273,7 @@ impl TileAtlas {
 
     /// Doubles capacity (capped at `max_capacity`) into a fresh texture and copies every
     /// existing layer across with a GPU-side blit — tile pixels can be expensive to
-    /// recomposite (mask/adjustment baking), so growth preserves them rather than forcing
+    /// recomposite (clip baking), so growth preserves them rather than forcing
     /// every live tile to re-upload, which would show up as a stutter at exactly the moment
     /// — many tiles already live — growth tends to happen.
     fn grow(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, shared: &SharedBindings) {

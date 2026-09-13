@@ -1,7 +1,7 @@
 use crate::document::layer_alpha_at;
 use crate::document::{point_dist, Document, TransformHandle, HANDLE_HIT_RADIUS_PX};
 use crate::layer::Layer;
-use crate::limits::{LAYER_PICK_MIN_ALPHA, VECTOR_NUDGE_STEP, VECTOR_PICK_SLACK_PX};
+use crate::limits::{LAYER_PICK_MIN_ALPHA, VECTOR_PICK_SLACK_PX};
 use crate::transform::{bounds_center, corner_scale, LayerTransform};
 use crate::vector::VectorItem;
 
@@ -93,8 +93,7 @@ impl Document {
                 }
                 continue;
             }
-            if layer_alpha_at(layer, doc_x, doc_y, self.width, self.height) >= LAYER_PICK_MIN_ALPHA
-            {
+            if layer_alpha_at(layer, doc_x, doc_y) >= LAYER_PICK_MIN_ALPHA {
                 return None;
             }
         }
@@ -263,49 +262,6 @@ impl Document {
 
     pub fn is_dragging_vector_item(&self) -> bool {
         self.vector_drag.is_some()
-    }
-
-    /// Keyboard move of the selection, in document pixels — the shell sends a direction, the
-    /// step is core's.
-    pub fn nudge_selected_vector_item(&mut self, steps_x: f32, steps_y: f32) -> bool {
-        let Some(pick) = self.selected_vector_item() else {
-            return false;
-        };
-        let Some(layer) = self.layers.get(pick.layer) else {
-            return false;
-        };
-        let layer_id = layer.id.clone();
-        let before = match layer.content.item() {
-            Some(item) => item.clone(),
-            None => return false,
-        };
-        let doc_delta = (steps_x * VECTOR_NUDGE_STEP, steps_y * VECTOR_NUDGE_STEP);
-        if !self.move_item_by(pick, doc_delta, |slot, (dx, dy)| slot.translate(dx, dy)) {
-            return false;
-        }
-        self.record_vector_history(layer_id, Some(before));
-        true
-    }
-
-    pub fn delete_selected_vector_item(&mut self) -> bool {
-        let Some(pick) = self.selected_vector_item() else {
-            return false;
-        };
-        self.clear_vector_selection();
-        self.record_stack_history();
-        self.layers.remove(pick.layer);
-        if self.active_layer >= self.layers.len() {
-            self.active_layer = self.layers.len().saturating_sub(1);
-        } else if self.active_layer > pick.layer {
-            self.active_layer -= 1;
-        }
-        self.layer_selection.retain(|&i| i != pick.layer);
-        for selected in &mut self.layer_selection {
-            if *selected > pick.layer {
-                *selected -= 1;
-            }
-        }
-        true
     }
 
     fn item_for_pick(&self, pick: VectorPick) -> Option<&VectorItem> {

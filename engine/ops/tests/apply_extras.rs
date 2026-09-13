@@ -1,16 +1,10 @@
-use calumma_ops::{
-    apply_output, Backend, Op, OpError, OpInput, OpKind, OpOutput, OpParams, OpRegistry,
-};
+use calumma_ops::{apply_output, Op, OpError, OpInput, OpKind, OpOutput, OpParams, OpRegistry};
 
 struct EchoRaster;
 
 impl Op for EchoRaster {
     fn kind(&self) -> OpKind {
-        OpKind::GenerateTexture
-    }
-
-    fn backend(&self) -> Backend {
-        Backend::Core
+        OpKind::SmartMatte
     }
 
     fn available(&self) -> bool {
@@ -18,10 +12,8 @@ impl Op for EchoRaster {
     }
 
     fn run(&self, input: OpInput, _params: &OpParams) -> Result<OpOutput, OpError> {
-        match input {
-            OpInput::Raster { rgba, w, h } => Ok(OpOutput::Raster { rgba, w, h }),
-            _ => Err(OpError::BadInput),
-        }
+        let OpInput { rgba, w, h } = input;
+        Ok(OpOutput::Raster { rgba, w, h })
     }
 }
 
@@ -54,11 +46,11 @@ fn raster_output_appends_layer() {
 #[test]
 fn registry_runs_echo_raster() {
     let mut registry = OpRegistry::new();
-    registry.register_core(Box::new(EchoRaster));
+    registry.register(Box::new(EchoRaster));
     let out = registry
         .run(
-            OpKind::GenerateTexture,
-            OpInput::Raster {
+            OpKind::SmartMatte,
+            OpInput {
                 rgba: vec![1, 2, 3, 4],
                 w: 1,
                 h: 1,
@@ -82,5 +74,4 @@ fn bad_mask_size_rejected() {
     let layer = doc.active_layer;
     let err = apply_output(&mut doc, layer, OpOutput::Mask(vec![1, 2, 3])).unwrap_err();
     assert_eq!(err, OpError::BadInput);
-    assert!(doc.layers[layer].mask().is_none());
 }

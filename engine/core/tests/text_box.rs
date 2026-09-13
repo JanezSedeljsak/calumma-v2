@@ -117,14 +117,6 @@ fn a_box_wraps_its_text_over_several_rows() {
 }
 
 #[test]
-fn the_engine_entry_takes_a_rectangle_directly() {
-    let mut doc = board();
-    doc.begin_text_box(200.0, 300.0, 60.0, 120.0);
-    assert_eq!(run(&doc).origin, (60.0, 120.0));
-    assert_eq!(run(&doc).wrap_width, Some(140.0));
-}
-
-#[test]
 fn the_wrap_width_setter_clamps_and_switches_off_at_zero() {
     let mut doc = board();
     press(&mut doc, 40.0, 100.0);

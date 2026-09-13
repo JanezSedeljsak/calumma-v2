@@ -4,14 +4,12 @@ from __future__ import annotations
 
 """Release-build Miw.app, ad-hoc sign it, and wrap it in a .dmg."""
 
-import hashlib
-import os
 import plistlib
 import shutil
 import sys
 from pathlib import Path
 
-from _helpers import ENGINE_TARGET, require_matching_versions, run, workspace_version
+from _helpers import run
 from constants import (
     APP_BIN,
     APP_BUNDLE,
@@ -23,63 +21,29 @@ from constants import (
     BIN_HDIUTIL,
     BIN_ICONUTIL,
     BUNDLE_ID,
-    CHECKSUM_SUFFIX,
-    DESIGN,
-    DIR_TARGET,
     DIST,
     DIST_STAGING,
     DMG_FORMAT,
     DMG_SUFFIX,
-    ENCODING_UTF8,
-    ENV_GITHUB_OUTPUT,
     ENV_MACOSX_DEPLOYMENT_TARGET,
-    GUI,
-    GUI_MANIFEST,
     ICNS_NAME,
     ICONSET_DIR_NAME,
     MACOS_MIN_VERSION,
-    MSG_NO_APP,
     MSG_PACKAGE_MACOS_ONLY,
-    MSG_PACKAGED,
     MSG_SIGNED_ADHOC,
-    OUTPUT_KEY_DMG,
-    OUTPUT_KEY_VERSION,
     SIGN_IDENTITY_ADHOC,
     SIGN_OPTIONS_RUNTIME,
-    TOKENS_PATH,
-    TRANSLATIONS,
 )
 from generate_icon import write_iconset
-
-RESOURCE_TREES = (
-    (DESIGN / "icons", Path("design") / "icons"),
-    (TRANSLATIONS, Path("translations")),
+from package_common import (
+    announce,
+    build_release_binary,
+    copy_resources,
+    prepare_dist,
+    resolve_version,
+    write_checksum,
+    write_github_output,
 )
-RESOURCE_FILES = (
-    (DESIGN / "icon.png", Path("design") / "icon.png"),
-    (TOKENS_PATH, Path("design") / "tokens.json"),
-)
-
-
-def resolve_version(raw: str | None) -> str:
-    cleaned = (raw or "").strip().removeprefix("refs/tags/").lstrip("vV").strip()
-    return cleaned or workspace_version()
-
-
-def build_release_binary() -> Path:
-    run(
-        ["cargo", "build", "--release", "--manifest-path", str(GUI_MANIFEST)],
-        env={ENV_MACOSX_DEPLOYMENT_TARGET: MACOS_MIN_VERSION},
-    )
-    candidates = (
-        ENGINE_TARGET / "release" / APP_BIN,
-        GUI / DIR_TARGET / "release" / APP_BIN,
-    )
-    for path in candidates:
-        if path.is_file():
-            return path
-    listed = " or ".join(str(path) for path in candidates)
-    raise SystemExit(f"{MSG_NO_APP} {listed}")
 
 
 def write_info_plist(dest: Path, version: str) -> None:
@@ -102,15 +66,6 @@ def write_info_plist(dest: Path, version: str) -> None:
         plistlib.dump(payload, handle)
 
 
-def copy_resources(resources: Path) -> None:
-    for src, rel in RESOURCE_TREES:
-        run([BIN_DITTO, str(src), str(resources / rel)])
-    for src, rel in RESOURCE_FILES:
-        dest = resources / rel
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        run([BIN_DITTO, str(src), str(dest)])
-
-
 def write_app_icns(resources: Path) -> None:
     iconset = DIST / ICONSET_DIR_NAME
     write_iconset(iconset)
@@ -120,7 +75,7 @@ def write_app_icns(resources: Path) -> None:
 
 
 def assemble_app(binary: Path, version: str) -> Path:
-    DIST.mkdir(parents=True, exist_ok=True)
+    prepare_dist()
     app = DIST / APP_BUNDLE
     if app.exists():
         shutil.rmtree(app)
@@ -162,7 +117,6 @@ def stage_dmg_root(app: Path) -> Path:
 
 
 def make_dmg(app: Path, version: str) -> Path:
-    DIST.mkdir(parents=True, exist_ok=True)
     staging = stage_dmg_root(app)
     dmg = DIST / f"{APP_NAME}-{version}{DMG_SUFFIX}"
     dmg.unlink(missing_ok=True)
@@ -184,35 +138,17 @@ def make_dmg(app: Path, version: str) -> Path:
     return dmg
 
 
-def write_checksum(dmg: Path) -> Path:
-    digest = hashlib.sha256(dmg.read_bytes()).hexdigest()
-    checksum = dmg.with_name(dmg.name + CHECKSUM_SUFFIX)
-    checksum.write_text(f"{digest}  {dmg.name}\n", encoding=ENCODING_UTF8)
-    return checksum
-
-
-def write_github_output(dmg: Path, version: str) -> None:
-    output_path = os.environ.get(ENV_GITHUB_OUTPUT)
-    if not output_path:
-        return
-    with open(output_path, "a", encoding=ENCODING_UTF8) as f:
-        f.write(f"{OUTPUT_KEY_DMG}={dmg}\n")
-        f.write(f"{OUTPUT_KEY_VERSION}={version}\n")
-
-
 def package_macos(raw_version: str | None = None) -> Path:
     if sys.platform != "darwin":
         raise SystemExit(MSG_PACKAGE_MACOS_ONLY)
-    require_matching_versions()
     version = resolve_version(raw_version)
-    binary = build_release_binary()
+    binary = build_release_binary(env={ENV_MACOSX_DEPLOYMENT_TARGET: MACOS_MIN_VERSION})
     app = assemble_app(binary, version)
     sign_adhoc(app)
     dmg = make_dmg(app, version)
     write_checksum(dmg)
-    write_github_output(dmg, version)
-    print(f"{MSG_PACKAGED} {dmg}")
-    return dmg
+    write_github_output(version)
+    return announce(dmg)
 
 
 def main() -> int:

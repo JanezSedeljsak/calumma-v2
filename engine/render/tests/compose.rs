@@ -197,72 +197,7 @@ fn an_empty_lasso_stays_empty_rather_than_closing_onto_nothing() {
 fn a_plain_layer_needs_no_reupload_payload() {
     let layer = paint_layer();
     assert!(
-        composited_tile_payload(&opaque_tile(), TileCoord { x: 0, y: 0 }, &layer, None, 64)
-            .is_none()
-    );
-}
-
-#[test]
-fn a_mask_multiplies_alpha_per_pixel_without_touching_the_tile_bytes() {
-    let doc_width = TILE_SIZE;
-    let mut layer = paint_layer();
-    let mut mask = vec![255u8; (doc_width * doc_width) as usize];
-    mask[0] = 0;
-    mask[1] = 128;
-    layer.set_mask(Some(mask));
-
-    let out = composited_tile_payload(
-        &opaque_tile(),
-        TileCoord { x: 0, y: 0 },
-        &layer,
-        None,
-        doc_width,
-    )
-    .expect("payload");
-
-    assert_eq!(out[3], 0);
-    assert_eq!(out[7], 128);
-    assert_eq!(out[11], 255);
-    assert_eq!(&out[0..3], &[255, 255, 255]);
-}
-
-#[test]
-fn mask_lookups_outside_the_document_are_skipped_rather_than_wrapping() {
-    let doc_width = TILE_SIZE;
-    let mut layer = paint_layer();
-    layer.set_mask(Some(vec![0u8; (doc_width * doc_width) as usize]));
-
-    let out = composited_tile_payload(
-        &opaque_tile(),
-        TileCoord { x: -1, y: -1 },
-        &layer,
-        None,
-        doc_width,
-    )
-    .expect("payload");
-
-    assert_eq!(out[3], 255);
-}
-
-#[test]
-fn a_short_input_tile_is_padded_to_a_full_tile() {
-    let doc_width = TILE_SIZE;
-    let mut layer = paint_layer();
-    layer.set_mask(Some(vec![128u8; (doc_width * doc_width) as usize]));
-    let out = composited_tile_payload(
-        &[255u8; 8],
-        TileCoord { x: 0, y: 0 },
-        &layer,
-        None,
-        doc_width,
-    )
-    .expect("payload");
-    assert_eq!(out.len(), TILE_BYTES);
-    assert_eq!(out[3], 128, "the mask halved the input tile's opaque alpha");
-    assert_eq!(
-        out[TILE_BYTES - 1],
-        0,
-        "padding is zero, and the mask has nothing left to multiply"
+        composited_tile_payload(&opaque_tile(), TileCoord { x: 0, y: 0 }, &layer, None).is_none()
     );
 }
 
@@ -355,31 +290,6 @@ fn transparent_pixels_do_not_bleed_color_into_an_opaque_neighbour() {
         (110..145).contains(&px[3]),
         "alpha reflects roughly half coverage: got {}",
         px[3]
-    );
-}
-
-#[test]
-fn a_mask_shorter_than_the_document_leaves_pixels_past_its_end_untouched() {
-    let doc_width = TILE_SIZE;
-    let mut layer = paint_layer();
-    // Only the first row is covered; every row below computes a mask index past
-    // the buffer's end, which `mask.get` must skip rather than wrap or panic on.
-    layer.set_mask(Some(vec![0u8; doc_width as usize]));
-
-    let out = composited_tile_payload(
-        &opaque_tile(),
-        TileCoord { x: 0, y: 0 },
-        &layer,
-        None,
-        doc_width,
-    )
-    .expect("payload");
-
-    assert_eq!(out[3], 0, "row 0 is covered by the mask");
-    let last_row_alpha = (((TILE_SIZE - 1) * TILE_SIZE) * 4 + 3) as usize;
-    assert_eq!(
-        out[last_row_alpha], 255,
-        "past the mask's end, alpha is left as it was"
     );
 }
 
@@ -888,7 +798,7 @@ fn clip_bakes_tiles_that_sit_outside_the_document_origin() {
 
     let coord = TileCoord::from_doc_i32(-5, 10);
     let pixels = top.tiles().unwrap().get(coord).expect("overflow tile");
-    let baked = composited_tile_payload(pixels, coord, &top, Some(&base), 64).expect("baked");
+    let baked = composited_tile_payload(pixels, coord, &top, Some(&base)).expect("baked");
     let (ox, oy) = coord.origin();
     let local = |x: i32, y: i32| {
         let i = (((y - oy) as u32 * TILE_SIZE + (x - ox) as u32) * 4) as usize;
@@ -897,8 +807,7 @@ fn clip_bakes_tiles_that_sit_outside_the_document_origin() {
     assert_eq!(local(-5, 10), 0, "overflow outside the silhouette is cut");
     let on_paper = TileCoord::from_doc_i32(10, 10);
     let on_pixels = top.tiles().unwrap().get(on_paper).expect("on-paper tile");
-    let on_baked =
-        composited_tile_payload(on_pixels, on_paper, &top, Some(&base), 64).expect("baked");
+    let on_baked = composited_tile_payload(on_pixels, on_paper, &top, Some(&base)).expect("baked");
     let (px, py) = on_paper.origin();
     let i = (((10 - py) as u32 * TILE_SIZE + (10 - px) as u32) * 4) as usize;
     assert!(on_baked[i + 3] > 0, "ink over the base stays");

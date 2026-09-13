@@ -82,21 +82,6 @@ fn merging_the_bottom_layer_or_an_out_of_range_index_is_refused() {
     assert!(!doc.merge_layer_down(doc.layers.len()));
 }
 
-/// The source's mask used to be dropped on the way down — `apply_layer_effects` carries opacity
-/// and the LUT but never the mask, while `composite_rgba` and `layer_rgba` both apply it — so a
-/// masked layer merged as if it had never been masked.
-#[test]
-fn merge_layer_down_honours_the_sources_mask() {
-    let (mut doc, top) = stacked(255, 255);
-    let mut mask = vec![255u8; (SIDE * SIDE) as usize];
-    mask[(12 * SIDE + 12) as usize] = 0;
-    doc.layers[top].set_mask(Some(mask));
-    assert!(doc.merge_layer_down(top));
-    let base = doc.active_layer;
-    assert_eq!(pixel(&doc, base, 12, 12), [0, 0, 255, 255], "masked out");
-    assert_eq!(pixel(&doc, base, 13, 13), [255, 0, 0, 255], "masked in");
-}
-
 #[test]
 fn clipping_against_an_opaque_base_is_merging() {
     let mut merged = full_base(255);

@@ -178,7 +178,7 @@ fn caret_in_buffer(buffer: &Buffer, cursor: Cursor, fallback_height: f32) -> Car
 
 /// Caret position for a byte offset into `run.text`, in document coordinates.
 pub fn caret_rect(run: &TextRun, index: usize) -> CaretRect {
-    let display = run.display_index(index);
+    let display = run.clamp_index(index);
     let spacing = run.line_spacing();
     let local = with_buffer(run, |buffer, _| {
         let cursor = offset_to_cursor(buffer, display);
@@ -188,18 +188,6 @@ pub fn caret_rect(run: &TextRun, index: usize) -> CaretRect {
         x: local.x + run.origin.0,
         y: local.y + run.origin.1,
         height: local.height,
-    }
-}
-
-pub(crate) fn display_to_text_index(run: &TextRun, display: usize) -> usize {
-    if run.marked.is_empty() {
-        return run.clamp_index(display);
-    }
-    let at = run.clamp_index(run.marked_at);
-    if display <= at {
-        run.clamp_index(display)
-    } else {
-        run.clamp_index(display.saturating_sub(run.marked.len()).max(at))
     }
 }
 
@@ -223,7 +211,7 @@ pub fn index_at_point(run: &TextRun, x: f32, y: f32) -> usize {
             }
         }
     });
-    display_to_text_index(run, display)
+    run.clamp_index(display)
 }
 
 /// Caret motion, asked of the shaped layout rather than of the string.
@@ -239,7 +227,7 @@ pub fn step_index(run: &TextRun, index: usize, step: Step) -> usize {
         Step::DocStart => 0,
         Step::DocEnd => run.text.len(),
         Step::Up | Step::Down => {
-            let display = run.display_index(index);
+            let display = run.clamp_index(index);
             let spacing = run.line_spacing();
             let target = with_buffer(run, |buffer, _| {
                 let cursor = offset_to_cursor(buffer, display);
@@ -254,10 +242,10 @@ pub fn step_index(run: &TextRun, index: usize, step: Step) -> usize {
                     None => display,
                 }
             });
-            display_to_text_index(run, target)
+            run.clamp_index(target)
         }
         Step::LineStart | Step::LineEnd => {
-            let display = run.display_index(index);
+            let display = run.clamp_index(index);
             let target = with_buffer(run, |buffer, _| {
                 let cursor = offset_to_cursor(buffer, display);
                 let Some(row) = row_for(buffer, cursor) else {
@@ -271,10 +259,10 @@ pub fn step_index(run: &TextRun, index: usize, step: Step) -> usize {
                 };
                 cursor_to_offset(buffer, Cursor::new(cursor.line, at))
             });
-            display_to_text_index(run, target)
+            run.clamp_index(target)
         }
         _ => {
-            let display = run.display_index(index);
+            let display = run.clamp_index(index);
             let motion = match step {
                 Step::Left => Motion::Left,
                 Step::WordLeft => Motion::LeftWord,
@@ -288,7 +276,7 @@ pub fn step_index(run: &TextRun, index: usize, step: Step) -> usize {
                     None => display,
                 }
             });
-            display_to_text_index(run, target)
+            run.clamp_index(target)
         }
     }
 }

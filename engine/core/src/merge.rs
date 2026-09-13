@@ -14,7 +14,7 @@
 //! CPU and GPU have no rule to agree on, and PSD / SVG / PDF export a flat layer because it
 //! *is* a flat layer. The cost is that re-editing means undo.
 
-use crate::document::{apply_layer_effects, apply_mask, copy_layer_into_rgba, Document};
+use crate::document::{apply_layer_effects, copy_layer_into_rgba, Document};
 use crate::layer::Layer;
 use crate::limits::{ALPHA_MAX, ALPHA_ROUND_BIAS};
 use crate::tile::{blend_with_mode, DocRect, TileGrid};
@@ -96,7 +96,6 @@ impl Document {
         let mut src_buf = vec![0u8; (w as usize) * (h as usize) * 4];
         let src_buf = &mut src_buf;
         copy_layer_into_rgba(&self.layers[index], src_buf, w, h);
-        apply_mask(src_buf, self.layers[index].mask());
         let lut = self.layers[index].adjustments.map(|a| a.lut());
         apply_layer_effects(src_buf, &self.layers[index], lut.as_ref());
         if clip {

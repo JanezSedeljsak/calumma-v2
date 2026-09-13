@@ -3,32 +3,6 @@ use calumma_core::*;
 const DOC: u32 = 200;
 
 #[test]
-fn content_bounds_shrinks_to_the_mask() {
-    let mut doc = Document::new("p".into(), "t", DOC, DOC);
-    doc.layers[1]
-        .tiles_mut()
-        .unwrap()
-        .paint_rect(DocRect::new(10, 10, 90, 90), |_, _, _| {
-            Some([255, 0, 0, 255])
-        });
-    let before = doc.layers[1].content_bounds().expect("full rect");
-    assert_eq!(before, (10.0, 10.0, 91.0, 91.0));
-
-    let mut mask = vec![255u8; (DOC as usize) * (DOC as usize)];
-    for y in 0..DOC {
-        for x in 0..DOC {
-            let inside_subject = (40..60).contains(&x) && (40..60).contains(&y);
-            if !inside_subject {
-                mask[(y * DOC + x) as usize] = 0;
-            }
-        }
-    }
-    doc.layers[1].set_mask(Some(mask));
-    let after = doc.layers[1].content_bounds().expect("visible rect");
-    assert_eq!(after, (40.0, 40.0, 60.0, 60.0));
-}
-
-#[test]
 fn remove_background_bakes_and_keeps_document_position() {
     let mut doc = Document::new("p".into(), "t", DOC, DOC);
     doc.resize_viewport(DOC as f32, DOC as f32, 1.0);
@@ -51,8 +25,7 @@ fn remove_background_bakes_and_keeps_document_position() {
             }
         }
     }
-    assert!(doc.apply_remove_background_mask(1, mask));
-    assert!(doc.layers[1].mask().is_none());
+    assert!(doc.apply_matte_mask(1, mask));
     let after = doc.layer_bounds(1).expect("visible rect");
     assert_eq!(after, (40.0, 40.0, 60.0, 60.0));
     assert_eq!(
@@ -102,7 +75,7 @@ fn remove_background_undo_restores_pixels_and_transform() {
             }
         }
     }
-    assert!(doc.apply_remove_background_mask(1, mask));
+    assert!(doc.apply_matte_mask(1, mask));
     assert_eq!(doc.layer_bounds(1).unwrap(), subject_doc);
     assert_eq!(
         doc.layers[1].transform,
@@ -114,7 +87,6 @@ fn remove_background_undo_restores_pixels_and_transform() {
     );
     assert!(doc.undo());
     assert_eq!(doc.layer_bounds(1).unwrap(), before_bounds);
-    assert!(doc.layers[1].mask().is_none());
 }
 
 #[test]
@@ -129,15 +101,15 @@ fn remove_background_rejects_bad_arguments_rather_than_panicking() {
     let good_mask = vec![255u8; (DOC as usize) * (DOC as usize)];
 
     assert!(
-        !doc.apply_remove_background_mask(1, vec![255u8; 4]),
+        !doc.apply_matte_mask(1, vec![255u8; 4]),
         "a mask the wrong size for the document must be refused"
     );
     assert!(
-        !doc.apply_remove_background_mask(99, good_mask.clone()),
+        !doc.apply_matte_mask(99, good_mask.clone()),
         "an out-of-range layer index must be refused"
     );
     assert!(
-        !doc.apply_remove_background_mask(0, good_mask),
+        !doc.apply_matte_mask(0, good_mask),
         "Paper has no subject to cut out"
     );
 }
@@ -163,7 +135,7 @@ fn remove_background_refuses_a_layer_with_no_pixels() {
     let index = doc.active_layer;
     let mask = vec![255u8; (DOC as usize) * (DOC as usize)];
     assert!(
-        !doc.apply_remove_background_mask(index, mask),
+        !doc.apply_matte_mask(index, mask),
         "a vector layer has no tile grid to bake a mask into"
     );
 }
@@ -181,7 +153,7 @@ fn remove_background_with_an_entirely_transparent_mask_is_refused() {
             Some([255, 0, 0, 255])
         });
     let mask = vec![0u8; (DOC as usize) * (DOC as usize)];
-    assert!(!doc.apply_remove_background_mask(1, mask));
+    assert!(!doc.apply_matte_mask(1, mask));
     assert!(
         doc.layers[1].content_bounds().is_some(),
         "the layer is untouched"
@@ -221,7 +193,7 @@ fn remove_background_shrinks_a_rotated_and_scaled_layer_without_losing_it() {
             }
         }
     }
-    assert!(doc.apply_remove_background_mask(1, mask));
+    assert!(doc.apply_matte_mask(1, mask));
     let after_bounds = doc.layer_bounds(1).expect("cropped rect, transformed");
     let area = |b: (f32, f32, f32, f32)| (b.2 - b.0) * (b.3 - b.1);
     assert!(
@@ -238,79 +210,5 @@ fn remove_background_shrinks_a_rotated_and_scaled_layer_without_losing_it() {
             && close(restored.2, before_bounds.2)
             && close(restored.3, before_bounds.3),
         "undo must restore the exact pre-crop rotated/scaled bounds: {restored:?} vs {before_bounds:?}"
-    );
-}
-
-#[test]
-fn move_tool_picks_through_a_mask_hole_with_a_10x10_window() {
-    let mut doc = Document::new("p".into(), "t", DOC, DOC);
-    doc.resize_viewport(DOC as f32, DOC as f32, 1.0);
-    doc.fit_to_view();
-    doc.layers[1]
-        .tiles_mut()
-        .unwrap()
-        .paint_rect(DocRect::new(10, 10, 90, 90), |_, _, _| {
-            Some([255, 0, 0, 255])
-        });
-    let mut mask = vec![255u8; (DOC as usize) * (DOC as usize)];
-    for y in 25..=35u32 {
-        for x in 25..=35u32 {
-            mask[(y * DOC + x) as usize] = 0;
-        }
-    }
-    doc.layers[1].set_mask(Some(mask));
-    doc.set_tool(Tool::Move);
-
-    assert!(
-        !doc.begin_move_at(30.0, 30.0),
-        "a 10x10 centred on the hole is all transparent"
-    );
-    assert!(
-        doc.begin_move_at(70.0, 70.0),
-        "visible pixels still grab the layer"
-    );
-}
-
-#[test]
-fn transform_keeps_the_layer_on_transparent_pixels_inside_the_box() {
-    let mut doc = Document::new("p".into(), "t", DOC, DOC);
-    doc.resize_viewport(DOC as f32, DOC as f32, 1.0);
-    doc.fit_to_view();
-    doc.layers[1]
-        .tiles_mut()
-        .unwrap()
-        .paint_rect(DocRect::new(10, 10, 90, 90), |_, _, _| {
-            Some([255, 0, 0, 255])
-        });
-    let mut mask = vec![255u8; (DOC as usize) * (DOC as usize)];
-    for y in 28..=32u32 {
-        for x in 28..=32u32 {
-            mask[(y * DOC + x) as usize] = 0;
-        }
-    }
-    doc.layers[1].set_mask(Some(mask));
-    doc.add_layer("Below");
-    let below = doc.active_layer;
-    doc.layers[below]
-        .tiles_mut()
-        .unwrap()
-        .paint_rect(DocRect::new(10, 10, 90, 90), |_, _, _| {
-            Some([0, 255, 0, 255])
-        });
-    doc.set_active_layer(1);
-    assert!(doc.enter_transform());
-
-    let (sx, sy) = doc.camera.to_screen(30.0, 30.0);
-    doc.pointer_down(sx, sy);
-    assert_eq!(
-        doc.active_layer, 1,
-        "inside the frame keeps the masked layer"
-    );
-    assert!(doc.transform_active);
-    let (mx, my) = doc.camera.to_screen(40.0, 40.0);
-    doc.pointer_move(mx, my);
-    assert!(
-        doc.layers[1].transform.is_some(),
-        "the drag started even on a masked-out pixel"
     );
 }

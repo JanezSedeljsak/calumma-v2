@@ -550,8 +550,35 @@ impl AppController {
     }
 
     pub fn pick_layer(&mut self, index: usize) {
-        self.engine.borrow_mut().set_active_layer(index);
+        let mut engine = self.engine.borrow_mut();
+        engine.set_active_layer(index);
+        engine.set_layer_selection(&[]);
+        drop(engine);
         self.retarget_layer_settings(index);
+    }
+
+    pub fn toggle_layer_selected(&mut self, index: usize) {
+        let mut engine = self.engine.borrow_mut();
+        let mut selection = engine.layer_selection();
+        if selection.is_empty() {
+            selection.extend(engine.active_layer_index());
+        }
+        let added = match selection.iter().position(|&i| i == index) {
+            Some(at) => {
+                selection.remove(at);
+                false
+            }
+            None => {
+                selection.push(index);
+                engine.set_active_layer(index);
+                true
+            }
+        };
+        engine.set_layer_selection(&selection);
+        drop(engine);
+        if added {
+            self.retarget_layer_settings(index);
+        }
     }
 
     pub fn retarget_layer_settings_to_active(&mut self) {
@@ -959,12 +986,18 @@ fn is_workspace_root(dir: &Path) -> bool {
 
 fn bundle_resources_root() -> Option<PathBuf> {
     let exe = std::env::current_exe().ok()?;
-    let macos_dir = exe.parent()?;
-    if macos_dir.file_name()?.to_str()? != "MacOS" {
-        return None;
+    let exe_dir = exe.parent()?;
+    if exe_dir.file_name()?.to_str()? == "MacOS" {
+        let resources = exe_dir.parent()?.join("Resources");
+        if is_workspace_root(&resources) {
+            return Some(resources);
+        }
     }
-    let resources = macos_dir.parent()?.join("Resources");
-    is_workspace_root(&resources).then_some(resources)
+    if is_workspace_root(exe_dir) {
+        return Some(exe_dir.to_path_buf());
+    }
+    let share = exe_dir.parent()?.join("share").join("miw");
+    is_workspace_root(&share).then_some(share)
 }
 
 pub type SharedController = Rc<RefCell<AppController>>;

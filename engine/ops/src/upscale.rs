@@ -1,8 +1,8 @@
-//! The Upscale Smart Tool: `OpKind::Upscale`, always available, `Backend::Core` — Lanczos-3 is
+//! The Upscale Smart Tool: `OpKind::Upscale`, always available — Lanczos-3 is
 //! deterministic math (`calumma_core::smarttools::resample`), not a model, so there is no `available()`
 //! gate and no platform counterpart to lose to.
 
-use crate::types::{Backend, Op, OpError, OpInput, OpKind, OpOutput, OpParams};
+use crate::types::{Op, OpError, OpInput, OpKind, OpOutput, OpParams};
 use calumma_core::limits::MAX_CANVAS_SIDE;
 use calumma_core::smarttools::resample::lanczos3_resize;
 
@@ -13,18 +13,12 @@ impl Op for UpscaleOp {
         OpKind::Upscale
     }
 
-    fn backend(&self) -> Backend {
-        Backend::Core
-    }
-
     fn available(&self) -> bool {
         true
     }
 
     fn run(&self, input: OpInput, params: &OpParams) -> Result<OpOutput, OpError> {
-        let OpInput::Raster { rgba, w, h } = input else {
-            return Err(OpError::BadInput);
-        };
+        let OpInput { rgba, w, h } = input;
         if w == 0 || h == 0 || rgba.len() != (w as usize) * (h as usize) * 4 {
             return Err(OpError::BadInput);
         }

@@ -110,5 +110,43 @@ pub fn read_clipboard() -> ClipboardContent {
 
 #[cfg(not(target_os = "macos"))]
 pub fn read_clipboard() -> ClipboardContent {
-    ClipboardContent::Empty
+    let Ok(mut clipboard) = arboard::Clipboard::new() else {
+        return ClipboardContent::Empty;
+    };
+    if let Ok(image) = clipboard.get_image() {
+        if let Some(bytes) = rgba_to_png(&image) {
+            return ClipboardContent::Images(vec![NamedImage {
+                name: String::new(),
+                bytes,
+            }]);
+        }
+    }
+    let Ok(text) = clipboard.get_text() else {
+        return ClipboardContent::Empty;
+    };
+    if looks_like_svg_text(&text) {
+        return ClipboardContent::Images(vec![NamedImage {
+            name: String::new(),
+            bytes: text.into_bytes(),
+        }]);
+    }
+    if text.is_empty() {
+        ClipboardContent::Empty
+    } else {
+        ClipboardContent::Text(text)
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn rgba_to_png(image: &arboard::ImageData<'_>) -> Option<Vec<u8>> {
+    let buffer = image::RgbaImage::from_raw(
+        image.width as u32,
+        image.height as u32,
+        image.bytes.as_ref().to_vec(),
+    )?;
+    let mut png = Vec::new();
+    image::DynamicImage::ImageRgba8(buffer)
+        .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+        .ok()?;
+    Some(png)
 }

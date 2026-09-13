@@ -136,4 +136,10 @@ impl BoardSurface {
     pub fn layer_ptr(&self) -> *mut c_void {
         NonNull::from(&*self.layer).as_ptr().cast()
     }
+
+    pub fn native(&self) -> calumma_app::NativeSurface {
+        calumma_app::NativeSurface::MetalLayer {
+            layer: self.layer_ptr(),
+        }
+    }
 }

@@ -28,8 +28,6 @@ fn align_of(align: TextAlign) -> Align {
 #[derive(Clone, PartialEq)]
 pub(crate) struct ShapeKey {
     text: String,
-    marked: String,
-    marked_at: usize,
     family: String,
     bold: bool,
     italic: bool,
@@ -44,8 +42,6 @@ impl ShapeKey {
     fn of(run: &TextRun) -> Self {
         Self {
             text: run.text.clone(),
-            marked: run.marked.clone(),
-            marked_at: run.marked_at,
             family: run.family.clone(),
             bold: run.bold,
             italic: run.italic,
@@ -58,15 +54,13 @@ impl ShapeKey {
     }
 
     fn matches(&self, run: &TextRun) -> bool {
-        self.marked_at == run.marked_at
-            && self.bold == run.bold
+        self.bold == run.bold
             && self.italic == run.italic
             && self.size == run.size
             && self.line_height == run.line_height
             && self.align == run.align
             && self.wrap_width == run.wrap_width
             && self.text == run.text
-            && self.marked == run.marked
             && self.family == run.family
             && self.spans == run.spans
     }
@@ -89,8 +83,8 @@ fn build_buffer(font_system: &mut FontSystem, run: &TextRun) -> Buffer {
         .family(Family::Name(&run.family))
         .weight(crate::fonts::weight_of(run.bold))
         .style(crate::fonts::style_of(run.italic));
-    let display = run.display_text();
-    let spans = run.display_spans();
+    let display = run.text.clone();
+    let spans = run.spans.clone();
     if spans.is_empty() {
         buffer.set_text(
             &display,

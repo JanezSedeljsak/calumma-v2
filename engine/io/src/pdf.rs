@@ -11,6 +11,7 @@
 //! `/SMask` for masks is what makes PDF the one format that could carry them live, but the
 //! mask storage has to grow first.
 use crate::flate::deflate;
+use crate::svg::ink_bounds;
 use calumma_core::transform::bounds_center;
 use calumma_core::{embed_font, layout_for_pdf, text_pdf, to_unicode_entries, vector_pdf};
 use calumma_core::{BlendMode, Document, Layer, PdfFontKey};
@@ -146,26 +147,6 @@ fn layer_state(layer: &Layer) -> GraphicsState {
         stroke_alpha: opacity * stroke,
         blend: layer.blend_mode,
     }
-}
-
-/// The tight box of everything a layer paints, so a mostly-empty stack does not embed a
-/// full-page image per layer. Same crop `svg.rs` does, and for the same reason.
-fn ink_bounds(rgba: &[u8], width: u32, height: u32) -> Option<(u32, u32, u32, u32)> {
-    let (mut min_x, mut min_y) = (u32::MAX, u32::MAX);
-    let (mut max_x, mut max_y) = (0u32, 0u32);
-    for y in 0..height {
-        let row = (y as usize) * (width as usize) * 4;
-        for x in 0..width {
-            if rgba[row + (x as usize) * 4 + 3] == 0 {
-                continue;
-            }
-            min_x = min_x.min(x);
-            min_y = min_y.min(y);
-            max_x = max_x.max(x);
-            max_y = max_y.max(y);
-        }
-    }
-    (min_x != u32::MAX).then(|| (min_x, min_y, max_x - min_x + 1, max_y - min_y + 1))
 }
 
 /// RGBA split into the two planes PDF wants: colour as `/DeviceRGB` samples, and alpha as a

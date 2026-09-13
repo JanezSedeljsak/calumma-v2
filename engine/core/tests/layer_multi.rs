@@ -53,3 +53,33 @@ fn offset_layers_reports_false_when_nothing_moves() {
     assert!(!doc.offset_layers(&[0], 3.0, 3.0));
     assert!(!doc.offset_layers(&[42], 3.0, 3.0), "index out of range");
 }
+
+#[test]
+fn the_selection_keeps_only_movable_layers_and_reads_back_in_order() {
+    use calumma_core::document::Document;
+    use calumma_core::DocRect;
+
+    let mut doc = Document::new("p".into(), "t", 64, 64);
+    doc.add_layer("Layer 2");
+    doc.add_layer("Layer 3");
+    for (index, x) in [(1, 4), (2, 30)] {
+        doc.layers[index]
+            .tiles_mut()
+            .unwrap()
+            .paint_rect(DocRect::new(x, 4, x + 10, 14), |_, _, _| {
+                Some([255, 0, 0, 255])
+            });
+    }
+
+    doc.set_layer_selection(&[0, 2, 1, 2, 3, 9]);
+
+    assert_eq!(doc.layer_selection(), &[2, 1]);
+    let selection = doc.layer_selection().to_vec();
+    assert!(doc.align_layers(&selection, AlignEdge::Left));
+    let left = |index: usize| {
+        let layer = &doc.layers[index];
+        let raw = layer.content_bounds().unwrap();
+        layer.transform.unwrap_or_default().transformed_aabb(raw).0
+    };
+    assert_eq!(left(1), left(2));
+}

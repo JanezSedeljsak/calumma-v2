@@ -1,8 +1,10 @@
 mod file_drop;
 mod shortcuts;
 mod text_keys;
+mod window_events;
 
 pub use file_drop::{DropHandler, DropQueue};
+pub use window_events::{FrameSignal, ShellEvents};
 
 pub use text_keys::{apply_text_key, handle_text_key};
 

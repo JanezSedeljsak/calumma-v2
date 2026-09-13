@@ -150,45 +150,12 @@ fn line_ends_clamp_to_the_line() {
 }
 
 #[test]
-fn marked_text_is_laid_out_at_the_caret() {
-    let mut composing = run("ab");
-    composing.marked = "^".to_string();
-    composing.marked_at = 1;
-    assert_eq!(composing.display_text(), "a^b");
-    assert_eq!(composing.display_index(0), 0);
-    assert_eq!(composing.display_index(2), 3);
-    let (with_mark, _) = measure(&composing);
-    let (without, _) = measure(&run("ab"));
-    assert!(with_mark > without);
-}
-
-#[test]
 fn alignment_shifts_the_caret_inside_the_box() {
     let mut left = run("hi");
     left.wrap_width = Some(400.0);
     let mut centered = left.clone();
     centered.align = TextAlign::Center;
     assert!(caret_rect(&centered, 0).x > caret_rect(&left, 0).x);
-}
-
-#[test]
-fn clamping_repairs_a_malformed_run() {
-    let repaired = TextRun {
-        size: f32::NAN,
-        line_height: 99.0,
-        family: "   ".to_string(),
-        origin: (f32::INFINITY, 0.0),
-        wrap_width: Some(1.0),
-        marked_at: 900,
-        ..TextRun::default()
-    }
-    .clamped();
-    assert!(repaired.size.is_finite());
-    assert!(repaired.line_height <= 4.0);
-    assert!(!repaired.family.trim().is_empty());
-    assert_eq!(repaired.origin, (0.0, 0.0));
-    assert_eq!(repaired.wrap_width, Some(16.0));
-    assert_eq!(repaired.marked_at, 0);
 }
 
 #[test]

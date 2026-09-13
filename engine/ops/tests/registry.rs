@@ -1,45 +1,32 @@
-use calumma_core::{Document, LayerContent};
+use calumma_core::Document;
 use calumma_ops::{
-    apply_output, run_op, run_op_on_document, Backend, OpError, OpInput, OpKind, OpOutput,
-    OpParams, OpRegistry,
+    apply_output, run_op, run_op_on_document, OpError, OpInput, OpKind, OpOutput, OpParams,
+    OpRegistry,
 };
 
 mod mocks {
-    use calumma_ops::{Backend, Op, OpError, OpInput, OpKind, OpOutput, OpParams};
+    use calumma_ops::{Op, OpError, OpInput, OpKind, OpOutput, OpParams};
 
     pub struct MockOp {
         pub kind: OpKind,
-        pub backend: Backend,
         pub available: bool,
         pub fail: bool,
         pub output: OpOutput,
     }
 
     impl MockOp {
-        pub fn ok(kind: OpKind, backend: Backend, output: OpOutput) -> Self {
+        pub fn unavailable(kind: OpKind) -> Self {
             Self {
                 kind,
-                backend,
-                available: true,
-                fail: false,
-                output,
-            }
-        }
-
-        pub fn unavailable(kind: OpKind, backend: Backend) -> Self {
-            Self {
-                kind,
-                backend,
                 available: false,
                 fail: false,
                 output: OpOutput::Mask(Vec::new()),
             }
         }
 
-        pub fn failing(kind: OpKind, backend: Backend) -> Self {
+        pub fn failing(kind: OpKind) -> Self {
             Self {
                 kind,
-                backend,
                 available: true,
                 fail: true,
                 output: OpOutput::Mask(Vec::new()),
@@ -50,10 +37,6 @@ mod mocks {
     impl Op for MockOp {
         fn kind(&self) -> OpKind {
             self.kind
-        }
-
-        fn backend(&self) -> Backend {
-            self.backend
         }
 
         fn available(&self) -> bool {
@@ -77,69 +60,20 @@ fn mask_output(w: u32, h: u32) -> OpOutput {
 }
 
 #[test]
-fn platform_beats_core_when_available() {
-    let mut registry = OpRegistry::new();
-    registry.register_core(Box::new(MockOp::ok(
-        OpKind::RemoveBackground,
-        Backend::Core,
-        OpOutput::Mask(vec![1]),
-    )));
-    registry.register_platform(Box::new(MockOp::ok(
-        OpKind::RemoveBackground,
-        Backend::Platform,
-        OpOutput::Mask(vec![9]),
-    )));
-
-    assert_eq!(
-        registry.backend_for(OpKind::RemoveBackground),
-        Some(Backend::Platform)
-    );
-    let out = run_op(
-        &registry,
-        OpKind::RemoveBackground,
-        OpInput::None,
-        &OpParams::default(),
-    )
-    .unwrap();
-    assert_eq!(out, OpOutput::Mask(vec![9]));
-}
-
-#[test]
-fn unavailable_platform_falls_back_to_core() {
-    let mut registry = OpRegistry::new();
-    registry.register_core(Box::new(MockOp::ok(
-        OpKind::SuggestShape,
-        Backend::Core,
-        OpOutput::Paths(Vec::new()),
-    )));
-    registry.register_platform(Box::new(MockOp::unavailable(
-        OpKind::SuggestShape,
-        Backend::Platform,
-    )));
-
-    assert_eq!(
-        registry.backend_for(OpKind::SuggestShape),
-        Some(Backend::Core)
-    );
-}
-
-#[test]
 fn unavailable_everywhere_is_gated() {
     let mut registry = OpRegistry::new();
-    registry.register_core(Box::new(MockOp::unavailable(
-        OpKind::GenerateTexture,
-        Backend::Core,
-    )));
-    registry.register_platform(Box::new(MockOp::unavailable(
-        OpKind::GenerateTexture,
-        Backend::Platform,
-    )));
+    registry.register(Box::new(MockOp::unavailable(OpKind::SmartMatte)));
+    registry.register(Box::new(MockOp::unavailable(OpKind::SmartMatte)));
 
-    assert!(!registry.available(OpKind::GenerateTexture));
+    assert!(!registry.available(OpKind::SmartMatte));
     let err = run_op(
         &registry,
-        OpKind::GenerateTexture,
-        OpInput::None,
+        OpKind::SmartMatte,
+        OpInput {
+            rgba: Vec::new(),
+            w: 0,
+            h: 0,
+        },
         &OpParams::default(),
     )
     .unwrap_err();
@@ -149,11 +83,15 @@ fn unavailable_everywhere_is_gated() {
 #[test]
 fn error_propagates_through_registry() {
     let mut registry = OpRegistry::new();
-    registry.register_core(Box::new(MockOp::failing(OpKind::Vectorize, Backend::Core)));
+    registry.register(Box::new(MockOp::failing(OpKind::SmartMatte)));
     let err = run_op(
         &registry,
-        OpKind::Vectorize,
-        OpInput::None,
+        OpKind::SmartMatte,
+        OpInput {
+            rgba: Vec::new(),
+            w: 0,
+            h: 0,
+        },
         &OpParams::default(),
     )
     .unwrap_err();
@@ -173,28 +111,24 @@ fn failed_op_leaves_document_and_history_untouched() {
     let could_undo = doc.history.can_undo();
 
     let mut registry = OpRegistry::new();
-    registry.register_core(Box::new(MockOp::failing(
-        OpKind::RemoveBackground,
-        Backend::Core,
-    )));
+    registry.register(Box::new(MockOp::failing(OpKind::SmartMatte)));
 
     let err = run_op_on_document(
         &registry,
         &mut doc,
         layer,
-        OpKind::RemoveBackground,
+        OpKind::SmartMatte,
         &OpParams::default(),
     )
     .unwrap_err();
     assert!(matches!(err, OpError::Failed(_)));
     assert_eq!(doc.layers.len(), layers);
     assert_eq!(doc.layers[layer].tiles().unwrap().get_pixel(8, 8), pixel);
-    assert!(doc.layers[layer].mask().is_none());
     assert_eq!(doc.history.can_undo(), could_undo);
 }
 
 #[test]
-fn remove_background_bakes_mask_into_pixels() {
+fn a_mask_output_bakes_into_pixels() {
     let mut doc = Document::new("p".into(), "P", 32, 32);
     let layer = doc.active_layer;
     doc.layers[layer]
@@ -206,47 +140,5 @@ fn remove_background_bakes_mask_into_pixels() {
     apply_output(&mut doc, layer, mask_output(32, 32)).unwrap();
 
     assert_eq!(doc.layers[layer].tiles().unwrap().get_pixel(4, 4), pixel);
-    assert!(doc.layers[layer].mask().is_none());
     assert!(doc.history.can_undo());
-}
-
-#[test]
-fn paths_output_adds_vector_layer() {
-    let mut doc = Document::new("p".into(), "P", 32, 32);
-    let before = doc.layers.len();
-    let paths = vec![calumma_core::VectorPath {
-        points: vec![(1.0, 2.0), (3.0, 4.0)],
-        closed: false,
-        fill: false,
-        color: [0, 0, 0, 255],
-        stroke: true,
-        stroke_color: [0, 0, 0, 255],
-        stroke_width: 1.0,
-        ring_starts: Vec::new(),
-        even_odd: true,
-    }];
-    apply_output(&mut doc, 0, OpOutput::Paths(paths)).unwrap();
-    assert_eq!(doc.layers.len(), before + 1);
-    assert!(matches!(
-        doc.layers.last().unwrap().content,
-        LayerContent::Vector(_)
-    ));
-}
-
-#[test]
-fn mock_per_kind_registers() {
-    let mut registry = OpRegistry::new();
-    for kind in [
-        OpKind::RemoveBackground,
-        OpKind::GenerateTexture,
-        OpKind::Vectorize,
-        OpKind::SuggestShape,
-    ] {
-        registry.register_core(Box::new(MockOp::ok(
-            kind,
-            Backend::Core,
-            OpOutput::Mask(vec![0]),
-        )));
-        assert!(registry.available(kind));
-    }
 }

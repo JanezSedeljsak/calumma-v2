@@ -43,8 +43,10 @@ export component AppWindow inherits Window {
             root.guides-open = false;
             root.project-settings-open = false;
         }
+        root.editor-open-changed(root.editor-open);
     }
 
+    callback editor-open-changed(bool);
     callback create-project();
     callback open-recent(string);
     callback delete-recent(string);

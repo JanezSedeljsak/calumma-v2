@@ -97,27 +97,6 @@ fn a_nearly_transparent_layer_is_as_hard_to_grab_as_it_is_to_see() {
 }
 
 #[test]
-fn a_locked_layer_stays_unpickable_and_falls_through() {
-    let mut doc = doc_with_viewport();
-    paint(&mut doc, 1, DocRect::new(10, 10, 90, 90), [0, 0, 255, 255]);
-    doc.add_layer("Top");
-    let top = doc.active_layer;
-    paint(
-        &mut doc,
-        top,
-        DocRect::new(10, 10, 90, 90),
-        [255, 0, 0, 255],
-    );
-    doc.layers[top].locked = true;
-    assert_eq!(
-        doc.layer_at(50.0, 50.0),
-        Some(1),
-        "the click falls through to the layer below, the way Photoshop does"
-    );
-    assert_eq!(doc.locked_layer_at(50.0, 50.0), Some(top));
-}
-
-#[test]
 fn a_click_swallowed_by_a_locked_layer_says_so_once() {
     let mut doc = doc_with_viewport();
     let only = doc.active_layer;

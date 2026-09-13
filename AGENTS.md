@@ -93,11 +93,11 @@ bind groups — is shipped; see `docs/ENGINE.md` § Bind groups.
 | --- | --- |
 | `engine/core` | Document, sparse tiles, camera, viewport culling, history, shapes, palette, `LayerContent`, Smart Tools (`src/smarttools`) — no GPU |
 | `engine/text` | System fonts, shaping, layout, caret/hit-test, selection geometry, style spans, glyph rasterizing (`cosmic-text`). Leaf crate; `core` depends on it |
-| `engine/render` | wgpu; surface created by the shell; applies layer masks at upload |
+| `engine/render` | wgpu; surface created by the shell; applies clip alpha at upload |
 | `engine/io` | SQLite projects + encode/decode |
 | `engine/ops` | `Op` / `OpRegistry` dispatch; apply results into the document |
 | `engine/app` | **`calumma-app`** — the Rust API (`Engine`, `NativeSurface`) the Slint shell links |
-| `engine/ffi` | The real `Engine`/`Inner`/platform-op-vtable implementation. No C ABI any more — `crate-type = ["rlib"]` only, no header, nothing links it except `calumma-app`. Named `ffi` for history, not for what it does today |
+| `engine/ffi` | The real `Engine`/`Inner` implementation. No C ABI any more — `crate-type = ["rlib"]` only, no header, nothing links it except `calumma-app`. Named `ffi` for history, not for what it does today |
 | `gui/` | **Desktop shell** — Rust + Slint UI (macOS 26, Windows 11, current Linux). Plan: `docs/plans/02-slint-shell.md` |
 | `legacy-macos-shell/` | SwiftUI reference shell (frozen) — macOS-only details, Vision ops |
 | `translations/` | Locale JSON (`en.json` today). Not code — edit strings here |
@@ -195,8 +195,9 @@ have to be read together.
   `SVG_VECTOR_MAX_PATHS` paths pastes as pixels instead. A filled path draws live through
   `fs_vector_fill`, which walks the path's edges from a storage buffer for the distance and the
   winding number together — the CPU twin is `path_fill_distance` in `vector.rs`. The
-  shell only gathers bytes: `gui/src/shell/clipboard.rs` reads `NSPasteboard` (file URLs
-  first, raw PNG/TIFF/JPEG/HEIC data otherwise) and `gui/src/input/file_drop.rs` collects
+  shell only gathers bytes: `gui/src/shell/clipboard.rs` reads the pasteboard (`NSPasteboard` on
+  macOS; `arboard` on Windows and Linux — file URLs first, raw image bytes otherwise) and
+  `gui/src/input/file_drop.rs` collects
   winit `DroppedFile` events, drained once per frame tick so one drop of N files is one paste.
 - Pasting into an *open* project is a different path (`engine/core/src/paste.rs`): an image
   bigger than the paper is placed at **native size, centred, and the layer overflows**. It is
@@ -327,15 +328,13 @@ pub enum LayerContent {
   AABB (`LayerTransform::transformed_aabb`), the same span vector flatten
   already used. Inside transform mode, clicking a layer's painted pixels
   retargets the transform to it (`Document::layer_at` — pixel-accurate,
-  mask/transform/opacity-aware, skips Paper) and starts a move drag in the
+  transform/opacity-aware, skips Paper) and starts a move drag in the
   same gesture; clicking the active layer's own pixels always keeps it, so an
   overlapping layer above cannot steal the target. Clicking empty space (or
   `Esc`) exits; the Select tools remain for region marquee/lasso.
 - **Move** (`Tool::Move = 15`, tools island) is translation without `⌘T`: click
   a vector item or a layer's painted pixels (`Document::begin_move_at`) and
-  drag. Empty space and Paper are no-ops. Arrow keys call
-  `nudge_move_target` — selected vector item first, otherwise the active
-  layer's `transform.offset` when Move or transform mode is on. Transform is
+  drag. Empty space and Paper are no-ops.  Transform is
   a *mode on Move* (options panel / `⌘T`): on, the same grab shows
   scale/rotate handles and selects the layer; off, it only drags. `⌘T`
   selects Move and turns the mode on; `V` (or picking Move) turns it off.
@@ -348,10 +347,7 @@ pub enum LayerContent {
   whole tile the same copy-on-write allocation, so Paper costs one tile
   until it is painted on (see Residency below). `merge_layer_down` refuses to
   merge anything into Paper.
-- Optional `layer.mask: Option<Vec<u8>>` (full-document coverage 0–255). Masks do **not**
-  mutate tile bytes; the renderer multiplies alpha when uploading GPU tiles. **Remove
-  Background is the only writer** and authoring one is deferred (see below), so the dense
-  buffer stays dense — do not rebuild it on `TileGrid` speculatively.
+
 - `layer.opacity: f32` (0–1, default 1), `layer.adjustments: Option<Adjustments>`
   (`engine/core/src/filters.rs` — brightness/contrast/vibrance/saturation/levels, `None` =
   neutral) and `layer.blend_mode: BlendMode` (Photoshop's blend menu less Dissolve —
@@ -414,8 +410,7 @@ pub enum LayerContent {
   stands down on a base carrying a transform.
 - `Document::duplicate_layer`/`merge_layer_down`/`clip_layer_down`/`resize`
   record a `StackSnapshot` before they run, so `⌘Z` can put the stack back.
-  Paint, fill, clear, text sessions, and Remove Background still use tile/mask/run
-  diffs; everything lands on the same `History` budget.
+  Paint, fill, text sessions and Cut Out Subject still use tile/run diffs; everything lands on the same `History` budget.
 - **Vector layers** (`core/src/vector.rs`, `core/src/vector_edit.rs`,
   `core/src/vector_svg.rs`, `render/src/vector_draw.rs`) hold **exactly one**
   `VectorItem` — a parametric `Shape` or a freehand `VectorPath`. A second
@@ -444,14 +439,10 @@ pub enum LayerContent {
     stack snapshot when the whole layer is added or removed.
 - `Document.selection: Option<Selection>` (`engine/core/src/selection.rs`) is a **document**-
   level concept, not a layer or a mask — a rect/ellipse/lasso shape (parameters only, not a
-  persisted `width×height` buffer) that scopes copy/cut/clear to a region instead of a whole
-  layer. Coverage is computed on demand (`SelectionShape::contains`), reusing the same
+  persisted `width×height` buffer) that scopes painting to a region instead of a whole layer. Coverage is computed on demand (`SelectionShape::contains`), reusing the same
   math the Rect/Ellipse paint shapes already use. The commands that are not a pointer drag —
-  `deselect` / `select_all` / `invert_selection` — live in `selection_edit.rs`, the way
-  `text_edit.rs` and `vector_edit.rs` extend `Document` from their own modules. Invert has no
-  buffer to flip for the parametric shapes, so it always produces the `SelectionShape::Mask`
-  the wand already built, filled through `SelectionMask::from_predicate` (one rayon task per
-  row, because unlike a flood it asks about every pixel of the canvas).
+  `deselect` / `select_all` — live in `selection_edit.rs`, the way
+  `text_edit.rs` and `vector_edit.rs` extend `Document` from their own modules. 
 - **Every select tool reads the layer through `select_sample.rs`, and nothing else does.**
   `LayerSelectSample` is the one answer to "what colour is this layer at this pixel", whatever
   the layer is made of: tiles for raster and text, the parametric distance functions for a
@@ -481,33 +472,21 @@ pub enum LayerContent {
 
 ## AI ops
 
-**Shipped:** Remove Background on macOS via Vision only. Enum slots and registry mocks
-exist for other kinds; do **not** implement them until explicitly requested.
+**Shipped:** the three core Smart Tools — Upscale, Content-Aware Narrow (seam carving) and Cut
+Out Subject (graph-cut matte). All of them run in Rust; there is no platform backend.
 
 ```
-Shell "Cut BG"  →  `Engine::run_op(RemoveBackground, layer)`
-                 →  OpRegistry resolves Platform (Vision vtable)
-                 →  VNGenerateForegroundInstanceMaskRequest
-                 →  OpOutput::Mask
-                 →  engine attaches mask + history step
+Shell "Cut Out Subject"  →  `Engine::run_smart_matte`
+                          →  OpRegistry resolves SmartMatteOp
+                          →  OpOutput::Mask
+                          →  engine bakes the mask into the layer's pixels + history step
 ```
 
-- Shell never chooses Core vs Platform and never edits the layer stack after an op.
-- Install platform ops once at engine startup (`VisionPlatformOps.install`).
-- Platform wins when `available()` is true; otherwise the op is greyed out.
-- Call ops only through `OpRegistry` / `Engine::run_op`, never ad hoc.
-- Mask is non-destructive (tiles unchanged); renderer applies it at upload. Undo uses
-  history `MaskDiff`.
-- Prefer `run_op` off the main thread; `Inner` is mutex-protected. Platform `run` must
-  not throw — Rust wraps the vtable in `catch_unwind`.
-
-### Core vs platform
-
-| **core** (default) | **platform** (justify) |
-| --- | --- |
-| Pure pixel/geometry compute | OS already ships a good model |
-| Identical everywhere | Needs ANE / Vision / Core AI |
-| Small enough to bundle | Large, licensed, or OS-managed |
+- Shell never edits the layer stack after an op.
+- Call ops only through `OpRegistry` (`Engine::run_upscale` / `run_smart_matte` /
+  `run_seam_carve_narrow`), never ad hoc.
+- A mask output is baked into tiles (`Document::apply_matte_mask`); undo is an ordinary tile
+  and transform step.
 
 Deferred (do not start): core BiRefNet / `ort`, Vectorize (`vtracer`), SuggestShape,
 GenerateTexture, Image Playground / `ImageCreator`.
@@ -691,10 +670,13 @@ LOD, motion mode) are documented in `docs/RENDERING.md`, not repeated here.
   *below* Slint's own winit-owned view in the same window, and hands the layer pointer to
   `calumma-app`'s `NativeSurface::MetalLayer` (`BoardHost::try_attach_winit`,
   `gui/src/board/host.rs`) — wgpu presents straight into it, with no texture copy through
-  Slint's femtovg renderer. `engine/ffi/src/surface.rs` also defines `Win32Hwnd`/`Xlib`/
-  `Wayland` surface kinds for the same attach path, but `gui/src/board` only implements the
-  macOS one today; attaching on Windows/Linux currently fails (`attach_failed`) until that
-  lands.
+  Slint's femtovg renderer. Windows does the same with a child `HWND`
+  (`gui/src/board/surface_windows.rs` → `NativeSurface::Win32Hwnd`); Linux uses a child X11
+  window (`gui/src/board/surface_linux.rs` → `NativeSurface::Xlib`) and defaults
+  `WINIT_UNIX_BACKEND=x11` so the shipped app lands on X11/XWayland rather than a Wayland
+  subsurface. Overlay chrome still hides the child; zoom-pill and hover holes are a window
+  region (Win32 `SetWindowRgn`, XFixes `XFixesSetWindowShapeRegion`) so Slint paints through. Pointer events pass
+  through the child (`WM_NCHITTEST` / empty input region) to Slint's `TouchArea`.
 - **A subview draws over Slint, never under it.** Slint renders into the winit view's own
   layer, so the board's `NSView` sits on top of every Slint element inside its rect, whatever
   the subview ordering says. Rulers and side islands stay *outside* that rect. The zoom pill
@@ -724,7 +706,7 @@ LOD, motion mode) are documented in `docs/RENDERING.md`, not repeated here.
   what keeps the board attaching, resizing and presenting at all.
 - Layer hover = dashed outline in the shader, not a shell-drawn overlay. The Move tool (outside
   `⌘T`) draws the **same** outline around what it would move — `Document::layer_highlights`
-  adds the layers an arrow key nudges — whether the layer holds pixels, a vector or text, and
+  adds every layer in the multi-selection — whether the layer holds pixels, a vector or text, and
   nothing else: no handles and no item frame. `⌘T` is where handles live.
 - Board **chrome** — guides, transform and vector-item frames, the text session's box and
   caret, the hover outline — is measured in *screen* pixels, not document units, so it is the
@@ -758,7 +740,7 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 ./manage.py dev # build and run the GUI shell (optimized debug; --release for a shipped-like binary)
 ./manage.py dev --mcp # same, plus Slint's embedded MCP server on :7883 for live UI introspection
 ./manage.py build # release build of the GUI shell
-./manage.py package # macOS: Miw.app + dist/Miw-<version>.dmg (ad-hoc signed)
+./manage.py package # host installer into dist/ (macOS .dmg, Windows .zip, Linux .tar.gz+.deb)
 ./manage.py coverage # llvm-cov + per-crate %% table in the log
 ./manage.py check # lint + gui-check + test
 ./manage.py purity # core has no platform/GPU deps
@@ -782,15 +764,17 @@ still needs a real `wgpu::Surface`, so what its own tests cover is what it *deci
 state per blend mode, bind-group and vertex layouts, visible/retained tile spans — not what it
 draws.
 
-Distribution: `.github/workflows/main.yml` runs lint → security → per-OS tests
-(`test-linux`, `test-macos` always; `test-windows` on manual `workflow_dispatch`), then a
-macOS `.dmg` when `engine/Cargo.toml`'s `[workspace.package] version` was bumped on `main`
-(`./manage.py version-check`), or on `workflow_dispatch` / a `v*` tag. `./manage.py package`
-(`cli/package_macos.py`) is the whole pipeline — release-builds the Slint shell, stamps
-`Miw.app`'s Info.plist from that workspace version, ad-hoc signs, and emits
-`dist/Miw-<version>.dmg` plus a `.sha256`. `gui/Cargo.toml`'s package version must match
-(lint and version-check both refuse a drift). Notarization is still out: Gatekeeper needs
-right-click → Open on first launch. Windows and Linux installers are still open work.
+Distribution: `.github/workflows/main.yml` runs lint → security → Linux (`test-linux` +
+`build-linux`) → Windows and macOS (`test-windows`, `build-windows`, `test-macos`,
+`build-macos`) → `release`. Every run packages the shell on all three OSes: Linux a
+`.tar.gz` plus `.deb`, Windows a portable `.zip`, macOS the `.dmg`. `release` publishes
+every artifact when `engine/Cargo.toml`'s `[workspace.package] version` was bumped on `main`
+(`./manage.py version-check`), on a `v*` tag, or on a `workflow_dispatch` with `publish`
+ticked. `./manage.py package` is the whole pipeline on the host OS — `cli/package_macos.py`,
+`cli/package_windows.py`, `cli/package_linux.py` — and stamps the workspace version into the
+artifact names. `gui/Cargo.toml`'s package version must match (lint and version-check both
+refuse a drift). Notarization is still out: Gatekeeper needs right-click → Open on first
+launch.
 
 Expectations:
 
@@ -821,9 +805,7 @@ shell curve UI.
 Raster paint tools only; vector-mode pen width stays on the item. Do not restart as a plan),
 BiRefNet / `ort`,
 GenerateTexture model manager, SuggestShape,
-Vectorize (`vtracer`), **authoring a layer mask** (`layer.mask` composites, persists and
-undoes, but Remove Background is its only writer — no mask painting, invert, toggle, apply or
-thumbnail; cancelled 2026-08-26 with the same call that made clipping masks merge-on-apply),
+Vectorize (`vtracer`), **layer masks** (removed — Cut Out Subject bakes its matte straight into pixels),
 layered PSD import wired into the app's import flow (`calumma-io` now has a real layered decoder —
 `decode_psd`/`DecodedPsd`/`DecodedLayer` in `io/src/psd.rs`, separate name/visibility/opacity/blend-mode/RGBA
 per layer, PackBits + raw channel data, `luni` Unicode names — but nothing on `Engine` exposes
@@ -833,14 +815,13 @@ transform mode as a *modifier* (the Move tool on the tools island is the path; O
 both already Pan) — add
 only as considered features, not by restoring old app code.
 
-**Shipped from this list:** Select All / Invert Selection (`⌘A` / `⌘⇧I`), shape fill *and*
+**Shipped from this list:** Select All (`⌘A`), shape fill *and*
 stroke together, titlebar tabs (shipped first as *workspaces*, then cut back to one tab per
 project — see Projects and navigation; do not restore the grouping), Eyedropper
 (`I` / tools island; samples the composited pixel under the cursor into the active ink
 swatch), vector layers (`⇧V` / tool options; one item per layer, moved and scaled with
 `⌘T` and the Move tool), text layers (`T` / tools island),
-full text support (plan `17` — wrapped text boxes swept with a Text-tool drag, selection ranges
-with shift-arrows / double- and triple-click / drag-select / `⌘A`, and style spans so one word
+full text support (plan `17` — selection ranges with shift-arrows / drag-select / `⌘A`, and style spans so one word
 in a block can carry its own family, weight, slant, size or colour),
 Move tool (tools island; pick-and-drag, Transform toggle / `⌘T` for scale/rotate),
 document undo for layer stack, props, and vectors (plan `01`),

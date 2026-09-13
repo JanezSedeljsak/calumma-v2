@@ -1,31 +1,9 @@
 use calumma_core::{Shape, Tool, VectorItem, VectorPath, VectorShape};
 
-/// v1 stored a flat list of polyline paths, before shapes were kept as parameters. v2 adds
-/// a per-item tag so a rect can round-trip as a rect instead of being flattened into four
-/// points on the way to disk — which would have thrown away exactly the thing that makes it
-/// a vector. v3 splits the single color and `fill` flag into an independent fill and
-/// stroke, so a shape can carry both at once. Older blobs still decode: v1 items come back
-/// as `Path`s, and a v2 item's one color becomes whichever of the two it was being used
-/// as — see `legacy_paint`. v4 appends a path's ring starts and fill rule, so an imported SVG
-/// keeps its holes; an older path decodes as one ring under the even-odd rule it always drew
-/// with.
-const VERSION_PATHS_ONLY: u32 = 1;
-const VERSION_ONE_COLOR: u32 = 2;
-const VERSION_SPLIT_PAINT: u32 = 3;
 const VERSION: u32 = 4;
 
 const TAG_PATH: u8 = 0;
 const TAG_SHAPE: u8 = 1;
-
-/// A pre-v3 item had one color and a `fill` flag deciding what it painted. Filled means the
-/// color was the fill and there was no outline; unfilled means it was the outline.
-fn legacy_paint(fill: bool, color: [u8; 4]) -> ([u8; 4], bool, [u8; 4]) {
-    if fill {
-        (color, false, color)
-    } else {
-        (color, true, color)
-    }
-}
 
 struct Reader<'a> {
     bytes: &'a [u8],
@@ -92,7 +70,7 @@ fn encode_path(out: &mut Vec<u8>, path: &VectorPath) {
     out.push(u8::from(path.even_odd));
 }
 
-fn decode_path(r: &mut Reader, version: u32) -> Option<VectorPath> {
+fn decode_path(r: &mut Reader) -> Option<VectorPath> {
     let n = r.u32()? as usize;
     let mut points = Vec::with_capacity(n.min(4096));
     for _ in 0..n {
@@ -102,21 +80,14 @@ fn decode_path(r: &mut Reader, version: u32) -> Option<VectorPath> {
     let fill = r.bool()?;
     let color = r.rgba()?;
     let stroke_width = r.f32()?;
-    let (color, stroke, stroke_color) = if version < VERSION_SPLIT_PAINT {
-        legacy_paint(fill && closed, color)
-    } else {
-        (color, r.bool()?, r.rgba()?)
-    };
-    let (ring_starts, even_odd) = if version >= VERSION {
-        let n = r.u32()? as usize;
-        let mut starts = Vec::with_capacity(n.min(4096));
-        for _ in 0..n {
-            starts.push(r.u32()?);
-        }
-        (starts, r.bool()?)
-    } else {
-        (Vec::new(), true)
-    };
+    let stroke = r.bool()?;
+    let stroke_color = r.rgba()?;
+    let ring_count = r.u32()? as usize;
+    let mut ring_starts = Vec::with_capacity(ring_count.min(4096));
+    for _ in 0..ring_count {
+        ring_starts.push(r.u32()?);
+    }
+    let even_odd = r.bool()?;
     Some(VectorPath {
         points,
         closed,
@@ -141,18 +112,15 @@ fn encode_shape(out: &mut Vec<u8>, item: &VectorShape) {
     out.extend_from_slice(&item.stroke_color);
 }
 
-fn decode_shape(r: &mut Reader, version: u32) -> Option<VectorShape> {
+fn decode_shape(r: &mut Reader) -> Option<VectorShape> {
     let tool = Tool::from_u32(r.u32()?)?;
     let start = r.point()?;
     let end = r.point()?;
     let half_width = r.f32()?;
     let fill = r.bool()?;
     let color = r.rgba()?;
-    let (color, stroke, stroke_color) = if version < VERSION_SPLIT_PAINT {
-        legacy_paint(fill && tool.takes_fill(), color)
-    } else {
-        (color, r.bool()?, r.rgba()?)
-    };
+    let stroke = r.bool()?;
+    let stroke_color = r.rgba()?;
     Some(VectorShape {
         shape: Shape {
             tool,
@@ -192,17 +160,15 @@ pub(crate) fn encode_all(items: &[VectorItem]) -> Vec<u8> {
 
 pub fn decode(bytes: &[u8]) -> Option<Vec<VectorItem>> {
     let mut r = Reader::new(bytes);
-    let version = r.u32()?;
+    if r.u32()? != VERSION {
+        return None;
+    }
     let count = r.u32()? as usize;
     let mut items = Vec::with_capacity(count.min(4096));
     for _ in 0..count {
-        let item = match version {
-            VERSION_PATHS_ONLY => VectorItem::Path(decode_path(&mut r, version)?),
-            VERSION_ONE_COLOR | VERSION_SPLIT_PAINT | VERSION => match r.u8()? {
-                TAG_PATH => VectorItem::Path(decode_path(&mut r, version)?),
-                TAG_SHAPE => VectorItem::Shape(decode_shape(&mut r, version)?),
-                _ => return None,
-            },
+        let item = match r.u8()? {
+            TAG_PATH => VectorItem::Path(decode_path(&mut r)?),
+            TAG_SHAPE => VectorItem::Shape(decode_shape(&mut r)?),
             _ => return None,
         };
         items.push(item);
@@ -266,27 +232,6 @@ mod tests {
         })
     }
 
-    /// A path written the way v1 and v2 wrote one: one color, no stroke fields.
-    fn encode_legacy_path(out: &mut Vec<u8>, path: &VectorPath) {
-        out.extend_from_slice(&(path.points.len() as u32).to_le_bytes());
-        for &p in &path.points {
-            write_point(out, p);
-        }
-        out.push(u8::from(path.closed));
-        out.push(u8::from(path.fill));
-        out.extend_from_slice(&path.color);
-        out.extend_from_slice(&path.stroke_width.to_le_bytes());
-    }
-
-    fn encode_legacy_shape(out: &mut Vec<u8>, item: &VectorShape) {
-        out.extend_from_slice(&(item.shape.tool as u32).to_le_bytes());
-        write_point(out, item.shape.start);
-        write_point(out, item.shape.end);
-        out.extend_from_slice(&item.shape.half_width.to_le_bytes());
-        out.push(u8::from(item.shape.fill));
-        out.extend_from_slice(&item.color);
-    }
-
     #[test]
     fn round_trips_paths_and_shapes_together() {
         let items = vec![sample_path(), sample_shape(), sample_path()];
@@ -307,52 +252,6 @@ mod tests {
 
     fn items_none() -> Vec<VectorItem> {
         Vec::new()
-    }
-
-    #[test]
-    fn a_v1_blob_still_decodes_as_paths() {
-        let mut legacy = Vec::new();
-        legacy.extend_from_slice(&VERSION_PATHS_ONLY.to_le_bytes());
-        legacy.extend_from_slice(&1u32.to_le_bytes());
-        let VectorItem::Path(mut path) = sample_path() else {
-            unreachable!()
-        };
-        encode_legacy_path(&mut legacy, &path);
-        // A v1 filled closed path had no outline, so that is what it comes back as.
-        path.stroke = false;
-        path.stroke_color = path.color;
-        assert_eq!(decode(&legacy).unwrap(), vec![VectorItem::Path(path)]);
-    }
-
-    #[test]
-    fn a_v2_filled_shape_keeps_its_color_as_the_fill_and_gains_no_outline() {
-        let mut legacy = Vec::new();
-        legacy.extend_from_slice(&VERSION_ONE_COLOR.to_le_bytes());
-        legacy.extend_from_slice(&1u32.to_le_bytes());
-        legacy.push(TAG_SHAPE);
-        let VectorItem::Shape(mut shape) = sample_shape() else {
-            unreachable!()
-        };
-        encode_legacy_shape(&mut legacy, &shape);
-        shape.shape.stroke = false;
-        shape.stroke_color = shape.color;
-        assert_eq!(decode(&legacy).unwrap(), vec![VectorItem::Shape(shape)]);
-    }
-
-    #[test]
-    fn a_v2_outlined_shape_comes_back_as_a_stroke_in_the_same_color() {
-        let mut legacy = Vec::new();
-        legacy.extend_from_slice(&VERSION_ONE_COLOR.to_le_bytes());
-        legacy.extend_from_slice(&1u32.to_le_bytes());
-        legacy.push(TAG_SHAPE);
-        let VectorItem::Shape(mut shape) = sample_shape() else {
-            unreachable!()
-        };
-        shape.shape.fill = false;
-        encode_legacy_shape(&mut legacy, &shape);
-        shape.stroke_color = shape.color;
-        let decoded = decode(&legacy).unwrap();
-        assert_eq!(decoded, vec![VectorItem::Shape(shape)]);
     }
 
     #[test]

@@ -50,22 +50,9 @@ impl LayerTransform {
     }
 
     pub fn inverse(&self, pivot: (f32, f32), p: (f32, f32)) -> (f32, f32) {
-        let qx = p.0 - self.offset_x - pivot.0;
-        let qy = p.1 - self.offset_y - pivot.1;
-        let (sin, cos) = (-self.rotation).sin_cos();
-        let rx = qx * cos - qy * sin;
-        let ry = qx * sin + qy * cos;
-        let sx = if self.scale_x.abs() > 1e-6 {
-            self.scale_x
-        } else {
-            1e-6
-        };
-        let sy = if self.scale_y.abs() > 1e-6 {
-            self.scale_y
-        } else {
-            1e-6
-        };
-        (pivot.0 + rx / sx, pivot.1 + ry / sy)
+        let (lx, ly) =
+            self.inverse_delta((p.0 - self.offset_x - pivot.0, p.1 - self.offset_y - pivot.1));
+        (pivot.0 + lx, pivot.1 + ly)
     }
 
     /// A document-space *displacement* expressed in the layer's own space — the rotation and
@@ -75,17 +62,7 @@ impl LayerTransform {
         let (sin, cos) = (-self.rotation).sin_cos();
         let rx = d.0 * cos - d.1 * sin;
         let ry = d.0 * sin + d.1 * cos;
-        let sx = if self.scale_x.abs() > 1e-6 {
-            self.scale_x
-        } else {
-            1e-6
-        };
-        let sy = if self.scale_y.abs() > 1e-6 {
-            self.scale_y
-        } else {
-            1e-6
-        };
-        (rx / sx, ry / sy)
+        (rx / nonzero(self.scale_x), ry / nonzero(self.scale_y))
     }
 
     pub fn to_local(&self, pivot: (f32, f32), p: (f32, f32)) -> (f32, f32) {
@@ -206,5 +183,13 @@ pub fn clipped_pixel_span(
         None
     } else {
         Some((x0, y0, x1, y1))
+    }
+}
+
+fn nonzero(scale: f32) -> f32 {
+    if scale.abs() > 1e-6 {
+        scale
+    } else {
+        1e-6
     }
 }

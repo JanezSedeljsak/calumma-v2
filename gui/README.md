@@ -11,7 +11,7 @@ From the repo root:
 ./manage.py dev       # build and run
 ./manage.py gui-check # compile-check only
 ./manage.py build     # release binary
-./manage.py package   # macOS .dmg into dist/ (ad-hoc signed)
+./manage.py package   # host installer into dist/ (.dmg / .zip / .tar.gz+.deb)
 ```
 
 ## Layout

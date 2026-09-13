@@ -4,7 +4,6 @@
 //! ever reached, because every existing test starts a session before calling into it.
 
 use calumma_core::*;
-use calumma_text::caret_rect;
 
 fn board() -> Document {
     let mut doc = Document::new("p".into(), "t", 512, 512);
@@ -34,16 +33,6 @@ fn typed(text: &str) -> Document {
 }
 
 #[test]
-fn a_click_places_the_caret_at_the_point_clicked() {
-    let mut doc = typed("hello world");
-    let start = caret_rect(doc.active_text_run().expect("a run"), 0);
-
-    doc.text_set_caret_at(start.x, start.y + start.height * 0.5);
-    assert_eq!(doc.text_caret(), Some(0));
-    assert_eq!(doc.text_selection(), None, "a plain click never selects");
-}
-
-#[test]
 fn caret_color_is_the_runs_own_color_while_editing_and_the_inks_otherwise() {
     let mut doc = typed("hello");
     let run_color = doc.active_text_run().expect("a run").color;
@@ -55,37 +44,4 @@ fn caret_color_is_the_runs_own_color_while_editing_and_the_inks_otherwise() {
         doc.color,
         "once nothing is being edited the caret falls back to the active ink"
     );
-}
-
-/// Every one of these has to no-op quietly rather than panic — a shortcut can fire in the gap
-/// between a text session ending and the tool switching away from Text, and the engine has no
-/// way to stop the shell from asking it to move a caret that is not there.
-#[test]
-fn every_selection_command_no_ops_with_no_active_session() {
-    let mut doc = typed("hello world");
-    doc.commit_text();
-    assert_eq!(doc.text_caret(), None);
-    assert_eq!(doc.text_range(), None);
-
-    doc.text_step_caret(Step::Right, false);
-    assert_eq!(doc.text_caret(), None);
-
-    doc.text_set_caret_at(40.0, 100.0);
-    assert_eq!(doc.text_caret(), None);
-
-    doc.text_extend_to(40.0, 100.0);
-    assert_eq!(doc.text_caret(), None);
-
-    doc.text_select_word_at(40.0, 100.0);
-    assert_eq!(doc.text_caret(), None);
-
-    doc.text_select_paragraph_at(40.0, 100.0);
-    assert_eq!(doc.text_caret(), None);
-
-    assert!(!doc.text_select_all(), "nothing to select");
-    assert_eq!(doc.text_caret(), None);
-
-    assert!(doc.text_selection_rows().is_empty());
-    assert_eq!(doc.text_caret_segment(), None);
-    assert_eq!(doc.text_box(), None);
 }

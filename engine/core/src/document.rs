@@ -65,20 +65,6 @@ pub fn stroke_stamps(points: &[StrokePoint], radius: f32) -> Vec<StrokePoint> {
     out
 }
 
-pub(crate) fn apply_mask(rgba: &mut [u8], mask: Option<&[u8]>) {
-    let Some(mask) = mask else {
-        return;
-    };
-    let chunk_pixels = EFFECT_CHUNK_BYTES / 4;
-    rgba.par_chunks_mut(EFFECT_CHUNK_BYTES)
-        .zip(mask.par_chunks(chunk_pixels))
-        .for_each(|(block, mask_block)| {
-            for (px, &m) in block.chunks_exact_mut(4).zip(mask_block.iter()) {
-                px[3] = ((px[3] as u32 * m as u32) / 255) as u8;
-            }
-        });
-}
-
 pub(crate) fn layer_source_pixel(layer: &Layer, doc_x: f32, doc_y: f32) -> [u8; 4] {
     let Some(tiles) = layer.tiles() else {
         return match layer.content.item() {
@@ -144,7 +130,7 @@ fn vector_alpha_at(item: &vector::VectorItem, layer: &Layer, doc_x: f32, doc_y: 
 
 /// Alpha alone, for hit-testing. Adjustments never touch alpha, so picking skips the
 /// color work `layer_composited_pixel` does — an HSL round trip per layer per click.
-pub(crate) fn layer_alpha_at(layer: &Layer, doc_x: f32, doc_y: f32, doc_w: u32, doc_h: u32) -> u8 {
+pub(crate) fn layer_alpha_at(layer: &Layer, doc_x: f32, doc_y: f32) -> u8 {
     let alpha = match layer.content.item() {
         Some(item) => vector_alpha_at(item, layer, doc_x, doc_y),
         None => layer_source_pixel(layer, doc_x, doc_y)[3],
@@ -152,21 +138,6 @@ pub(crate) fn layer_alpha_at(layer: &Layer, doc_x: f32, doc_y: f32, doc_w: u32, 
     if alpha == 0 {
         return 0;
     }
-    let alpha = match layer.mask() {
-        Some(mask) => {
-            let ix = doc_x.floor() as i32;
-            let iy = doc_y.floor() as i32;
-            if ix < 0 || iy < 0 || (ix as u32) >= doc_w || (iy as u32) >= doc_h {
-                return 0;
-            }
-            let index = (iy as u32 * doc_w + ix as u32) as usize;
-            match mask.get(index) {
-                Some(&m) => ((alpha as u32 * m as u32) / 255) as u8,
-                None => alpha,
-            }
-        }
-        None => alpha,
-    };
     if layer.opacity < 1.0 {
         ((alpha as f32) * layer.opacity).round().clamp(0.0, 255.0) as u8
     } else {
@@ -179,29 +150,10 @@ pub(crate) fn layer_alpha_at(layer: &Layer, doc_x: f32, doc_y: f32, doc_w: u32, 
 /// without touching its pixels.
 type BoundedLayer<'a> = (&'a Layer, (f32, f32, f32, f32));
 
-fn layer_composited_pixel(
-    layer: &Layer,
-    layers: &[Layer],
-    doc_x: f32,
-    doc_y: f32,
-    doc_w: u32,
-    doc_h: u32,
-) -> [u8; 4] {
+fn layer_composited_pixel(layer: &Layer, layers: &[Layer], doc_x: f32, doc_y: f32) -> [u8; 4] {
     let mut px = layer_source_pixel(layer, doc_x, doc_y);
     if px[3] == 0 {
         return px;
-    }
-    if let Some(mask) = layer.mask() {
-        let ix = doc_x.floor() as i32;
-        let iy = doc_y.floor() as i32;
-        if ix >= 0 && iy >= 0 && (ix as u32) < doc_w && (iy as u32) < doc_h {
-            let index = (iy as u32 * doc_w + ix as u32) as usize;
-            if let Some(&m) = mask.get(index) {
-                px[3] = ((px[3] as u32 * m as u32) / 255) as u8;
-            }
-        } else {
-            px[3] = 0;
-        }
     }
     if let Some(base_id) = layer.clips_to.as_deref() {
         if let Some(base) = layers.iter().find(|l| l.id == base_id) {
@@ -686,6 +638,14 @@ fn union_aabb_after_delta(targets: &[TransformTarget], dx: f32, dy: f32) -> (f32
     union
 }
 
+type SourceStampFn = fn(
+    &mut crate::tile::TileGrid,
+    &[(f32, f32)],
+    f32,
+    (i32, i32),
+    Option<&crate::selection::Selection>,
+) -> usize;
+
 impl Document {
     pub fn new(id: String, name: impl Into<String>, width: u32, height: u32) -> Self {
         let width = width.max(1);
@@ -920,8 +880,7 @@ impl Document {
 
     /// No `mark_channel_dirty(Render)`, for the same reason `set_layer_opacity` above dropped
     /// it: the adjustment LUT is evaluated per pixel in `fs_tile` off the `LayerData` row, so a
-    /// slider drag never re-walks a single tile. Masked tiles still bake on the CPU, but that is
-    /// `composited_tile_payload` reacting to the mask, not to this.
+    /// slider drag never re-walks a single tile.
     pub fn set_layer_adjustments(
         &mut self,
         index: usize,
@@ -1445,7 +1404,6 @@ impl Document {
         self.commit_text();
         self.record_stack_history();
         for layer in &mut self.layers {
-            layer.resize_mask(old_width, old_height, new_width, new_height);
             let is_paper = layer.is_paper();
             let Some(tiles) = layer.tiles_mut() else {
                 continue;
@@ -1492,9 +1450,6 @@ impl Document {
     /// post-hoc translation cancels the pivot term in `LayerTransform::forward` regardless of
     /// rotation/scale), so tile data is never touched and nothing painted is ever lost — the
     /// same non-destructive guarantee `resize` already has, generalized to any edge or corner.
-    /// `Layer::mask`, unlike tile content, is a plain document-space buffer with no transform of
-    /// its own (`layer_composited_pixel` reads it by raw `(doc_x, doc_y)`), so it is shifted as
-    /// an actual — but lossless, pixel-exact — buffer copy via `Layer::shift_mask`.
     pub fn apply_canvas_shift(
         &mut self,
         origin_x: i32,
@@ -1522,9 +1477,6 @@ impl Document {
             origin_y + new_height as i32 - 1,
         );
         for layer in &mut self.layers {
-            layer.shift_mask(
-                origin_x, origin_y, old_width, old_height, new_width, new_height,
-            );
             let t = layer.transform.get_or_insert_with(LayerTransform::default);
             t.offset_x -= origin_x as f32;
             t.offset_y -= origin_y as f32;
@@ -2006,12 +1958,9 @@ impl Document {
         source.offset.map(|(ox, oy)| (ox as i32, oy as i32))
     }
 
-    /// Clone-stamp whatever part of the stroke has not been stamped yet. See
-    /// `live_stamp_batch` for the shared half of this.
-    fn clone_pending_stamps(&mut self) -> bool {
-        if self.tool != Tool::Clone {
-            return false;
-        }
+    /// Clone- or heal-stamp whatever part of the stroke has not been stamped yet, reading
+    /// through the stroke's source offset. See `live_stamp_batch` for the shared half of this.
+    fn source_pending_stamps(&mut self, stamp: SourceStampFn) -> bool {
         let radius = self.effective_brush_size() * 0.5;
         let Some((stamps, is_first)) = self.live_stamp_batch(radius) else {
             return false;
@@ -2019,54 +1968,21 @@ impl Document {
         let Some(offset) = self.clone_offset(is_first, stamps[0]) else {
             return false;
         };
-        let mut painted_now = false;
-        if let Some(tiles) = self
+        let Some(tiles) = self
             .layers
             .get_mut(self.active_layer)
             .and_then(|l| l.tiles_mut())
-        {
-            let touched = crate::clone::clone_stamps(
-                tiles,
-                &stamps,
-                radius,
-                offset,
-                self.stroke_selection.as_ref(),
-            );
-            painted_now = touched > 0;
-            self.live_stamp_painted |= painted_now;
-        }
-        painted_now
-    }
-
-    /// Heal whatever part of the stroke has not been healed yet. See `live_stamp_batch` for the
-    /// shared half of this.
-    fn heal_pending_stamps(&mut self) -> bool {
-        if self.tool != Tool::Heal {
-            return false;
-        }
-        let radius = self.effective_brush_size() * 0.5;
-        let Some((stamps, is_first)) = self.live_stamp_batch(radius) else {
+        else {
             return false;
         };
-        let Some(offset) = self.clone_offset(is_first, stamps[0]) else {
-            return false;
-        };
-        let mut painted_now = false;
-        if let Some(tiles) = self
-            .layers
-            .get_mut(self.active_layer)
-            .and_then(|l| l.tiles_mut())
-        {
-            let touched = crate::heal::heal_stamps(
-                tiles,
-                &stamps,
-                radius,
-                offset,
-                self.stroke_selection.as_ref(),
-            );
-            painted_now = touched > 0;
-            self.live_stamp_painted |= painted_now;
-        }
+        let painted_now = stamp(
+            tiles,
+            &stamps,
+            radius,
+            offset,
+            self.stroke_selection.as_ref(),
+        ) > 0;
+        self.live_stamp_painted |= painted_now;
         painted_now
     }
 
@@ -2076,8 +1992,8 @@ impl Document {
     fn live_stamp_pending(&mut self) -> bool {
         match self.tool {
             Tool::Blur => self.blur_pending_stamps(),
-            Tool::Clone => self.clone_pending_stamps(),
-            Tool::Heal => self.heal_pending_stamps(),
+            Tool::Clone => self.source_pending_stamps(crate::clone::clone_stamps),
+            Tool::Heal => self.source_pending_stamps(crate::heal::heal_stamps),
             _ => false,
         }
     }
@@ -2546,7 +2462,6 @@ impl Document {
             }
             layer_buf.fill(0);
             copy_layer_into_rgba(layer, &mut layer_buf, w, h);
-            apply_mask(&mut layer_buf, layer.mask());
             if let Some(base) = self.clip_base_for_layer(layer) {
                 crate::clip::apply_clip_alpha_to_buffer(&mut layer_buf, base, w, h);
             }
@@ -2585,8 +2500,7 @@ impl Document {
             if !layer.visible {
                 continue;
             }
-            let src =
-                layer_composited_pixel(layer, &self.layers, doc_x, doc_y, self.width, self.height);
+            let src = layer_composited_pixel(layer, &self.layers, doc_x, doc_y);
             if src[3] == 0 {
                 continue;
             }
@@ -2679,8 +2593,7 @@ impl Document {
             if doc_x < bounds.0 || doc_y < bounds.1 || doc_x > bounds.2 || doc_y > bounds.3 {
                 continue;
             }
-            let src =
-                layer_composited_pixel(layer, &self.layers, doc_x, doc_y, self.width, self.height);
+            let src = layer_composited_pixel(layer, &self.layers, doc_x, doc_y);
             if src[3] == 0 {
                 continue;
             }
@@ -2852,7 +2765,6 @@ impl Document {
         let h = self.height.max(1);
         let mut buf = vec![0u8; (w as usize) * (h as usize) * 4];
         copy_layer_into_rgba(layer, &mut buf, w, h);
-        apply_mask(&mut buf, layer.mask());
         if let Some(base) = self.clip_base_for_layer(layer) {
             crate::clip::apply_clip_alpha_to_buffer(&mut buf, base, w, h);
         }
@@ -2884,87 +2796,6 @@ impl Document {
         Some(svg)
     }
 
-    /// The selected pixels of the active layer, for copy and cut.
-    ///
-    /// Read through the same `LayerSelectSample` the selection was *built* from, which is the
-    /// only way the two can agree: a vector layer has no tiles to read at all, and a
-    /// transformed raster layer's tiles sit in its own space while the selection is in the
-    /// document's. Reading the grid directly answered both of those wrong.
-    pub fn selection_rgba(&self) -> Option<(u32, u32, Vec<u8>)> {
-        let selection = self.selection.as_ref()?;
-        let bounds = selection.bounds().intersect(self.bounds())?;
-        let layer = self.layers.get(self.active_layer)?;
-        let sample = crate::select_sample::LayerSelectSample::new(layer, self.bounds())?;
-        let w = (bounds.max_x - bounds.min_x + 1) as u32;
-        let h = (bounds.max_y - bounds.min_y + 1) as u32;
-        let mut buf = vec![0u8; (w as usize) * (h as usize) * 4];
-        let row_bytes = (w as usize) * 4;
-        buf.par_chunks_mut(row_bytes)
-            .enumerate()
-            .for_each(|(y, row)| {
-                let doc_y = bounds.min_y + y as i32;
-                for x in 0..w as i32 {
-                    let doc_x = bounds.min_x + x;
-                    if !selection.contains(doc_x as f32 + 0.5, doc_y as f32 + 0.5) {
-                        continue;
-                    }
-                    let px = sample.pixel(doc_x, doc_y);
-                    if px[3] == 0 {
-                        continue;
-                    }
-                    let i = (x as usize) * 4;
-                    row[i..i + 4].copy_from_slice(&px);
-                }
-            });
-        Some((w, h, buf))
-    }
-
-    pub fn clear_selection_pixels(&mut self) -> bool {
-        if !self.active_layer_accepts_paint() {
-            return false;
-        }
-        let Some(selection) = self.selection.clone() else {
-            return false;
-        };
-        let Some(bounds) = selection.bounds().intersect(self.bounds()) else {
-            return false;
-        };
-        let active = self.active_layer;
-        let Some(layer) = self.layers.get(active) else {
-            return false;
-        };
-        let layer_id = layer.id.clone();
-        let Some(grid) = layer.tiles() else {
-            return false;
-        };
-        let mut coords = TileSet::default();
-        tiles_covering(bounds, &mut coords);
-        let coords: Vec<TileCoord> = coords
-            .into_iter()
-            .filter(|c| grid.tile_in_bounds(*c))
-            .collect();
-        if coords.is_empty() {
-            return false;
-        }
-        let before = grid.snapshot_tiles(&coords);
-        let mut touched = false;
-        if let Some(tiles) = self.layers.get_mut(active).and_then(|l| l.tiles_mut()) {
-            let count = tiles.paint_rect(bounds, |x, y, dst| {
-                if dst[3] == 0 || !selection.contains(x as f32 + 0.5, y as f32 + 0.5) {
-                    return None;
-                }
-                Some([0, 0, 0, 0])
-            });
-            touched = count > 0;
-        }
-        if !touched {
-            return false;
-        }
-        self.history
-            .push_layer_tiles(layer_id, before, Some(active));
-        true
-    }
-
     pub fn undo(&mut self) -> bool {
         self.commit_text();
         let Some(command) = self.history.take_undo() else {
@@ -2993,22 +2824,6 @@ impl Document {
         self.history.finish_redo(command, inverse);
         self.active_layer = self.active_layer.min(self.layers.len().saturating_sub(1));
         true
-    }
-
-    pub fn clear_active_layer(&mut self) {
-        if !self.active_layer_accepts_paint() {
-            return;
-        }
-        let active = self.active_layer;
-        let Some(layer) = self.layers.get_mut(active) else {
-            return;
-        };
-        let layer_id = layer.id.clone();
-        let snap = layer.clear();
-        if snap.is_empty() {
-            return;
-        }
-        self.history.push_layer_tiles(layer_id, snap, Some(active));
     }
 
     pub fn clear_layer_dirty(&mut self, channel: DirtyChannel) {

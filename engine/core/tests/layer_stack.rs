@@ -159,34 +159,6 @@ fn locking_refuses_paint() {
     assert!(doc.active_layer_accepts_paint(), "unlocking gives it back");
 }
 
-#[test]
-fn locking_refuses_transform_and_move() {
-    let mut doc = stacked();
-    doc.active_layer = 1;
-    {
-        let tiles = doc.layers[1].tiles_mut().unwrap();
-        tiles.fill_uniform(DocRect::new(20, 20, 80, 80), [10, 20, 30, 255]);
-    }
-    assert!(doc.enter_transform(), "transformable while unlocked");
-    doc.exit_transform();
-
-    doc.set_layer_locked(1, true);
-    assert!(!doc.enter_transform(), "not once locked");
-
-    doc.tool = Tool::Move;
-    let (sx, sy) = doc.camera.to_screen(50.0, 50.0);
-    doc.pointer_down(sx, sy);
-    let (ex, ey) = doc.camera.to_screen(90.0, 90.0);
-    doc.pointer_move(ex, ey);
-    doc.pointer_up(ex, ey);
-    assert!(doc.layers[1].transform.is_none(), "and it did not move");
-
-    assert!(
-        !doc.nudge_move_target(1.0, 0.0),
-        "arrow keys are the same edit by another name"
-    );
-}
-
 /// Locking a layer while it is mid-transform has to drop the handles, or the box stays on
 /// screen inviting a drag the engine will refuse.
 #[test]

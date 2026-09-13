@@ -15,6 +15,26 @@ pub struct ShellPrefs {
     pub last_active_project_id: Option<String>,
     #[serde(default = "default_layers_panel_open")]
     pub layers_panel_open: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub editor_window: Option<EditorWindow>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct EditorWindow {
+    #[serde(default)]
+    pub maximized: bool,
+    #[serde(default)]
+    pub fullscreen: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bounds: Option<WindowBounds>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct WindowBounds {
+    pub x: i32,
+    pub y: i32,
+    pub width: u32,
+    pub height: u32,
 }
 
 fn default_theme() -> u8 {
@@ -36,6 +56,7 @@ impl Default for ShellPrefs {
             language: default_language(),
             last_active_project_id: None,
             layers_panel_open: default_layers_panel_open(),
+            editor_window: None,
         }
     }
 }

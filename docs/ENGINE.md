@@ -67,8 +67,7 @@ accident, and the crate boundary is what makes that a compile error instead of a
   share through `core`.
 - **`ffi` hosts `Engine`/`Inner`** — where render, io and ops meet. Plain Rust API only
   (`crate-type = ["rlib"]`); `calumma-app` re-exports `Engine`/`NativeSurface` straight
-  through, and `gui/` depends on that. `unsafe` is routine here for wgpu surface creation
-  and the platform op vtable, not for a C ABI.
+  through, and `gui/` depends on that. `unsafe` is routine here for wgpu surface creation, not for a C ABI.
 
 `default-members = ["core", "ffi"]`, so a bare `cargo build` in `engine/` builds the two
 crates that matter and pulls the rest in transitively.
@@ -85,7 +84,7 @@ backtraces still work without paying for full DWARF on every link.
 not apply to `./manage.py dev` on their own. `gui/` repeats the same `opt-level = 3` /
 `line-tables-only` `profile.dev` so a debug `cargo run` of the shell is not an unoptimized
 pixel loop. `./manage.py build` / `./manage.py dev --release` are `--release` (no debug
-assertions); a `.dmg` uses that (`./manage.py package`).
+assertions); `./manage.py package` uses that for the host installer.
 
 Release (engine workspace) is `opt-level = 3, lto = "fat", codegen-units = 1, strip = "symbols"`
 — the pixel helpers are small functions called from million-iteration loops, and
@@ -200,7 +199,7 @@ zooms. Do not re-derive one from the other.
 ### History
 
 `History` (`core/src/history.rs`) is a stack of `HistoryCommand`s, each a set of `TileDiff`
-(before-images of the tiles a stroke touched), `MaskDiff` and `RunDiff`, capped by
+(before-images of the tiles a stroke touched) and `RunDiff`, capped by
 `HISTORY_MEMORY_BUDGET_BYTES` (256 MiB) rather than by step count — undo staying instant is
 the point, and a step's cost is its pixels, not its existence. Because the before-images are
 `Arc` clones of tiles that mostly did not change, a deep stack is far cheaper than its
@@ -255,10 +254,10 @@ This is the most intricate part of the engine, so it gets the most space. The co
 
 > On macOS, Rust owns the surface, not the shell framework: `gui/src/board/surface_macos.rs`
 > creates the `CAMetalLayer` itself (via `objc2`), as a child view inserted below Slint's own
-> window, and hands the pointer to `calumma-app`'s `NativeSurface::MetalLayer`. Rust owns
-> everything downstream of that — pipelines, textures, buffers, the frame's decisions. Windows
-> and Linux surface kinds are defined in the same place (`engine/ffi/src/surface.rs`) but not
-> yet wired into `gui/src/board`. **Nothing drawn on the board is a Slint element**:
+> window, and hands the pointer to `calumma-app`'s `NativeSurface::MetalLayer`. Windows and
+> Linux follow the same child-window pattern (`surface_windows.rs` → `Win32Hwnd`,
+> `surface_linux.rs` → `Xlib`). Rust owns everything downstream of that — pipelines, textures,
+> buffers, the frame's decisions. **Nothing drawn on the board is a Slint element**:
 > paper, grid, strokes, handles, guides, marching ants and the layer hover outline are all WGSL.
 
 ### 3.1 Why the board is drawn the way it is
@@ -582,26 +581,22 @@ For the per-frame ordering, the dirty-flag state machine, and the optimization r
 
 ---
 
-## 4. `ops` — AI and heavy operations
+## 4. `ops` — heavy operations
 
-A tiny crate that exists to keep one decision out of the shell: **whether an operation runs
-in Rust or on the platform.**
+A tiny crate that keeps one decision out of the shell: **what an operation's result does to the
+layer stack.**
 
 ```rust
-trait Op { fn kind(&self); fn backend(&self); fn available(&self) -> bool; fn run(...); }
+trait Op { fn kind(&self); fn available(&self) -> bool; fn run(...); }
 ```
 
-`OpRegistry` holds a core map and a platform map. `resolve` prefers the platform
-implementation **when it reports `available()`**, otherwise falls back to core, otherwise the
-op is unavailable and the UI greys it out. The shell asks for `OpKind::RemoveBackground`; it
-never learns that macOS answered with Vision.
+`OpRegistry` maps each `OpKind` to its op; one that reports `available() == false` is greyed out.
 
-`apply_output` is the other half: an op returns an `OpOutput` (a mask, a raster, or paths) and
-the engine — not the shell — decides what that means for the layer stack and pushes the
-history step. The shell never edits the stack after an op.
+`apply_output` is the other half: an op returns an `OpOutput` (a mask or a raster) and the
+engine — not the shell — decides what that means for the layer stack and pushes the history
+step. A mask is baked into the layer's pixels; a raster lands as a new layer.
 
-Shipped today: Remove Background, platform-only, via `VNGenerateForegroundInstanceMaskRequest`.
-The other `OpKind` slots exist with registry tests and no implementations, on purpose.
+Shipped today: Upscale, SeamCarve and SmartMatte, all in core Rust.
 
 ---
 
@@ -716,8 +711,7 @@ same `Inner`.
   smart tools. Every derived value the chrome shows is computed in core and *reported*, not
   recomputed in the shell.
 - Pixels in and out — premultiplied RGBA on import paths, `Vec<u8>` on export.
-- The platform op vtable (`platform.rs`) — three function pointers for Vision-backed ops,
-  each call wrapped in `catch_unwind` so a platform-side throw cannot unwind into Rust.
+
 
 ### Two things that do not run on the frame
 
@@ -769,7 +763,7 @@ nothing will ever evict them: `sync_tiles` only runs with a document open.
 ./manage.py coverage  # llvm-cov, per-crate table
 ./manage.py dev       # build and run the GUI shell (gui/)
 ./manage.py gui-check # compile-check the GUI shell, no window
-./manage.py package   # macOS: Miw.app + dist/Miw-<version>.dmg (ad-hoc signed)
+./manage.py package   # host installer into dist/ (macOS .dmg, Windows .zip, Linux .tar.gz+.deb)
 ```
 
 Tests live in `engine/<crate>/tests/<module>.rs` — one file per module under test, not in

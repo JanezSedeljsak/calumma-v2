@@ -65,10 +65,9 @@ from constants import (
     MSG_DENY_SKIP,
     MSG_INSTALL_LLVM_COV,
     MSG_NO_COVERAGE,
-    MSG_PACKAGE_MACOS_ONLY,
     ROOT,
 )
-from package_macos import package_macos
+from package import package_host
 from version_check import check_version_bump
 
 
@@ -116,10 +115,7 @@ def cmd_build(_: argparse.Namespace) -> int:
 
 
 def cmd_package(args: argparse.Namespace) -> int:
-    if sys.platform != "darwin":
-        print(MSG_PACKAGE_MACOS_ONLY, file=sys.stderr)
-        return 1
-    package_macos(args.version)
+    package_host(args.version)
     return 0
 
 
@@ -302,7 +298,7 @@ def cmd_version_check(_: argparse.Namespace) -> int:
 
 def cmd_ci_release(args: argparse.Namespace) -> int:
     if args.action == "package":
-        package_macos(resolve_ci_version() or None)
+        package_host(resolve_ci_version() or None)
     else:
         ci_publish()
     return 0
@@ -348,11 +344,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sub.add_parser("build", help="release build of the GUI shell").set_defaults(func=cmd_build)
     package_parser = sub.add_parser(
-        "package", help="macOS: release-build Miw.app, ad-hoc sign, wrap in dist/*.dmg"
+        "package",
+        help="release-build the host installer into dist/ (.dmg / .zip / .tar.gz+.deb)",
     )
     package_parser.add_argument(
         "--version",
-        help="version stamped into Info.plist and the dmg name (default: engine workspace version)",
+        help="version stamped into the installer name (default: engine workspace version)",
     )
     package_parser.set_defaults(func=cmd_package)
     test_parser = sub.add_parser(
@@ -403,7 +400,9 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser(
         "version-check", help="CI: diff engine/Cargo.toml's version against the previous commit"
     ).set_defaults(func=cmd_version_check)
-    ci_release_parser = sub.add_parser("ci-release", help="CI: package or publish a macOS release")
+    ci_release_parser = sub.add_parser(
+        "ci-release", help="CI: package the host installer or publish dist/ as a GitHub release"
+    )
     ci_release_parser.add_argument("action", choices=["package", "publish"])
     ci_release_parser.set_defaults(func=cmd_ci_release)
     return parser

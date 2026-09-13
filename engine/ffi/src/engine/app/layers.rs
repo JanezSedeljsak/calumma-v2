@@ -1,7 +1,46 @@
 use super::Engine;
-use calumma_core::{Adjustments, BlendMode};
+use calumma_core::{Adjustments, AlignEdge, BlendMode, DistributeAxis, Document};
 
 impl Engine {
+    pub fn layer_selection(&self) -> Vec<usize> {
+        self.inner
+            .lock()
+            .doc
+            .as_ref()
+            .map(|doc| doc.layer_selection().to_vec())
+            .unwrap_or_default()
+    }
+
+    pub fn set_layer_selection(&mut self, indices: &[usize]) {
+        let mut inner = self.inner.lock();
+        if let Some(doc) = &mut inner.doc {
+            doc.set_layer_selection(indices);
+            inner.invalidate_overlay();
+        }
+    }
+
+    pub fn align_selected_layers(&mut self, edge: AlignEdge) -> bool {
+        self.edit_selected_layers(|doc, indices| doc.align_layers(indices, edge))
+    }
+
+    pub fn distribute_selected_layers(&mut self, axis: DistributeAxis) -> bool {
+        self.edit_selected_layers(|doc, indices| doc.distribute_layers(indices, axis))
+    }
+
+    fn edit_selected_layers(&mut self, edit: impl FnOnce(&mut Document, &[usize]) -> bool) -> bool {
+        let mut inner = self.inner.lock();
+        let Some(doc) = inner.doc.as_mut() else {
+            return false;
+        };
+        let indices = doc.layer_selection().to_vec();
+        if !edit(doc, &indices) {
+            return false;
+        }
+        inner.dirty_save = true;
+        inner.invalidate_renderer();
+        true
+    }
+
     pub fn layer_blend_mode(&self, index: usize) -> BlendMode {
         self.inner
             .lock()

@@ -8,7 +8,6 @@
 
 use crate::document::Document;
 use crate::selection::{Selection, SelectionShape};
-use crate::selection_mask::SelectionMask;
 use crate::shape::Tool;
 
 impl Document {
@@ -33,35 +32,6 @@ impl Document {
                 start: (0.0, 0.0),
                 end: (self.width as f32, self.height as f32),
             },
-        });
-    }
-
-    /// Everything the current selection leaves out, clipped to the canvas.
-    ///
-    /// Rect, Ellipse and Lasso answer `contains` from a formula, so there is no buffer to
-    /// flip: the inverse of any of them is a `Mask`, the same shape the magic wand already
-    /// produces, filled wherever `contains` was false and cropped at `finish`. Inverting
-    /// nothing selects everything, which is what Photoshop does with an empty selection.
-    ///
-    /// Inverting a full-canvas selection reaches no pixel at all, and `finish` answers that
-    /// with `None` — the same deliberate rule the wand follows for a click that reaches
-    /// nothing, because an empty-but-present selection would silently clip every later
-    /// stroke to nothing.
-    pub fn invert_selection(&mut self) {
-        self.commit_text();
-        let Some(current) = self.selection.take() else {
-            self.select_all();
-            return;
-        };
-        let bounds = self.bounds();
-        let mask = SelectionMask::from_predicate(
-            (bounds.min_x, bounds.min_y),
-            self.width,
-            self.height,
-            |x, y| !current.contains(x as f32 + 0.5, y as f32 + 0.5),
-        );
-        self.selection = mask.finish().map(|mask| Selection {
-            shape: SelectionShape::Mask(mask),
         });
     }
 

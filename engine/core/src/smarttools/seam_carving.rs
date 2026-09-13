@@ -231,6 +231,16 @@ impl Workspace {
         dst[cut..].copy_from_slice(&src[cut + 1..]);
     }
 
+    fn widen_row(dst: &mut [f32], src: &[f32], cut: usize) {
+        dst[..cut].copy_from_slice(&src[..cut]);
+        dst[cut] = if cut == 0 {
+            src[0]
+        } else {
+            (src[cut - 1] + src[cut]) * 0.5
+        };
+        dst[cut + 1..].copy_from_slice(&src[cut..]);
+    }
+
     fn remove_seam(&mut self, seam: &[usize]) {
         let new_w = self.w - 1;
         let h = self.h;
@@ -288,31 +298,11 @@ impl Workspace {
                     row[..cut * 4].copy_from_slice(&src[..cut * 4]);
                     row[cut * 4..cut * 4 + 4].copy_from_slice(&filler);
                     row[(cut + 1) * 4..].copy_from_slice(&src[cut * 4..]);
-                    let ls = &self.luma[y * self.w..(y + 1) * self.w];
-                    let alpha_src = &self.alpha[y * self.w..(y + 1) * self.w];
-                    let chroma_src = &self.chroma[y * self.w..(y + 1) * self.w];
-                    let es = &self.energy[y * self.w..(y + 1) * self.w];
-                    luma_row[..cut].copy_from_slice(&ls[..cut]);
-                    luma_row[cut] = if cut == 0 {
-                        ls[0]
-                    } else {
-                        (ls[cut - 1] + ls[cut]) * 0.5
-                    };
-                    luma_row[cut + 1..].copy_from_slice(&ls[cut..]);
-                    alpha_row[..cut].copy_from_slice(&alpha_src[..cut]);
-                    alpha_row[cut] = if cut == 0 {
-                        alpha_src[0]
-                    } else {
-                        (alpha_src[cut - 1] + alpha_src[cut]) * 0.5
-                    };
-                    alpha_row[cut + 1..].copy_from_slice(&alpha_src[cut..]);
-                    chroma_row[..cut].copy_from_slice(&chroma_src[..cut]);
-                    chroma_row[cut] = if cut == 0 {
-                        chroma_src[0]
-                    } else {
-                        (chroma_src[cut - 1] + chroma_src[cut]) * 0.5
-                    };
-                    chroma_row[cut + 1..].copy_from_slice(&chroma_src[cut..]);
+                    let span = y * self.w..(y + 1) * self.w;
+                    let es = &self.energy[span.clone()];
+                    Self::widen_row(luma_row, &self.luma[span.clone()], cut);
+                    Self::widen_row(alpha_row, &self.alpha[span.clone()], cut);
+                    Self::widen_row(chroma_row, &self.chroma[span], cut);
                     energy_row[..cut].copy_from_slice(&es[..cut]);
                     energy_row[cut] = es[cut];
                     energy_row[cut + 1..].copy_from_slice(&es[cut..]);

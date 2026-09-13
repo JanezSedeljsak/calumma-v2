@@ -435,6 +435,7 @@ pub fn sync_layer_rows(ui: &AppWindow, controller: &mut AppController) {
         .sync(&controller.engine.borrow(), controller.prefs.is_dark());
     if thumbs_changed {
         let engine = controller.engine.borrow();
+        let selection = engine.layer_selection();
         let rows: Vec<LayerRow> = engine
             .list_layers()
             .iter()
@@ -444,6 +445,7 @@ pub fn sync_layer_rows(ui: &AppWindow, controller: &mut AppController) {
                 visible: layer.visible,
                 locked: layer.locked,
                 active: layer.active,
+                selected: selection.contains(&layer.index),
                 paper: layer.is_paper,
                 clipped: layer.clipped,
                 clip_base: layer.clip_base,
@@ -452,6 +454,8 @@ pub fn sync_layer_rows(ui: &AppWindow, controller: &mut AppController) {
             .collect();
         drop(engine);
         ui.set_layers(put_rows(ui.get_layers(), rows));
+        ui.global::<LayerChrome>()
+            .set_align_visible(selection.len() >= 2);
     }
     sync_layer_settings(ui, controller);
 }

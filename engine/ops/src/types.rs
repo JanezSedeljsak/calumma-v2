@@ -1,48 +1,32 @@
-use calumma_core::VectorPath;
 use std::fmt;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum OpKind {
-    RemoveBackground,
-    GenerateTexture,
-    Vectorize,
-    SuggestShape,
     /// Deterministic Lanczos-3 resampling — `engine/core/src/smarttools/resample.rs`. Always
-    /// available, `Backend::Core`, no trained weights.
+    /// available, no trained weights.
     Upscale,
     /// Seam-carving content-aware resize — `engine/core/src/smarttools/seam_carving.rs`. Always
-    /// available, `Backend::Core`.
+    /// available.
     SeamCarve,
     /// Deterministic graph-cut background matting — `engine/core/src/smarttools/grabcut.rs`.
-    /// `Backend::Core`, a from-scratch alternative to the `RemoveBackground` Vision op rather
-    /// than a replacement for it — the two are separate `OpKind`s so both can show up as their
-    /// own Smart Tool.
     SmartMatte,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Backend {
-    Core,
-    Platform,
-}
-
 #[derive(Clone, Debug, PartialEq)]
-pub enum OpInput {
-    Raster { rgba: Vec<u8>, w: u32, h: u32 },
-    Prompt(String),
-    None,
+pub struct OpInput {
+    pub rgba: Vec<u8>,
+    pub w: u32,
+    pub h: u32,
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum OpOutput {
     Mask(Vec<u8>),
     Raster { rgba: Vec<u8>, w: u32, h: u32 },
-    Paths(Vec<VectorPath>),
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct OpParams {
-    pub prompt: Option<String>,
     /// `Upscale`: the layer's current side lengths multiplied by this factor. `None` defaults
     /// to 2×.
     pub scale: Option<f32>,
@@ -78,7 +62,6 @@ impl std::error::Error for OpError {}
 
 pub trait Op: Send + Sync {
     fn kind(&self) -> OpKind;
-    fn backend(&self) -> Backend;
     fn available(&self) -> bool;
     fn run(&self, input: OpInput, params: &OpParams) -> Result<OpOutput, OpError>;
 }

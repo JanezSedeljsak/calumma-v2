@@ -1,7 +1,53 @@
 use crate::document::{outside_bands, Document};
 use crate::layer::Layer;
-use crate::tile::TileGrid;
+use crate::tile::{DocRect, TileGrid};
 use crate::transform::{bounds_center, LayerTransform};
+
+pub(crate) struct MaskProjection<'a> {
+    mask: &'a [u8],
+    doc_w: u32,
+    doc_h: u32,
+    transform: Option<(LayerTransform, (f32, f32))>,
+}
+
+impl<'a> MaskProjection<'a> {
+    pub(crate) fn new(
+        crop: DocRect,
+        mask: &'a [u8],
+        doc_w: u32,
+        doc_h: u32,
+        transform: Option<LayerTransform>,
+    ) -> Self {
+        let pivot = bounds_center((
+            crop.min_x as f32,
+            crop.min_y as f32,
+            crop.max_x as f32 + 1.0,
+            crop.max_y as f32 + 1.0,
+        ));
+        Self {
+            mask,
+            doc_w,
+            doc_h,
+            transform: transform.filter(|t| !t.is_identity()).map(|t| (t, pivot)),
+        }
+    }
+
+    pub(crate) fn doc_point(&self, x: i32, y: i32) -> (f32, f32) {
+        match self.transform {
+            Some((t, pivot)) => t.forward(pivot, (x as f32, y as f32)),
+            None => (x as f32, y as f32),
+        }
+    }
+
+    pub(crate) fn mask_at(&self, doc_x: f32, doc_y: f32) -> Option<u8> {
+        let (ix, iy) = (doc_x.floor() as i32, doc_y.floor() as i32);
+        if ix < 0 || iy < 0 || ix as u32 >= self.doc_w || iy as u32 >= self.doc_h {
+            return None;
+        }
+        let index = (iy as u32 * self.doc_w + ix as u32) as usize;
+        Some(self.mask.get(index).copied().unwrap_or(255))
+    }
+}
 
 pub(crate) fn visible_doc_bounds_for_mask(
     tiles: &TileGrid,
@@ -11,14 +57,7 @@ pub(crate) fn visible_doc_bounds_for_mask(
     transform: Option<LayerTransform>,
 ) -> Option<(f32, f32, f32, f32)> {
     let crop = tiles.opaque_bounds()?;
-    let pivot = bounds_center((
-        crop.min_x as f32,
-        crop.min_y as f32,
-        crop.max_x as f32 + 1.0,
-        crop.max_y as f32 + 1.0,
-    ));
-    let t = transform.unwrap_or_default();
-    let has_transform = transform.is_some_and(|t| !t.is_identity());
+    let projection = MaskProjection::new(crop, mask, doc_w, doc_h, transform);
     let mut min_x = f32::MAX;
     let mut min_y = f32::MAX;
     let mut max_x = f32::MIN;
@@ -30,18 +69,10 @@ pub(crate) fn visible_doc_bounds_for_mask(
             if px[3] == 0 {
                 continue;
             }
-            let (doc_x, doc_y) = if has_transform {
-                t.forward(pivot, (x as f32, y as f32))
-            } else {
-                (x as f32, y as f32)
-            };
-            let ix = doc_x.floor() as i32;
-            let iy = doc_y.floor() as i32;
-            if ix < 0 || iy < 0 || (ix as u32) >= doc_w || (iy as u32) >= doc_h {
+            let (doc_x, doc_y) = projection.doc_point(x, y);
+            let Some(m) = projection.mask_at(doc_x, doc_y) else {
                 continue;
-            }
-            let index = (iy as u32 * doc_w + ix as u32) as usize;
-            let m = mask.get(index).copied().unwrap_or(255);
+            };
             if ((px[3] as u32 * m as u32) / 255) == 0 {
                 continue;
             }
@@ -87,33 +118,18 @@ fn bake_mask_into_tiles(
     let Some(crop) = tiles.opaque_bounds() else {
         return;
     };
-    let pivot = bounds_center((
-        crop.min_x as f32,
-        crop.min_y as f32,
-        crop.max_x as f32 + 1.0,
-        crop.max_y as f32 + 1.0,
-    ));
-    let t = transform.unwrap_or_default();
-    let has_transform = transform.is_some_and(|t| !t.is_identity());
+    let projection = MaskProjection::new(crop, mask, doc_w, doc_h, transform);
     for y in crop.min_y..=crop.max_y {
         for x in crop.min_x..=crop.max_x {
             let px = tiles.get_pixel(x, y);
             if px[3] == 0 {
                 continue;
             }
-            let (doc_x, doc_y) = if has_transform {
-                t.forward(pivot, (x as f32, y as f32))
-            } else {
-                (x as f32, y as f32)
-            };
-            let ix = doc_x.floor() as i32;
-            let iy = doc_y.floor() as i32;
-            if ix < 0 || iy < 0 || (ix as u32) >= doc_w || (iy as u32) >= doc_h {
+            let (doc_x, doc_y) = projection.doc_point(x, y);
+            let Some(m) = projection.mask_at(doc_x, doc_y) else {
                 tiles.set_pixel(x, y, [0, 0, 0, 0]);
                 continue;
-            }
-            let index = (iy as u32 * doc_w + ix as u32) as usize;
-            let m = mask.get(index).copied().unwrap_or(255);
+            };
             let alpha = ((px[3] as u32 * m as u32) / 255) as u8;
             if alpha == 0 {
                 tiles.set_pixel(x, y, [0, 0, 0, 0]);
@@ -125,7 +141,7 @@ fn bake_mask_into_tiles(
 }
 
 impl Document {
-    pub fn apply_remove_background_mask(&mut self, layer_index: usize, mask: Vec<u8>) -> bool {
+    pub fn apply_matte_mask(&mut self, layer_index: usize, mask: Vec<u8>) -> bool {
         let expected = (self.width as usize) * (self.height as usize);
         if mask.len() != expected || layer_index >= self.layers.len() {
             return false;
@@ -167,10 +183,9 @@ impl Document {
         for band in outside_bands(tiles.bounds(), keep) {
             tiles.paint_rect(band, |_, _, _| Some([0, 0, 0, 0]));
         }
-        layer.set_mask(None);
         preserve_doc_bounds(layer, before_doc, before_transform);
         self.history
-            .push_remove_background(layer_id, snap, before_transform, Some(layer_index));
+            .push_baked_mask(layer_id, snap, before_transform, Some(layer_index));
         true
     }
 }
@@ -257,7 +272,7 @@ mod tests {
             visible_doc_bounds_for_mask(doc.layers[1].tiles().unwrap(), &mask, DOC, DOC, Some(t))
                 .expect("the rotated/scaled subject is still on the canvas");
 
-        assert!(doc.apply_remove_background_mask(1, mask));
+        assert!(doc.apply_matte_mask(1, mask));
         let after = doc.layer_bounds(1).expect("cropped rect, transformed");
         let close = |a: f32, b: f32| (a - b).abs() < 0.01;
         assert!(

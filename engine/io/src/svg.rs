@@ -96,7 +96,7 @@ fn vector_group(item: &vector::VectorItem, layer: &Layer) -> Option<String> {
 /// The tight box of everything the layer actually paints. A full-document PNG per layer would
 /// make a mostly-empty stack enormous; the crop costs one pass over alpha and is what keeps an
 /// exported SVG proportional to its ink.
-fn ink_bounds(rgba: &[u8], width: u32, height: u32) -> Option<(u32, u32, u32, u32)> {
+pub(crate) fn ink_bounds(rgba: &[u8], width: u32, height: u32) -> Option<(u32, u32, u32, u32)> {
     let (mut min_x, mut min_y) = (u32::MAX, u32::MAX);
     let (mut max_x, mut max_y) = (0u32, 0u32);
     for y in 0..height {

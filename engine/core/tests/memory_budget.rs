@@ -178,7 +178,10 @@ fn forking_tiles_then_dropping_history_releases_them() {
     );
     assert_report_bounds_live_tiles(&doc, &painted);
 
-    doc.clear_active_layer();
+    let active = doc.active_layer;
+    let layer_id = doc.layers[active].id.clone();
+    let snap = doc.layers[active].clear();
+    doc.history.push_layer_tiles(layer_id, snap, Some(active));
     let cleared = document_memory(&doc);
     assert_eq!(
         unique_live_tile_bytes(&doc),

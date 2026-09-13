@@ -86,6 +86,7 @@ bits use `{0}`, `{1}`, … filled by `l10n.formatKey(...)`. Visual tokens stay i
 | Raised surface | `color.surface` | Cards, inputs, panels |
 | Raised hover | `color.surfaceHover` | List row / button hover |
 | Text primary | `color.text` | Titles, values |
+| Text soft | `color.textSoft` | Secondary copy that sits on an accent-tinted surface, where `textMuted` sinks into the gradient — the Paste Artwork hint and format lines |
 | Text muted | `color.textMuted` | Labels, paths, timestamps |
 | Accent teal | `color.accent.teal` | Create, presets marker, brand start |
 | Accent orange | `color.accent.orange` | Recents marker, brand end |

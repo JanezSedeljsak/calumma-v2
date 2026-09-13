@@ -129,6 +129,14 @@ pub fn sync_strings(ui: &AppWindow, l10n: &Catalog) {
 
     let layers = ui.global::<LayerChrome>();
     layers.set_visibility_label(put(l10n.get("layerVisibility")));
+    layers.set_align_left_label(put(l10n.get("alignLeft")));
+    layers.set_align_center_h_label(put(l10n.get("alignCenterH")));
+    layers.set_align_right_label(put(l10n.get("alignRight")));
+    layers.set_align_top_label(put(l10n.get("alignTop")));
+    layers.set_align_center_v_label(put(l10n.get("alignCenterV")));
+    layers.set_align_bottom_label(put(l10n.get("alignBottom")));
+    layers.set_distribute_h_label(put(l10n.get("distributeH")));
+    layers.set_distribute_v_label(put(l10n.get("distributeV")));
     layers.set_opacity_label(put(l10n.get("opacity")));
     layers.set_blend_label(put(l10n.get("blendMode")));
     layers.set_blend_options(blend_options(l10n));

@@ -116,25 +116,6 @@ fn move_tool_drags_a_vector_item() {
 }
 
 #[test]
-fn move_tool_nudges_the_active_layer() {
-    let mut doc = doc_with_viewport();
-    paint(&mut doc, 1, DocRect::new(20, 20, 40, 40), [0, 255, 0, 255]);
-    doc.set_tool(Tool::Move);
-    assert!(doc.nudge_move_target(3.0, -2.0));
-    let t = doc.layers[1].transform.expect("nudge");
-    assert!((t.offset_x - 3.0).abs() < f32::EPSILON);
-    assert!((t.offset_y + 2.0).abs() < f32::EPSILON);
-}
-
-#[test]
-fn pen_does_not_nudge_the_layer() {
-    let mut doc = doc_with_viewport();
-    paint(&mut doc, 1, DocRect::new(20, 20, 40, 40), [0, 255, 0, 255]);
-    doc.set_tool(Tool::Pen);
-    assert!(!doc.nudge_move_target(1.0, 0.0));
-}
-
-#[test]
 fn move_tool_reaches_a_visible_layer_under_an_invisible_one() {
     let mut doc = doc_with_viewport();
     paint(&mut doc, 1, DocRect::new(20, 20, 60, 60), [255, 0, 0, 255]);
@@ -329,36 +310,6 @@ fn a_move_grab_is_refused_on_paper_a_lock_and_an_empty_layer() {
     assert!(!doc.begin_move_at(40.0, 40.0), "a lock refuses the grab");
 }
 
-/// The same three refusals apply to the keyboard path, which does not go through the pointer
-/// at all — a nudge that quietly moved a locked layer would be the one way around the lock.
-#[test]
-fn a_nudge_is_refused_on_paper_a_lock_and_an_empty_layer() {
-    let mut doc = doc_with_viewport();
-    doc.set_tool(Tool::Move);
-    doc.set_active_layer(0);
-    assert!(!doc.nudge_move_target(1.0, 0.0), "Paper does not nudge");
-
-    doc.add_layer("Empty");
-    let layer = doc.active_layer;
-    assert!(
-        !doc.nudge_move_target(1.0, 0.0),
-        "an unpainted layer has no bounds to move"
-    );
-
-    paint(
-        &mut doc,
-        layer,
-        DocRect::new(20, 20, 60, 60),
-        [0, 0, 0, 255],
-    );
-    assert!(doc.nudge_move_target(1.0, 0.0));
-    let after = doc.layers[layer].transform.unwrap().offset_x;
-
-    doc.set_layer_locked(layer, true);
-    assert!(!doc.nudge_move_target(5.0, 0.0), "a lock refuses the nudge");
-    assert_eq!(doc.layers[layer].transform.unwrap().offset_x, after);
-}
-
 #[test]
 fn move_tool_selects_the_layer_it_grabs() {
     let mut doc = doc_with_viewport();
@@ -378,67 +329,6 @@ fn move_tool_selects_the_layer_it_grabs() {
     assert!(!doc.transform_active);
 }
 
-/// A nudge outside Move and outside `⌘T` does nothing at all — arrow keys belong to whatever
-/// else has focus while a paint tool is up.
-#[test]
-fn a_nudge_outside_move_and_transform_does_nothing() {
-    let mut doc = doc_with_viewport();
-    doc.add_layer("Ink");
-    let layer = doc.active_layer;
-    paint(
-        &mut doc,
-        layer,
-        DocRect::new(20, 20, 60, 60),
-        [0, 0, 0, 255],
-    );
-
-    doc.set_tool(Tool::Pen);
-    assert!(!doc.nudge_move_target(1.0, 0.0));
-    assert!(doc.layers[layer].transform.is_none());
-
-    assert!(doc.set_tool(Tool::Transform));
-    assert!(
-        doc.nudge_move_target(1.0, 0.0),
-        "transform mode nudges the active layer"
-    );
-    assert_eq!(doc.tool, Tool::Move);
-}
-
-/// A selected vector item outranks the layer: the arrow keys move the item, and the layer's
-/// own transform is left exactly where it was.
-#[test]
-fn a_nudge_prefers_the_selected_item_over_its_layer() {
-    let mut doc = doc_with_viewport();
-    let layer = doc.add_vector_layer(
-        "V",
-        VectorItem::Shape(VectorShape {
-            shape: Shape {
-                tool: Tool::Rect,
-                start: (10.0, 10.0),
-                end: (40.0, 40.0),
-                half_width: 1.0,
-                fill: true,
-                stroke: false,
-            },
-            color: [255, 0, 0, 255],
-            stroke_color: [255, 0, 0, 255],
-        }),
-    );
-    doc.set_active_layer(layer);
-    doc.set_tool(Tool::Move);
-    assert!(doc.select_vector_item_at(20.0, 20.0));
-
-    let before = doc.layers[layer].content.item().unwrap().bounds().unwrap();
-    assert!(doc.nudge_move_target(3.0, 0.0));
-    let after = doc.layers[layer].content.item().unwrap().bounds().unwrap();
-
-    assert!((after.0 - (before.0 + 3.0)).abs() < 0.01);
-    assert!(
-        doc.layers[layer].transform.is_none(),
-        "the layer itself did not move"
-    );
-}
-
 #[test]
 fn bulk_move_drags_every_selected_layer_together() {
     let mut doc = doc_with_viewport();
@@ -454,35 +344,6 @@ fn bulk_move_drags_every_selected_layer_together() {
     assert!((t1.offset_y - 10.0).abs() < 0.6);
     assert!((t2.offset_x - 20.0).abs() < 0.6);
     assert!((t2.offset_y - 10.0).abs() < 0.6);
-}
-
-#[test]
-fn bulk_nudge_moves_every_selected_layer() {
-    let mut doc = doc_with_viewport();
-    doc.add_layer("Layer 2");
-    paint(&mut doc, 1, DocRect::new(20, 20, 40, 40), [255, 0, 0, 255]);
-    paint(&mut doc, 2, DocRect::new(60, 60, 80, 80), [0, 255, 0, 255]);
-    doc.set_layer_selection(&[1, 2]);
-    doc.set_tool(Tool::Move);
-    assert!(doc.nudge_move_target(2.0, -1.0));
-    let step = limits::LAYER_NUDGE_STEP;
-    let t1 = doc.layers[1].transform.expect("layer 1 nudged");
-    let t2 = doc.layers[2].transform.expect("layer 2 nudged");
-    assert!((t1.offset_x - 2.0 * step).abs() < 0.01);
-    assert!((t1.offset_y + step).abs() < 0.01);
-    assert!((t2.offset_x - 2.0 * step).abs() < 0.01);
-    assert!((t2.offset_y + step).abs() < 0.01);
-}
-
-#[test]
-fn layer_selection_skips_paper() {
-    let mut doc = doc_with_viewport();
-    paint(&mut doc, 1, DocRect::new(20, 20, 40, 40), [255, 0, 0, 255]);
-    doc.set_layer_selection(&[0, 1]);
-    doc.set_tool(Tool::Move);
-    assert!(doc.nudge_move_target(1.0, 0.0));
-    assert!(doc.layers[1].transform.is_some());
-    assert!(doc.layers[0].transform.is_none() || doc.layers[0].transform.unwrap().is_identity());
 }
 
 fn outlined(doc: &Document) -> Vec<usize> {

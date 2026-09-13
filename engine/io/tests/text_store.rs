@@ -150,8 +150,7 @@ fn a_blank_run_is_still_readable() {
     assert_eq!(text_layer(&reopened).run().unwrap().text, "");
 }
 
-/// A run styled bold and italic must come back styled — the blob grew a version for exactly
-/// this, and a project written by an older build must still open without it.
+/// A run styled bold and italic must come back styled.
 #[test]
 fn bold_italic_and_line_height_survive_a_round_trip() {
     let (_dir, store) = store();
@@ -177,105 +176,6 @@ fn bold_italic_and_line_height_survive_a_round_trip() {
         !text_layer(&reopened).tiles().unwrap().is_empty(),
         "the styled run rasterizes on open"
     );
-}
-
-/// The blob a build before styled text wrote: same fields, version 1, no weight or slant.
-fn version_one_blob(text: &str, family: &str, size: f32) -> Vec<u8> {
-    let mut out = vec![1u8];
-    out.extend_from_slice(&(text.len() as u32).to_le_bytes());
-    out.extend_from_slice(text.as_bytes());
-    out.extend_from_slice(&(family.len() as u32).to_le_bytes());
-    out.extend_from_slice(family.as_bytes());
-    out.extend_from_slice(&size.to_le_bytes());
-    out.extend_from_slice(&1.25f32.to_le_bytes());
-    out.extend_from_slice(&[0, 0, 0, 255]);
-    out.extend_from_slice(&1u32.to_le_bytes());
-    out.extend_from_slice(&40.0f32.to_le_bytes());
-    out.extend_from_slice(&60.0f32.to_le_bytes());
-    out.push(0);
-    out
-}
-
-#[test]
-fn a_project_saved_before_styled_text_still_opens() {
-    let (_dir, store) = store();
-    let saved = typed_project(&store, "legacy");
-    let layer = text_layer(&saved);
-    let layer_id = layer.id.clone();
-    let family = layer.run().unwrap().family.clone();
-    Connection::open(store.path())
-        .unwrap()
-        .execute(
-            "UPDATE layers SET text_data = ?1 WHERE project_id = ?2 AND layer_id = ?3",
-            params![
-                version_one_blob("legacy", &family, 48.0),
-                saved.id,
-                layer_id
-            ],
-        )
-        .unwrap();
-
-    let reopened = store.open_project(&saved.id).unwrap();
-    let run = text_layer(&reopened).run().unwrap();
-    assert_eq!(run.text, "legacy");
-    assert_eq!(run.family, family);
-    assert_eq!(run.size, 48.0);
-    assert_eq!(run.align, TextAlign::Center);
-    assert_eq!(run.origin, (40.0, 60.0));
-    assert!(!run.bold && !run.italic, "an older run has no styles");
-    assert!(text_layer(&reopened).is_text(), "still a text layer");
-}
-
-/// Version 2 is the blob a project saved before style spans holds: everything up to the wrap
-/// width, and then nothing. It has to keep opening, with the run read as uniform.
-fn version_two_blob(text: &str, family: &str, size: f32) -> Vec<u8> {
-    let mut out = vec![2u8];
-    out.extend_from_slice(&(text.len() as u32).to_le_bytes());
-    out.extend_from_slice(text.as_bytes());
-    out.extend_from_slice(&(family.len() as u32).to_le_bytes());
-    out.extend_from_slice(family.as_bytes());
-    out.push(1);
-    out.push(0);
-    out.extend_from_slice(&size.to_le_bytes());
-    out.extend_from_slice(&1.25f32.to_le_bytes());
-    out.extend_from_slice(&[0, 0, 0, 255]);
-    out.extend_from_slice(&1u32.to_le_bytes());
-    out.extend_from_slice(&40.0f32.to_le_bytes());
-    out.extend_from_slice(&60.0f32.to_le_bytes());
-    out.push(0);
-    out
-}
-
-fn replace_blob(store: &ProjectStore, doc: &Document, layer_id: &str, blob: Vec<u8>) {
-    Connection::open(store.path())
-        .unwrap()
-        .execute(
-            "UPDATE layers SET text_data = ?1 WHERE project_id = ?2 AND layer_id = ?3",
-            params![blob, doc.id, layer_id],
-        )
-        .unwrap();
-}
-
-#[test]
-fn a_project_saved_before_style_spans_still_opens_as_uniform() {
-    let (_dir, store) = store();
-    let saved = typed_project(&store, "uniform");
-    let layer = text_layer(&saved);
-    let layer_id = layer.id.clone();
-    let family = layer.run().unwrap().family.clone();
-    replace_blob(
-        &store,
-        &saved,
-        &layer_id,
-        version_two_blob("uniform", &family, 48.0),
-    );
-
-    let reopened = store.open_project(&saved.id).unwrap();
-    let run = text_layer(&reopened).run().unwrap();
-    assert_eq!(run.text, "uniform");
-    assert!(run.bold, "version 2 did carry weight");
-    assert!(run.spans.is_empty(), "and no spans, which means uniform");
-    assert_eq!(run.origin, (40.0, 60.0));
 }
 
 #[test]

@@ -8,19 +8,10 @@
 //! writer. This module only ever answers two questions: what does the `BT ... ET` text-showing
 //! block look like, and what does a `ToUnicode` CMap body look like.
 
+use crate::vector_pdf::n;
 use calumma_text::{PdfFontKey, PdfGlyph, PdfRun};
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
-
-fn n(value: f32) -> String {
-    let text = format!("{value:.4}");
-    let trimmed = text.trim_end_matches('0').trim_end_matches('.');
-    if trimmed.is_empty() || trimmed == "-" {
-        "0".to_string()
-    } else {
-        trimmed.to_string()
-    }
-}
 
 /// The `BT ... ET` block for a text layer's runs, given the PDF resource name (`/F0`, `/F1`,
 /// …) each font key was assigned. Every glyph carries its own `Tm` rather than relying on the

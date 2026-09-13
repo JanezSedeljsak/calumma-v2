@@ -7,8 +7,12 @@ use super::cursor::{
 };
 use calumma_core::Tool;
 
+#[cfg(target_os = "linux")]
+use crate::board::surface_linux::BoardSurface;
 #[cfg(target_os = "macos")]
 use crate::board::surface_macos::BoardSurface;
+#[cfg(target_os = "windows")]
+use crate::board::surface_windows::BoardSurface;
 
 pub struct BoardHost {
     engine: Rc<RefCell<Engine>>,
@@ -25,7 +29,6 @@ pub struct BoardHost {
     cursor_mods: ModifierState,
     cursor_modal: bool,
     last_sync: Option<(i32, i32, u32, u32, i32, u32, bool, u64)>,
-    #[cfg(target_os = "macos")]
     surface: Option<BoardSurface>,
 }
 
@@ -46,7 +49,6 @@ impl BoardHost {
             cursor_mods: ModifierState::default(),
             cursor_modal: false,
             last_sync: None,
-            #[cfg(target_os = "macos")]
             surface: None,
         }
     }
@@ -59,7 +61,6 @@ impl BoardHost {
             self.stroke_active = false;
             self.cursor.reset();
             self.last_sync = None;
-            #[cfg(target_os = "macos")]
             if let Some(surface) = &self.surface {
                 surface.set_hidden(true);
             }
@@ -105,13 +106,10 @@ impl BoardHost {
         if self.attached || self.attach_failed {
             return self.attached;
         }
-        #[cfg(target_os = "macos")]
-        {
-            if let Ok(surface) = BoardSurface::install(winit_window) {
+        match BoardSurface::install(winit_window) {
+            Ok(surface) => {
                 let scale = surface.scale() as f32;
-                let native = calumma_app::NativeSurface::MetalLayer {
-                    layer: surface.layer_ptr(),
-                };
+                let native = surface.native();
                 match self
                     .engine
                     .borrow_mut()
@@ -121,16 +119,16 @@ impl BoardHost {
                         self.surface = Some(surface);
                         self.attached = true;
                     }
-                    Err(_) => self.attach_failed = true,
+                    Err(err) => {
+                        eprintln!("miw: board surface attach failed: {err}");
+                        self.attach_failed = true;
+                    }
                 }
-            } else {
+            }
+            Err(err) => {
+                eprintln!("miw: board surface install failed: {err}");
                 self.attach_failed = true;
             }
-        }
-        #[cfg(not(target_os = "macos"))]
-        {
-            let _ = (winit_window, width, height);
-            self.attach_failed = true;
         }
         self.attached
     }
@@ -161,7 +159,6 @@ impl BoardHost {
         }
         self.last_sync = Some(key);
         if !self.active || overlay {
-            #[cfg(target_os = "macos")]
             if let Some(surface) = &self.surface {
                 surface.set_hidden(true);
             }
@@ -170,7 +167,6 @@ impl BoardHost {
         if !self.attached {
             self.try_attach_winit(winit_window, layout.width, layout.height);
         }
-        #[cfg(target_os = "macos")]
         if let Some(surface) = &self.surface {
             surface.set_frame(
                 layout.x as f64,

@@ -333,32 +333,6 @@ fn a_drag_inside_a_scaled_layer_moves_by_the_layer_scale() {
     assert!((after.0 - (before.0 + 10.0)).abs() < 0.01);
 }
 
-#[test]
-fn nudging_moves_the_selection_by_the_core_step() {
-    let mut doc = doc_with_viewport();
-    let layer = vector_layer(&mut doc, rect_item((10.0, 10.0), (40.0, 40.0)));
-    doc.set_active_layer(layer);
-    assert!(doc.select_vector_item_at(20.0, 20.0));
-    let before = item_bounds(&doc, layer);
-    assert!(doc.nudge_selected_vector_item(3.0, -2.0));
-    let after = item_bounds(&doc, layer);
-    assert!((after.0 - (before.0 + 3.0)).abs() < 0.01);
-    assert!((after.1 - (before.1 - 2.0)).abs() < 0.01);
-}
-
-#[test]
-fn deleting_removes_only_the_selected_item() {
-    let mut doc = doc_with_viewport();
-    let a = vector_layer(&mut doc, rect_item((10.0, 10.0), (40.0, 40.0)));
-    let _b = vector_layer(&mut doc, rect_item((60.0, 60.0), (90.0, 90.0)));
-    doc.set_active_layer(a);
-    assert!(doc.select_vector_item_at(20.0, 20.0));
-    assert!(doc.delete_selected_vector_item());
-    assert_eq!(doc.selected_vector_item(), None);
-    assert_eq!(doc.vector_item_at(20.0, 20.0), None);
-    assert!(doc.vector_item_at(75.0, 75.0).is_some());
-}
-
 /// The shell reads the selected item's index alone and takes its layer from
 /// `CalmState.active_layer`; that only works because these two can never disagree.
 #[test]
@@ -404,28 +378,6 @@ fn a_drag_stays_exact_over_many_frames() {
         (after.0 - (before.0 + 20.0)).abs() < 1e-3,
         "200 frames of dragging land exactly where one 20px move would"
     );
-}
-
-#[test]
-fn a_selection_does_not_survive_its_layer() {
-    let mut doc = doc_with_viewport();
-    let layer = vector_layer(&mut doc, rect_item((10.0, 10.0), (40.0, 40.0)));
-    doc.set_active_layer(layer);
-    assert!(doc.select_vector_item_at(20.0, 20.0));
-    doc.remove_layer(layer);
-    assert_eq!(doc.selected_vector_item(), None);
-    assert!(!doc.nudge_selected_vector_item(1.0, 0.0));
-}
-
-#[test]
-fn moving_an_item_bumps_the_revision_so_the_board_rebuilds() {
-    let mut doc = doc_with_viewport();
-    let layer = vector_layer(&mut doc, rect_item((10.0, 10.0), (40.0, 40.0)));
-    doc.set_active_layer(layer);
-    doc.select_vector_item_at(20.0, 20.0);
-    let before = doc.vector_revision();
-    doc.nudge_selected_vector_item(1.0, 0.0);
-    assert_ne!(doc.vector_revision(), before);
 }
 
 #[test]

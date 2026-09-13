@@ -1,7 +1,7 @@
-//! The Seam Carve Smart Tool: `OpKind::SeamCarve`, always available, `Backend::Core` —
+//! The Seam Carve Smart Tool: `OpKind::SeamCarve`, always available —
 //! deterministic dynamic programming (`calumma_core::smarttools::seam_carving`), not a model.
 
-use crate::types::{Backend, Op, OpError, OpInput, OpKind, OpOutput, OpParams};
+use crate::types::{Op, OpError, OpInput, OpKind, OpOutput, OpParams};
 use calumma_core::limits::{MAX_CANVAS_SIDE, MIN_CANVAS_SIDE};
 use calumma_core::smarttools::seam_carving::seam_carve;
 
@@ -12,18 +12,12 @@ impl Op for SeamCarveOp {
         OpKind::SeamCarve
     }
 
-    fn backend(&self) -> Backend {
-        Backend::Core
-    }
-
     fn available(&self) -> bool {
         true
     }
 
     fn run(&self, input: OpInput, params: &OpParams) -> Result<OpOutput, OpError> {
-        let OpInput::Raster { rgba, w, h } = input else {
-            return Err(OpError::BadInput);
-        };
+        let OpInput { rgba, w, h } = input;
         if w == 0 || h == 0 || rgba.len() != (w as usize) * (h as usize) * 4 {
             return Err(OpError::BadInput);
         }
