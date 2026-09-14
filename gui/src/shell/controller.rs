@@ -376,7 +376,15 @@ impl AppController {
         if was_active {
             self.engine.borrow_mut().flush_save();
         }
-        let _ = self.engine.borrow_mut().delete_project(id);
+        let delete_err = self.engine.borrow_mut().delete_project(id).err();
+        if let Some(err) = delete_err {
+            eprintln!("miw: deleting project {id} failed: {err}");
+            self.show_toast_key("deleteProjectFailed", true);
+        }
+        if self.prefs.last_active_project_id.as_deref() == Some(id) {
+            self.prefs.set_last_active_project(None);
+            let _ = self.prefs.save();
+        }
         if !was_active {
             return TabCloseResult::Unchanged;
         }
@@ -756,6 +764,25 @@ impl AppController {
             engine.release_clipping_mask(index)
         } else {
             engine.create_clipping_mask(index)
+        }
+    }
+
+    pub fn toggle_layer_mask(&mut self, index: usize) -> bool {
+        let mut engine = self.engine.borrow_mut();
+        if engine.is_layer_masked(index) {
+            let ok = engine.release_layer_mask(index);
+            drop(engine);
+            if ok {
+                self.layer_settings_index = index.saturating_sub(1);
+            }
+            ok
+        } else {
+            let ok = engine.create_layer_mask(index);
+            drop(engine);
+            if ok {
+                self.layer_settings_index = index + 1;
+            }
+            ok
         }
     }
 

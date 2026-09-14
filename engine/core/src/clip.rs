@@ -12,6 +12,18 @@ pub fn multiply_clip_alpha(src: u8, base_raw: u8) -> u8 {
     ((src as u32 * base_raw as u32 + ALPHA_ROUND_BIAS) / ALPHA_MAX) as u8
 }
 
+pub fn clip_alpha_factor(base_raw: u8, invert: bool) -> u8 {
+    if invert {
+        u8::MAX - base_raw
+    } else {
+        base_raw
+    }
+}
+
+pub fn apply_clip_alpha(src: u8, base_raw: u8, invert: bool) -> u8 {
+    multiply_clip_alpha(src, clip_alpha_factor(base_raw, invert))
+}
+
 pub fn base_raw_alpha_at(base: &Layer, doc_x: f32, doc_y: f32) -> u8 {
     layer_source_pixel(base, doc_x, doc_y)[3]
 }
@@ -34,7 +46,7 @@ pub fn tile_pixel_display_doc(layer: &Layer, x: i32, y: i32) -> (f32, f32) {
     t.forward(pivot, (px, py))
 }
 
-pub fn apply_clip_alpha_to_buffer(buf: &mut [u8], base: &Layer, w: u32, _h: u32) {
+pub fn apply_clip_alpha_to_buffer(buf: &mut [u8], base: &Layer, invert: bool, w: u32, _h: u32) {
     let row_bytes = (w as usize) * 4;
     buf.par_chunks_mut(row_bytes)
         .enumerate()
@@ -46,7 +58,7 @@ pub fn apply_clip_alpha_to_buffer(buf: &mut [u8], base: &Layer, w: u32, _h: u32)
                     continue;
                 }
                 let base_alpha = base_raw_alpha_at(base, x as f32 + 0.5, doc_y);
-                px[3] = multiply_clip_alpha(px[3], base_alpha);
+                px[3] = apply_clip_alpha(px[3], base_alpha, invert);
             }
         });
 }
@@ -54,11 +66,29 @@ pub fn apply_clip_alpha_to_buffer(buf: &mut [u8], base: &Layer, w: u32, _h: u32)
 impl Document {
     pub fn clip_base_for_layer<'a>(&'a self, layer: &'a Layer) -> Option<&'a Layer> {
         let base_id = layer.clips_to.as_deref()?;
-        self.layers.iter().find(|l| l.id == base_id)
+        let base = self.layers.iter().find(|l| l.id == base_id)?;
+        if layer.clip_invert && !base.visible {
+            return None;
+        }
+        Some(base)
     }
 
     pub fn is_layer_clipped(&self, index: usize) -> bool {
-        self.layers.get(index).is_some_and(|l| l.clips_to.is_some())
+        self.layers
+            .get(index)
+            .is_some_and(|l| l.clips_to.is_some() && !l.clip_invert)
+    }
+
+    pub fn is_layer_masked(&self, index: usize) -> bool {
+        self.layers
+            .get(index)
+            .is_some_and(|l| l.clips_to.is_some() && l.clip_invert)
+    }
+
+    pub fn is_mask_base_id(&self, id: &str) -> bool {
+        self.layers
+            .iter()
+            .any(|l| l.clip_invert && l.clips_to.as_deref() == Some(id))
     }
 
     pub fn is_layer_clip_base(&self, index: usize) -> bool {
@@ -66,10 +96,17 @@ impl Document {
             return false;
         }
         let base_id = &self.layers[index].id;
-        self.layers[index + 1]
-            .clips_to
-            .as_deref()
-            .is_some_and(|id| id == base_id)
+        let above = &self.layers[index + 1];
+        !above.clip_invert && above.clips_to.as_deref() == Some(base_id.as_str())
+    }
+
+    pub fn is_layer_mask_base(&self, index: usize) -> bool {
+        if index + 1 >= self.layers.len() {
+            return false;
+        }
+        let base_id = &self.layers[index].id;
+        let above = &self.layers[index + 1];
+        above.clip_invert && above.clips_to.as_deref() == Some(base_id.as_str())
     }
 
     pub fn clip_pair_locked(&self, index: usize) -> bool {
@@ -97,10 +134,13 @@ impl Document {
         if index == 0 || index >= self.layers.len() {
             return false;
         }
-        if self.is_layer_clipped(index) {
+        if self.is_layer_clipped(index) || self.is_layer_masked(index) {
             return false;
         }
-        if self.is_layer_clipped(index - 1) {
+        if self.is_layer_clipped(index - 1) || self.is_layer_masked(index - 1) {
+            return false;
+        }
+        if self.is_layer_mask_base(index) || self.is_layer_mask_base(index - 1) {
             return false;
         }
         let base = &self.layers[index - 1];
@@ -122,6 +162,7 @@ impl Document {
         self.record_layer_props_history(index);
         let base_id = self.layers[index - 1].id.clone();
         self.layers[index].clips_to = Some(base_id);
+        self.layers[index].clip_invert = false;
         self.mark_layer_render_dirty_for_clip(index);
         true
     }
@@ -132,6 +173,7 @@ impl Document {
         }
         self.record_layer_props_history(index);
         self.layers[index].clips_to = None;
+        self.layers[index].clip_invert = false;
         self.mark_layer_render_dirty_for_clip(index);
         true
     }
@@ -148,6 +190,7 @@ impl Document {
                 .is_some_and(|base_idx| base_idx == i - 1);
             if !valid {
                 self.layers[i].clips_to = None;
+                self.layers[i].clip_invert = false;
             }
         }
     }
@@ -193,7 +236,11 @@ impl Document {
                     continue;
                 }
                 if let Some(base) = base {
-                    px[3] = multiply_clip_alpha(px[3], base_raw_alpha_at(base, doc_x, doc_y));
+                    px[3] = apply_clip_alpha(
+                        px[3],
+                        base_raw_alpha_at(base, doc_x, doc_y),
+                        layer.clip_invert,
+                    );
                 }
                 if px[3] == 0 {
                     continue;

@@ -380,6 +380,127 @@ fn fill_tool_commits_on_pointer_down_and_undoes() {
     assert_eq!(pixel(&doc, doc.active_layer, 32, 32), [0, 0, 0, 0]);
 }
 
+fn drag_shape(doc: &mut Document, from: (f32, f32), to: (f32, f32)) {
+    let (sx0, sy0) = doc.camera.to_screen(from.0, from.1);
+    let (sx1, sy1) = doc.camera.to_screen(to.0, to.1);
+    doc.pointer_down(sx0, sy0);
+    doc.pointer_move(sx1, sy1);
+    doc.pointer_up(sx1, sy1);
+}
+
+fn click_doc(doc: &mut Document, x: f32, y: f32) {
+    let (sx, sy) = doc.camera.to_screen(x, y);
+    doc.pointer_down(sx, sy);
+    doc.pointer_up(sx, sy);
+}
+
+/// Draw one filled circle, then a second outlined one, then bucket-fill the new interior.
+/// The fill has to stop at the new outline rather than spilling across the rest of the layer.
+#[test]
+fn bucket_fills_a_second_circle_without_spilling_past_its_edge() {
+    let mut doc = Document::new("p".into(), "t", 256, 256);
+    doc.resize_viewport(256.0, 256.0, 1.0);
+    doc.fit_to_view();
+    doc.tool = Tool::Ellipse;
+    doc.fill = true;
+    doc.stroke = true;
+    doc.shape_fill_color = [200, 30, 30, 255];
+    drag_shape(&mut doc, (20.0, 20.0), (90.0, 90.0));
+
+    doc.fill = false;
+    drag_shape(&mut doc, (120.0, 120.0), (220.0, 220.0));
+
+    doc.tool = Tool::Fill;
+    doc.color = [0, 90, 200, 255];
+    click_doc(&mut doc, 170.0, 170.0);
+
+    let layer = doc.active_layer;
+    assert_eq!(
+        pixel(&doc, layer, 170, 170)[2],
+        200,
+        "new interior is filled"
+    );
+    assert_eq!(
+        pixel(&doc, layer, 4, 4),
+        [0, 0, 0, 0],
+        "outside both circles stays empty"
+    );
+    assert_eq!(
+        pixel(&doc, layer, 55, 55)[0],
+        200,
+        "the first filled circle is left alone"
+    );
+}
+
+/// The circle lives on a vector layer; the bucket paints the raster layer underneath.
+/// Edges you can see still bound the fill, otherwise a second circle can never be filled
+/// on its own without spilling across the whole paint layer.
+#[test]
+fn bucket_fills_up_to_a_visible_vector_circle_on_another_layer() {
+    let mut doc = Document::new("p".into(), "t", 256, 256);
+    doc.resize_viewport(256.0, 256.0, 1.0);
+    doc.fit_to_view();
+    let paint = doc.active_layer;
+    doc.add_vector_layer(
+        "V",
+        VectorItem::Shape(VectorShape {
+            shape: Shape {
+                tool: Tool::Ellipse,
+                start: (40.0, 40.0),
+                end: (200.0, 200.0),
+                half_width: 4.0,
+                fill: false,
+                stroke: true,
+            },
+            color: [26, 26, 26, 255],
+            stroke_color: [26, 26, 26, 255],
+        }),
+    );
+    doc.active_layer = paint;
+    doc.tool = Tool::Fill;
+    doc.color = [0, 90, 200, 255];
+    click_doc(&mut doc, 120.0, 120.0);
+
+    assert_eq!(pixel(&doc, paint, 120, 120)[2], 200, "inside the circle");
+    assert_eq!(
+        pixel(&doc, paint, 8, 8),
+        [0, 0, 0, 0],
+        "outside the circle is not painted"
+    );
+}
+
+/// Same rule with a raster outline on a layer above the one being filled: the bucket still
+/// stops at the visible edge.
+#[test]
+fn bucket_fills_up_to_a_raster_circle_on_another_layer() {
+    let mut doc = Document::new("p".into(), "t", 256, 256);
+    doc.resize_viewport(256.0, 256.0, 1.0);
+    doc.fit_to_view();
+    let paint = doc.active_layer;
+    doc.add_layer("outline");
+    let outline = doc.active_layer;
+    doc.tool = Tool::Ellipse;
+    doc.fill = false;
+    doc.stroke = true;
+    drag_shape(&mut doc, (40.0, 40.0), (200.0, 200.0));
+    doc.active_layer = paint;
+    doc.tool = Tool::Fill;
+    doc.color = [0, 90, 200, 255];
+    click_doc(&mut doc, 120.0, 120.0);
+
+    assert_eq!(pixel(&doc, paint, 120, 120)[2], 200, "inside the circle");
+    assert_eq!(
+        pixel(&doc, paint, 8, 8),
+        [0, 0, 0, 0],
+        "outside the circle is not painted"
+    );
+    assert_ne!(
+        pixel(&doc, outline, 40, 120),
+        [0, 0, 0, 0],
+        "the outline layer still holds the stroke"
+    );
+}
+
 #[test]
 fn resize_grows_paper_and_preserves_content() {
     let mut doc = Document::new("p".into(), "t", 64, 64);

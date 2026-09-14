@@ -24,6 +24,7 @@ export component LayerSettingsBody inherits VerticalLayout {
     callback reset-filters();
     callback rename-layer(string);
     callback toggle-clip();
+    callback toggle-mask();
     callback flatten-clip();
     callback merge-down();
     callback reset-transform();
@@ -129,6 +130,15 @@ export component LayerSettingsBody inherits VerticalLayout {
                 enabled: LayerChrome.can-clip;
                 clicked => {
                     root.toggle-clip();
+                }
+            }
+
+            if LayerChrome.can-mask || LayerChrome.masked: CalmButton {
+                text: LayerChrome.mask-label;
+                fill: true;
+                enabled: LayerChrome.can-mask;
+                clicked => {
+                    root.toggle-mask();
                 }
             }
 
@@ -273,6 +283,15 @@ export component LayerSettingsBody inherits VerticalLayout {
             enabled: LayerChrome.can-clip;
             clicked => {
                 root.toggle-clip();
+            }
+        }
+
+        if LayerChrome.can-mask || LayerChrome.masked: CalmButton {
+            text: LayerChrome.mask-label;
+            fill: true;
+            enabled: LayerChrome.can-mask;
+            clicked => {
+                root.toggle-mask();
             }
         }
 

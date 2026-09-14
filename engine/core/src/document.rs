@@ -157,10 +157,13 @@ fn layer_composited_pixel(layer: &Layer, layers: &[Layer], doc_x: f32, doc_y: f3
     }
     if let Some(base_id) = layer.clips_to.as_deref() {
         if let Some(base) = layers.iter().find(|l| l.id == base_id) {
-            px[3] = crate::clip::multiply_clip_alpha(
-                px[3],
-                crate::clip::base_raw_alpha_at(base, doc_x, doc_y),
-            );
+            if !(layer.clip_invert && !base.visible) {
+                px[3] = crate::clip::apply_clip_alpha(
+                    px[3],
+                    crate::clip::base_raw_alpha_at(base, doc_x, doc_y),
+                    layer.clip_invert,
+                );
+            }
         }
     }
     if let Some(adj) = layer.adjustments.as_ref().filter(|a| !a.is_neutral()) {
@@ -835,6 +838,7 @@ impl Document {
         if let Some(layer) = self.layers.get_mut(index) {
             layer.visible = visible;
         }
+        self.schedule_clip_recalc_for_indices(&[index]);
     }
 
     pub fn set_active_layer(&mut self, index: usize) {
@@ -1236,6 +1240,7 @@ impl Document {
         copy.id = uuid::Uuid::new_v4().to_string();
         copy.name = crate::names::duplicate_layer_name(&base_name);
         copy.clips_to = None;
+        copy.clip_invert = false;
         self.layers.insert(index + 1, copy);
         self.active_layer = index + 1;
         self.validate_clip_links();
@@ -2429,16 +2434,19 @@ impl Document {
         let before = grid.snapshot_tiles(&coords);
         let color = self.ink_rgba();
         let selection = self.selection.clone();
+        let tolerance = self.tolerance;
+        let (comp_w, comp_h, composite) = self.composite_rgba();
         let mut touched = 0;
         if let Some(tiles) = self.layers.get_mut(active).and_then(|l| l.tiles_mut()) {
-            touched = crate::fill::flood_fill(
+            touched = crate::fill::flood_fill_sampled(
                 tiles,
                 scope,
                 x,
                 y,
                 color,
                 selection.as_ref(),
-                self.tolerance,
+                tolerance,
+                |px, py| crate::fill::pixel_in_rgba(&composite, comp_w, comp_h, px, py),
             );
         }
         if touched == 0 {
@@ -2457,13 +2465,22 @@ impl Document {
             if !layer.visible {
                 continue;
             }
+            if self.is_mask_base_id(&layer.id) {
+                continue;
+            }
             if layer.tiles().is_none() && layer.content.item().is_none() {
                 continue;
             }
             layer_buf.fill(0);
             copy_layer_into_rgba(layer, &mut layer_buf, w, h);
             if let Some(base) = self.clip_base_for_layer(layer) {
-                crate::clip::apply_clip_alpha_to_buffer(&mut layer_buf, base, w, h);
+                crate::clip::apply_clip_alpha_to_buffer(
+                    &mut layer_buf,
+                    base,
+                    layer.clip_invert,
+                    w,
+                    h,
+                );
             }
             let lut = layer.adjustments.map(|a| a.lut());
             apply_layer_effects(&mut layer_buf, layer, lut.as_ref());
@@ -2578,6 +2595,7 @@ impl Document {
         self.layers
             .iter()
             .filter(|l| l.visible)
+            .filter(|l| !self.is_mask_base_id(&l.id))
             .filter(|l| l.tiles().is_some() || l.content.item().is_some())
             .filter_map(|l| {
                 let raw = l.content_bounds()?;
@@ -2766,7 +2784,7 @@ impl Document {
         let mut buf = vec![0u8; (w as usize) * (h as usize) * 4];
         copy_layer_into_rgba(layer, &mut buf, w, h);
         if let Some(base) = self.clip_base_for_layer(layer) {
-            crate::clip::apply_clip_alpha_to_buffer(&mut buf, base, w, h);
+            crate::clip::apply_clip_alpha_to_buffer(&mut buf, base, layer.clip_invert, w, h);
         }
         if let Some(adj) = &layer.adjustments {
             let lut = adj.lut();

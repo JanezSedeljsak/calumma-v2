@@ -91,6 +91,14 @@ impl Engine {
             .is_some_and(|doc| doc.is_layer_clipped(index))
     }
 
+    pub fn is_layer_masked(&self, index: usize) -> bool {
+        self.inner
+            .lock()
+            .doc
+            .as_ref()
+            .is_some_and(|doc| doc.is_layer_masked(index))
+    }
+
     pub fn can_create_clipping_mask(&self, index: usize) -> bool {
         self.inner
             .lock()
@@ -133,12 +141,56 @@ impl Engine {
         true
     }
 
-    pub fn can_flatten_clip(&self, index: usize) -> bool {
+    pub fn can_create_layer_mask(&self, index: usize) -> bool {
         self.inner
             .lock()
             .doc
             .as_ref()
-            .is_some_and(|doc| doc.is_layer_clipped(index) && doc.can_clip_layer_down(index))
+            .is_some_and(|doc| doc.can_create_layer_mask(index))
+    }
+
+    pub fn can_release_layer_mask(&self, index: usize) -> bool {
+        self.inner
+            .lock()
+            .doc
+            .as_ref()
+            .is_some_and(|doc| doc.can_release_layer_mask(index))
+    }
+
+    pub fn create_layer_mask(&mut self, index: usize) -> bool {
+        let mut inner = self.inner.lock();
+        let Some(doc) = inner.doc.as_mut() else {
+            return false;
+        };
+        if !doc.create_layer_mask(index) {
+            return false;
+        }
+        inner.dirty_save = true;
+        inner.invalidate_renderer();
+        true
+    }
+
+    pub fn release_layer_mask(&mut self, index: usize) -> bool {
+        let mut inner = self.inner.lock();
+        let Some(doc) = inner.doc.as_mut() else {
+            return false;
+        };
+        if !doc.release_layer_mask(index) {
+            return false;
+        }
+        inner.dirty_save = true;
+        inner.invalidate_renderer();
+        true
+    }
+
+    pub fn can_flatten_clip(&self, index: usize) -> bool {
+        self.inner.lock().doc.as_ref().is_some_and(|doc| {
+            if doc.is_layer_masked(index) {
+                doc.can_apply_layer_mask(index)
+            } else {
+                doc.is_layer_clipped(index) && doc.can_clip_layer_down(index)
+            }
+        })
     }
 
     pub fn flatten_clip(&mut self, index: usize) -> bool {
@@ -146,7 +198,12 @@ impl Engine {
         let Some(doc) = inner.doc.as_mut() else {
             return false;
         };
-        if !doc.clip_layer_down(index) {
+        let ok = if doc.is_layer_masked(index) {
+            doc.apply_layer_mask(index)
+        } else {
+            doc.clip_layer_down(index)
+        };
+        if !ok {
             return false;
         }
         inner.dirty_save = true;

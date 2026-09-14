@@ -46,6 +46,9 @@ impl Renderer {
             if !layer.visible {
                 continue;
             }
+            if doc.is_mask_base_id(&layer.id) {
+                continue;
+            }
             let Some(grid) = layer.tiles() else {
                 continue;
             };
@@ -87,6 +90,9 @@ impl Renderer {
         let mut busiest = 0;
         for layer in &doc.layers {
             if !layer.visible {
+                continue;
+            }
+            if doc.is_mask_base_id(&layer.id) {
                 continue;
             }
             let Some(grid) = layer.tiles() else {

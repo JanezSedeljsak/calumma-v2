@@ -46,7 +46,7 @@ impl Document {
     }
 
     pub fn can_merge_layer_down(&self, index: usize) -> bool {
-        self.can_flatten_onto_below(index)
+        self.can_flatten_onto_below(index) && !self.is_layer_masked(index)
     }
 
     pub fn can_clip_layer_down(&self, index: usize) -> bool {

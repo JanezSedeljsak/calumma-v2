@@ -1,5 +1,7 @@
 use calumma_core::fill::*;
+use calumma_core::limits::TOLERANCE_DEFAULT;
 use calumma_core::selection::*;
+use calumma_core::shape::{ink_sample, Shape, Tool};
 use calumma_core::tile::*;
 
 #[test]
@@ -159,4 +161,194 @@ fn fill_bleeds_through_antialiased_stroke_fringe() {
 fn color_range_pixels_refuses_an_empty_scope() {
     let empty = DocRect::from_size(0, 0);
     assert!(color_range_pixels(empty, [0, 0, 0, 255], 4, |_, _| [0, 0, 0, 255]).is_none());
+}
+
+fn stamp_shape(grid: &mut TileGrid, shape: Shape, fill: [u8; 4], stroke: [u8; 4]) {
+    let (x0, y0, x1, y1) = shape.bounds();
+    let rect = DocRect::from_floats(x0, y0, x1, y1);
+    grid.paint_rect(rect, |px, py, dst| {
+        let (x, y) = (px as f32 + 0.5, py as f32 + 0.5);
+        let parts = [
+            ink_sample(shape.fill_distance(x, y), fill),
+            ink_sample(shape.stroke_distance(x, y), stroke),
+        ];
+        let mut out = dst;
+        let mut inked = false;
+        for src in parts.into_iter().flatten() {
+            out = blend_over(out, src);
+            inked = true;
+        }
+        inked.then_some(out)
+    });
+}
+
+fn outlined_ellipse(start: (f32, f32), end: (f32, f32)) -> Shape {
+    Shape {
+        tool: Tool::Ellipse,
+        start,
+        end,
+        half_width: 4.0,
+        fill: false,
+        stroke: true,
+    }
+}
+
+/// A filled circle already on the layer must not become a pipe that lets the bucket spill
+/// out of a second outlined circle. The walk stops at the new outline, not at the old fill.
+#[test]
+fn filling_a_second_outlined_circle_stays_inside_it() {
+    let mut grid = TileGrid::new(128, 128);
+    let bounds = DocRect::from_size(128, 128);
+    let ink = [26, 26, 26, 255];
+    stamp_shape(
+        &mut grid,
+        Shape {
+            tool: Tool::Ellipse,
+            start: (8.0, 8.0),
+            end: (48.0, 48.0),
+            half_width: 4.0,
+            fill: true,
+            stroke: true,
+        },
+        [200, 30, 30, 255],
+        ink,
+    );
+    stamp_shape(
+        &mut grid,
+        outlined_ellipse((56.0, 56.0), (112.0, 112.0)),
+        ink,
+        ink,
+    );
+    let touched = flood_fill(
+        &mut grid,
+        bounds,
+        84,
+        84,
+        [0, 90, 200, 255],
+        None,
+        TOLERANCE_DEFAULT,
+    );
+    assert!(
+        touched > 0,
+        "the new circle's interior is empty and should fill"
+    );
+    assert_eq!(grid.get_pixel(84, 84)[2], 200, "clicked interior is filled");
+    assert_eq!(
+        grid.get_pixel(4, 4),
+        [0, 0, 0, 0],
+        "outside both circles stays empty"
+    );
+    assert_eq!(
+        grid.get_pixel(28, 28)[0],
+        200,
+        "the first filled circle is left alone"
+    );
+}
+
+/// Same walk on an already-opaque field (Paper): the second outline still contains the fill,
+/// instead of the fringe growth leaking through antialiased stroke into the rest of the paper.
+#[test]
+fn filling_a_second_outlined_circle_on_paper_stays_inside_it() {
+    let mut grid = TileGrid::new(128, 128);
+    let bounds = DocRect::from_size(128, 128);
+    grid.fill_uniform(bounds, [255, 255, 255, 255]);
+    let ink = [26, 26, 26, 255];
+    stamp_shape(
+        &mut grid,
+        Shape {
+            tool: Tool::Ellipse,
+            start: (8.0, 8.0),
+            end: (48.0, 48.0),
+            half_width: 4.0,
+            fill: true,
+            stroke: true,
+        },
+        [200, 30, 30, 255],
+        ink,
+    );
+    stamp_shape(
+        &mut grid,
+        outlined_ellipse((56.0, 56.0), (112.0, 112.0)),
+        ink,
+        ink,
+    );
+    let touched = flood_fill(
+        &mut grid,
+        bounds,
+        84,
+        84,
+        [0, 90, 200, 255],
+        None,
+        TOLERANCE_DEFAULT,
+    );
+    assert!(touched > 0);
+    assert_eq!(grid.get_pixel(84, 84)[2], 200);
+    assert_eq!(
+        grid.get_pixel(4, 4),
+        [255, 255, 255, 255],
+        "paper outside the new circle is not filled"
+    );
+    assert_eq!(grid.get_pixel(28, 28)[0], 200);
+}
+
+fn grid_rgba(grid: &TileGrid, width: u32, height: u32) -> Vec<u8> {
+    let mut rgba = vec![0u8; (width * height * 4) as usize];
+    for y in 0..height as i32 {
+        for x in 0..width as i32 {
+            let px = grid.get_pixel(x, y);
+            let i = ((y as u32 * width + x as u32) * 4) as usize;
+            rgba[i..i + 4].copy_from_slice(&px);
+        }
+    }
+    rgba
+}
+
+fn sample_rgba(rgba: &[u8], width: u32, height: u32, x: i32, y: i32) -> [u8; 4] {
+    if x < 0 || y < 0 {
+        return [0; 4];
+    }
+    let (x, y) = (x as u32, y as u32);
+    if x >= width || y >= height {
+        return [0; 4];
+    }
+    let i = ((y * width + x) * 4) as usize;
+    [rgba[i], rgba[i + 1], rgba[i + 2], rgba[i + 3]]
+}
+
+/// A hand-drawn loop is rarely sealed to the pixel. A 2 px slit in an otherwise closed
+/// outline still has to contain the fill, otherwise "fill this oval" paints the whole layer.
+#[test]
+fn filling_a_loop_with_a_small_gap_stays_inside() {
+    let mut grid = TileGrid::new(128, 128);
+    let bounds = DocRect::from_size(128, 128);
+    let ink = [26, 26, 26, 255];
+    stamp_shape(
+        &mut grid,
+        outlined_ellipse((16.0, 16.0), (112.0, 112.0)),
+        ink,
+        ink,
+    );
+    for y in 63..=64 {
+        for x in 107..=117 {
+            grid.set_pixel(x, y, [0, 0, 0, 0]);
+        }
+    }
+    let rgba = grid_rgba(&grid, 128, 128);
+    let touched = flood_fill_sampled(
+        &mut grid,
+        bounds,
+        64,
+        64,
+        [0, 90, 200, 255],
+        None,
+        TOLERANCE_DEFAULT,
+        |x, y| sample_rgba(&rgba, 128, 128, x, y),
+    );
+    assert!(touched > 0, "the interior should fill");
+    assert_eq!(grid.get_pixel(64, 64)[2], 200);
+    assert_eq!(
+        grid.get_pixel(4, 4),
+        [0, 0, 0, 0],
+        "a 2 px gap in the outline must not spill the fill"
+    );
 }

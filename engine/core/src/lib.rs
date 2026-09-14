@@ -21,6 +21,7 @@ pub mod layer;
 pub mod layer_align;
 pub mod layer_multi;
 pub mod limits;
+pub mod mask;
 pub mod mask_bake;
 pub mod memory;
 pub mod memory_pressure;

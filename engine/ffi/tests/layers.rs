@@ -51,6 +51,29 @@ fn list_layers_marks_the_clip_base_row() {
 }
 
 #[test]
+fn list_layers_marks_the_masked_row() {
+    let (_dir, mut engine) = engine();
+    engine.create_project("Mask", 32, 32).unwrap();
+    let paint = engine
+        .list_layers()
+        .into_iter()
+        .find(|layer| !layer.is_paper)
+        .expect("paint")
+        .index;
+    assert!(engine.create_layer_mask(paint));
+    let layers = engine.list_layers();
+    let top = layers.iter().find(|layer| layer.masked).expect("masked");
+    let mask = layers
+        .iter()
+        .find(|layer| layer.index == top.index - 1)
+        .expect("mask row");
+    assert!(!top.clipped);
+    assert!(top.masked);
+    assert!(!mask.masked);
+    assert!(!mask.clipped);
+}
+
+#[test]
 fn move_layer_row_refuses_paper() {
     let (_dir, mut engine) = engine();
     engine.create_project("Stack", 16, 16).unwrap();

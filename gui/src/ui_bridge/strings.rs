@@ -150,6 +150,7 @@ pub fn sync_strings(ui: &AppWindow, l10n: &Catalog) {
     layers.set_reset_filters_label(put(l10n.get("resetFilters")));
     layers.set_rename_label(put(l10n.get("renameLayer")));
     layers.set_flatten_label(put(l10n.get("flattenClippingMask")));
+    layers.set_mask_label(put(l10n.get("addLayerMask")));
     layers.set_merge_label(put(l10n.get("mergeLayerDown")));
     layers.set_reset_transform_label(put(l10n.get("resetTransform")));
     layers.set_move_up_label(put(l10n.get("moveLayerUp")));

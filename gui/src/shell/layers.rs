@@ -6,7 +6,7 @@ const ROW_THUMB_H: u32 = 80;
 const PREVIEW_SIDE: u32 = 320;
 const CHECKER_CELL: u32 = 4;
 
-type LayerMeta = (usize, String, bool, bool, bool, bool, bool);
+type LayerMeta = (usize, String, bool, bool, bool, bool, bool, bool);
 
 pub struct LayerThumbCache {
     revisions: Vec<u64>,
@@ -84,6 +84,7 @@ impl LayerThumbCache {
                     layer.locked,
                     layer.active,
                     layer.clipped,
+                    layer.masked,
                     layer.clip_base,
                 )
             })

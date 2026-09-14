@@ -130,6 +130,7 @@ export component AppWindow inherits Window {
     callback layer-settings-reset-filters();
     callback layer-settings-rename(string);
     callback layer-settings-toggle-clip();
+    callback layer-settings-toggle-mask();
     callback layer-settings-flatten-clip();
     callback layer-settings-merge-down();
     callback layer-settings-reset-transform();
@@ -772,15 +773,18 @@ export component AppWindow inherits Window {
                 root.pointer-released(x, y);
             }
             pointer-enter => {
+                focus-scope.focus();
                 root.pointer-enter();
             }
             pointer-exit => {
                 root.pointer-exit();
             }
             scrolled(x, y, dx, dy, alt, meta) => {
+                focus-scope.focus();
                 root.scrolled(x, y, dx, dy, alt, meta);
             }
             pinch-started => {
+                focus-scope.focus();
                 root.pinch-started();
             }
             pinch-updated(x, y, scale) => {
@@ -982,6 +986,9 @@ export component AppWindow inherits Window {
             }
             toggle-clip => {
                 root.layer-settings-toggle-clip();
+            }
+            toggle-mask => {
+                root.layer-settings-toggle-mask();
             }
             flatten-clip => {
                 root.layer-settings-flatten-clip();

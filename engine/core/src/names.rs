@@ -6,6 +6,7 @@ pub const OP_LAYER_PREFIX: &str = "Op";
 pub const VECTOR_LAYER_PREFIX: &str = "Vector";
 pub const PASTED_LAYER_PREFIX: &str = "Pasted";
 pub const TEXT_LAYER_PREFIX: &str = "Text";
+pub const MASK: &str = "Mask";
 
 pub const ERR_OP_UNAVAILABLE: &str = "op unavailable";
 pub const ERR_OP_FAILED_PREFIX: &str = "op failed: ";
@@ -30,6 +31,14 @@ pub fn numbered_pasted_layer(n: usize) -> String {
 
 pub fn numbered_text_layer(n: usize) -> String {
     format!("{TEXT_LAYER_PREFIX} {n}")
+}
+
+pub fn numbered_mask(n: usize) -> String {
+    if n <= 1 {
+        MASK.to_string()
+    } else {
+        format!("{MASK} {n}")
+    }
 }
 
 pub fn duplicate_layer_name(base: &str) -> String {

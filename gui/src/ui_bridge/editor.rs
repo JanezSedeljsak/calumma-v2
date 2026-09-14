@@ -332,6 +332,7 @@ pub fn sync_layer_settings(ui: &AppWindow, controller: &AppController) {
         let opacity = engine.layer_opacity(index);
         let adjustments = engine.layer_adjustments(index);
         let clipped = engine.is_layer_clipped(index);
+        let masked = engine.is_layer_masked(index);
         chrome.set_name(SharedString::from(layer.name.as_str()));
         chrome.set_visible(layer.visible);
         chrome.set_locked(layer.locked);
@@ -358,10 +359,16 @@ pub fn sync_layer_settings(ui: &AppWindow, controller: &AppController) {
         chrome.set_gamma_text(put(format!("{:.2}", adjustments.levels_gamma)));
         chrome.set_hue_text(put(format!("{:+}°", adjustments.hue.round() as i32)));
         chrome.set_clipped(clipped);
+        chrome.set_masked(masked);
         chrome.set_can_clip(if clipped {
             engine.can_release_clipping_mask(index)
         } else {
             engine.can_create_clipping_mask(index)
+        });
+        chrome.set_can_mask(if masked {
+            engine.can_release_layer_mask(index)
+        } else {
+            engine.can_create_layer_mask(index)
         });
         chrome.set_can_flatten(engine.can_flatten_clip(index));
         chrome.set_can_merge(engine.can_merge_layer_down(index));
@@ -378,6 +385,16 @@ pub fn sync_layer_settings(ui: &AppWindow, controller: &AppController) {
             "releaseClippingMask"
         } else {
             "createClippingMask"
+        })));
+        chrome.set_mask_label(put(controller.l10n.get(if masked {
+            "releaseLayerMask"
+        } else {
+            "addLayerMask"
+        })));
+        chrome.set_flatten_label(put(controller.l10n.get(if masked {
+            "applyLayerMask"
+        } else {
+            "flattenClippingMask"
         })));
         drop(engine);
     }
@@ -448,6 +465,7 @@ pub fn sync_layer_rows(ui: &AppWindow, controller: &mut AppController) {
                 selected: selection.contains(&layer.index),
                 paper: layer.is_paper,
                 clipped: layer.clipped,
+                masked: layer.masked,
                 clip_base: layer.clip_base,
                 thumb: controller.thumb_cache.row_image(layer.index),
             })

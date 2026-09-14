@@ -13,7 +13,6 @@ fn collect_screen_overlays(doc: &Document, elapsed: f32, out: &mut Vec<StrokeIns
         out.extend(transform_overlay_instances(handles));
     }
     out.extend(vector_selection_instances(doc));
-    out.extend(brush_ring_instances(doc));
     out.extend(clone_source_overlay_instances(doc));
     for (index, corners) in doc.layer_highlights() {
         let covered = doc
@@ -89,6 +88,9 @@ impl Renderer {
                 }
                 continue;
             }
+            if doc.is_mask_base_id(&layer.id) {
+                continue;
+            }
             let Some(grid) = layer.tiles() else {
                 continue;
             };
@@ -146,10 +148,7 @@ impl Renderer {
             .map(|(layer_index, coord, _, skip_mips)| {
                 let layer = doc.layers.get(*layer_index)?;
                 let pixels = layer.tiles()?.get(*coord)?;
-                let clip_base = layer
-                    .clips_to
-                    .as_deref()
-                    .and_then(|id| doc.layers.iter().find(|l| l.id == id));
+                let clip_base = doc.clip_base_for_layer(layer);
                 let composited = composited_tile_payload(pixels, *coord, layer, clip_base);
                 let base: &[u8] = composited.as_deref().unwrap_or(pixels.as_slice());
                 let mips = tile_upload_mips(base, *skip_mips);
@@ -303,6 +302,9 @@ impl Renderer {
         for (layer_index, layer) in doc.layers.iter().enumerate() {
             let layer_index = layer_index as u32;
             if !layer.visible {
+                continue;
+            }
+            if doc.is_mask_base_id(&layer.id) {
                 continue;
             }
             if let Some(item) = layer.content.item() {
@@ -806,6 +808,7 @@ impl Renderer {
         let guide_count = self.write_guides(doc);
         let overlay_range;
         let screen_overlay_range;
+        let brush_ring_range;
         // `brush_range` is the segments to *union into* the coverage target this frame, which is
         // empty on any frame the pointer did not move; `brush_active` is whether there is a live
         // brush stroke to composite onto the board at all. They used to be the same question,
@@ -907,8 +910,13 @@ impl Renderer {
             let screen_start = overlay_range.end;
             instances.extend_from_slice(&screen_instances);
             self.screen_overlay_scratch = screen_instances;
-            screen_overlay_range = screen_start..prefix_len as u32 + instances.len() as u32;
-            let brush_start = screen_overlay_range.end;
+            screen_overlay_range =
+                screen_start..screen_start + self.screen_overlay_scratch.len() as u32;
+            let ring = brush_ring_instances(doc);
+            let ring_start = screen_overlay_range.end;
+            instances.extend_from_slice(&ring);
+            brush_ring_range = ring_start..ring_start + ring.len() as u32;
+            let brush_start = brush_ring_range.end;
             instances.append(&mut brush_instances);
             brush_range = brush_start..prefix_len as u32 + instances.len() as u32;
             let total = prefix_len + instances.len();
@@ -949,7 +957,13 @@ impl Renderer {
             } else {
                 self.screen_overlay_start
             };
-            let total = screen_start as usize + screen_instances.len();
+            let ring = brush_ring_instances(doc);
+            screen_overlay_range = screen_start..screen_start + screen_instances.len() as u32;
+            brush_ring_range =
+                screen_overlay_range.end..screen_overlay_range.end + ring.len() as u32;
+            let mut overlay_tail = screen_instances;
+            overlay_tail.extend(ring);
+            let total = screen_start as usize + overlay_tail.len();
             let grew = self.ensure_stroke_capacity(total);
             let stride = std::mem::size_of::<StrokeInstance>() as u64;
             if (grew || need_draw_rebuild) && screen_start > 0 && !self.cached_strokes.is_empty() {
@@ -959,16 +973,17 @@ impl Renderer {
                     bytemuck::cast_slice(&self.cached_strokes),
                 );
             }
-            if !screen_instances.is_empty() {
+            if !overlay_tail.is_empty() {
                 self.queue.write_buffer(
                     &self.stroke_buf,
                     u64::from(screen_start) * stride,
-                    bytemuck::cast_slice(&screen_instances),
+                    bytemuck::cast_slice(&overlay_tail),
                 );
             }
-            screen_overlay_range = screen_start..screen_start + screen_instances.len() as u32;
+            let screen_len = screen_overlay_range.end - screen_overlay_range.start;
+            overlay_tail.truncate(screen_len as usize);
             self.screen_overlay_start = screen_start;
-            self.screen_overlay_scratch = screen_instances;
+            self.screen_overlay_scratch = overlay_tail;
         }
 
         if need_draw_rebuild && !self.cached_shapes.is_empty() {
@@ -1160,14 +1175,17 @@ impl Renderer {
                 }
             }
 
-            // The brush ring is a cursor, so it goes on top of everything and — like the guides —
-            // outside the paper scissor. `Document::brush_ring` has already decided there is a
-            // stamp to promise, and on a pasted layer that overflows the paper that stamp can
-            // land out over the desk; clipping the ring to the paper drew nothing there while
-            // the shell had already hidden its own cursor, so the pointer disappeared.
             if brush_active {
                 pass.set_scissor_rect(0, 0, self.config.width, self.config.height);
                 self.stroke_coverage.composite(&mut pass, &self.preview_bg);
+            }
+
+            if !brush_ring_range.is_empty() {
+                pass.set_scissor_rect(0, 0, self.config.width, self.config.height);
+                pass.set_pipeline(&self.overlay_pipeline);
+                pass.set_bind_group(0, &self.preview_bg, &[]);
+                pass.set_vertex_buffer(0, self.stroke_buf.slice(..));
+                pass.draw(0..6, brush_ring_range.clone());
             }
         }
 

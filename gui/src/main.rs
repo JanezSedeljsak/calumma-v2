@@ -33,9 +33,19 @@ use ui_bridge::{
 
 struct InputState {
     mods: ModifierState,
+    window: Rc<RefCell<ModifierState>>,
 }
 
 impl InputState {
+    fn effective(&self) -> ModifierState {
+        let mut mods = self.mods;
+        let held = *self.window.borrow();
+        mods.meta_held |= held.meta_held;
+        mods.alt_held |= held.alt_held;
+        mods.shift_held |= held.shift_held;
+        mods
+    }
+
     fn merge_shell(&mut self, control: bool, meta: bool, shift: bool, alt: bool) {
         self.mods.meta_held = meta || control;
         self.mods.shift_held = shift;
@@ -46,6 +56,7 @@ impl InputState {
 fn init_platform(
     drops: &DropQueue,
     frame_changed: &FrameSignal,
+    window_mods: Rc<RefCell<ModifierState>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(target_os = "linux")]
     if std::env::var_os("WINIT_UNIX_BACKEND").is_none() {
@@ -57,6 +68,7 @@ fn init_platform(
         Box::new(ShellEvents {
             drops: DropHandler(drops.clone()),
             frame_changed: frame_changed.clone(),
+            modifiers: window_mods,
         }),
     );
     #[cfg(target_os = "macos")]
@@ -80,7 +92,8 @@ fn init_platform(
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let drops = DropQueue::default();
     let frame_changed = FrameSignal::default();
-    init_platform(&drops, &frame_changed)?;
+    let window_mods = Rc::new(RefCell::new(ModifierState::default()));
+    init_platform(&drops, &frame_changed, window_mods.clone())?;
 
     let root = workspace_root();
     let window_metrics = Theme::window_metrics(&root)?;
@@ -137,6 +150,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     wire_landing_callbacks(&ui, controller.clone(), host.clone(), ui_weak.clone());
     let input = Rc::new(RefCell::new(InputState {
         mods: ModifierState::default(),
+        window: window_mods.clone(),
     }));
     let filter_debounce = FilterDebounce::new();
     wire_editor_callbacks(
@@ -899,7 +913,7 @@ fn wire_editor_callbacks(
                 state.mods.meta_held = meta;
                 state.mods.alt_held = alt;
                 state.mods.shift_held = shift;
-                state.mods
+                state.effective()
             };
             host.borrow_mut().pointer_pressed(x, y, mods, middle);
             refresh_board_cursor(&host, &controller, &input);
@@ -943,6 +957,9 @@ fn wire_editor_callbacks(
         move |x, y| {
             let (mods, modal) = cursor_context(&controller, &input);
             host.borrow_mut().pointer_released(x, y, mods, modal);
+            if controller.borrow().editor_open {
+                host.borrow_mut().render();
+            }
             if let Some(ui) = ui_weak.upgrade() {
                 let mut ctrl = controller.borrow_mut();
                 ctrl.retarget_layer_settings_to_active();
@@ -950,6 +967,12 @@ fn wire_editor_callbacks(
                 sync_guide_readout(&ui, &ctrl);
                 sync_guides(&ui, &ctrl);
             }
+            let host = host.clone();
+            let controller = controller.clone();
+            let input = input.clone();
+            slint::Timer::single_shot(Duration::ZERO, move || {
+                refresh_board_cursor(&host, &controller, &input);
+            });
             wake(&ui_weak);
         }
     });
@@ -979,9 +1002,14 @@ fn wire_editor_callbacks(
             if controller.borrow().pinch_zoom.is_some() {
                 return;
             }
-            input.borrow_mut().mods.alt_held = alt;
-            input.borrow_mut().mods.meta_held = meta;
-            host.borrow_mut().scroll(x, y, dx, dy, alt, meta);
+            let mods = {
+                let mut state = input.borrow_mut();
+                state.mods.alt_held = alt;
+                state.mods.meta_held = meta;
+                state.effective()
+            };
+            host.borrow_mut()
+                .scroll(x, y, dx, dy, mods.alt_held, mods.meta_held);
         }
     });
     ui.on_pinch_started({
@@ -1014,7 +1042,7 @@ fn cursor_context(
     input: &Rc<RefCell<InputState>>,
 ) -> (ModifierState, bool) {
     let ctrl = controller.borrow();
-    (input.borrow().mods, ctrl.any_modal_open())
+    (input.borrow().effective(), ctrl.any_modal_open())
 }
 
 fn refresh_board_cursor(
@@ -1570,6 +1598,20 @@ fn wire_layer_actions(
             let mut ctrl = controller.borrow_mut();
             let index = ctrl.layer_settings_index;
             ctrl.toggle_layer_clip(index);
+            if let Some(ui) = ui_weak.upgrade() {
+                sync_shell(&ui, &ctrl);
+                sync_layers(&ui, &mut ctrl);
+            }
+            wake(&ui_weak);
+        }
+    });
+    ui.on_layer_settings_toggle_mask({
+        let controller = controller.clone();
+        let ui_weak = ui_weak.clone();
+        move || {
+            let mut ctrl = controller.borrow_mut();
+            let index = ctrl.layer_settings_index;
+            ctrl.toggle_layer_mask(index);
             if let Some(ui) = ui_weak.upgrade() {
                 sync_shell(&ui, &ctrl);
                 sync_layers(&ui, &mut ctrl);
@@ -2157,11 +2199,13 @@ fn wire_shell_keys(
                 }
                 state.merge_shell(control, meta, shift, alt);
             }
-            host.borrow_mut()
-                .modifiers_changed(input.borrow().mods, controller.borrow().any_modal_open());
+            host.borrow_mut().modifiers_changed(
+                input.borrow().effective(),
+                controller.borrow().any_modal_open(),
+            );
             controller
                 .borrow_mut()
-                .refresh_guide_shift(input.borrow().mods.shift_held);
+                .refresh_guide_shift(input.borrow().effective().shift_held);
             if let Some(ui) = ui_weak.upgrade() {
                 sync_guide_readout(&ui, &controller.borrow());
             }
@@ -2285,11 +2329,13 @@ fn wire_shell_keys(
                 }
                 state.merge_shell(control, meta, shift, alt);
             }
-            host.borrow_mut()
-                .modifiers_changed(input.borrow().mods, controller.borrow().any_modal_open());
+            host.borrow_mut().modifiers_changed(
+                input.borrow().effective(),
+                controller.borrow().any_modal_open(),
+            );
             controller
                 .borrow_mut()
-                .refresh_guide_shift(input.borrow().mods.shift_held);
+                .refresh_guide_shift(input.borrow().effective().shift_held);
             if let Some(ui) = ui_weak.upgrade() {
                 sync_guide_readout(&ui, &controller.borrow());
             }
@@ -2598,7 +2644,8 @@ fn start_frame_loop(
                 return;
             };
             let snapshot = board_geo(&ui);
-            if present || last_geo.get() != Some(snapshot.key) {
+            let geo_changed = last_geo.get() != Some(snapshot.key);
+            if present || geo_changed {
                 sync_board_geometry(&ui, &host, &snapshot);
                 last_geo.set(Some(snapshot.key));
             }
@@ -2611,7 +2658,7 @@ fn start_frame_loop(
             host.borrow_mut().reconcile_cursor();
             let ctrl = controller.borrow();
             let next = camera_signature(&ctrl);
-            if *camera.borrow() != next {
+            if *camera.borrow() != next || geo_changed {
                 *camera.borrow_mut() = next;
                 sync_rulers(&ui, &ctrl);
                 sync_zoom_chrome(&ui, &ctrl);

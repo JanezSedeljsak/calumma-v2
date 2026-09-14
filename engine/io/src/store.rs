@@ -148,6 +148,7 @@ impl ProjectStore {
                 transform BLOB,
                 locked INTEGER NOT NULL DEFAULT 0,
                 clips_to TEXT,
+                clip_invert INTEGER NOT NULL DEFAULT 0,
                 PRIMARY KEY (project_id, layer_id),
                 FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
             );
@@ -170,6 +171,11 @@ impl ProjectStore {
             DROP TABLE IF EXISTS workspaces;
             ",
         )?;
+        let _ = conn.execute(
+            "ALTER TABLE layers ADD COLUMN clip_invert INTEGER NOT NULL DEFAULT 0",
+            [],
+        );
+        cleanup_orphans(&conn)?;
         Ok(Self {
             conn,
             path: path.as_ref().to_path_buf(),
@@ -319,7 +325,7 @@ impl ProjectStore {
         doc.layers.clear();
 
         let mut layer_stmt = self.conn.prepare(
-            "SELECT layer_id, name, visible, content_kind, vector_data, opacity, blend_mode, adjustments, text_data, transform, locked, clips_to FROM layers WHERE project_id = ?1 ORDER BY z_index ASC",
+            "SELECT layer_id, name, visible, content_kind, vector_data, opacity, blend_mode, adjustments, text_data, transform, locked, clips_to, clip_invert FROM layers WHERE project_id = ?1 ORDER BY z_index ASC",
         )?;
         let layer_rows = layer_stmt.query_map(params![id], |row| {
             Ok((
@@ -335,6 +341,7 @@ impl ProjectStore {
                 row.get::<_, Option<Vec<u8>>>(9)?,
                 row.get::<_, i64>(10)? != 0,
                 row.get::<_, Option<String>>(11)?,
+                row.get::<_, i64>(12)? != 0,
             ))
         })?;
 
@@ -357,6 +364,7 @@ impl ProjectStore {
                 transform,
                 locked,
                 clips_to,
+                clip_invert,
             ) = layer_row?;
             let decoded_run = text_data.as_deref().and_then(text_blob::decode);
             let kind = match (content_kind, &decoded_run) {
@@ -391,6 +399,7 @@ impl ProjectStore {
                         layer.locked = locked;
                         if first {
                             layer.clips_to = clips_to.clone();
+                            layer.clip_invert = clip_invert;
                         }
                         doc.layers.push(layer);
                     }
@@ -411,6 +420,7 @@ impl ProjectStore {
             layer.transform = transform.as_deref().and_then(transform_blob::decode);
             layer.locked = locked;
             layer.clips_to = clips_to;
+            layer.clip_invert = clip_invert;
             if kind == LayerKind::Text {
                 layer.clear_dirty(DirtyChannel::Store);
             }
@@ -504,7 +514,7 @@ impl ProjectStore {
 
         {
             let mut upsert_layer = tx.prepare(
-                "INSERT INTO layers (project_id, layer_id, name, visible, z_index, content_kind, vector_data, opacity, blend_mode, adjustments, text_data, transform, locked, clips_to) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
+                "INSERT INTO layers (project_id, layer_id, name, visible, z_index, content_kind, vector_data, opacity, blend_mode, adjustments, text_data, transform, locked, clips_to, clip_invert) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)
                  ON CONFLICT(project_id, layer_id) DO UPDATE SET
                     name = excluded.name,
                     visible = excluded.visible,
@@ -517,7 +527,8 @@ impl ProjectStore {
                     text_data = excluded.text_data,
                     transform = excluded.transform,
                     locked = excluded.locked,
-                    clips_to = excluded.clips_to",
+                    clips_to = excluded.clips_to,
+                    clip_invert = excluded.clip_invert",
             )?;
             let mut upsert_tile = tx.prepare(
                 "INSERT INTO tiles (project_id, layer_id, tx, ty, pixels) VALUES (?1, ?2, ?3, ?4, ?5)
@@ -549,7 +560,8 @@ impl ProjectStore {
                     text_data,
                     transform,
                     layer.locked as i64,
-                    layer.clips_to
+                    layer.clips_to,
+                    layer.clip_invert as i64
                 ])?;
 
                 // A text layer's tiles are a cache of its run, so the run is all that is
@@ -627,20 +639,29 @@ impl ProjectStore {
     }
 
     pub fn delete(&self, id: &str) -> Result<(), StoreError> {
-        let n = self
-            .conn
-            .execute("DELETE FROM projects WHERE id = ?1", params![id])?;
+        let tx = self.conn.unchecked_transaction()?;
+        tx.execute("DELETE FROM tiles WHERE project_id = ?1", params![id])?;
+        tx.execute("DELETE FROM layers WHERE project_id = ?1", params![id])?;
+        tx.execute(
+            "DELETE FROM open_project_tabs WHERE project_id = ?1",
+            params![id],
+        )?;
+        let n = tx.execute("DELETE FROM projects WHERE id = ?1", params![id])?;
         if n == 0 {
             return Err(StoreError::NotFound);
         }
+        tx.commit()?;
         Ok(())
     }
 
     pub fn delete_all_projects(&self) -> Result<(), StoreError> {
         let tx = self.conn.unchecked_transaction()?;
+        tx.execute("DELETE FROM tiles", [])?;
+        tx.execute("DELETE FROM layers", [])?;
         tx.execute("DELETE FROM open_project_tabs", [])?;
         tx.execute("DELETE FROM projects", [])?;
         tx.commit()?;
+        let _ = self.conn.execute_batch("VACUUM;");
         Ok(())
     }
 
@@ -650,4 +671,23 @@ impl ProjectStore {
             .join("Miw")
             .join("miw.sqlite")
     }
+}
+
+fn cleanup_orphans(conn: &Connection) -> Result<(), StoreError> {
+    conn.execute_batch(
+        "
+        DELETE FROM tiles WHERE NOT EXISTS (
+            SELECT 1 FROM layers
+            WHERE layers.project_id = tiles.project_id
+              AND layers.layer_id = tiles.layer_id
+        );
+        DELETE FROM layers WHERE NOT EXISTS (
+            SELECT 1 FROM projects WHERE projects.id = layers.project_id
+        );
+        DELETE FROM open_project_tabs WHERE NOT EXISTS (
+            SELECT 1 FROM projects WHERE projects.id = open_project_tabs.project_id
+        );
+        ",
+    )?;
+    Ok(())
 }

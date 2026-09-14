@@ -656,7 +656,8 @@ pub fn composited_tile_payload(
             let y = oy + ty as i32;
             let i = ((ty * TILE_SIZE + tx) * 4) as usize;
             let base_alpha = calumma_core::clip::clip_base_alpha_for_layer_pixel(layer, base, x, y);
-            out[i + 3] = calumma_core::clip::multiply_clip_alpha(out[i + 3], base_alpha);
+            out[i + 3] =
+                calumma_core::clip::apply_clip_alpha(out[i + 3], base_alpha, layer.clip_invert);
         }
     }
     Some(out)

@@ -223,6 +223,7 @@ pub struct Layer {
     /// stray stroke, not against a deliberate press of the button next to it.
     pub locked: bool,
     pub clips_to: Option<String>,
+    pub clip_invert: bool,
     vector_bounds: VectorBoundsCache,
 }
 
@@ -251,6 +252,7 @@ impl Layer {
             transform: None,
             locked: false,
             clips_to: None,
+            clip_invert: false,
             vector_bounds: fresh_vector_bounds_cache(),
         }
     }
@@ -476,5 +478,6 @@ impl PartialEq for Layer {
             && self.transform == other.transform
             && self.locked == other.locked
             && self.clips_to == other.clips_to
+            && self.clip_invert == other.clip_invert
     }
 }

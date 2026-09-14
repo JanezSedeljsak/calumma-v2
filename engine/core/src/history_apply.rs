@@ -69,6 +69,7 @@ impl Document {
             adjustments: layer.adjustments,
             transform: layer.transform,
             clips_to: layer.clips_to.clone(),
+            clip_invert: layer.clip_invert,
         })
     }
 
@@ -175,6 +176,7 @@ impl HistoryMutator for Document {
             layer.adjustments = diff.adjustments;
             layer.transform = diff.transform;
             layer.clips_to = diff.clips_to.clone();
+            layer.clip_invert = diff.clip_invert;
             if let Some(tiles) = layer.tiles_mut() {
                 tiles.mark_all_dirty();
             }
@@ -260,6 +262,7 @@ impl HistoryMutator for Document {
                 adjustments: layer.adjustments,
                 transform: layer.transform,
                 clips_to: layer.clips_to.clone(),
+                clip_invert: layer.clip_invert,
             };
             bytes += prop_diff_bytes(&prop);
             props.push(prop);

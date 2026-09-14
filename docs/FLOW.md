@@ -453,6 +453,18 @@ live in `engine/core`; PNG/JPEG/WebP/AVIF/HEIC encode and decode live in `engine
   (`CurrentAndBelow` / `AllLayers`) is a real `Document::composite_rect_rgba` primitive that
   does not exist yet, deliberately deferred to a second caller.
 
+- **Fill (bucket)** (`G`, tools island). Click a pixel: the contiguous region within
+  **Tolerance** of what you *see* there is painted onto the **active layer**. The walk is the
+  same one the wand uses (`fill::flood_region`), but the bucket samples the visible composite
+  rather than the active layer alone, so an outlined circle on another layer — or a vector
+  circle above an empty paint layer — is still an edge. Clicking inside a newly drawn circle
+  fills that interior and stops at the outline, even when another filled circle already sits
+  elsewhere on the board. Ink is dilated two pixels first so a small gap in a hand-drawn loop
+  still contains the fill, then the interior grows back so the paint meets the stroke rather
+  than stopping short of it. The wand stays active-layer-only on purpose: selecting the empty
+  tiles around a sketch must not become a selection of Paper showing through. Paint still
+  lands only on the active layer; a vector or text layer refuses the tool, same as the pen.
+
 - **Text tool** (`T`, tools island). Click the board: a new **text layer** opens with the
   caret where you clicked, and glyphs land on the board as you type — no dialog, no commit
   step. Click an existing text layer with the tool, or double-click it in the layers panel
@@ -562,7 +574,7 @@ live in `engine/core`; PNG/JPEG/WebP/AVIF/HEIC encode and decode live in `engine
   mode/adjustments, then removes the source — greyed out with no layer below,
   with Paper below, with a vector layer below, or with a base carrying a
   transform, the same cases Clip to Below refuses),
-  **Clip to Below** (below), **Reset Transform**, an
+  **Clip to Below** (below), **Add Layer Mask** (inserts a knockout layer below), **Reset Transform**, an
   **Opacity** slider, a **Blend Mode** picker (Normal / Multiply / Screen — see `AGENTS.md` → Layers for
   why only these three), and five **Filter** sliders (brightness, contrast, vibrance,
   saturation, gamma — levels black/white points were removed as redundant with
@@ -580,15 +592,24 @@ live in `engine/core`; PNG/JPEG/WebP/AVIF/HEIC encode and decode live in `engine
   the active layer's `clips_to` points at the layer directly below, and the texture is
   multiplied by the silhouette's **raw** tile alpha every frame on CPU composite and at GPU
   upload. **Release Clipping Mask** clears the link; `⌘Z` undoes the toggle. **Flatten Clip**
-  bakes the same multiply and merges the two, the old destructive path. The silhouette row
-  (the layer below) indents in the layers panel so the live clip pair is obvious; the
-  clipped texture stays flush left. One link per
+  bakes the same multiply and merges the two, the old destructive path. The clipped layer
+  (the one above) shows a down-arrow in the layers panel, the way Photoshop marks a clipping
+  mask; the silhouette row below stays flush left. One link per
   layer, no clip trees — a layer cannot clip to one that is already clipped.
   Raster-to-raster only: text and vector must **Rasterize** first, on the clipped layer and
   on the silhouette it reads. Refuses Paper as base; locking either member of a live pair
   greys tools on both and stands Create / Release / Flatten down until the lock lifts.
   Reorder that separates the pair clears the link. Flatten still stands down on a base
   carrying a transform.
+- **Add Layer Mask** (the card's button) inserts a new empty raster layer directly below the
+  active one and links them as a **negative** clip: opaque pixels on the mask punch holes in
+  the layer above, instead of revealing it. The mask itself never composites — you only see
+  the holes it cuts. The painted layer shows a window-with-a-hole icon in the layers panel;
+  the mask row stays flush left, like a clip silhouette. Paint on the mask to hide, erase it
+  to reveal. Hiding the mask row disables the punch without deleting it. **Release Layer
+  Mask** drops the link and the extra layer; **Apply Layer Mask** bakes the holes into the
+  painted layer and removes the mask. Same raster-only, no-chain, no-Paper rules as Clip to
+  Below; a layer cannot carry a clip and a mask at once.
 - **The list uses the height it has:** the stack takes every point the header above it and the
   Layer bounds fields below it do not, and scrolls once it runs out, rather than stopping at a
   fixed share of the island with dead space underneath. A floor keeps it from collapsing
@@ -809,10 +830,11 @@ a locked layer refuses them.
   scoped to the **document**: alpha counts toward the tolerance, so the empty space around a
   drawing is a colour like any other, and clicking beside a sketch to select its background is
   how you get at it to fill or delete. Bounding that flood by the ink would make the click a
-  silent no-op and cut every flood off at the edge of the artwork it started on. Neither reads
-  anything but the active layer, so Paper white never floods through the empty tiles of the
+  silent no-op and cut every flood off at the edge of the artwork it started on. Both select
+  walks read only the active layer, so Paper white never floods through the empty tiles of the
   layer above it — outside that layer's ink the sample answers transparent, which is what is
-  there.
+  there. The bucket is the other caller of the same walk, and it is the one that *does* read
+  the composite: it has to stop at edges you can see, then paint onto the active layer.
 - Every one of these lands as `SelectionShape::Mask`, one bit per pixel (8 MiB, not 64, for a
   full-canvas selection on an 8K document), cropped to what was actually reached. Because it
   lives inside `SelectionShape`, paint clipping, copy, cut and delete needed no changes at

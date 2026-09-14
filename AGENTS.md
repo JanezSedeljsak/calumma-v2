@@ -399,15 +399,20 @@ pub enum LayerContent {
   second predicate: `active_layer_accepts_paint` survives only for the commands that are not
   a tool press (paste, clear), because they have no tool to name and so nothing to explain.
 - **Clipping: live link or flatten bake**
-  (`engine/core/src/clip.rs`, `engine/core/src/merge.rs`). **Create Clipping Mask** sets
-  `Layer.clips_to` to the layer directly below — the texture reads the silhouette's **raw**
-  alpha every frame on CPU composite and at GPU upload. **Release Clipping Mask** clears the
-  link; `⌘Z` rides `LayerPropDiff`. **Flatten Clip** (`clip_layer_down`) is still the
-  one-shot bake: multiply source alpha by the base, merge down, remove the source. One clip
-  link per layer, no folders, no trees — the narrow exception to "layers stay independent."
-  Refuses Paper as base and refuses clipping to a layer that is already clipped (no clip
-  chains). Reorder that separates a clipped pair clears the link. Flatten still
-  stands down on a base carrying a transform.
+  (`engine/core/src/clip.rs`, `engine/core/src/mask.rs`, `engine/core/src/merge.rs`).
+  **Create Clipping Mask** sets `Layer.clips_to` to the layer directly below — the texture
+  reads the silhouette's **raw** alpha every frame on CPU composite and at GPU upload.
+  **Release Clipping Mask** clears the link; `⌘Z` rides `LayerPropDiff`. **Flatten Clip**
+  (`clip_layer_down`) is still the one-shot bake: multiply source alpha by the base, merge
+  down, remove the source. **Add Layer Mask** (`create_layer_mask`) inserts a new raster
+  layer below and sets `clips_to` with `clip_invert`: the mask's opaque pixels *hide* the
+  layer above, and the mask layer itself is skipped at composite and GPU draw. Release
+  drops the extra layer; Apply punches the holes into the painted layer then removes the
+  mask. One clip link per layer, no folders, no trees — the narrow exception to "layers
+  stay independent." A layer cannot clip and mask at once. Refuses Paper as base and
+  refuses clipping to a layer that is already clipped (no clip chains). Reorder that
+  separates a clipped pair clears the link. Flatten still stands down on a base carrying
+  a transform.
 - `Document::duplicate_layer`/`merge_layer_down`/`clip_layer_down`/`resize`
   record a `StackSnapshot` before they run, so `⌘Z` can put the stack back.
   Paint, fill, text sessions and Cut Out Subject still use tile/run diffs; everything lands on the same `History` budget.
@@ -805,7 +810,7 @@ shell curve UI.
 Raster paint tools only; vector-mode pen width stays on the item. Do not restart as a plan),
 BiRefNet / `ort`,
 GenerateTexture model manager, SuggestShape,
-Vectorize (`vtracer`), **layer masks** (removed — Cut Out Subject bakes its matte straight into pixels),
+Vectorize (`vtracer`),
 layered PSD import wired into the app's import flow (`calumma-io` now has a real layered decoder —
 `decode_psd`/`DecodedPsd`/`DecodedLayer` in `io/src/psd.rs`, separate name/visibility/opacity/blend-mode/RGBA
 per layer, PackBits + raw channel data, `luni` Unicode names — but nothing on `Engine` exposes

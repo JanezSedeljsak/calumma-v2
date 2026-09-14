@@ -739,7 +739,8 @@ impl Engine {
                 locked: layer.locked,
                 active: index == active,
                 is_paper: layer.is_paper(),
-                clipped: layer.clips_to.is_some(),
+                clipped: layer.clips_to.is_some() && !layer.clip_invert,
+                masked: layer.clips_to.is_some() && layer.clip_invert,
                 clip_base: doc.is_layer_clip_base(index),
             })
             .collect()
@@ -772,6 +773,7 @@ pub struct LayerSummary {
     pub active: bool,
     pub is_paper: bool,
     pub clipped: bool,
+    pub masked: bool,
     pub clip_base: bool,
 }
 

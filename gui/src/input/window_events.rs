@@ -1,6 +1,7 @@
 use super::file_drop::DropHandler;
+use crate::board::ModifierState;
 use i_slint_backend_winit::{CustomApplicationHandler, EventResult};
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use winit::event::WindowEvent;
 use winit::event_loop::ActiveEventLoop;
@@ -22,6 +23,7 @@ impl FrameSignal {
 pub struct ShellEvents {
     pub drops: DropHandler,
     pub frame_changed: FrameSignal,
+    pub modifiers: Rc<RefCell<ModifierState>>,
 }
 
 impl CustomApplicationHandler for ShellEvents {
@@ -35,6 +37,13 @@ impl CustomApplicationHandler for ShellEvents {
     ) -> EventResult {
         if matches!(event, WindowEvent::Resized(_) | WindowEvent::Moved(_)) {
             self.frame_changed.mark();
+        }
+        if let WindowEvent::ModifiersChanged(modifiers) = event {
+            let state = modifiers.state();
+            let mut mods = self.modifiers.borrow_mut();
+            mods.meta_held = state.super_key() || state.control_key();
+            mods.alt_held = state.alt_key();
+            mods.shift_held = state.shift_key();
         }
         self.drops
             .window_event(event_loop, window_id, winit_window, slint_window, event)

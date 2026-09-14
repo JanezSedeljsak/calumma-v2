@@ -34,6 +34,8 @@ component LayerListRow inherits HorizontalLayout {
     in property <image> icon-eye-closed;
     in property <image> icon-more;
     in property <image> icon-trash;
+    in property <image> icon-clip;
+    in property <image> icon-mask;
     in property <string> visibility-tip;
     in property <string> settings-tip;
     in property <string> delete-tip;
@@ -89,7 +91,7 @@ component LayerListRow inherits HorizontalLayout {
         focused: root.layer-row.active || root.drop-target;
 
         HorizontalLayout {
-            padding-left: root.layer-row.clip-base ? Tokens.space-xl : Tokens.space-sm;
+            padding-left: Tokens.space-sm;
             padding-right: Tokens.space-sm;
             padding-top: Tokens.space-xs;
             padding-bottom: Tokens.space-xs;
@@ -139,11 +141,30 @@ component LayerListRow inherits HorizontalLayout {
                 HorizontalLayout {
                     spacing: Tokens.space-sm;
 
+                    if root.layer-row.masked: Rectangle {
+                        width: Tokens.row-icon-size;
+
+                        Image {
+                            source: root.icon-mask;
+                            width: Tokens.row-icon-size;
+                            height: Tokens.row-icon-size;
+                            y: (parent.height - self.height) / 2;
+                            colorize: Theme.text-muted;
+                            image-fit: contain;
+                        }
+                    }
+
                     if root.layer-row.clipped: Rectangle {
-                        width: 2px;
-                        height: Tokens.layer-thumb-height * 0.55;
-                        border-radius: 1px;
-                        background: Theme.text-muted;
+                        width: Tokens.row-icon-size;
+
+                        Image {
+                            source: root.icon-clip;
+                            width: Tokens.row-icon-size;
+                            height: Tokens.row-icon-size;
+                            y: (parent.height - self.height) / 2;
+                            colorize: Theme.text-muted;
+                            image-fit: contain;
+                        }
                     }
 
                     LayerThumb {
@@ -298,6 +319,8 @@ export component LayersPanel inherits CalmIsland {
     private property <image> icon-more: @image-url("more.svg");
     private property <image> icon-trash: @image-url("trash.svg");
     private property <image> icon-plus: @image-url("plus.svg");
+    private property <image> icon-clip: @image-url("clip.svg");
+    private property <image> icon-mask: @image-url("mask.svg");
     private property <int> drag-from: -1;
     private property <int> drop-row: -1;
     private property <length> row-stride: Tokens.layer-thumb-height + Tokens.space-xs * 2 + Tokens.space-sm;
@@ -349,6 +372,8 @@ export component LayersPanel inherits CalmIsland {
                     icon-eye-closed: root.icon-eye-closed;
                     icon-more: root.icon-more;
                     icon-trash: root.icon-trash;
+                    icon-clip: root.icon-clip;
+                    icon-mask: root.icon-mask;
                     visibility-tip: root.visibility-tip;
                     settings-tip: root.settings-tip;
                     delete-tip: root.delete-tip;

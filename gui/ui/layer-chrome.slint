@@ -38,7 +38,9 @@ export global LayerChrome {
     in-out property <string> hue-text;
 
     in-out property <bool> clipped: false;
+    in-out property <bool> masked: false;
     in-out property <bool> can-clip: false;
+    in-out property <bool> can-mask: false;
     in-out property <bool> can-flatten: false;
     in-out property <bool> can-merge: false;
     in-out property <bool> can-reset-transform: false;
@@ -62,6 +64,7 @@ export global LayerChrome {
     in-out property <string> reset-filters-label;
     in-out property <string> rename-label;
     in-out property <string> clip-label;
+    in-out property <string> mask-label;
     in-out property <string> flatten-label;
     in-out property <string> merge-label;
     in-out property <string> reset-transform-label;

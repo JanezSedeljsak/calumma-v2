@@ -1,12 +1,16 @@
 use super::{AppWindow, RulerTickRow};
 use crate::shell::AppController;
-use slint::{ModelRc, SharedString, VecModel};
+use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
 
-fn rows(ticks: &[calumma_core::RulerTick], zoom: f32, pan: f32) -> Vec<RulerTickRow> {
+fn snap_offset(offset: f32, scale: f32) -> f32 {
+    (offset * scale).round() / scale
+}
+
+fn rows(ticks: &[calumma_core::RulerTick], zoom: f32, pan: f32, scale: f32) -> Vec<RulerTickRow> {
     ticks
         .iter()
         .map(|tick| RulerTickRow {
-            offset: tick.doc * zoom + pan,
+            offset: snap_offset(tick.doc * zoom + pan, scale),
             label: SharedString::from(format!("{}", tick.doc.round() as i32)),
             major: tick.major,
         })
@@ -14,11 +18,12 @@ fn rows(ticks: &[calumma_core::RulerTick], zoom: f32, pan: f32) -> Vec<RulerTick
 }
 
 pub fn sync_rulers(ui: &AppWindow, controller: &AppController) {
+    let scale = ui.window().scale_factor().max(0.01);
     let engine = controller.engine.borrow();
     let zoom = engine.zoom_factor();
     let (pan_x, pan_y) = engine.camera_pan();
-    let x = rows(&engine.ruler_ticks_x(), zoom, pan_x);
-    let y = rows(&engine.ruler_ticks_y(), zoom, pan_y);
+    let x = rows(&engine.ruler_ticks_x(), zoom, pan_x, scale);
+    let y = rows(&engine.ruler_ticks_y(), zoom, pan_y, scale);
     drop(engine);
     ui.set_ruler_ticks_x(ModelRc::new(VecModel::from(x)));
     ui.set_ruler_ticks_y(ModelRc::new(VecModel::from(y)));

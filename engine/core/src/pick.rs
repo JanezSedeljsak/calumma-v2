@@ -99,10 +99,11 @@ impl PickProbe {
 /// `visible`, `opacity > 0.0` and `!is_paper()` are deliberate and predate this module: an
 /// invisible layer that still had paint under the cursor used to grab every click there, which
 /// made dragging look like a no-op because the thing that moved could not be seen.
-fn eligible(layer: &Layer) -> bool {
+fn eligible(doc: &Document, layer: &Layer) -> bool {
     layer.visible
         && !layer.is_paper()
         && layer.opacity > 0.0
+        && !doc.is_mask_base_id(&layer.id)
         && (layer.tiles().is_some() || layer.content.item().is_some())
 }
 
@@ -162,7 +163,7 @@ impl Document {
             .rev()
             .find(|(index, layer)| {
                 self.clip_pair_locked(*index) == locked
-                    && eligible(layer)
+                    && eligible(self, layer)
                     && probe.may_reach(layer)
                     && scan.hits(&probe, layer)
             })

@@ -18,30 +18,43 @@ export component RulerStrip inherits Rectangle {
 
     private property <length> major-length: Tokens.ruler-thickness * 0.55;
     private property <length> minor-length: Tokens.ruler-thickness * 0.28;
+    private property <length> label-box: Tokens.ruler-thickness * 2.4;
     private property <bool> over-guide: false;
+    private property <bool> dark-theme: Theme.text.red > Theme.surface.red;
 
     background: Theme.surface;
-    clip: true;
+    clip: false;
 
-    for tick in root.ticks: Rectangle {
-        x: root.vertical ? root.width - (tick.major ? root.major-length : root.minor-length) : tick.offset;
-        y: root.vertical ? tick.offset : root.height - (tick.major ? root.major-length : root.minor-length);
-        width: root.vertical ? (tick.major ? root.major-length : root.minor-length) : 1px;
-        height: root.vertical ? 1px : (tick.major ? root.major-length : root.minor-length);
-        background: tick.major ? Theme.text-muted : Theme.desk-grid;
+    Rectangle {
+        width: 100%;
+        height: 100%;
+        clip: true;
+
+        for tick in root.ticks: Rectangle {
+            x: root.vertical ? root.width - (tick.major ? root.major-length : root.minor-length) : tick.offset;
+            y: root.vertical ? tick.offset : root.height - (tick.major ? root.major-length : root.minor-length);
+            width: root.vertical ? (tick.major ? root.major-length : root.minor-length) : 1px;
+            height: root.vertical ? 1px : (tick.major ? root.major-length : root.minor-length);
+            background: tick.major ? Theme.text-muted : Theme.text;
+            opacity: tick.major ? 1.0 : (root.dark-theme ? 0.82 : 0.45);
+        }
     }
 
     for tick in root.ticks: Text {
         visible: tick.major;
-        x: root.vertical ? (root.width - 40px) / 2 : tick.offset + 3px;
+        width: root.vertical ? root.label-box : self.preferred-width;
+        height: Tokens.label-size + 2px;
+        x: root.vertical ? 0px : tick.offset + 3px;
         y: root.vertical ? tick.offset - self.height / 2 : 1px;
-        width: 40px;
+        transform-origin: root.vertical ? { x: root.width / 2, y: self.height / 2 } : { x: 0px, y: 0px };
         transform-rotation: root.vertical ? -90deg : 0deg;
         text: tick.label;
-        font-size: 9px;
-        font-family: "Menlo";
+        font-size: Tokens.label-size;
+        font-weight: 500;
+        wrap: no-wrap;
         color: Theme.text-muted;
-        horizontal-alignment: root.vertical ? center : left;
+        horizontal-alignment: center;
+        vertical-alignment: center;
     }
 
     touch := TouchArea {

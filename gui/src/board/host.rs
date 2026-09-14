@@ -28,6 +28,7 @@ pub struct BoardHost {
     cursor: CursorController,
     cursor_mods: ModifierState,
     cursor_modal: bool,
+    ignore_leave: bool,
     last_sync: Option<(i32, i32, u32, u32, i32, u32, bool, u64)>,
     surface: Option<BoardSurface>,
 }
@@ -48,6 +49,7 @@ impl BoardHost {
             cursor: CursorController::new(icons_root),
             cursor_mods: ModifierState::default(),
             cursor_modal: false,
+            ignore_leave: false,
             last_sync: None,
             surface: None,
         }
@@ -59,6 +61,7 @@ impl BoardHost {
             self.pointer_inside = false;
             self.panning = false;
             self.stroke_active = false;
+            self.ignore_leave = false;
             self.cursor.reset();
             self.last_sync = None;
             if let Some(surface) = &self.surface {
@@ -68,10 +71,22 @@ impl BoardHost {
     }
 
     pub fn set_pointer_inside(&mut self, inside: bool) {
-        self.pointer_inside = inside;
-        if !inside && !self.panning && !self.stroke_active {
-            self.engine.borrow_mut().clear_pointer_hover();
+        if inside {
+            self.ignore_leave = false;
+            self.pointer_inside = true;
+            return;
         }
+        if self.ignore_leave || self.panning || self.stroke_active {
+            return;
+        }
+        self.pointer_inside = false;
+        self.engine.borrow_mut().clear_pointer_hover();
+    }
+
+    fn mark_board_pointer(&mut self, x: f32, y: f32) {
+        self.ignore_leave = false;
+        self.pointer_inside = true;
+        self.hover = (x, y);
     }
 
     pub fn refresh_cursor(&mut self, modal_open: bool, mods: ModifierState) {
@@ -192,7 +207,7 @@ impl BoardHost {
     }
 
     pub fn pointer_pressed(&mut self, x: f32, y: f32, mods: ModifierState, middle_button: bool) {
-        self.hover = (x, y);
+        self.mark_board_pointer(x, y);
         let tool = self.engine.borrow().active_tool().unwrap_or(Tool::Pen);
         if middle_button || should_pan(mods, tool) {
             self.panning = true;
@@ -208,7 +223,7 @@ impl BoardHost {
     }
 
     pub fn pointer_moved(&mut self, x: f32, y: f32, mods: ModifierState, modal_open: bool) {
-        self.hover = (x, y);
+        self.mark_board_pointer(x, y);
         if self.panning {
             let (lx, ly) = self.last_pan;
             self.engine.borrow_mut().pan(x - lx, y - ly);
@@ -252,10 +267,11 @@ impl BoardHost {
     }
 
     pub fn pointer_released(&mut self, x: f32, y: f32, mods: ModifierState, modal_open: bool) {
-        self.hover = (x, y);
+        self.mark_board_pointer(x, y);
         if self.panning {
             self.panning = false;
             self.engine.borrow_mut().end_camera_motion();
+            self.ignore_leave = true;
             self.refresh_cursor(modal_open, mods);
             return;
         }
@@ -270,7 +286,7 @@ impl BoardHost {
         }
         let tool = self.engine.borrow().active_tool().unwrap_or(Tool::Pen);
         let input = BoardCursorInput {
-            pointer_inside: self.pointer_inside,
+            pointer_inside: true,
             panning: false,
             painting: false,
             modal_open,
@@ -281,9 +297,8 @@ impl BoardHost {
         if should_track_hover(&input, tool) {
             self.engine.borrow_mut().set_pointer_hover(x, y);
         }
-        if self.pointer_inside {
-            self.cursor.invalidate();
-        }
+        self.ignore_leave = true;
+        self.cursor.invalidate();
         self.refresh_cursor(modal_open, mods);
     }
 
@@ -326,6 +341,7 @@ impl BoardHost {
         alt_held: bool,
         meta_held: bool,
     ) {
+        self.mark_board_pointer(x, y);
         if alt_held || meta_held {
             self.engine.borrow_mut().zoom_scroll(x, y, delta_y, true);
         } else {

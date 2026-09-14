@@ -268,8 +268,8 @@ export component GuidesCard inherits Rectangle {
 
     picker := PopupWindow {
         close-policy: close-on-click-outside;
-        x: min(max(Tokens.space-sm, root.picker-x + Tokens.control-height - self.width), parent.width - self.width - Tokens.space-sm);
-        y: min(max(Tokens.space-sm, root.picker-y), parent.height - self.height - Tokens.space-sm);
+        x: min(max(Tokens.space-sm, root.picker-x - flyout.preferred-width - Tokens.space-lg - 20px), parent.width - flyout.preferred-width - Tokens.space-sm);
+        y: min(max(Tokens.space-sm, root.picker-y), parent.height - flyout.preferred-height - Tokens.space-sm);
         width: flyout.preferred-width;
         height: flyout.preferred-height;
 

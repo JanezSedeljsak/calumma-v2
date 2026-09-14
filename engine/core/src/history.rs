@@ -39,6 +39,7 @@ pub struct LayerPropDiff {
     pub adjustments: Option<Adjustments>,
     pub transform: Option<LayerTransform>,
     pub clips_to: Option<String>,
+    pub clip_invert: bool,
 }
 
 #[derive(Clone, Debug)]

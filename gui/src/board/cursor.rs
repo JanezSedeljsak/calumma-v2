@@ -147,9 +147,6 @@ impl CursorController {
 
     pub fn refresh(&mut self, engine: &Engine, input: &BoardCursorInput) {
         let choice = pick_cursor(engine, input);
-        if self.last == Some(choice) {
-            return;
-        }
         self.last = Some(choice);
         #[cfg(target_os = "macos")]
         cursor_macos::apply(choice, &self.icons_root, &mut self.cache);
@@ -388,5 +385,31 @@ mod cursor_macos {
             &image,
             NSPoint::new(hotspot.0 as f64, hotspot.1 as f64),
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{pan_chord, should_track_hover, BoardCursorInput, ModifierState};
+    use calumma_core::Tool;
+
+    #[test]
+    fn cmd_or_option_is_a_pan_chord() {
+        let mut mods = ModifierState::default();
+        mods.meta_held = true;
+        assert!(pan_chord(mods, Tool::Pen));
+        mods.meta_held = false;
+        mods.alt_held = true;
+        assert!(pan_chord(mods, Tool::Pen));
+        assert!(!pan_chord(mods, Tool::Clone));
+    }
+
+    #[test]
+    fn a_stroke_does_not_keep_hover_tracking() {
+        let input = BoardCursorInput {
+            painting: true,
+            ..BoardCursorInput::default()
+        };
+        assert!(!should_track_hover(&input, Tool::Pen));
     }
 }

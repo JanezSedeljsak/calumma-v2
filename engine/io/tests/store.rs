@@ -29,6 +29,17 @@ fn tile_rows(store: &ProjectStore, project: &str) -> i64 {
         .unwrap()
 }
 
+fn layer_rows(store: &ProjectStore, project: &str) -> i64 {
+    Connection::open(store.path())
+        .unwrap()
+        .query_row(
+            "SELECT COUNT(*) FROM layers WHERE project_id = ?1",
+            params![project],
+            |r| r.get::<_, i64>(0),
+        )
+        .unwrap()
+}
+
 fn paint_index(doc: &Document) -> usize {
     doc.layers
         .iter()
@@ -193,6 +204,38 @@ fn layer_lock_and_name_round_trip() {
     assert!(
         !reopened.layers[i].locked,
         "unlocking persists just as well as locking"
+    );
+}
+
+#[test]
+fn layer_mask_round_trip() {
+    let (_dir, store) = store();
+    let mut doc = store.create("Masked", 64, 64).unwrap();
+    let i = paint_index(&doc);
+    assert!(doc.create_layer_mask(i));
+    let painted = doc.active_layer;
+    doc.layers[painted - 1]
+        .tiles_mut()
+        .unwrap()
+        .set_pixel(4, 4, [0, 0, 0, 255]);
+    store.save(&mut doc).unwrap();
+
+    let loaded = store.open_project(&doc.id).unwrap();
+    let painted = loaded
+        .layers
+        .iter()
+        .position(|l| l.clip_invert)
+        .expect("the inverted clip survived reopen");
+    assert_eq!(
+        loaded.layers[painted].clips_to.as_deref(),
+        Some(loaded.layers[painted - 1].id.as_str())
+    );
+    assert_eq!(
+        loaded.layers[painted - 1]
+            .tiles()
+            .unwrap()
+            .get_pixel(4, 4)[3],
+        255
     );
 }
 
@@ -369,6 +412,22 @@ fn open_project_tabs_persist_and_cascade_on_delete() {
 }
 
 #[test]
+fn delete_project_clears_layers_and_tiles() {
+    let (_dir, store) = store();
+    let mut doc = store.create("Gone", 256, 256).unwrap();
+    store.save(&mut doc).unwrap();
+    assert!(layer_rows(&store, &doc.id) > 0);
+    assert!(tile_rows(&store, &doc.id) > 0);
+
+    store.delete(&doc.id).unwrap();
+
+    assert!(store.list_recent(8).unwrap().is_empty());
+    assert_eq!(layer_rows(&store, &doc.id), 0);
+    assert_eq!(tile_rows(&store, &doc.id), 0);
+    assert!(store.open_project(&doc.id).is_err());
+}
+
+#[test]
 fn delete_all_projects_clears_store() {
     let dir = tempfile::tempdir().unwrap();
     let store = ProjectStore::open(dir.path().join("t.sqlite")).unwrap();
@@ -384,6 +443,10 @@ fn delete_all_projects_clears_store() {
     assert!(store.list_recent(8).unwrap().is_empty());
     assert!(store.open_project_tabs().unwrap().is_empty());
     assert!(store.open_project(&doc_b.id).is_err());
+    assert_eq!(layer_rows(&store, &doc_a.id), 0);
+    assert_eq!(tile_rows(&store, &doc_a.id), 0);
+    assert_eq!(layer_rows(&store, &doc_b.id), 0);
+    assert_eq!(tile_rows(&store, &doc_b.id), 0);
 }
 
 /// Paper is written to disk as one identical white blob per tile. Reading them back into

@@ -58,40 +58,43 @@ component RecentCard inherits CalmSurface {
     callback activated();
     callback deleted();
 
+    private property <bool> row-hovered: row-touch.has-hover || trash-hot.has-hover;
+
     bordered: true;
     clip: true;
-    hover: touch.has-hover;
-
-    touch := CalmPointer {
-        clicked => {
-            root.activated();
-        }
-    }
+    hover: root.row-hovered;
 
     HorizontalLayout {
         padding-right: Tokens.space-sm;
         spacing: Tokens.space-sm;
 
-        CalmRow {
-            title: root.recent.name;
-            subtitle: root.recent.size-text;
-            trailing: root.recent.time-text;
-            spacing: Tokens.space-sm;
+        row-touch := CalmPointer {
             horizontal-stretch: 1;
+            clicked => {
+                root.activated();
+            }
 
-            CalmThumb {
-                thumb: root.recent.thumb;
-                tint: root.recent.accent;
-                has-tint: true;
-                width: Tokens.layer-thumb-height;
-                height: Tokens.layer-thumb-height;
+            CalmRow {
+                title: root.recent.name;
+                subtitle: root.recent.size-text;
+                trailing: root.recent.time-text;
+                spacing: Tokens.space-sm;
+                horizontal-stretch: 1;
+
+                CalmThumb {
+                    thumb: root.recent.thumb;
+                    tint: root.recent.accent;
+                    has-tint: true;
+                    width: Tokens.layer-thumb-height;
+                    height: Tokens.layer-thumb-height;
+                }
             }
         }
 
-        Rectangle {
+        trash-hot := CalmPointer {
             width: Tokens.row-icon-size;
 
-            if touch.has-hover: CalmIconButton {
+            if root.row-hovered: CalmIconButton {
                 icon: root.trash-icon;
                 tint: Theme.danger;
                 tip: root.delete-tip;
