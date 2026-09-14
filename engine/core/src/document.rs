@@ -157,7 +157,7 @@ fn layer_composited_pixel(layer: &Layer, layers: &[Layer], doc_x: f32, doc_y: f3
     }
     if let Some(base_id) = layer.clips_to.as_deref() {
         if let Some(base) = layers.iter().find(|l| l.id == base_id) {
-            if !(layer.clip_invert && !base.visible) {
+            if !layer.clip_invert || base.visible {
                 px[3] = crate::clip::apply_clip_alpha(
                     px[3],
                     crate::clip::base_raw_alpha_at(base, doc_x, doc_y),

@@ -231,10 +231,7 @@ fn layer_mask_round_trip() {
         Some(loaded.layers[painted - 1].id.as_str())
     );
     assert_eq!(
-        loaded.layers[painted - 1]
-            .tiles()
-            .unwrap()
-            .get_pixel(4, 4)[3],
+        loaded.layers[painted - 1].tiles().unwrap().get_pixel(4, 4)[3],
         255
     );
 }

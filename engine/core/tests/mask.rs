@@ -5,8 +5,14 @@ fn painted_doc() -> Document {
     doc.layers.clear();
     doc.layers.push(Layer::paper(64, 64));
     let mut paint = Layer::new("Paint", 64, 64);
-    paint.tiles_mut().unwrap().set_pixel(10, 10, [255, 0, 0, 255]);
-    paint.tiles_mut().unwrap().set_pixel(20, 20, [255, 0, 0, 255]);
+    paint
+        .tiles_mut()
+        .unwrap()
+        .set_pixel(10, 10, [255, 0, 0, 255]);
+    paint
+        .tiles_mut()
+        .unwrap()
+        .set_pixel(20, 20, [255, 0, 0, 255]);
     doc.layers.push(paint);
     doc.active_layer = 1;
     doc
