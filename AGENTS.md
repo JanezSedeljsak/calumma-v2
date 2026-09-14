@@ -745,7 +745,7 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 ./manage.py dev # build and run the GUI shell (optimized debug; --release for a shipped-like binary)
 ./manage.py dev --mcp # same, plus Slint's embedded MCP server on :7883 for live UI introspection
 ./manage.py build # release build of the GUI shell
-./manage.py package # host installer into dist/ (macOS .dmg, Windows .zip, Linux .tar.gz+.deb)
+./manage.py package # host installer into dist/ (macOS .dmg, Windows .msi, Linux .tar.gz+.deb)
 ./manage.py coverage # llvm-cov + per-crate %% table in the log
 ./manage.py check # lint + gui-check + test
 ./manage.py purity # core has no platform/GPU deps
@@ -772,7 +772,7 @@ draws.
 Distribution: `.github/workflows/main.yml` runs lint → security → Linux (`test-linux` +
 `build-linux`) → Windows and macOS (`test-windows`, `build-windows`, `test-macos`,
 `build-macos`) → `release`. Every run packages the shell on all three OSes: Linux a
-`.tar.gz` plus `.deb`, Windows a portable `.zip`, macOS the `.dmg`. `release` publishes
+`.tar.gz` plus `.deb`, Windows an `.msi`, macOS the `.dmg`. `release` publishes
 every artifact when `engine/Cargo.toml`'s `[workspace.package] version` was bumped on `main`
 (`./manage.py version-check`), on a `v*` tag, or on a `workflow_dispatch` with `publish`
 ticked. `./manage.py package` is the whole pipeline on the host OS — `cli/package_macos.py`,

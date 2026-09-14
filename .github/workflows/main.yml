@@ -277,7 +277,7 @@ jobs:
         run: cargo build --manifest-path engine/Cargo.toml -p calumma-ffi
 
   build-windows:
-    name: build (windows-latest, .zip)
+    name: build (windows-latest, .msi)
     needs: [test-linux, build-linux]
     runs-on: windows-latest
     steps:
@@ -304,7 +304,7 @@ jobs:
         with:
           name: miw-windows-x86_64
           path: |
-            dist/*.zip
+            dist/*.msi
             dist/*.sha256
 
   build-macos:

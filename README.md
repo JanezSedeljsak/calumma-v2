@@ -51,7 +51,7 @@ GitHub Releases ships an installer for each OS whenever the workspace version in
 
 - **macOS:** `Miw-<version>.dmg` — ad-hoc signed, not notarized. Right-click → Open the first
   time, or `xattr -dr com.apple.quarantine /Applications/Miw.app`.
-- **Windows:** `Miw-<version>-windows-x86_64.zip` — unzip and run `Miw.exe`. Windows 11, 64-bit.
+- **Windows:** `Miw-<version>-windows-x86_64.msi` — run the installer. Windows 11, 64-bit.
 - **Linux:** `Miw-<version>-linux-amd64.deb` for Debian/Ubuntu, or
   `Miw-<version>-linux-x86_64.tar.gz` elsewhere. Needs Vulkan and X11 (or XWayland).
 

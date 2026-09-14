@@ -95,7 +95,7 @@ def _name_ending(assets: list[Path], suffix: str) -> str | None:
 
 def release_notes(version: str, assets: list[Path]) -> str:
     dmg = _name_ending(assets, ".dmg")
-    windows = _name_ending(assets, ".zip")
+    windows = _name_ending(assets, ".msi") or _name_ending(assets, ".zip")
     deb = _name_ending(assets, ".deb")
     tarball = _name_ending(assets, ".tar.gz")
     lines = [f"## {APP_NAME} {version}", ""]
@@ -116,10 +116,14 @@ def release_notes(version: str, assets: list[Path]) -> str:
             "",
         ]
     if windows:
+        if windows.endswith(".msi"):
+            windows_how = f"Download `{windows}` and run the installer."
+        else:
+            windows_how = f"Download `{windows}`, unzip, and run **{APP_NAME}.exe**."
         lines += [
             "### Windows",
             "",
-            f"Download `{windows}`, unzip, and run **{APP_NAME}.exe**. Windows 11, 64-bit.",
+            f"{windows_how} Windows 11, 64-bit.",
             "",
         ]
     if deb or tarball:

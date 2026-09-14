@@ -23,7 +23,7 @@ hard refresh unless the site shipped a catch-all, while a hash never leaves the 
 Both pages come from **one** request for the release list, made on load — the API is
 unauthenticated and allows 60 requests per hour per IP, so a visitor who reads both pages
 should still only spend one. Each platform is matched against a release's assets: `.dmg` for
-macOS, `.zip` (or `.msi`/`.exe`) for Windows, `.deb`/`.tar.gz` (or `.AppImage`/`.rpm`) for
+macOS, `.msi` (or `.exe`/`.zip`) for Windows, `.deb`/`.tar.gz` (or `.AppImage`/`.rpm`) for
 Linux. A platform with a matching asset gets a download button carrying the file size and a
 link to its `.sha256`; a platform without one says **Coming soon**.
 

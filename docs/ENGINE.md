@@ -763,7 +763,7 @@ nothing will ever evict them: `sync_tiles` only runs with a document open.
 ./manage.py coverage  # llvm-cov, per-crate table
 ./manage.py dev       # build and run the GUI shell (gui/)
 ./manage.py gui-check # compile-check the GUI shell, no window
-./manage.py package   # host installer into dist/ (macOS .dmg, Windows .zip, Linux .tar.gz+.deb)
+./manage.py package   # host installer into dist/ (macOS .dmg, Windows .msi, Linux .tar.gz+.deb)
 ```
 
 Tests live in `engine/<crate>/tests/<module>.rs` — one file per module under test, not in

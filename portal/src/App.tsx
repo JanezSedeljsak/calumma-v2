@@ -18,7 +18,7 @@ type Release = {
 
 /// A platform is offered when a release actually carries an installer for it, and says
 /// "coming soon" when it does not. Nothing here hardcodes which platforms have shipped — the
-/// day a Windows `.zip` or a Linux `.deb` lands in a release, that card becomes a download on its own.
+/// day a Windows `.msi` or a Linux `.deb` lands in a release, that card becomes a download on its own.
 const PLATFORMS = [
   {
     id: "macos",

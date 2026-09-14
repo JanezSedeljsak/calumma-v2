@@ -31,6 +31,7 @@ ICONSET_ENTRIES = (
     (512, "icon_512x512.png"),
     (1024, "icon_512x512@2x.png"),
 )
+ICO_SIZES = ((16, 16), (32, 32), (48, 48), (256, 256))
 
 
 def compose_icon(mark: Image.Image, size: int) -> Image.Image:
@@ -68,6 +69,15 @@ def generate_icon(
 
     dest.parent.mkdir(parents=True, exist_ok=True)
     resized.save(dest, format="PNG", optimize=True, compress_level=9)
+    return dest
+
+
+def write_ico(dest: Path, source: Path = ICON_SOURCE) -> Path:
+    with Image.open(source) as img:
+        mark = img.convert("RGBA")
+    master = compose_icon(mark, COMPOSE_SIZE)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    master.save(dest, format="ICO", sizes=list(ICO_SIZES))
     return dest
 
 

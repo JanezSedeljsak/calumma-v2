@@ -345,7 +345,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("build", help="release build of the GUI shell").set_defaults(func=cmd_build)
     package_parser = sub.add_parser(
         "package",
-        help="release-build the host installer into dist/ (.dmg / .zip / .tar.gz+.deb)",
+        help="release-build the host installer into dist/ (.dmg / .msi / .tar.gz+.deb)",
     )
     package_parser.add_argument(
         "--version",
