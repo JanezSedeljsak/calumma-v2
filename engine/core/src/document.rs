@@ -2943,7 +2943,7 @@ impl Document {
             return Vec::new();
         }
         let mut out: Vec<_> = self
-            .move_selection()
+            .dragged_vector_layer()
             .into_iter()
             .filter_map(|index| {
                 self.layer_outline_corners(index)
@@ -2958,14 +2958,16 @@ impl Document {
         out
     }
 
-    /// What the Move tool would move — exactly what an arrow key nudges — outlined the same
-    /// dashed way whether the layer holds pixels, a vector or text. `⌘T` draws its own frame,
-    /// and every other tool leaves the stack alone, so both answer nothing.
-    fn move_selection(&self) -> Vec<usize> {
+    /// The vector layer a plain Move drag is carrying. A layer drag already answers through
+    /// `transform_drag` above; a vector drags its item instead, so it needs this to get the same
+    /// dashed outline. Only while the pointer is down — at rest Move outlines nothing, so letting
+    /// go never leaves a frame behind that reads as waiting to be committed. `⌘T` draws its own
+    /// frame, and every other tool leaves the stack alone, so both answer nothing.
+    fn dragged_vector_layer(&self) -> Option<usize> {
         if self.tool != Tool::Move || self.transform_active {
-            return Vec::new();
+            return None;
         }
-        self.nudge_layer_indices()
+        self.vector_drag.as_ref().map(|drag| drag.pick.layer)
     }
 
     fn layer_outline_corners(&self, index: usize) -> Option<[(f32, f32); 4]> {

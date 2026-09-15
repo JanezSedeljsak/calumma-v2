@@ -59,18 +59,4 @@ impl Document {
             .filter(|&index| self.layer_movable(index))
             .collect()
     }
-
-    pub(crate) fn nudge_layer_indices(&self) -> Vec<usize> {
-        if self.layer_selection.len() > 1 {
-            self.layer_selection
-                .iter()
-                .copied()
-                .filter(|&index| self.layer_movable(index))
-                .collect()
-        } else if self.layer_movable(self.active_layer) {
-            vec![self.active_layer]
-        } else {
-            Vec::new()
-        }
-    }
 }

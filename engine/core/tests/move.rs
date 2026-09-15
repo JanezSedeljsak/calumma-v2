@@ -354,7 +354,7 @@ fn outlined(doc: &Document) -> Vec<usize> {
 }
 
 #[test]
-fn the_move_tool_outlines_what_it_would_move_whatever_the_layer_holds() {
+fn the_move_tool_outlines_nothing_at_rest_whatever_the_layer_holds() {
     let mut doc = doc_with_viewport();
     doc.add_layer("Paint");
     let pixels = doc.active_layer;
@@ -388,12 +388,12 @@ fn the_move_tool_outlines_what_it_would_move_whatever_the_layer_holds() {
     doc.set_tool(Tool::Move);
     for layer in [pixels, vector, text] {
         doc.set_active_layer(layer);
-        assert_eq!(outlined(&doc), vec![layer], "layer {layer}");
+        assert!(outlined(&doc).is_empty(), "layer {layer}");
     }
 }
 
 #[test]
-fn a_move_drag_on_a_vector_keeps_the_same_outline_and_no_item_frame() {
+fn a_move_drag_on_a_vector_outlines_it_only_while_dragging() {
     let mut doc = doc_with_viewport();
     let vector = doc.add_vector_layer(
         "V",
@@ -411,9 +411,37 @@ fn a_move_drag_on_a_vector_keeps_the_same_outline_and_no_item_frame() {
         }),
     );
     doc.set_tool(Tool::Move);
-    drag(&mut doc, (75.0, 75.0), (80.0, 80.0));
+    let down = doc.camera.to_screen(75.0, 75.0);
+    let to = doc.camera.to_screen(80.0, 80.0);
+    doc.pointer_down(down.0, down.1);
+    doc.pointer_move(to.0, to.1);
     assert_eq!(outlined(&doc), vec![vector]);
     assert!(doc.transform_handles().is_none());
+    doc.pointer_up(to.0, to.1);
+    assert!(
+        outlined(&doc).is_empty(),
+        "letting go leaves nothing to commit"
+    );
+}
+
+#[test]
+fn a_bulk_move_outlines_every_dragged_layer_until_release() {
+    let mut doc = doc_with_viewport();
+    doc.add_layer("Layer 2");
+    paint(&mut doc, 1, DocRect::new(20, 20, 40, 40), [255, 0, 0, 255]);
+    paint(&mut doc, 2, DocRect::new(60, 60, 80, 80), [0, 255, 0, 255]);
+    doc.set_layer_selection(&[1, 2]);
+    doc.set_tool(Tool::Move);
+    assert!(outlined(&doc).is_empty());
+    let down = doc.camera.to_screen(30.0, 30.0);
+    let to = doc.camera.to_screen(50.0, 40.0);
+    doc.pointer_down(down.0, down.1);
+    doc.pointer_move(to.0, to.1);
+    let mut during = outlined(&doc);
+    during.sort_unstable();
+    assert_eq!(during, vec![1, 2]);
+    doc.pointer_up(to.0, to.1);
+    assert!(outlined(&doc).is_empty());
 }
 
 #[test]

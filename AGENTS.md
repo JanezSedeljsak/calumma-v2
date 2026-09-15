@@ -710,9 +710,11 @@ LOD, motion mode) are documented in `docs/RENDERING.md`, not repeated here.
   `Timer` stops when it is dropped, so binding them to a local that lives until `ui.run()` is
   what keeps the board attaching, resizing and presenting at all.
 - Layer hover = dashed outline in the shader, not a shell-drawn overlay. The Move tool (outside
-  `⌘T`) draws the **same** outline around what it would move — `Document::layer_highlights`
-  adds every layer in the multi-selection — whether the layer holds pixels, a vector or text, and
-  nothing else: no handles and no item frame. `⌘T` is where handles live.
+  `⌘T`) draws the **same** outline around what it is dragging, and only while the pointer is
+  down — `Document::layer_highlights` adds every layer in the multi-selection being dragged —
+  whether the layer holds pixels, a vector or text, and nothing else: no handles and no item
+  frame. At rest Move outlines nothing, so letting go never leaves a frame that reads as waiting
+  for Enter. `⌘T` is where handles live.
 - Board **chrome** — guides, transform and vector-item frames, the text session's box and
   caret, the hover outline — is measured in *screen* pixels, not document units, so it is the
   same size at every zoom. Guides ride `vs_guide`/`fs_guide`, everything else
