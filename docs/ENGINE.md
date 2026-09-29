@@ -32,13 +32,13 @@ Seven crates, one workspace (`Cargo.toml`), strictly layered:
                            │
                     ┌──────▼───────┐
                     │ calumma-core │  Document, tiles, camera, history, shapes, selection
-                    └──┬────┬───┬──┘  (no GPU, no OS, no SQL)
-             ┌─────────┘    │   └──────────┐
-      ┌──────▼──────┐ ┌─────▼────┐ ┌───────▼──────┐
-      │calumma-render│ │calumma-io│ │ calumma-ops  │
-      │  wgpu / WGSL │ │  SQLite  │ │ Op registry  │
-      └──────┬──────┘ └─────┬────┘ └───────┬──────┘
-             └──────────┬───┴──────────────┘
+                    └──┬────────┬──┘  (no GPU, no OS, no SQL)
+             ┌─────────┘         └──────┐
+      ┌──────▼──────┐         ┌─────▼────┐
+      │calumma-render│         │calumma-io│
+      │  wgpu / WGSL │         │  SQLite  │
+      └──────┬──────┘         └─────┬────┘
+             └──────────┬───────────┘
                  ┌──────▼──────┐
                  │ calumma-ffi │  `Engine`/`Inner` (plain Rust; `calumma-app` re-exports)
                  └──────┬──────┘
@@ -62,10 +62,9 @@ accident, and the crate boundary is what makes that a compile error instead of a
   reachable from the engine rather than from the OS's own font APIs. **The shell must never
   ask the OS for a font list**, because it would be listing fonts the engine may not be able
   to shape.
-- **`render`, `io` and `ops` are siblings.** None of them may see the others. The renderer
-  cannot save; the store cannot draw; an AI op cannot do either. Everything they share, they
-  share through `core`.
-- **`ffi` hosts `Engine`/`Inner`** — where render, io and ops meet. Plain Rust API only
+- **`render` and `io` are siblings.** Neither may see the other. The renderer cannot save and
+  the store cannot draw; everything they share, they share through `core`.
+- **`ffi` hosts `Engine`/`Inner`** — where render and io meet. Plain Rust API only
   (`crate-type = ["rlib"]`); `calumma-app` re-exports `Engine`/`NativeSurface` straight
   through, and `gui/` depends on that. `unsafe` is routine here for wgpu surface creation, not for a C ABI.
 
@@ -581,26 +580,7 @@ For the per-frame ordering, the dirty-flag state machine, and the optimization r
 
 ---
 
-## 4. `ops` — heavy operations
-
-A tiny crate that keeps one decision out of the shell: **what an operation's result does to the
-layer stack.**
-
-```rust
-trait Op { fn kind(&self); fn available(&self) -> bool; fn run(...); }
-```
-
-`OpRegistry` maps each `OpKind` to its op; one that reports `available() == false` is greyed out.
-
-`apply_output` is the other half: an op returns an `OpOutput` (a mask or a raster) and the
-engine — not the shell — decides what that means for the layer stack and pushes the history
-step. A mask is baked into the layer's pixels; a raster lands as a new layer.
-
-Shipped today: Upscale, SeamCarve and SmartMatte, all in core Rust.
-
----
-
-## 5. `io` — persistence and export
+## 4. `io` — persistence and export
 
 ### SQLite
 
@@ -670,7 +650,7 @@ Adding a field means bumping the version and writing the migration in the same c
 
 ---
 
-## 6. `text`
+## 5. `text`
 
 A leaf over `cosmic-text`. Three things worth knowing:
 
@@ -689,7 +669,7 @@ budget for no benefit.
 
 ---
 
-## 7. `ffi` — the boundary
+## 6. `ffi` — the boundary
 
 Hosts the real `Engine` struct (`engine/ffi/src/engine/app.rs`) and `Inner`
 (`engine/ffi/src/engine.rs`). `calumma-app` re-exports `Engine` as plain Rust, and `gui/`
@@ -699,16 +679,16 @@ same `Inner`.
 ### Rules
 
 - **`Inner` is behind a `parking_lot::Mutex`** (wrapped in `Arc` for the autosave thread) and
-  holds the document, the store, the renderer, the op registry and the coalesced input state.
-  Ops can therefore run off the main thread.
+  holds the document, the store, the renderer and the coalesced input state, so the
+  autosave thread can reach it off the main thread.
 - **`unsafe` is expected here and nowhere else.** `create_surface_unsafe`, the platform vtable.
   Keep it thin, keep the helpers centralised, and do not copy the patterns up into
-  `core`/`render`/`ops`.
+  `core`/`render`.
 
 ### What crosses the boundary
 
-- Shell methods on `Engine` — project lifecycle, pointer/camera input, layer ops, export,
-  smart tools. Every derived value the chrome shows is computed in core and *reported*, not
+- Shell methods on `Engine` — project lifecycle, pointer/camera input, layer ops, export.
+  Every derived value the chrome shows is computed in core and *reported*, not
   recomputed in the shell.
 - Pixels in and out — premultiplied RGBA on import paths, `Vec<u8>` on export.
 
@@ -737,7 +717,7 @@ nothing will ever evict them: `sync_tiles` only runs with a document open.
 
 ---
 
-## 8. Invariants a change must not break
+## 7. Invariants a change must not break
 
 1. `core` compiles without wgpu/objc/metal/SQL. (`./manage.py purity`)
 2. Coordinate math, clamping, camera, history, tile math and product constants live in Rust.
@@ -754,7 +734,7 @@ nothing will ever evict them: `sync_tiles` only runs with a document open.
 
 ---
 
-## 9. Working here
+## 8. Working here
 
 ```
 ./manage.py test      # cargo test --workspace
@@ -769,8 +749,7 @@ nothing will ever evict them: `sync_tiles` only runs with a document open.
 Tests live in `engine/<crate>/tests/<module>.rs` — one file per module under test, not in
 `#[cfg(test)] mod tests` blocks inside the source. `cargo test` already treats each file as
 its own integration crate against the library's public API, so logic files stay logic.
-High coverage is expected on `core` (camera, tiles, history, shapes, paint commit) and on the
-`ops` registry; the GPU path is covered where the math can be lifted out of it
+High coverage is expected on `core` (camera, tiles, history, shapes, paint commit); the GPU path is covered where the math can be lifted out of it
 (`framebuffer.rs`'s rect arithmetic is the model to follow).
 
 `AGENTS.md`'s "no comments" rule is about *narrating* code — a comment restating what the

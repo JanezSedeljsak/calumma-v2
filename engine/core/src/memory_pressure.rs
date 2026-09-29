@@ -1,5 +1,5 @@
-//! What an OS memory-pressure signal means for GPU tile residency — the product table shipped
-//! as plan 22, plus the hysteresis around it. Only the
+//! What an OS memory-pressure signal means for GPU tile residency, plus the hysteresis around
+//! it. Only the
 //! shell can receive the underlying OS signal (a dispatch memory-pressure source on macOS), so
 //! this is the inbound side: the shell forwards a level, never a tile count or byte budget, and
 //! core owns what each level costs the atlas.
@@ -13,8 +13,7 @@ use num_enum::{IntoPrimitive, TryFromPrimitive};
 /// Mirrors the three levels the OS itself reports (`DISPATCH_SOURCE_TYPE_MEMORYPRESSURE` on
 /// macOS: `.normal` / `.warn` / `.critical`). Ordered by severity so `Ord` gives "worse than" /
 /// "better than" for free — [`PressureState`] leans on that to decide whether a report is an
-/// escalation or a recovery. `IntoPrimitive`/`TryFromPrimitive` mirror how `Tool` crosses the
-/// FFI boundary — a plain `u32`, not a declared C enum type.
+/// escalation or a recovery. The shell passes it as a plain `u32`, like `Tool`.
 #[derive(
     Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, IntoPrimitive, TryFromPrimitive,
 )]

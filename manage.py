@@ -374,7 +374,7 @@ def build_parser() -> argparse.ArgumentParser:
     fmt_parser.set_defaults(func=cmd_fmt)
     clippy_parser = sub.add_parser(
         "clippy",
-        help="clippy portable crates; on macOS also ffi/app unless --darwin-only",
+        help="clippy portable crates; on macOS also ffi/app and the gui shell",
     )
     clippy_parser.add_argument(
         "--darwin-only",

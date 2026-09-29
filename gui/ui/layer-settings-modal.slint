@@ -3,6 +3,7 @@ import { Tokens } from "calm/CalmTokens.slint";
 import { CalmScrollView } from "calm/CalmScrollView.slint";
 import { CalmPointer } from "calm/CalmPointer.slint";
 import { LayerSettingsBody } from "layer-settings-body.slint";
+import { LayerChrome } from "layer-chrome.slint";
 
 export component LayerSettingsModal inherits Rectangle {
     in-out property <bool> open;
@@ -11,27 +12,6 @@ export component LayerSettingsModal inherits Rectangle {
     in property <length> board-width;
     in property <length> board-height;
 
-    callback dismissed();
-    callback toggle-visibility();
-    callback toggle-lock();
-    callback opacity-changed(float);
-    callback opacity-committed(float);
-    callback blend-changed(int);
-    callback filter-changed(int, float);
-    callback filter-committed(int, float);
-    callback reset-filters();
-    callback rename-layer(string);
-    callback toggle-clip();
-    callback toggle-mask();
-    callback flatten-clip();
-    callback merge-down();
-    callback reset-transform();
-    callback move-up();
-    callback move-down();
-    callback rasterize-layer();
-    callback export-layer();
-    callback duplicate-layer();
-    callback delete-layer();
 
     private property <length> card-max-height: max(Tokens.control-height * 8, root.board-height - Tokens.space-md * 2);
 
@@ -52,7 +32,7 @@ export component LayerSettingsModal inherits Rectangle {
         height: root.board-height;
         clicked => {
             root.open = false;
-            root.dismissed();
+            LayerChrome.settings-dismissed();
         }
     }
 
@@ -82,66 +62,6 @@ export component LayerSettingsModal inherits Rectangle {
 
             body := LayerSettingsBody {
                 compact: false;
-                toggle-visibility => {
-                    root.toggle-visibility();
-                }
-                toggle-lock => {
-                    root.toggle-lock();
-                }
-                opacity-changed(v) => {
-                    root.opacity-changed(v);
-                }
-                opacity-committed(v) => {
-                    root.opacity-committed(v);
-                }
-                blend-changed(mode) => {
-                    root.blend-changed(mode);
-                }
-                filter-changed(kind, value) => {
-                    root.filter-changed(kind, value);
-                }
-                filter-committed(kind, value) => {
-                    root.filter-committed(kind, value);
-                }
-                reset-filters => {
-                    root.reset-filters();
-                }
-                rename-layer(text) => {
-                    root.rename-layer(text);
-                }
-                toggle-clip => {
-                    root.toggle-clip();
-                }
-                toggle-mask => {
-                    root.toggle-mask();
-                }
-                flatten-clip => {
-                    root.flatten-clip();
-                }
-                merge-down => {
-                    root.merge-down();
-                }
-                reset-transform => {
-                    root.reset-transform();
-                }
-                move-up => {
-                    root.move-up();
-                }
-                move-down => {
-                    root.move-down();
-                }
-                rasterize-layer => {
-                    root.rasterize-layer();
-                }
-                export-layer => {
-                    root.export-layer();
-                }
-                duplicate-layer => {
-                    root.duplicate-layer();
-                }
-                delete-layer => {
-                    root.delete-layer();
-                }
             }
         }
     }

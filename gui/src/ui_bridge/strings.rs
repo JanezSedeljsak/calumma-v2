@@ -1,4 +1,4 @@
-use super::{AppWindow, LayerChrome, ToolChrome};
+use super::{AppWindow, ColorChrome, GuideChrome, LayerChrome, ToolChrome};
 use crate::shell::Catalog;
 use slint::{ComponentHandle, SharedString};
 
@@ -10,8 +10,9 @@ pub fn init_form_defaults(ui: &AppWindow, l10n: &Catalog) {
     ui.set_width_text(SharedString::from(DEFAULT_WIDTH.to_string()));
     ui.set_height_text(SharedString::from(DEFAULT_HEIGHT.to_string()));
     ui.set_project_accent_index(super::random_accent_index());
-    ui.set_add_guide_offset(SharedString::from("0"));
-    ui.set_add_guide_horizontal(true);
+    ui.global::<GuideChrome>()
+        .set_add_offset(SharedString::from("0"));
+    ui.global::<GuideChrome>().set_add_horizontal(true);
 }
 
 pub fn sync_strings(ui: &AppWindow, l10n: &Catalog) {
@@ -39,11 +40,15 @@ pub fn sync_strings(ui: &AppWindow, l10n: &Catalog) {
     ui.set_language_name(put(l10n.get("languageEnglish")));
     ui.set_memory_label(put(l10n.get("memoryUsed")));
     ui.set_version_label(put(l10n.get("version")));
-    ui.set_color_label(put(l10n.get("color")));
-    ui.set_primary_color_label(put(l10n.get("primaryColor")));
-    ui.set_secondary_color_label(put(l10n.get("secondaryColor")));
-    ui.set_tertiary_color_label(put(l10n.get("tertiaryColor")));
-    ui.set_quaternary_color_label(put(l10n.get("quaternaryColor")));
+    ui.global::<ColorChrome>().set_label(put(l10n.get("color")));
+    ui.global::<ColorChrome>()
+        .set_primary_tip(put(l10n.get("primaryColor")));
+    ui.global::<ColorChrome>()
+        .set_secondary_tip(put(l10n.get("secondaryColor")));
+    ui.global::<ColorChrome>()
+        .set_tertiary_tip(put(l10n.get("tertiaryColor")));
+    ui.global::<ColorChrome>()
+        .set_quaternary_tip(put(l10n.get("quaternaryColor")));
     ui.set_file_menu_title(put(l10n.get("fileMenu")));
     ui.set_edit_menu_title(put(l10n.get("editMenu")));
     ui.set_board_menu_title(put(l10n.get("boardMenu")));
@@ -56,15 +61,24 @@ pub fn sync_strings(ui: &AppWindow, l10n: &Catalog) {
     ui.set_zoom_out_label(put(l10n.get("zoomOut")));
     ui.set_toggle_layers_menu_title(put(l10n.get("toggleLayers")));
     ui.set_guides_tip(put(l10n.get("guides")));
-    ui.set_guides_title(put(l10n.get("guides")));
-    ui.set_guides_hint(put(l10n.get("guidesHint")));
-    ui.set_no_guides_label(put(l10n.get("noGuides")));
-    ui.set_add_guide_label(put(l10n.get("addGuide")));
-    ui.set_guides_full_label(put(l10n.get("guidesFull")));
-    ui.set_guide_top_label(put(l10n.get("guideTop")));
-    ui.set_guide_left_label(put(l10n.get("guideLeft")));
-    ui.set_delete_guide_tip(put(l10n.get("deleteGuide")));
-    ui.set_clear_guides_label(put(l10n.get("clearGuides")));
+    ui.global::<GuideChrome>()
+        .set_title_text(put(l10n.get("guides")));
+    ui.global::<GuideChrome>()
+        .set_hint_text(put(l10n.get("guidesHint")));
+    ui.global::<GuideChrome>()
+        .set_empty_text(put(l10n.get("noGuides")));
+    ui.global::<GuideChrome>()
+        .set_add_label(put(l10n.get("addGuide")));
+    ui.global::<GuideChrome>()
+        .set_full_text(put(l10n.get("guidesFull")));
+    ui.global::<GuideChrome>()
+        .set_top_label(put(l10n.get("guideTop")));
+    ui.global::<GuideChrome>()
+        .set_left_label(put(l10n.get("guideLeft")));
+    ui.global::<GuideChrome>()
+        .set_delete_tip(put(l10n.get("deleteGuide")));
+    ui.global::<GuideChrome>()
+        .set_clear_label(put(l10n.get("clearGuides")));
     ui.set_fullscreen_menu_title(put(l10n.get("enterFullScreen")));
     ui.set_layers_title(put(l10n.get("layers")));
     ui.set_add_layer_label(put(l10n.get("addLayer")));
@@ -82,9 +96,6 @@ pub fn sync_strings(ui: &AppWindow, l10n: &Catalog) {
     ui.set_export_psd_title(put(l10n.format("exportAs", &["PSD"])));
     ui.set_export_svg_title(put(l10n.format("exportAs", &["SVG"])));
     ui.set_export_pdf_title(put(l10n.format("exportAs", &["PDF"])));
-    ui.set_tools_menu_title(put(l10n.get("smartTools")));
-    ui.set_upscale_label(put(l10n.get("upscale")));
-    ui.set_seam_carve_label(put(l10n.get("seamCarve")));
     ui.set_layer_settings_label(put(l10n.get("layerSettings")));
     ui.set_layer_delete_label(put(l10n.get("deleteLayer")));
     ui.set_layer_visibility_label(put(l10n.get("layerVisibility")));

@@ -1,11 +1,8 @@
 //! One stroke's ink coverage, accumulated before any of it reaches the layer.
 //!
-//! A stroke used to stamp discs straight into the tiles, one `blend_over` per stamp. At full
-//! opacity that is invisible — an opaque stamp over an opaque stamp is the same pixel — but
-//! every stamp along a stroke overlaps its neighbours by half a radius, so at *any* opacity
-//! below 1 the overlaps compounded and the stroke came out as a dark, beaded rope instead of
-//! an even wash. This is the fix: coverage accumulates as a **maximum**, and the whole stroke
-//! composites onto the layer exactly once.
+//! Every stamp along a stroke overlaps its neighbours by half a radius, so blending stamps one by
+//! one would compound below full opacity into a dark, beaded rope. Coverage accumulates as a
+//! **maximum** instead, and the whole stroke composites onto the layer exactly once.
 //!
 //! Storage is sparse and tile-shaped for the same reason the document is. A stroke covers a
 //! ribbon, not its bounding box, so a diagonal flick across a large board allocates the tiles

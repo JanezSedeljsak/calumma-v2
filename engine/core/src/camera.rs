@@ -62,10 +62,8 @@ impl Camera {
     }
 
     /// The zoom ceiling, set by how few document pixels may fill the viewport rather than by
-    /// any multiple of [`Camera::min_zoom`]. Deriving it from the floor is what used to tie
-    /// the two ends together: lowering the floor to show more desk also lowered the ceiling
-    /// by the same factor, which is not what either end is for. `.min(shorter_doc)` keeps a
-    /// document smaller than [`MIN_VISIBLE_DOC_SIDE`] zoomable at all.
+    /// any multiple of [`Camera::min_zoom`], so the two ends move independently.
+    /// `.min(shorter_doc)` keeps a document smaller than [`MIN_VISIBLE_DOC_SIDE`] zoomable at all.
     pub fn max_zoom(&self, doc_width: f32, doc_height: f32) -> f32 {
         let min = self.min_zoom(doc_width, doc_height);
         let shorter_view = self.viewport_width.min(self.viewport_height).max(1.0);
@@ -135,6 +133,28 @@ impl Camera {
         self.zoom = self.fit_zoom(doc_width, doc_height);
         self.center(doc_width, doc_height);
         self.clamp_to_board(doc_width, doc_height);
+    }
+
+    /// This viewport with `fit` already applied for a document of that size — what the board
+    /// will show once that document is open. A shell that has to stand in for a project that
+    /// is still loading reads the paper rect and the ruler ticks off this, so the placeholder
+    /// lands exactly where the paper will. Answered by running the real `fit` on a copy, for
+    /// the same reason `is_fit` is.
+    pub fn fitted(&self, doc_width: f32, doc_height: f32) -> Camera {
+        let mut fitted = *self;
+        fitted.fit(doc_width, doc_height);
+        fitted
+    }
+
+    /// Where the paper sits in the viewport under this camera, as `[x, y, width, height]` in
+    /// the viewport's own units.
+    pub fn paper_rect(&self, doc_width: f32, doc_height: f32) -> [f32; 4] {
+        [
+            self.pan_x,
+            self.pan_y,
+            doc_width * self.zoom,
+            doc_height * self.zoom,
+        ]
     }
 
     /// Whether the board is already showing exactly what `fit` would show. Answered by

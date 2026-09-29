@@ -79,8 +79,7 @@ struct TileCamera {
 /// per-tile payload — everything else a tile draw needs (camera, the atlas, every layer's
 /// transform) is bound once for the entire board.
 ///
-/// `layer_index` replaced what used to be padding, so carrying it costs nothing: the instance
-/// was already 16 bytes.
+/// `layer_index` sits in what would otherwise be padding, so the instance stays 16 bytes.
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
 struct TileInstance {
@@ -250,10 +249,8 @@ enum VectorRun {
     Fills,
 }
 
-/// One entry of the board's draw list, in stack order. Vector layers used to be drawn before
-/// every tile — which put them under Paper, where nothing could be seen — so the list is
-/// built across *all* layers and replayed once: a vector layer above a paint layer covers it,
-/// exactly as the flattened composite already had it.
+/// One entry of the board's draw list, in stack order across *all* layers, so a vector layer
+/// above a paint layer covers it exactly as the flattened composite does.
 enum LayerDraw {
     /// A run of one document layer's visible tiles, as a range into the shared tile-instance
     /// buffer — one instanced draw regardless of how many tiles that is. Nothing else is needed
@@ -424,8 +421,6 @@ mod pipeline;
 #[cfg(test)]
 mod shader_parity;
 
-// Re-exported at the old path so `desk.rs`/`framebuffer.rs`/`stroke_coverage.rs` (siblings of
-// `renderer` in the crate, not descendants) don't have to know the pipeline split happened.
 pub(crate) use pipeline::{paper_bind_group, PREMULTIPLIED_ALPHA_COMPONENT};
 // `stroke_coverage.rs`'s tests are this re-export's only consumer.
 #[cfg(test)]

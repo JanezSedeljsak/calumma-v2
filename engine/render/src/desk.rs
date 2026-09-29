@@ -1,12 +1,7 @@
 //! The desk lattice, baked once instead of evaluated per pixel.
 //!
-//! `fs_paper` is a fullscreen triangle drawn on every frame the board renders at all, and its
-//! grid used to cost ~30 scalar ops and six branches at every one of those pixels — on a 4K
-//! viewport, a quarter of a billion operations a frame for a background nobody is looking at.
-//! On an integrated GPU that is the single largest thing the board does when it is not being
-//! drawn on.
-//!
-//! It does not have to be. `desk_pattern` reads *only* `screen`: the desk is deliberately
+//! `fs_paper` is a fullscreen triangle drawn on every frame, so evaluating the grid per pixel
+//! would be the largest thing an idle board does on an integrated GPU. `desk_pattern` reads *only* `screen`: the desk is deliberately
 //! screen-locked (`docs/RENDERING.md` — it does not scroll with the board and does not scale
 //! with zoom), and both halves of the pattern — the cell rules and the corner crosses — repeat
 //! with period [`DeskMetrics::cell`], anchored at the viewport's own origin. So one period's
@@ -17,7 +12,7 @@
 //! toward the grid color at different strengths and that color and its alpha are theme
 //! uniforms: baking the blend would mean re-baking on every theme switch, and the composition
 //! of two `mix`es toward the same color is not linear in that alpha anyway. Red carries the
-//! rules, green the crosses, and `fs_paper` performs exactly the two mixes it always did.
+//! rules, green the crosses, and `fs_paper` performs the two mixes.
 //!
 //! Only `dpr` sizes the texture, and `DeskMetrics` is a compile-time constant, so this is
 //! rebuilt on a backing-scale change and never again.

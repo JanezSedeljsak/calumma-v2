@@ -58,8 +58,8 @@ pub fn color_for_seed(seed: &str) -> [u8; 3] {
 /// These live here rather than as literals in `board.wgsl` because the shader is not the only
 /// thing that draws them — `CanvasSkeleton` stands in for the board while a project loads, and
 /// has to lay the same grid on the same 26pt lattice or the swap is visible. Rust is the one
-/// source: the shader reads them out of `PaperUniforms`, the shell reads them over
-/// `calm_desk_metrics`.
+/// source: the shader reads them out of `PaperUniforms`, the shell's `DeskGrid` from the same
+/// constants.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct DeskMetrics {
     /// Side of one square.

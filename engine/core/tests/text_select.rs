@@ -371,3 +371,72 @@ fn rasterizing_keeps_the_styled_pixels_and_drops_the_run() {
         "the pixels the spans produced stayed exactly where they were"
     );
 }
+
+fn composing_doc() -> Document {
+    let mut doc = typed("ab");
+    doc.text_step_caret(Step::Left, false);
+    doc
+}
+
+#[test]
+fn a_composition_sits_in_the_run_at_the_caret_and_replaces_itself() {
+    let mut doc = composing_doc();
+    doc.text_set_composition("´", None);
+    assert_eq!(run(&doc).text, "a´b");
+    assert_eq!(doc.text_composition(), Some((1, 1 + "´".len())));
+    doc.text_set_composition("ka", Some(1));
+    assert_eq!(run(&doc).text, "akab");
+    assert_eq!(doc.text_composition(), Some((1, 3)));
+    assert_eq!(doc.text_caret(), Some(2));
+}
+
+#[test]
+fn committing_a_composition_types_over_it() {
+    let mut doc = composing_doc();
+    doc.text_set_composition("´", None);
+    doc.text_insert("é");
+    assert_eq!(run(&doc).text, "aéb");
+    assert_eq!(doc.text_composition(), None);
+    assert_eq!(doc.text_caret(), Some(1 + "é".len()));
+}
+
+#[test]
+fn an_empty_composition_puts_the_run_back() {
+    let mut doc = composing_doc();
+    doc.text_set_composition("にほ", None);
+    doc.text_set_composition("", None);
+    assert_eq!(run(&doc).text, "ab");
+    assert_eq!(doc.text_caret(), Some(1));
+    doc.text_set_composition("", None);
+    assert_eq!(
+        run(&doc).text,
+        "ab",
+        "an empty composition with none open is a no-op"
+    );
+}
+
+#[test]
+fn a_composition_replaces_the_selection_it_starts_on() {
+    let mut doc = typed("abc");
+    doc.text_select_all();
+    doc.text_set_composition("x", None);
+    assert_eq!(run(&doc).text, "x");
+}
+
+#[test]
+fn closing_the_session_mid_composition_leaves_no_trace() {
+    let mut doc = composing_doc();
+    doc.text_set_composition("にほ", None);
+    doc.commit_text();
+    assert!(!doc.text_editing());
+    assert_eq!(run(&doc).text, "ab");
+}
+
+#[test]
+fn a_composition_is_underlined_row_by_row() {
+    let mut doc = composing_doc();
+    assert!(doc.text_composition_rows().is_empty());
+    doc.text_set_composition("zz", None);
+    assert_eq!(doc.text_composition_rows().len(), 1);
+    assert!(doc.text_caret_screen_rect().is_some());
+}

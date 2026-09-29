@@ -11,8 +11,8 @@ use crate::shape::Tool;
 
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 
-/// Why a tool cannot run, or `None` when it can. Crosses the FFI as its discriminant, so the
-/// shell shows the reason without knowing any of the rules behind it.
+/// Why a tool cannot run, or `None` when it can. The shell shows the reason without knowing
+/// any of the rules behind it.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, IntoPrimitive, TryFromPrimitive)]
 #[repr(u32)]
 pub enum ToolBlock {
@@ -47,7 +47,7 @@ impl Document {
     }
 
     /// The vector mode that actually governs a commit: the shell's knob, or the active layer
-    /// forcing it. Everything that used to read `vector_mode` directly reads this instead.
+    /// forcing it. Read this, never `vector_mode` directly.
     pub fn effective_vector_mode(&self) -> bool {
         self.vector_mode || self.vector_mode_locked()
     }

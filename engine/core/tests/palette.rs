@@ -39,8 +39,7 @@ fn fallback_board_is_darker_on_dark_theme() {
     assert_eq!(light.paper_border[0], 0);
 }
 
-/// The shader reads these out of `PaperUniforms` and `CanvasSkeleton` reads them over
-/// `calm_desk_metrics`, so the loading placeholder lands on the same lattice as the real desk.
+/// The shader and the loading skeleton read the same metrics, so both draw the same lattice.
 /// A cell smaller than its own rule, or a cross wider than a cell, would draw a solid field
 /// rather than squared paper.
 #[test]

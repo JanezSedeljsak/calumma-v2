@@ -29,9 +29,11 @@ pub struct BoardHost {
     cursor_mods: ModifierState,
     cursor_modal: bool,
     ignore_leave: bool,
-    last_sync: Option<(i32, i32, u32, u32, i32, u32, bool, u64)>,
+    last_sync: Option<SyncKey>,
     surface: Option<BoardSurface>,
 }
+
+type SyncKey = (i32, i32, u32, u32, i32, u32, bool, u64);
 
 impl BoardHost {
     pub fn new(engine: Rc<RefCell<Engine>>, icons_root: std::path::PathBuf) -> Self {

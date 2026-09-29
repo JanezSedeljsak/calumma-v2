@@ -22,7 +22,6 @@ pub mod layer_align;
 pub mod layer_multi;
 pub mod limits;
 pub mod mask;
-pub mod mask_bake;
 pub mod memory;
 pub mod memory_pressure;
 pub mod merge;
@@ -39,7 +38,6 @@ pub mod selection_edit;
 pub mod selection_mask;
 pub mod shape;
 pub mod size_curve;
-pub mod smarttools;
 pub mod text_edit;
 pub mod text_input;
 pub mod text_layer;
@@ -95,7 +93,6 @@ pub use size_curve::{
     brush_size_from_unit, brush_size_unit, size_from_unit, step_brush_size, text_size_from_unit,
     text_size_unit, unit_from_size,
 };
-pub use smarttools::{grabcut, maxflow, resample, seam_carving};
 pub use text_edit::{TextEdit, TextRange};
 pub use tile::{
     blend_over, blend_with_mode, unpremultiply_rgba, DirtyChannel, DocRect, TileCoord, TileGrid,

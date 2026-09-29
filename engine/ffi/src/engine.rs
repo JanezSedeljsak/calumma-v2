@@ -6,7 +6,6 @@ use anyhow::{anyhow, Context};
 use calumma_core::limits::AUTOSAVE_INTERVAL_MS;
 use calumma_core::{Document, Tool};
 use calumma_io::ProjectStore;
-use calumma_ops::{OpRegistry, SeamCarveOp, SmartMatteOp, UpscaleOp};
 use parking_lot::Mutex;
 use std::time::{Duration, Instant};
 
@@ -18,7 +17,6 @@ pub(crate) struct Inner {
     last_save: Instant,
     dirty_save: bool,
     autosave_thread: Option<crate::autosave::AutosaveThread>,
-    registry: OpRegistry,
     last_shape_tool: Tool,
     last_select_tool: Tool,
     viewport_width: f32,
@@ -67,7 +65,6 @@ impl Inner {
             last_save: Instant::now() - Duration::from_secs(60),
             dirty_save: false,
             autosave_thread: None,
-            registry: base_op_registry(),
             last_shape_tool: Tool::Rect,
             last_select_tool: Tool::SelectRect,
             viewport_width: 0.0,
@@ -272,14 +269,6 @@ impl Inner {
         }
         Ok(())
     }
-}
-
-pub(crate) fn base_op_registry() -> OpRegistry {
-    let mut registry = OpRegistry::new();
-    registry.register(Box::new(UpscaleOp));
-    registry.register(Box::new(SeamCarveOp));
-    registry.register(Box::new(SmartMatteOp));
-    registry
 }
 
 mod app;

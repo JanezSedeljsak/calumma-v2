@@ -29,6 +29,7 @@ const TRANSFORM_HANDLE_BORDER_PX: f32 = OVERLAY_BORDER_PX;
 const TEXT_BOX_COLOR: [f32; 4] = [0.24, 0.78, 0.84, 0.45];
 const TEXT_BOX_WIDTH_PX: f32 = 0.5;
 const TEXT_CARET_WIDTH_PX: f32 = 1.0;
+const TEXT_COMPOSITION_UNDERLINE_PX: f32 = 1.0;
 /// The selection wash. Light enough that the glyphs read straight through it — the highlight
 /// rides *over* the text (the overlay pass runs after the tile pass) rather than behind it, so
 /// its alpha is the only thing keeping the words legible.
@@ -210,10 +211,8 @@ const BRUSH_RING_MAX_SEGMENTS: usize = 96;
 /// rule about that: which tools, which layers, `⌘T`, and whether a stamp reaches this far), so
 /// the renderer asks unconditionally.
 ///
-/// There is no "too small to draw" case to handle here any more: `Document::effective_brush_size`
-/// holds the brush at `BRUSH_MIN_SCREEN_PX` across however far the board is zoomed out, so a ring
-/// is always wider than the line it is drawn with. This used to collapse to a dot below three
-/// screen pixels — the same threshold, stated twice in two crates.
+/// There is no "too small to draw" case: `Document::effective_brush_size` holds the brush at
+/// `BRUSH_MIN_SCREEN_PX` across however far the board is zoomed out.
 pub fn brush_ring_instances(doc: &Document) -> Vec<StrokeInstance> {
     let Some((centre, radius)) = doc.brush_ring() else {
         return Vec::new();
@@ -481,18 +480,18 @@ pub fn crop_overlay_instances(doc: &Document) -> Vec<StrokeInstance> {
 /// Which half of the blink the caret is in at `elapsed`.
 ///
 /// Split out of `text_overlay_instances` because the renderer's frame loop reads it too: a caret
-/// is the only thing that asks for a frame with nothing about the document changing, and at
-/// display rate that used to be 120 full board passes a second to service a signal that changes
-/// state twice. `Renderer::render` skips the frames where this answer has not moved since the
+/// is the only thing that asks for a frame with nothing about the document changing.
+/// `Renderer::render` skips the frames where this answer has not moved since the
 /// last one it drew, so the two have to be the *same* function — a gate that disagreed with the
 /// drawing would drop the frame that was supposed to show the flip.
 pub fn text_caret_visible(elapsed: f32) -> bool {
     (elapsed / TEXT_CARET_BLINK_SECONDS).fract() < 0.5
 }
 
-/// The board furniture for a live text session: a hairline box around the run's layout and
-/// a caret that blinks. Both are stroke segments, the same primitive the transform overlay
-/// and the lasso already draw with — no new pipeline, and nothing drawn in Swift.
+/// The board furniture for a live text session: a hairline box around the run's layout, an
+/// underline under an input method's composition, and a caret that blinks. All of them are
+/// stroke segments, the same primitive the transform overlay and the lasso already draw with —
+/// no new pipeline, and nothing drawn by the shell.
 pub fn text_overlay_instances(doc: &Document, elapsed: f32) -> Vec<StrokeInstance> {
     let Some((x0, y0, x1, y1)) = doc.text_box() else {
         return Vec::new();
@@ -518,14 +517,19 @@ pub fn text_overlay_instances(doc: &Document, elapsed: f32) -> Vec<StrokeInstanc
             TEXT_BOX_WIDTH_PX,
         );
     }
-    if let (true, Some((a, b))) = (text_caret_visible(elapsed), doc.text_caret_segment()) {
+    let ink = rgba_unit(doc.text_caret_color());
+    for row in doc.text_composition_rows() {
+        let base = row.y + row.height;
         push_outlined_segment(
             &mut out,
-            a,
-            b,
-            rgba_unit(doc.text_caret_color()),
-            TEXT_CARET_WIDTH_PX,
+            (row.x, base),
+            (row.x + row.width, base),
+            ink,
+            TEXT_COMPOSITION_UNDERLINE_PX,
         );
+    }
+    if let (true, Some((a, b))) = (text_caret_visible(elapsed), doc.text_caret_segment()) {
+        push_outlined_segment(&mut out, a, b, ink, TEXT_CARET_WIDTH_PX);
     }
     out
 }

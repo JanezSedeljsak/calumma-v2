@@ -154,7 +154,7 @@ impl Renderer {
     /// Every layer gets a row — vector layers and hidden ones included — so that a row index is
     /// simply a stack position and never has to be mapped through a side table. An unread row
     /// costs 1072 bytes; an index that means different things in different frames costs
-    /// correctness, which is what the old per-layer-id lookup was quietly risking.
+    /// correctness.
     ///
     /// Must run after `sync_tiles`: solid Paper's `atlas_slot` is only known once its tile has
     /// an atlas slot. Runs whenever the draw list is rebuilt, which is exactly when a transform,

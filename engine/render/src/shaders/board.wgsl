@@ -116,15 +116,11 @@ struct TileCamera {
 // side table to resolve and a vector layer simply owns an unread row.
 //
 // `atlas_slot` is only read by the solid-Paper quad, which has no instance buffer to carry it
-// the way `vs_tile` does. It used to ride in `pivot.x` as a `bitcast` union with this same
-// struct; an explicit field costs 4 bytes a layer and stops two draw paths disagreeing about
-// what the bytes mean.
+// the way `vs_tile` does.
 //
-// `opacity`, `lut_mode`, `tone`, `saturation`, `vibrance` and `hue` are plan 23's addition: a
-// layer's non-destructive adjustments, evaluated by `apply_adjustments` in `fs_tile` instead of
-// baked into tile bytes by the CPU (`compose::composited_tile_payload`, clip only now). Nothing
-// here is per *tile*: the whole point is that the table is written once per content rebuild —
-// or once per slider sample, which no longer touches a tile at all — not once per draw.
+// `opacity`, `lut_mode`, `tone`, `saturation`, `vibrance` and `hue` are the layer's
+// non-destructive adjustments, evaluated by `apply_adjustments` in `fs_tile`. Nothing here is
+// per *tile*: the table is written once per content rebuild or slider sample, not once per draw.
 //
 // `_pad` is explicit tail padding matching the Rust side (`LayerData` in `renderer.rs`): every
 // field through `hue` is 4-byte aligned, landing the natural size at 1076 bytes, but a
@@ -164,8 +160,7 @@ const LUT_MODE_TONE_HSL: u32 = 2u;
 @group(0) @binding(1) var tile_tex: texture_2d_array<f32>;
 @group(0) @binding(2) var tile_sampler: sampler;
 @group(0) @binding(3) var tile_sampler_crisp: sampler;
-// Fragment-visible as of plan 23: `fs_tile` reads `tone`/`saturation`/`vibrance` here, not just
-// `vs_tile` reading the transform. See `tile_shared_bgl` in `renderer.rs` for the binding.
+// Read by `vs_tile` for the transform and by `fs_tile` for the adjustments; see `tile_shared_bgl`.
 @group(0) @binding(4) var<storage, read> layer_data: array<LayerData>;
 
 // Must match `calumma_core::tile::TILE_SIZE` — tiles are square and fixed-size at runtime, so
@@ -738,10 +733,8 @@ fn sd_polygon5(p: vec2<f32>, v: array<vec2<f32>, 5>) -> f32 {
     return s * sqrt(d);
 }
 
-// The segment distance (`pa`/`ba`/`h`/`seg`) only feeds TOOL_LINE and TOOL_ARROW, so each
-// computes it locally instead of it running unconditionally before the switch — the SDF
-// polygon cases (RECT/ELLIPSE/TRIANGLE/PENTAGON) used to pay for a dot product, a clamp and
-// a sqrt every pixel for a value they never touch.
+// The segment distance only feeds TOOL_LINE and TOOL_ARROW, so each computes it locally rather
+// than every polygon case paying for it per pixel.
 fn shape_region(tool: u32, p0: vec2<f32>, p1: vec2<f32>, half_width: f32, p: vec2<f32>) -> f32 {
     switch tool {
         case TOOL_LINE: {

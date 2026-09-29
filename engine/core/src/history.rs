@@ -262,29 +262,6 @@ impl History {
         });
     }
 
-    pub fn push_baked_mask(
-        &mut self,
-        layer_id: String,
-        tiles: TileSnapshot,
-        transform: Option<LayerTransform>,
-        active_layer_index: Option<usize>,
-    ) {
-        let bytes = snapshot_bytes(&tiles);
-        self.push(HistoryCommand {
-            diffs: vec![TileDiff {
-                layer_id: layer_id.clone(),
-                tiles,
-            }],
-            transforms: vec![TransformDiff {
-                layer_id,
-                transform,
-            }],
-            active_layer_index,
-            bytes,
-            ..Default::default()
-        });
-    }
-
     pub fn push_layer_text(
         &mut self,
         layer_id: String,

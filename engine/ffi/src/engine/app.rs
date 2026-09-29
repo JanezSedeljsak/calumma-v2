@@ -3,7 +3,7 @@ use crate::surface::{CalmNativeSurface, CalmSurfaceKind};
 use anyhow::{Context, Result};
 use calumma_core::{
     brush_size_from_unit, brush_size_unit, guide::GuideAxis, pack_rgb, ruler::RulerTick,
-    unpack_rgb, BoardColors, Tool, ToolBlock,
+    unpack_rgb, BoardColors, Camera, Tool, ToolBlock,
 };
 use calumma_io::ProjectListItem;
 use parking_lot::Mutex;
@@ -619,6 +619,20 @@ impl Engine {
             .as_ref()
             .map(|doc| doc.camera.is_fit(doc.width as f32, doc.height as f32))
             .unwrap_or(false)
+    }
+
+    pub fn fit_preview(
+        viewport_width: f32,
+        viewport_height: f32,
+        doc_width: u32,
+        doc_height: u32,
+    ) -> Camera {
+        let camera = Camera {
+            viewport_width: viewport_width.max(1.0),
+            viewport_height: viewport_height.max(1.0),
+            ..Camera::default()
+        };
+        camera.fitted(doc_width as f32, doc_height as f32)
     }
 
     pub fn set_zoom_unit(&mut self, unit: f32) {

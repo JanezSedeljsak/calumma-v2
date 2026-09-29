@@ -33,15 +33,15 @@ stop. Call into `calumma-app` instead and keep the logic in `engine/`.
 This extends to product rules, not just math. Zoom steps, the log zoom curve, fit padding,
 the project-color palette and which color a new project gets, import limits, lossy export
 quality — all core constants and core functions, reached through `calumma-app`. The shell
-renders what the engine reports (`Engine::zoom_unit`) and never recomputes it. There is no
-`CalmState` struct any more — the old C-ABI one-struct-per-frame snapshot is gone, and
-`Engine` exposes granular getters instead. `Engine::zoom_factor` and `Engine::is_fit` answer
-"how far is the board zoomed" and "is it already at fit" — the zoom pill reads both. "What
-was the last shape tool" is still not re-exposed since the ffi rewrite: `gui/`'s shape and
-marquee grid slots always pick `Rect` / `SelectRect` rather than the member last used, an
-engine-API gap to close, not a dropped product rule. Same for the palette: a project's
-accent is still assigned core/io-side at `create_project` (`engine/io`), but no `Engine`
-call hands a shell a palette color to preview before creating one.
+renders what the engine reports (`Engine::zoom_unit`) and never recomputes it. `Engine`
+exposes granular getters: `Engine::zoom_factor` and `Engine::is_fit` answer "how far is the
+board zoomed" and "is it already at fit" — the zoom pill reads both — and
+`Engine::last_shape_tool` / `last_select_tool` are what the tools panel's shape and marquee
+slots show. Where a project that is still loading will land on the board is
+`Engine::fit_preview` — the real `Camera::fit` run on a scratch camera — so the tab-switch
+skeleton and its rulers do no fit math of their own. A new project's accent comes from core
+too (`calumma_core::random_project_color`, previewed in the New Project form before it is
+created).
 Theme **values** are the exception that proves the rule: they come from `design/tokens.json`
 and are pushed *into* the engine (`Engine::set_board_colors`) so no color is ever
 hardcoded in Rust or WGSL.
@@ -91,17 +91,15 @@ bind groups — is shipped; see `docs/ENGINE.md` § Bind groups.
 
 | Path | Role |
 | --- | --- |
-| `engine/core` | Document, sparse tiles, camera, viewport culling, history, shapes, palette, `LayerContent`, Smart Tools (`src/smarttools`) — no GPU |
+| `engine/core` | Document, sparse tiles, camera, viewport culling, history, shapes, palette, `LayerContent` — no GPU |
 | `engine/text` | System fonts, shaping, layout, caret/hit-test, selection geometry, style spans, glyph rasterizing (`cosmic-text`). Leaf crate; `core` depends on it |
 | `engine/render` | wgpu; surface created by the shell; applies clip alpha at upload |
 | `engine/io` | SQLite projects + encode/decode |
-| `engine/ops` | `Op` / `OpRegistry` dispatch; apply results into the document |
 | `engine/app` | **`calumma-app`** — the Rust API (`Engine`, `NativeSurface`) the Slint shell links |
 | `engine/ffi` | The real `Engine`/`Inner` implementation. No C ABI any more — `crate-type = ["rlib"]` only, no header, nothing links it except `calumma-app`. Named `ffi` for history, not for what it does today |
-| `gui/` | **Desktop shell** — Rust + Slint UI (macOS 26, Windows 11, current Linux). Plan: `docs/plans/02-slint-shell.md` |
-| `legacy-macos-shell/` | SwiftUI reference shell (frozen) — macOS-only details, Vision ops |
+| `gui/` | **Desktop shell** — Rust + Slint UI (macOS 26, Windows 11, current Linux). `main.rs` only boots; Slint callbacks are wired in `gui/src/wiring/`, one file per callback family — add a callback there, not in `main.rs`. A group of properties the window would otherwise forward through several components lives on a Slint global instead (`ToolChrome`, `LayerChrome`, `GuideChrome`, `ColorChrome`) |
 | `translations/` | Locale JSON (`en.json` today). Not code — edit strings here |
-| `design/` | Visual tokens only (`tokens.json`), SVG icons, `icon.png` (app icon master; not wired into `gui/` yet — no icon generation step exists today) |
+| `design/` | Visual tokens only (`tokens.json`), SVG icons, `icon.png` (app icon master; `cli/generate_icon.py` derives `icon-rounded.png` and the macOS iconset, and `gui/src/app_icon.rs` embeds both) |
 | `docs/` | All prose docs: `FLOW.md` (product flow), `STYLE.md` (design system), `ENGINE.md`, `RENDERING.md`, plus the gitignored `todo.md` + `plans/`. Only `README.md`, `AGENTS.md`, `CLAUDE.md` stay at the root |
 | `cli/` | Python helpers + leaf tools (`_helpers.py`, tokens, purity, …). Deps in `requirements.txt` |
 | `manage.py` | Task runner (Python 3.14). Prefer this over Make. |
@@ -111,8 +109,8 @@ Dependency direction:
 ```
 text  ← std + cosmic-text (leaf)
 core  ← std + small utils + text
-render / io / ops  ← core
-ffi  ← core, render, io, ops    (plain Rust `Engine`/`Inner` — no C ABI any more)
+render / io  ← core
+ffi  ← core, render, io    (plain Rust `Engine`/`Inner` — no C ABI any more)
 app  ← ffi (re-exports `Engine`/`NativeSurface` as-is)
 gui shell  ← calumma-app
 ```
@@ -137,8 +135,7 @@ gui shell  ← calumma-app
    (registered with Claude Code as `slint-devtools`; needs a session restart the first time), which
    gives an agent a live element tree with real component names/ids/positions plus screenshots and
    click/drag/type against the actual window.
-4. **After `design/tokens.json` edits:** update `gui/src/shell/theme.rs` token mapping (or
-   extend `./manage.py tokens` when **D7** lands — see `docs/plans/02-slint-shell.md`).
+4. **After `design/tokens.json` edits:** update `gui/src/shell/theme.rs` token mapping.
 5. **After Rust engine edits that affect the app:** `./manage.py test` and
    `./manage.py gui-check` (or `./manage.py dev` to run the shell).
 6. **No comments** in `.rs`, `.slint`, `.wgsl`. Name things clearly instead.
@@ -178,7 +175,7 @@ have to be read together.
 - Landing: name + resolution, presets from tokens, recents list, Paste Artwork island.
   The same **New Project** modal (`NewProjectModal`, `gui/ui/new-project-modal.slint`) opens
   from both the landing screen's Create button and the editor's `+` / `⌘N` — a modal
-  overlay now, not a separate OS window the way the frozen Swift shell opened one.
+  overlay, not a separate OS window.
 - Artwork import: drop / `⌘V` / click on the Paste Artwork island creates a project sized to
   the image with the pixels in the first paint layer. The shell passes **file bytes**;
   `engine/io` decodes them (`decode_encoded`) and fits to `limits::IMPORT_MAX_SIDE`. Several
@@ -217,15 +214,13 @@ have to be read together.
 - Every project carries an **accent color** (`Document.accent`, `projects.accent` in SQLite).
   Core picks one from `palette::PROJECT_COLORS` at create time; the shell shows it on
   landing recents, project thumbs, and the dot on that project's titlebar tab — the palette
-  itself is document data served from core, not a theme token. Renaming and recoloring an
-  existing project have no `Engine` entry point yet since the ffi rewrite; the underlying
-  SQLite columns and core `Document.accent` field are unchanged, `gui/` just doesn't reach
-  them yet (no equivalent to the old `ProjectSettingsCard` popover).
+  itself is document data served from core, not a theme token. Clicking a tab's dot opens
+  the project settings card (`gui/ui/project-settings-popover.slint`), which renames and
+  recolors through `Engine::rename_project` / `Engine::set_project_accent`.
 - Editor: **titlebar project tabs** (right of traffic lights). Switch = save/close current →
-  open that project (full reload), which the shell should defer a frame behind a canvas
-  skeleton so the click never blocks (`docs/FLOW.md` → Editor layout) — the deferred-load
-  skeleton is a Swift-shell behavior not yet ported to `gui/`, tracked in
-  `docs/plans/02-slint-shell.md`'s parity checklist. `+` opens the New Project modal. `×`
+  open that project (full reload), deferred a frame behind a canvas skeleton so the click
+  never blocks (`docs/FLOW.md` → Editor layout); the skeleton's paper rect comes from
+  `Engine::fit_preview`, not from shell math, and so do its rulers. `+` opens the New Project modal. `×`
   closes a tab and leaves the project in SQLite; deleting one is the recents row's trash
   button, and it is permanent.
 - **Workspaces are gone**, code, schema and all. Projects used to be grouped into them, with
@@ -305,6 +300,13 @@ pub enum LayerContent {
   (`History::push_layer_text`). The run has to be in the step because it is what the project
   stores — restoring only pixels would let the undone text come back on the next open.
   Per-keystroke history would flood the budget for no benefit.
+- **An input method's composition is text in the run, but provisional**
+  (`Document::text_set_composition`, `TextEdit.composition`). Preedit text is spliced into the
+  run at the caret so layout, wrapping and the caret all see it, and the board underlines it
+  (`text_composition_rows`); every real edit and `commit_text` drop it first, so it never
+  reaches history or outlives the session. The shell only routes winit's `Ime` events
+  (`gui/src/input/ime.rs` → `gui/src/wiring/ime.rs`), enables IME while a text session owns the
+  keyboard, and parks the candidate window at `Engine::text_caret_screen_rect`.
 
 - **`Layer::content_bounds()` is the one answer to "where is this layer"** — the transform
   frame and handles, the transform pivot on both the CPU and the GPU, the hover outline, Move,
@@ -368,15 +370,14 @@ pub enum LayerContent {
   so it still multiplies alpha at upload time (`compose::composited_tile_payload`) on whatever
   tiles actually painted. Flatten, export and picking keep the **CPU-at-flatten** path
   (`filters::apply` / `AdjustmentLut` / `Document::copy_layer_into_rgba`) — two evaluators, one
-  result, same contract blend mode already had. One entry point for adjustments in the
-  frozen Swift shell was the sliders in `LayerSettingsCard`, debounced 100ms per drag so the
-  engine only saw the value still standing when the knob settled — a convenience against
-  redundant `LayerData` rewrites during a drag, not a defence against a CPU rebake the GPU
-  path no longer pays for. `Document::nudge_layer_adjustment`
+  result, same contract blend mode already had. The entry point for adjustments is the
+  sliders in the layer settings card (`gui/ui/layer-settings-body.slint`), which reach
+  `Engine::set_layer_adjustments` through `FilterDebounce` (`gui/src/ui_bridge/filter_commit.rs`)
+  so the engine sees the value still standing when the knob settles rather than every step of
+  the drag — a convenience against redundant `LayerData` rewrites, not a defence against a CPU
+  rebake the GPU path no longer pays for. `Document::nudge_layer_adjustment`
   (`limits::ADJUSTMENT_NUDGE_STEP` / `GAMMA_NUDGE_STEP`) is still there in `engine/core` and
-  still tested, but nothing on `Engine` re-exposes layer adjustments since the ffi rewrite —
-  `gui/`'s layer settings modal has no adjustment sliders yet. The menu-bar Filters menu that
-  was the nudge function's only caller is
+  still tested; the menu-bar Filters menu that was its only caller is
   **gone** — a menu of Increase/Decrease pairs next to a panel of sliders was clutter, and the
   chrome stays minimal.
 - **Picking a layer is a region test, not a pixel test** (`engine/core/src/pick.rs`).
@@ -415,7 +416,7 @@ pub enum LayerContent {
   a transform.
 - `Document::duplicate_layer`/`merge_layer_down`/`clip_layer_down`/`resize`
   record a `StackSnapshot` before they run, so `⌘Z` can put the stack back.
-  Paint, fill, text sessions and Cut Out Subject still use tile/run diffs; everything lands on the same `History` budget.
+  Paint, fill and text sessions still use tile/run diffs; everything lands on the same `History` budget.
 - **Vector layers** (`core/src/vector.rs`, `core/src/vector_edit.rs`,
   `core/src/vector_svg.rs`, `render/src/vector_draw.rs`) hold **exactly one**
   `VectorItem` — a parametric `Shape` or a freehand `VectorPath`. A second
@@ -472,29 +473,6 @@ pub enum LayerContent {
   which composite to the same result. colors never live on `Shape` (it also answers where a
   *selection* rectangle is): they come from `VectorShape`/`VectorPath`, or from
   `Document::shape_paint` for a raster commit.
-
----
-
-## AI ops
-
-**Shipped:** the three core Smart Tools — Upscale, Content-Aware Narrow (seam carving) and Cut
-Out Subject (graph-cut matte). All of them run in Rust; there is no platform backend.
-
-```
-Shell "Cut Out Subject"  →  `Engine::run_smart_matte`
-                          →  OpRegistry resolves SmartMatteOp
-                          →  OpOutput::Mask
-                          →  engine bakes the mask into the layer's pixels + history step
-```
-
-- Shell never edits the layer stack after an op.
-- Call ops only through `OpRegistry` (`Engine::run_upscale` / `run_smart_matte` /
-  `run_seam_carve_narrow`), never ad hoc.
-- A mask output is baked into tiles (`Document::apply_matte_mask`); undo is an ordinary tile
-  and transform step.
-
-Deferred (do not start): core BiRefNet / `ort`, Vectorize (`vtracer`), SuggestShape,
-GenerateTexture, Image Playground / `ImageCreator`.
 
 ---
 
@@ -590,10 +568,10 @@ not a place to pile micro-opts that muddy the code for single-digit percent gain
   force the very copy the sharing avoids. The sweep runs on the autosave tick, never on the
   paint path, and is bounded per tick because it holds the engine lock.
 - Painting APIs take **screen** coordinates; convert once in the engine.
-- Engine `Inner` is behind a `Mutex` so ops can run off the main thread.
+- Engine `Inner` is behind a `Mutex` so the autosave thread can reach it.
 - Scalability checklist on structural changes: sparse tiles stay sparse, history does not
-  deep-copy whole layers, GPU uploads stay dirty-region scoped, ops do not block the
-  render loop longer than necessary.
+  deep-copy whole layers, GPU uploads stay dirty-region scoped, long operations do not block
+  the render loop longer than necessary.
 
 ### Residency: what is allowed to be in memory
 
@@ -619,8 +597,7 @@ sharing rather than by unloading:
   it counts each allocation once by address, so shared tiles are not double-counted, and
   `history_bytes` is what history holds *alone*. `Engine::resident_memory_bytes` is what
   `gui/`'s Settings modal actually shows today — a flat total, not `document_memory`'s
-  breakdown; there is no `CalmMemory` struct any more and nothing on `Engine` re-exposes the
-  per-category numbers since the ffi rewrite. Reach for `document_memory` at the core level
+  breakdown; nothing on `Engine` exposes the per-category numbers. Reach for `document_memory` at the core level
   before claiming a memory win regardless of what the shell currently surfaces.
 
 ### `unsafe` Rust — threshold rules
@@ -641,7 +618,7 @@ Do **not** overuse `unsafe`. Default to clean, safe Rust.
 - `unsafe` for a tiny or speculative speedup (e.g. skipping a bounds check LLVM already
   elides).
 - Large `unsafe` regions (“big unsafe”) to squeeze marginal cycles — prefer clean safe Rust.
-- Copying unsafe patterns into `core` / `ops` / `render` “because FFI does it”.
+- Copying unsafe patterns into `core` / `render` “because FFI does it”.
 
 Rules for agents:
 
@@ -685,10 +662,10 @@ LOD, motion mode) are documented in `docs/RENDERING.md`, not repeated here.
 - **A subview draws over Slint, never under it.** Slint renders into the winit view's own
   layer, so the board's `NSView` sits on top of every Slint element inside its rect, whatever
   the subview ordering says. Rulers and side islands stay *outside* that rect. The zoom pill
-  and the layer hover preview float over the board the way they did in the frozen Swift shell:
+  and the layer hover preview float over the board:
   `sync_board_geometry` punches those rectangles out of the Metal view with a layer mask so
   Slint paints above the paper. Overlay chrome — modals, popovers, tooltips, toasts, the
-  smart menu — is allowed to cover the whole board: `AppWindow.overlay-chrome-open` is the one
+  guides card — is allowed to cover the whole board: `AppWindow.overlay-chrome-open` is the one
   flag, and `sync_board_geometry` hides the Metal view while it is true so Slint paints over
   the hole. The board view would
   swallow every pointer event over the canvas, so `MiwBoardView` overrides `hitTest:` to return
@@ -706,7 +683,7 @@ LOD, motion mode) are documented in `docs/RENDERING.md`, not repeated here.
   (`Engine::begin_guide_drag_from_ruler` / `update_guide_drag` / `end_guide_drag`) — where it
   lands and whether it survives release is `core/src/guide.rs`'s call, and the guide itself is
   drawn by `vs_guide`, never by the shell.
-- The frame loop is two `slint::Timer`s owned by `main` (`start_frame_loop` returns them). A
+- The frame loop is two `slint::Timer`s owned by `main` (`frame_loop::start` returns them). A
   `Timer` stops when it is dropped, so binding them to a local that lives until `ui.run()` is
   what keeps the board attaching, resizing and presenting at all.
 - Layer hover = dashed outline in the shader, not a shell-drawn overlay. The Move tool (outside
@@ -762,14 +739,16 @@ own integration-test crate against the library's public API, so this is free.
 
 **One exception, `engine/render` only:** a crate-private module an integration test cannot
 reach (`renderer`, `tile_atlas`, `overview`, `PanCache`'s `pub(crate)` half, `stroke_coverage`)
-keeps its tests in a `#[cfg(test)] mod` at the bottom of its own file. Widening the API to
+keeps its tests in a `#[cfg(test)] mod` — at the bottom of its own file, or as a `tests.rs` /
+`headless_tests.rs` child once the module is a directory (`overview/`, `renderer/pipeline/`,
+`renderer/frame/`). Widening the API to
 `pub` so a `tests/` file could reach it would be a worse trade than the one this rule is
 protecting. Those tests share one headless device from `render/src/test_gpu.rs` — a
 `wgpu::Device` with no surface, which is enough to build an atlas, a pan cache or an overview
-pass, and they return early instead of failing where no adapter exists. The `Renderer` itself
-still needs a real `wgpu::Surface`, so what its own tests cover is what it *decides* — blend
-state per blend mode, bind-group and vertex layouts, visible/retained tile spans — not what it
-draws.
+pass, and they return early instead of failing where no adapter exists. The `Renderer` can
+run the same way (`Renderer::new_headless`): `renderer/frame/headless_tests.rs` draws whole
+frames into a texture, while `renderer/pipeline/tests.rs` covers what it *decides* — blend
+state per blend mode, bind-group and vertex layouts.
 
 Distribution: `.github/workflows/main.yml` runs lint → security → Linux (`test-linux` +
 `build-linux`) → Windows and macOS (`test-windows`, `build-windows`, `test-macos`,
@@ -780,14 +759,14 @@ every artifact when `engine/Cargo.toml`'s `[workspace.package] version` was bump
 ticked. `./manage.py package` is the whole pipeline on the host OS — `cli/package_macos.py`,
 `cli/package_windows.py`, `cli/package_linux.py` — and stamps the workspace version into the
 artifact names. `gui/Cargo.toml`'s package version must match (lint and version-check both
-refuse a drift). Notarization is still out: Gatekeeper needs right-click → Open on first
-launch.
+refuse a drift). The macOS app is ad-hoc signed and **not notarized, by decision** — there is
+no Apple Developer account behind this project, so do not add Developer ID signing or a
+notarization step. Gatekeeper needs right-click → Open on first launch, and the release notes
+say so.
 
 Expectations:
 
 - High coverage on `engine/core` (camera, tiles, history, shapes, paint commit).
-- `engine/ops` registry tests: platform beats core, `available()` gating, failed ops leave
-  the document untouched.
 - Pre-commit: fmt, clippy, ruff, purity.
 
 `cli/_helpers.py` holds shared paths, cargo helpers, and design-token accessors. Leaf tools
@@ -810,9 +789,10 @@ taper brush size along a stroke; `Engine::pointer_down`/`pointer_move` stay `(x,
 mouse/tablet are both full press. No tilt, barrel, tangential pressure, per-brush toggles, or
 shell curve UI.
 Raster paint tools only; vector-mode pen width stays on the item. Do not restart as a plan),
-BiRefNet / `ort`,
-GenerateTexture model manager, SuggestShape,
-Vectorize (`vtracer`),
+**smart tools** (removed for now — Upscale, Cut Out Subject and Content-Aware Narrow shipped
+once and were taken out with the `engine/ops` crate because they did not fit the product yet;
+git history has the implementation. BiRefNet / `ort`, GenerateTexture, SuggestShape and
+Vectorize were never started),
 layered PSD import wired into the app's import flow (`calumma-io` now has a real layered decoder —
 `decode_psd`/`DecodedPsd`/`DecodedLayer` in `io/src/psd.rs`, separate name/visibility/opacity/blend-mode/RGBA
 per layer, PackBits + raw channel data, `luni` Unicode names — but nothing on `Engine` exposes

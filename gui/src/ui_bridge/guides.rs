@@ -1,8 +1,8 @@
-use super::{AppWindow, GuideRow};
+use super::{AppWindow, GuideChrome, GuideRow};
 use crate::shell::{slint_color, AppController};
 use calumma_core::guide::GuideAxis;
 use calumma_core::PROJECT_COLORS;
-use slint::{ModelRc, SharedString, VecModel};
+use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
 
 fn format_offset(position: f32) -> String {
     if (position - position.round()).abs() < 0.05 {
@@ -29,8 +29,9 @@ pub fn sync_guides(ui: &AppWindow, controller: &AppController) {
     let count = rows.len();
     let limit = engine.guides_limit();
     drop(engine);
-    ui.set_guides(ModelRc::new(VecModel::from(rows)));
-    ui.set_can_add_guide(count < limit);
+    ui.global::<GuideChrome>()
+        .set_guides(ModelRc::new(VecModel::from(rows)));
+    ui.global::<GuideChrome>().set_can_add(count < limit);
 }
 
 pub fn sync_guide_palette(ui: &AppWindow) {

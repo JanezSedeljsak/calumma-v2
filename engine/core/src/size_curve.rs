@@ -2,7 +2,7 @@
 //!
 //! Both are product decisions, so both are here rather than in the shell: the panel hands the
 //! engine a 0..1 unit exactly the way the zoom pill hands it `zoom_unit`, and gets a size
-//! back. Nothing in Swift knows the curve, the exponent, or the range — the same reason
+//! back. Nothing in the shell knows the curve, the exponent, or the range — the same reason
 //! `Camera::zoom_from_unit` owns the log zoom curve.
 
 use crate::limits::{BRUSH_SIZE_MAX, BRUSH_SIZE_MIN, BRUSH_SIZE_STEP_RATIO, SIZE_CURVE_EXPONENT};

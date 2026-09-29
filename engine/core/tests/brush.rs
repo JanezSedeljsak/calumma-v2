@@ -16,8 +16,7 @@ fn pixel(doc: &Document, x: i32, y: i32) -> [u8; 4] {
         .get_pixel(x, y)
 }
 
-/// A slow drag: many points a fraction of a pixel apart, which is what a real pointer sends
-/// and what used to make every stamp overlap its neighbours almost completely.
+/// A slow drag: many points a fraction of a pixel apart, which is what a real pointer sends.
 fn slow_drag(doc: &mut Document, from: (f32, f32), to: (f32, f32), steps: usize) {
     let (sx, sy) = doc.camera.to_screen(from.0, from.1);
     doc.pointer_down(sx, sy);
@@ -32,10 +31,8 @@ fn slow_drag(doc: &mut Document, from: (f32, f32), to: (f32, f32), steps: usize)
     doc.pointer_up(ex, ey);
 }
 
-/// The bug the whole coverage model exists to kill. A stroke used to blend each stamp onto the
-/// last, so at any opacity below 1 the overlaps compounded and a slow drag came out as a dark
-/// beaded rope that got darker the slower you drew. One stroke is now one wash: every pixel
-/// the pen fully covered ends up at exactly the same alpha, however many segments crossed it.
+/// One stroke is one wash: every pixel the pen fully covered ends up at exactly the same alpha,
+/// however many segments crossed it.
 #[test]
 fn a_low_opacity_stroke_is_one_even_wash() {
     let mut doc = board();
@@ -78,8 +75,7 @@ fn a_second_pass_still_builds_up() {
     );
 }
 
-/// `Brush::Pen` is the brush Calumma always had, and picking it must not change a single pixel
-/// of what a stroke used to lay down — a hard edge feathered over exactly one pixel.
+/// `Brush::Pen` lays a hard edge feathered over exactly one pixel.
 #[test]
 fn the_pen_brush_keeps_a_hard_edge() {
     let mut doc = board();
@@ -413,8 +409,7 @@ fn a_stroke_on_a_moved_layer_lands_where_it_was_drawn() {
 }
 
 /// A pasted image bigger than the paper opens the layer's extent past the document, and the part
-/// hanging off is still part of the layer. The coverage used to be clipped to the *paper*, so a
-/// stroke out there was rasterised into nothing and silently did not happen.
+/// hanging off is still part of the layer, so a stroke out there has to land.
 #[test]
 fn a_stroke_lands_on_the_part_of_a_pasted_layer_that_hangs_off_the_paper() {
     let mut doc = Document::new("p".into(), "t", 64, 64);

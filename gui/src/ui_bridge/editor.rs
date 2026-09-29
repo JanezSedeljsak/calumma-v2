@@ -1,7 +1,7 @@
 use super::landing::accent_color;
 use super::{
-    brush, AppWindow, BrushEntry, FontFamilyRow, LayerChrome, LayerRow, ProjectTabRow, ToolChrome,
-    ToolEntry,
+    brush, AppWindow, BrushEntry, ColorChrome, FontFamilyRow, LayerChrome, LayerRow, ProjectTabRow,
+    ToolChrome, ToolEntry,
 };
 use crate::shell::{
     brush_icon_index, brush_label_key, format_bytes, grid_slot_selected, grid_slot_tip_key,
@@ -272,16 +272,22 @@ fn sync_text_chrome(chrome: ToolChrome, controller: &AppController, tool: Tool) 
 fn sync_color_tips(ui: &AppWindow, controller: &AppController, tool: Tool) {
     let put = |value: String| SharedString::from(value);
     if tool.takes_fill() {
-        ui.set_primary_color_label(put(controller.l10n.get("strokeColor")));
-        ui.set_secondary_color_label(put(controller.l10n.get("fillColor")));
+        ui.global::<ColorChrome>()
+            .set_primary_tip(put(controller.l10n.get("strokeColor")));
+        ui.global::<ColorChrome>()
+            .set_secondary_tip(put(controller.l10n.get("fillColor")));
     } else {
-        ui.set_primary_color_label(put(controller.l10n.get("primaryColor")));
-        ui.set_secondary_color_label(put(controller.l10n.get("secondaryColor")));
+        ui.global::<ColorChrome>()
+            .set_primary_tip(put(controller.l10n.get("primaryColor")));
+        ui.global::<ColorChrome>()
+            .set_secondary_tip(put(controller.l10n.get("secondaryColor")));
     }
     if tool == Tool::SelectColor {
-        ui.set_tertiary_color_label(put(controller.l10n.get("matchColor")));
+        ui.global::<ColorChrome>()
+            .set_tertiary_tip(put(controller.l10n.get("matchColor")));
     } else {
-        ui.set_tertiary_color_label(put(controller.l10n.get("tertiaryColor")));
+        ui.global::<ColorChrome>()
+            .set_tertiary_tip(put(controller.l10n.get("tertiaryColor")));
     }
 }
 
@@ -417,16 +423,24 @@ pub fn sync_layer_settings(ui: &AppWindow, controller: &AppController) {
 
 pub fn sync_color_picker(ui: &AppWindow, controller: &AppController) {
     let colors = &controller.quick_colors;
-    ui.set_color_swatch0(brush(slint_color(colors.slots[0])));
-    ui.set_color_swatch1(brush(slint_color(colors.slots[1])));
-    ui.set_color_swatch2(brush(slint_color(colors.slots[2])));
-    ui.set_color_swatch3(brush(slint_color(colors.slots[3])));
-    ui.set_active_color_swatch(colors.active as i32);
-    ui.set_color_hue_brush(hue_color(colors.hsb.hue));
-    ui.set_color_sb_x(colors.hsb.saturation);
-    ui.set_color_sb_y(1.0 - colors.hsb.brightness);
-    ui.set_color_hue_x(colors.hsb.hue);
-    ui.set_color_hex_text(SharedString::from(colors.hex_text().as_str()));
+    ui.global::<ColorChrome>()
+        .set_swatch0(brush(slint_color(colors.slots[0])));
+    ui.global::<ColorChrome>()
+        .set_swatch1(brush(slint_color(colors.slots[1])));
+    ui.global::<ColorChrome>()
+        .set_swatch2(brush(slint_color(colors.slots[2])));
+    ui.global::<ColorChrome>()
+        .set_swatch3(brush(slint_color(colors.slots[3])));
+    ui.global::<ColorChrome>()
+        .set_active_swatch(colors.active as i32);
+    ui.global::<ColorChrome>()
+        .set_hue_color(hue_color(colors.hsb.hue));
+    ui.global::<ColorChrome>().set_sb_x(colors.hsb.saturation);
+    ui.global::<ColorChrome>()
+        .set_sb_y(1.0 - colors.hsb.brightness);
+    ui.global::<ColorChrome>().set_hue_x(colors.hsb.hue);
+    ui.global::<ColorChrome>()
+        .set_hex_text(SharedString::from(colors.hex_text().as_str()));
 }
 
 fn sync_layer_bounds(ui: &AppWindow, controller: &AppController) {
@@ -533,12 +547,6 @@ pub fn sync_editor(ui: &AppWindow, controller: &mut AppController) {
         ui.set_doc_height_text(SharedString::from(format!("{height}")));
     }
     sync_project_tabs(ui, controller);
-    ui.set_tools_busy(controller.tools_busy);
-    ui.set_smart_matte_label(SharedString::from(controller.smart_matte_label().as_str()));
-    let can_tools = controller.can_run_smart_tools();
-    ui.set_can_upscale(can_tools);
-    ui.set_can_smart_matte(can_tools);
-    ui.set_can_seam_carve(can_tools);
     super::sync_rulers(ui, controller);
     super::sync_guides(ui, controller);
     super::sync_guide_readout(ui, controller);

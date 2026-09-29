@@ -208,10 +208,8 @@ fn transform_click_outside_the_box_exits_even_with_other_layers_around() {
 /// Retargeting must not cost the pre-existing behaviour it shares a code path with: an empty
 /// spot *inside* the box with nothing else under it is still a Move drag, not an exit.
 ///
-/// The box used to be tile-granular, so "inside the box but on nothing" was most of a 256px
-/// cell. It is tight to the pixels now, so the case has to be built rather than fallen into —
-/// two dots far apart on one layer, clicked between. That gap is the real shape of this rule:
-/// the hole in a donut, or the space between two strokes.
+/// Built as two dots far apart on one layer, clicked between — the hole in a donut, or the
+/// space between two strokes.
 #[test]
 fn transform_click_on_empty_space_inside_the_box_still_moves() {
     let mut doc = doc_with_viewport();
@@ -231,9 +229,7 @@ fn transform_click_on_empty_space_inside_the_box_still_moves() {
     assert!((doc.layer_transform(1).offset_x - 10.0).abs() < 1.0);
 }
 
-/// The other half of that, which the coarse box used to hide: clicking well clear of the
-/// content now leaves transform mode instead of grabbing a box that reached most of a tile
-/// past anything visible.
+/// The other half: clicking well clear of the content leaves transform mode.
 #[test]
 fn transform_click_well_outside_the_tight_box_exits() {
     let mut doc = doc_with_viewport();

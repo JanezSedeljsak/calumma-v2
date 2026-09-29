@@ -302,14 +302,6 @@ impl Document {
         Some((min.0, min.1, max.0, max.1))
     }
 
-    pub fn vector_item_count(&self, layer_index: usize) -> usize {
-        usize::from(
-            self.layers
-                .get(layer_index)
-                .is_some_and(|l| l.content.item().is_some()),
-        )
-    }
-
     /// The one place an item is moved: it maps the document-space delta into the layer's own
     /// space — the only difference between a pointer drag and an arrow-key nudge — before
     /// handing it to `edit`, which writes the new geometry into the item in place.

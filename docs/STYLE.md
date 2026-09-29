@@ -6,10 +6,11 @@ Platforms consume generated theme code — never hardcode hex in UI files.
 **Also summarized in `AGENTS.md` (Styling guide + Performance).** Prefer that file for
 agent context; keep this file as the expanded design reference.
 
-On macOS, compose `UI/Components.swift` primitives instead of local one-off styling.
-UI copy comes from `translations/<lang>.json` (loaded by the platform L10n layer). Dynamic
-bits use `{0}`, `{1}`, … filled by `l10n.formatKey(...)`. Visual tokens stay in
-`design/tokens.json` → `./manage.py tokens` → `Tokens.*`.
+Compose the calm primitives in `gui/ui/calm/` instead of local one-off styling.
+UI copy comes from `translations/<lang>.json` (loaded by `gui/src/shell/l10n.rs`). Dynamic
+bits use `{0}`, `{1}`, … filled by `Catalog::format`. Visual tokens stay in
+`design/tokens.json` → `gui/src/shell/theme.rs` → `ui_bridge::theme::apply_theme` → the
+`Theme` / `Tokens` Slint globals.
 
 ## Rules
 
@@ -69,7 +70,7 @@ bits use `{0}`, `{1}`, … filled by `l10n.formatKey(...)`. Visual tokens stay i
    `CAMetalLayer` subview, which draws *over* every Slint element inside its rect. Rulers stay
    *outside* that rectangle (inset strips along the island's top and left). The **zoom pill**
    (bottom-trailing) and the **layer hover preview** (left of the layers island) float over the
-   board the way they did in the frozen Swift shell: the shell punches those rectangles out of
+   board: the shell punches those rectangles out of
    the Metal view with a layer mask so Slint paints above the paper. Overlay chrome (modals,
    popovers, tooltips, toasts) *may* cover the whole board — the shell hides the Metal view
    while `overlay-chrome-open` is true so those layers paint. The one exception:
@@ -104,9 +105,9 @@ shell → `Engine::set_board_colors` → `PaperUniforms` → `board.wgsl`. Chang
 look is a `tokens.json` edit, never a shader edit.
 
 Project accent colors are **not** in this table — they are document data owned by
-`calumma_core::palette`, assigned core/io-side at project creation. There is no
-shell-facing getter for a palette color today (nothing on `Engine` re-exposes one since the
-ffi rewrite).
+`calumma_core::palette`. A new project's color is picked in core
+(`calumma_core::random_project_color`), and the New Project form and the project settings card
+read the palette from core rather than from tokens.
 
 ## Type
 
@@ -129,19 +130,17 @@ the gradient brightens, no outline.
 
 ## Editor
 
-Project tabs sit in one shared capsule with the `+` control — in the Swift shell that capsule
-lived in a **compact window titlebar** right of the traffic lights; `gui/` cannot put content
-in the OS titlebar, so the same capsule is the first row inside the window, above the islands.
+Project tabs sit in one shared capsule with the `+` control, the first row inside the window
+above the islands (`gui/` cannot put content in the OS titlebar).
 Selected tab is a soft highlight clipped to that capsule — not a second nested pill. Each tab
 carries its own project's accent dot, then the name, then `×`; clicking the dot opens the
-rename / recolor card (no `Engine` entry point for it in `gui/` yet, so the dot is a marker
-there). Top padding is tight (`space.xs`) so the board starts close under the titlebar.
+rename / recolor card. Top padding is tight (`space.xs`) so the board starts close under the titlebar.
 
 While a project loads, the canvas island holds a **skeleton** rather than the outgoing
 board: the desk with its squared paper, and one sweeping band across the rectangle the paper
 is about to fill (`CanvasSkeleton`, rule 7). Rulers stay up with ticks for the incoming
 project; only the canvas content is covered. Luminance only — no spinner, no label. The
-rectangle is fitted with the same `fit-padding` token the camera uses and the grid is the desk
+rectangle is the engine's own fit (`Engine::fit_preview`) and the grid is the desk
 lattice (`DeskGrid`), so the placeholder sits where the paper and its desk will be.
 
 Transform grips are white discs with a **thin grey ring** under them: a white grip on white
@@ -154,7 +153,7 @@ longer flush. The **zoom pill** floats bottom-trailing *inside* the canvas islan
 board: `−`, log slider, `+`, percentage, a fit-to-view icon (tooltip, no label). Layer list
 rows stay compact; hovering a row shows a thumbnail popover to the left of the island, over
 the board. Board hover outline remains a dashed
-WGSL stroke, not a Swift overlay.
+WGSL stroke, not a Slint overlay.
 
 A tools-panel slider row is a muted label, the value, and the track under both. Where the
 value can be *typed* — the size sliders — it is a `CalmSliderValueField` rather than printed
@@ -169,6 +168,6 @@ margin around the screen.
 - Add hairline borders “for clarity” to chips, swatches, the tool grid, or sliders — the
   `controlBorder` carve-out in rule 1 is inputs, buttons, and list rows only
 - Import Lucide / Heroicons / Font Awesome / similar
-- Style the canvas with SwiftUI shapes on top of the Metal view (a load-time placeholder for
+- Style the canvas with Slint shapes on top of the Metal view (a load-time placeholder for
   a board that has nothing on it yet is the one exception — rule 7)
-- Duplicate token values in Swift or Rust source
+- Duplicate token values in Rust or Slint source

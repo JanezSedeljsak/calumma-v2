@@ -70,8 +70,6 @@ fn content_bounds_is_tight_to_the_painted_pixels() {
     assert_eq!(layer.content_bounds(), Some((10.0, 10.0, 601.0, 701.0)));
 }
 
-/// The case that sent this back: a paste fills a rectangle that does not line up with the tile
-/// grid, and the `⌘T` frame used to be drawn around the tiles instead of around the picture.
 #[test]
 fn a_paste_sized_rectangle_reports_its_own_size_not_its_tiles() {
     let mut layer = Layer::new("p", 1024, 1024);
@@ -163,8 +161,8 @@ fn an_empty_layer_of_any_kind_has_no_bounds() {
     assert_eq!(Layer::vector("V", unbound_item()).content_bounds(), None);
 }
 
-/// Blend modes cross the FFI as plain integers, so an unknown value has to come back as
-/// `None` rather than silently landing on Normal.
+/// Blend modes travel as plain integers, so an unknown value has to come back as `None`
+/// rather than silently landing on Normal.
 #[test]
 fn a_blend_mode_round_trips_through_its_wire_value_and_refuses_anything_else() {
     for &mode in BlendMode::MENU.iter().flat_map(|group| group.iter()) {

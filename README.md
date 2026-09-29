@@ -36,7 +36,6 @@ Landing → create/preset/recent → editor with tools panel and board embed.
 | `engine/` | Calumma engine — Cargo workspace (`Cargo.toml`, rustfmt, clippy) + crates |
 | `engine/core` | document, tiles, camera, history, shapes |
 | `engine/io` | SQLite projects |
-| `engine/ops` | AI/image op registry (Cut BG shipped; see AGENTS) |
 | `engine/render` | wgpu (surface from shell) |
 | `engine/app` | Rust API (`Engine`, `NativeSurface`) for the GUI shell |
 | `engine/ffi` | Real `Engine`/`Inner` implementation. No C ABI any more (`crate-type = ["rlib"]` only) — `calumma-app` re-exports it as plain Rust |
@@ -69,5 +68,5 @@ a GitHub release on a version bump.
 
 - Projects: OS-native app-data dir + `Miw/miw.sqlite` (`ProjectStore::default_path`,
   via `dirs` — never a hardcoded path).
-- The legacy Swift shell lives in `legacy-macos-shell/` (gitignored reference) — do not
-  extend it. The earlier Qt shell (`ui/`) has been removed entirely, not archived.
+- `gui/` (Rust + Slint) is the only shell on every platform; the earlier Swift and Qt shells
+  are gone.

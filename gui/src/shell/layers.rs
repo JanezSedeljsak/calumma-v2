@@ -104,7 +104,7 @@ impl LayerThumbCache {
 }
 
 fn checker_rgb(x: u32, y: u32, dark: bool) -> (u8, u8, u8) {
-    let on = ((x / CHECKER_CELL) + (y / CHECKER_CELL)) % 2 == 0;
+    let on = ((x / CHECKER_CELL) + (y / CHECKER_CELL)).is_multiple_of(2);
     if dark {
         if on {
             (0x24, 0x2C, 0x32)

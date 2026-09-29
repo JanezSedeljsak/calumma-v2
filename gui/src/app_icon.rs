@@ -1,4 +1,7 @@
+use crate::ui_bridge::AppWindow;
+use i_slint_backend_winit::WinitWindowAccessor;
 use image::{Rgba, RgbaImage};
+use slint::ComponentHandle;
 use slint::{Image, Rgba8Pixel, SharedPixelBuffer};
 use std::sync::OnceLock;
 
@@ -77,4 +80,38 @@ fn rgba_image(img: &RgbaImage) -> Image {
     let (w, h) = img.dimensions();
     let buffer = SharedPixelBuffer::<Rgba8Pixel>::clone_from_slice(img.as_raw(), w, h);
     Image::from_rgba8(buffer)
+}
+
+pub fn set_window_icon(ui: &AppWindow) {
+    if let Ok(loaded) = image::load_from_memory(dock_png()) {
+        let rgba = loaded.to_rgba8();
+        let (width, height) = rgba.dimensions();
+        let raw = rgba.into_raw();
+        ui.window().with_winit_window(|window| {
+            if let Ok(icon) = winit::window::Icon::from_rgba(raw.clone(), width, height) {
+                window.set_window_icon(Some(icon));
+            }
+        });
+    }
+    #[cfg(target_os = "macos")]
+    set_dock_icon(dock_png());
+}
+
+#[cfg(target_os = "macos")]
+fn set_dock_icon(png_bytes: &[u8]) {
+    use objc2::rc::Retained;
+    use objc2::{AnyThread, MainThreadMarker};
+    use objc2_app_kit::{NSApplication, NSImage};
+    use objc2_foundation::NSData;
+
+    let Some(mtm) = MainThreadMarker::new() else {
+        return;
+    };
+    let data = NSData::with_bytes(png_bytes);
+    let image: Option<Retained<NSImage>> = NSImage::initWithData(NSImage::alloc(), &data);
+    if let Some(image) = image {
+        let app = NSApplication::sharedApplication(mtm);
+        app.setActivationPolicy(objc2_app_kit::NSApplicationActivationPolicy::Regular);
+        unsafe { app.setApplicationIconImage(Some(&image)) };
+    }
 }

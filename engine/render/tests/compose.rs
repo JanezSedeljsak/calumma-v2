@@ -675,8 +675,7 @@ fn zooming_changes_how_round_the_ring_is_drawn_but_not_how_wide_its_line_is() {
 
 /// Zoomed far enough out that the *chosen* brush would be under a screen pixel, the ring is
 /// still a ring: `Document::effective_brush_size` lifts the brush to `BRUSH_MIN_SCREEN_PX` across
-/// first, so there is no size at which the cursor degenerates into a smudge. This used to
-/// collapse to a single dot at exactly this threshold.
+/// first, so there is no size at which the cursor degenerates into a smudge.
 #[test]
 fn a_ring_stays_a_ring_however_far_the_board_is_zoomed_out() {
     let doc = brush_board(0.05, 20.0);

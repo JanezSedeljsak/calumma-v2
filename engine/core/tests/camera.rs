@@ -34,9 +34,8 @@ fn min_zoom_fills_the_floor_fraction_of_the_viewport() {
     assert!((fill_w.max(fill_h) - MIN_ZOOM_FILL).abs() < 1e-4);
 }
 
-/// The regression the whole decoupling exists for: `max_zoom` used to be `min_zoom` times a
-/// factor, so two documents that fit the same viewport very differently got very different
-/// ceilings — and lowering the floor lowered the ceiling with it.
+/// `max_zoom` is not a multiple of `min_zoom`: documents that fit the viewport very differently
+/// still share a ceiling.
 #[test]
 fn max_zoom_does_not_follow_the_floor() {
     let c = cam(1200.0, 800.0);
@@ -384,4 +383,35 @@ fn a_pan_off_centre_stops_reading_as_fitted_even_at_the_fit_zoom() {
     c.pan_by(60.0, 0.0, 1920.0, 1080.0);
     assert!((c.zoom - c.fit_zoom(1920.0, 1080.0)).abs() < 1e-5);
     assert!(!c.is_fit(1920.0, 1080.0));
+}
+
+#[test]
+fn fitted_is_what_fit_would_leave_and_leaves_the_probe_alone() {
+    let probe = cam(1200.0, 700.0);
+    let preview = probe.fitted(1920.0, 1080.0);
+    let mut fitted = probe;
+    fitted.fit(1920.0, 1080.0);
+    assert_eq!(preview, fitted);
+    assert_eq!(probe, cam(1200.0, 700.0));
+    assert_eq!(preview.ruler_ticks_x(), fitted.ruler_ticks_x());
+}
+
+#[test]
+fn paper_rect_is_where_the_camera_draws_the_paper() {
+    let fitted = cam(1200.0, 700.0).fitted(1920.0, 1080.0);
+    let [x, y, w, h] = fitted.paper_rect(1920.0, 1080.0);
+    let (sx, sy) = fitted.to_screen(0.0, 0.0);
+    let (ex, ey) = fitted.to_screen(1920.0, 1080.0);
+    assert!((x - sx).abs() < 1e-3 && (y - sy).abs() < 1e-3);
+    assert!((w - (ex - sx)).abs() < 1e-3 && (h - (ey - sy)).abs() < 1e-3);
+}
+
+#[test]
+fn a_fitted_paper_is_centred_and_padded() {
+    let [x, y, w, h] = cam(1000.0, 1000.0)
+        .fitted(500.0, 250.0)
+        .paper_rect(500.0, 250.0);
+    assert!((w - 1000.0 * FIT_PADDING).abs() < 1e-3);
+    assert!((x + w / 2.0 - 500.0).abs() < 1e-3);
+    assert!((y + h / 2.0 - 500.0).abs() < 1e-3);
 }

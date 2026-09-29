@@ -5,8 +5,7 @@ use crate::shape::{Shape, Tool};
 use crate::transform::{bounds_center, LayerTransform};
 use crate::vector::VectorItem;
 
-/// Fill and stroke as the two independent SVG attributes they natively are, which is a
-/// closer match to the format than the either/or this used to emit. A part that is switched
+/// Fill and stroke as the two independent SVG attributes they natively are. A part that is switched
 /// off is `fill="none"` / no stroke attributes at all, so the file never carries a color
 /// for something the board does not draw.
 fn svg_paint(fill: Option<[u8; 4]>, stroke: Option<([u8; 4], f32)>) -> String {

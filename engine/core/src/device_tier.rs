@@ -182,8 +182,7 @@ mod tests {
         );
     }
 
-    /// The regression guard for the whole slice: on the machine the app actually runs on, with
-    /// no pressure reported, every number has to be exactly what it was before a tier existed.
+    /// On a standard device with no pressure reported, every number is the untiered default.
     #[test]
     fn a_standard_device_under_no_pressure_costs_exactly_what_it_always_did() {
         let budget = GpuBudget::new(DeviceTier::Standard);

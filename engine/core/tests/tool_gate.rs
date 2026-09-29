@@ -177,8 +177,8 @@ fn an_empty_layer_has_nothing_to_transform() {
     assert_eq!(doc.tool_block(Tool::Pen), ToolBlock::None);
 }
 
-/// The regression the whole plan is about: every guard the engine already had now agrees with
-/// the table, so a tool the panel greys out is a tool the engine refuses, and the reverse.
+/// Every engine guard agrees with the table: a tool the panel greys out is a tool the engine
+/// refuses, and the reverse.
 #[test]
 fn the_engines_own_guards_agree_with_the_table() {
     for mut doc in [with_text(), with_vector()] {

@@ -147,6 +147,14 @@ impl Engine {
         self.edit_text_session(|doc| doc.text_insert(text));
     }
 
+    pub fn text_set_composition(&mut self, text: &str, cursor: Option<usize>) {
+        self.edit_text_session(|doc| doc.text_set_composition(text, cursor));
+    }
+
+    pub fn text_caret_screen_rect(&self) -> Option<[f32; 4]> {
+        self.with_doc(Document::text_caret_screen_rect).flatten()
+    }
+
     pub fn text_backspace(&mut self) {
         self.edit_text_session(Document::text_backspace);
     }

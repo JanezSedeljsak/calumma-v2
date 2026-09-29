@@ -187,10 +187,8 @@ impl StrokeCoverage {
     /// says whether the target has to be wiped first. Appending is exact rather than an
     /// approximation: the blend op is `Max`, which is idempotent and order-independent, so
     /// unioning segment N into pixels that already hold the union of segments 0..N is the same
-    /// value as unioning 0..N+1 from an empty target. Redrawing the whole stroke every frame —
-    /// which is what this used to do, complete with a full-viewport clear — made a live stroke
-    /// cost O(points) per frame and O(points²) over the gesture, so the brush got heavier the
-    /// longer the line got. Now it costs the segments the pointer actually travelled.
+    /// value as unioning 0..N+1 from an empty target. So a frame costs the segments the pointer actually
+    /// travelled, not the whole stroke.
     pub(crate) fn accumulate(
         &self,
         encoder: &mut wgpu::CommandEncoder,

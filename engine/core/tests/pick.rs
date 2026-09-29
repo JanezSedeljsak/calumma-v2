@@ -1,8 +1,5 @@
-//! The three ways a click that looked like it landed on a layer used to be rejected.
-//!
-//! Each test here is one row of the 2026-08-24 audit that reopened this: a 1px stroke clicked
-//! two document pixels off centre missed, a pixel at alpha 1 claimed the click, and a locked
-//! layer swallowed it in silence.
+//! Picking by region: a thin stroke is catchable slightly off centre, a near-transparent pixel
+//! does not claim the click, and a locked layer says why it refused.
 
 use calumma_core::document::*;
 use calumma_core::shape::Tool;

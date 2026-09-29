@@ -395,8 +395,10 @@ mod tests {
 
     #[test]
     fn cmd_or_option_is_a_pan_chord() {
-        let mut mods = ModifierState::default();
-        mods.meta_held = true;
+        let mut mods = ModifierState {
+            meta_held: true,
+            ..Default::default()
+        };
         assert!(pan_chord(mods, Tool::Pen));
         mods.meta_held = false;
         mods.alt_held = true;

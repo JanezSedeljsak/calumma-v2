@@ -49,9 +49,8 @@ pub const BRUSH_SIZE_DEFAULT: f32 = BRUSH_SIZE_MIN;
 pub const BRUSH_SIZE_STEP_RATIO: f32 = 0.1;
 
 /// How a size slider maps its 0..1 travel onto a size range: `min + (max - min) * unit^E`.
-/// Quadratic, because on a *linear* 1..1000 slider everything the old 96px range covered is
-/// squeezed into the first tenth of the track, and a 96pt-wide panel slider has no tenth to
-/// spare. Squared, half the travel lands under a quarter of the range — where the sizes
+/// Quadratic, because on a *linear* 1..1000 slider every everyday size is squeezed into the
+/// first tenth of the track, and a 96pt-wide panel slider has no tenth to spare. Squared, half the travel lands under a quarter of the range — where the sizes
 /// anyone dials by hand actually are — and the far half still reaches 1000. One exponent for
 /// brush size and text size, so the two sliders feel the same under the thumb.
 pub const SIZE_CURVE_EXPONENT: f32 = 2.0;
@@ -167,13 +166,8 @@ pub const LAYER_DATA_CAPACITY: usize = 64;
 /// Swapchain queue depth, fixed for the life of the surface. One, not two: this is an
 /// interactive editor, so a shallower queue is always the right trade — a deeper one only buys
 /// throughput headroom the board does not need, and costs a frame of pen-to-pixel latency.
-///
-/// It used to be raised and lowered around each camera gesture, which meant calling
-/// `Surface::configure` mid-gesture — and wgpu drains the entire GPU queue before it will
-/// reconfigure a surface (`Device::configure_surface` polls with `PollType::wait_indefinitely`).
-/// That put a full pipeline stall on the main thread inside the first `mouseDragged` of every
-/// pan, and another one four idle frames after the last. Whatever the deeper queue was worth,
-/// it did not cover that.
+/// Fixed rather than changed per gesture: wgpu drains the whole GPU queue before it will
+/// reconfigure a surface, so resizing the queue mid-gesture stalls the main thread.
 pub const SURFACE_FRAME_LATENCY: u32 = 1;
 pub const CAMERA_MOTION_IDLE_FRAMES: u32 = 4;
 
@@ -272,7 +266,7 @@ pub const TOLERANCE_DEFAULT: u8 = 24;
 
 /// One step of `Document::nudge_layer_adjustment`. Adjustments are continuous and a discrete
 /// caller has to choose a step, so the step is a product constant and lives here — not in the
-/// shell. The menu that used to call it is gone; the engine-side step is not.
+/// shell.
 pub const ADJUSTMENT_NUDGE_STEP: f32 = 0.05;
 /// Gamma is a multiplier around 1.0 on a 0.1–4.0 range, not a −1..1 offset, so it needs
 /// a coarser step than the other four to move a visible amount per press.
@@ -355,3 +349,13 @@ pub const SVG_VECTOR_MAX_PATHS: usize = 256;
 pub const SVG_FLATTEN_TOLERANCE_PX: f32 = 0.2;
 /// Upper bound on the chords one bézier segment is flattened into, whatever its size.
 pub const SVG_FLATTEN_MAX_STEPS: u32 = 256;
+
+/// A Shift-dragged Line or Arrow snaps its direction to multiples of this (45°).
+pub const SHIFT_ANGLE_STEP: f32 = std::f32::consts::FRAC_PI_4;
+/// `height / width` of an equilateral triangle standing on its base (√3 / 2).
+pub const EQUILATERAL_HEIGHT_RATIO: f32 = 0.866_025_4;
+
+/// The shortest time a tab switch keeps the canvas skeleton up, counted from the click. A
+/// project that loads faster than this would otherwise flash the skeleton for a frame or
+/// two; one that loads slower hands over the moment it is ready.
+pub const SKELETON_MIN_HOLD_MS: u64 = 200;

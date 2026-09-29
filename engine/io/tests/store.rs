@@ -49,8 +49,7 @@ fn paint_index(doc: &Document) -> usize {
 
 /// A pasted image bigger than the paper stores tiles outside the document rectangle. A fresh
 /// grid holds only the document, so unless the loader widens it first, reopening the project is
-/// exactly where that overflow disappears — the same silent data loss the crop used to cause,
-/// just deferred to the next launch.
+/// exactly where that overflow would disappear.
 #[test]
 fn an_overflowing_layer_survives_a_reopen() {
     let (_dir, store) = store();

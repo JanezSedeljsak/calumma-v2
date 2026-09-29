@@ -18,13 +18,35 @@ fn rows(ticks: &[calumma_core::RulerTick], zoom: f32, pan: f32, scale: f32) -> V
 }
 
 pub fn sync_rulers(ui: &AppWindow, controller: &AppController) {
-    let scale = ui.window().scale_factor().max(0.01);
     let engine = controller.engine.borrow();
     let zoom = engine.zoom_factor();
     let (pan_x, pan_y) = engine.camera_pan();
-    let x = rows(&engine.ruler_ticks_x(), zoom, pan_x, scale);
-    let y = rows(&engine.ruler_ticks_y(), zoom, pan_y, scale);
+    let ticks_x = engine.ruler_ticks_x();
+    let ticks_y = engine.ruler_ticks_y();
     drop(engine);
+    set_rulers(ui, &ticks_x, &ticks_y, zoom, (pan_x, pan_y));
+}
+
+pub fn sync_ruler_preview(ui: &AppWindow, camera: &calumma_core::Camera) {
+    set_rulers(
+        ui,
+        &camera.ruler_ticks_x(),
+        &camera.ruler_ticks_y(),
+        camera.zoom,
+        (camera.pan_x, camera.pan_y),
+    );
+}
+
+fn set_rulers(
+    ui: &AppWindow,
+    ticks_x: &[calumma_core::RulerTick],
+    ticks_y: &[calumma_core::RulerTick],
+    zoom: f32,
+    (pan_x, pan_y): (f32, f32),
+) {
+    let scale = ui.window().scale_factor().max(0.01);
+    let x = rows(ticks_x, zoom, pan_x, scale);
+    let y = rows(ticks_y, zoom, pan_y, scale);
     ui.set_ruler_ticks_x(ModelRc::new(VecModel::from(x)));
     ui.set_ruler_ticks_y(ModelRc::new(VecModel::from(y)));
 }

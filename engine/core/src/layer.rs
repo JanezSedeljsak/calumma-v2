@@ -423,18 +423,16 @@ impl Layer {
     /// The box the layer actually occupies: tight to its non-transparent pixels for anything
     /// with tiles, and the item's parametric bounds for a vector.
     ///
-    /// **This used to be tile-granular** — the union of the 256×256 cells that held anything —
-    /// which meant a pasted 300×200 photo reported a 512×256 box and the `⌘T` frame drew
-    /// visibly wider than the picture inside it. Worse, the transform *pivot* is the centre of
-    /// this box on both the CPU and the GPU, so scaling and rotation turned about a point that
-    /// depended on where the content happened to fall against the tile grid.
+    /// Tight rather than tile-granular because the transform *pivot* is the centre of this box on
+    /// both the CPU and the GPU: a coarse box would frame a pasted photo visibly wider than the
+    /// picture and turn it about a point that depended on the tile grid.
     ///
     /// Everything that answers "where is this layer" reads this one function — the transform
     /// frame and its handles, the pivot in `vs_tile` and in the flatten walk, the hover
     /// outline, the pick reject, `Move`. They have to agree, so there is one definition rather
     /// than a cheap one for the hot path and a tight one for the UI.
     ///
-    /// A layer whose tiles exist but hold nothing opaque now reports `None`, the same as an
+    /// A layer whose tiles exist but hold nothing opaque reports `None`, the same as an
     /// empty one. That is the honest answer: there is nothing there to frame, transform or pick.
     pub fn content_bounds(&self) -> Option<(f32, f32, f32, f32)> {
         match &self.content {

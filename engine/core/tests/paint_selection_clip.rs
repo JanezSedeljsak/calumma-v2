@@ -120,7 +120,7 @@ fn a_rect_shape_clips_to_the_active_selection() {
     );
 }
 
-/// Painting with no selection at all is unclipped, exactly as before this fix.
+/// Painting with no selection at all is unclipped.
 #[test]
 fn no_selection_means_no_clipping() {
     let mut doc = board();

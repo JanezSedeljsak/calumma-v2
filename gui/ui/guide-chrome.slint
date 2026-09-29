@@ -1,0 +1,25 @@
+import { GuideRow } from "models.slint";
+
+export global GuideChrome {
+    in property <string> title-text;
+    in property <string> hint-text;
+    in property <string> empty-text;
+    in property <string> add-label;
+    in property <string> full-text;
+    in property <string> top-label;
+    in property <string> left-label;
+    in property <string> delete-tip;
+    in property <string> clear-label;
+    in property <[GuideRow]> guides;
+    in property <bool> can-add;
+    in-out property <bool> add-horizontal: true;
+    in-out property <string> add-offset;
+
+    callback dismissed();
+    callback add-guide();
+    callback remove-guide(int);
+    callback clear-guides();
+    callback set-axis(int, bool);
+    callback set-offset(int, string);
+    callback set-color(int, int);
+}

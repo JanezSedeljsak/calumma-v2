@@ -27,6 +27,11 @@ pub struct TextEdit {
     /// caret mutation resets it unless the motion was shift-extended — that one rule is what
     /// keeps selection from leaking into every call site.
     pub anchor: usize,
+    /// The byte range of an input method's in-flight composition, which sits in the run like
+    /// any other text so layout, wrapping and the caret all see it. It is provisional: every
+    /// real edit drops it first, and so does closing the session, so it never reaches history
+    /// or outlives the typing it belongs to.
+    pub(crate) composition: Option<(usize, usize)>,
     layer_id: String,
     created: bool,
     before: TileSnapshot,
@@ -225,6 +230,7 @@ impl Document {
             layer: index,
             caret: 0,
             anchor: 0,
+            composition: None,
             layer_id,
             created,
             before,
@@ -253,6 +259,7 @@ impl Document {
     }
 
     pub fn commit_text(&mut self) {
+        self.drop_text_composition();
         let Some(edit) = self.text_edit.take() else {
             return;
         };

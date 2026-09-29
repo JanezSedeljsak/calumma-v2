@@ -256,13 +256,28 @@ fn an_unknown_wire_value_is_not_a_tool() {
     assert_eq!(Tool::from_u32(0), Some(Tool::Pen));
 }
 
-/// Shift squares a Rect or an Ellipse and nothing else — Line and Arrow want an angle snap
-/// and the polygons a regular-polygon lock, which are different clamps that were not built.
 #[test]
-fn only_rect_and_ellipse_constrain_to_a_square() {
-    assert!(Tool::Rect.constrains_to_square() && Tool::Ellipse.constrains_to_square());
-    for tool in [Tool::Line, Tool::Arrow, Tool::Triangle, Tool::Pentagon] {
-        assert!(!tool.constrains_to_square(), "{tool:?}");
+fn shift_constrains_every_shape_tool_and_nothing_else() {
+    use calumma_core::shape::ShiftConstraint;
+    for tool in [Tool::Rect, Tool::Ellipse, Tool::Pentagon] {
+        assert_eq!(
+            tool.shift_constraint(),
+            Some(ShiftConstraint::Aspect(1.0)),
+            "{tool:?}"
+        );
+    }
+    assert!(matches!(
+        Tool::Triangle.shift_constraint(),
+        Some(ShiftConstraint::Aspect(r)) if (r - 3f32.sqrt() / 2.0).abs() < 1e-6
+    ));
+    for tool in [Tool::Line, Tool::Arrow] {
+        assert!(
+            matches!(tool.shift_constraint(), Some(ShiftConstraint::Angle(_))),
+            "{tool:?}"
+        );
+    }
+    for tool in [Tool::Pen, Tool::Eraser, Tool::Fill, Tool::Move, Tool::Text] {
+        assert_eq!(tool.shift_constraint(), None, "{tool:?}");
     }
 }
 

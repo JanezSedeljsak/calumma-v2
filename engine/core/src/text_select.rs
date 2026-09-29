@@ -119,6 +119,23 @@ impl Document {
         selection_rects(run, start, end)
     }
 
+    /// One row per visual line of an input method's composition, which the board underlines.
+    pub fn text_composition_rows(&self) -> Vec<SelectionRect> {
+        let (Some((start, end)), Some(run)) = (self.text_composition(), self.editing_run()) else {
+            return Vec::new();
+        };
+        selection_rects(run, start, end)
+    }
+
+    /// The caret in *screen* space, as `[x, y, width, height]` — where an input method's
+    /// candidate window should open so it does not cover what is being typed.
+    pub fn text_caret_screen_rect(&self) -> Option<[f32; 4]> {
+        let ((x, y0), (_, y1)) = self.text_caret_segment()?;
+        let (sx, sy0) = self.camera.to_screen(x, y0);
+        let (_, sy1) = self.camera.to_screen(x, y1);
+        Some([sx, sy0, 1.0, (sy1 - sy0).max(1.0)])
+    }
+
     pub fn text_caret_color(&self) -> [u8; 4] {
         self.editing_run()
             .map(|run| run.color)

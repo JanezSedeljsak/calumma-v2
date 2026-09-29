@@ -50,33 +50,12 @@ export component Editor inherits Rectangle {
     in property <string> fit-tip;
 
     in property <bool> loading;
-    in property <float> loading-doc-width;
-    in property <float> loading-doc-height;
+    in property <length> loading-paper-x;
+    in property <length> loading-paper-y;
+    in property <length> loading-paper-width;
+    in property <length> loading-paper-height;
 
-    in property <bool> tools-busy;
-    in property <string> tools-menu-title;
-    in property <string> upscale-label;
-    in property <string> smart-matte-label;
-    in property <string> seam-carve-label;
-    in property <bool> can-upscale;
-    in property <bool> can-smart-matte;
-    in property <bool> can-seam-carve;
 
-    in property <string> color-label;
-    in property <brush> color-swatch0;
-    in property <brush> color-swatch1;
-    in property <brush> color-swatch2;
-    in property <brush> color-swatch3;
-    in property <int> active-color-swatch;
-    in property <color> color-hue-brush;
-    in property <string> primary-color-label;
-    in property <string> secondary-color-label;
-    in property <string> tertiary-color-label;
-    in property <string> quaternary-color-label;
-    in-out property <float> color-sb-x;
-    in-out property <float> color-sb-y;
-    in-out property <float> color-hue-x;
-    in-out property <string> color-hex-text;
 
     out property <length> board-x: board-surface.absolute-position.x;
     out property <length> board-y: board-surface.absolute-position.y;
@@ -146,13 +125,6 @@ export component Editor inherits Rectangle {
     callback clear-layer-hover();
     callback commit-layer-bounds(string, string, string, string);
     callback commit-canvas-size(string, string);
-    callback run-upscale();
-    callback run-smart-matte();
-    callback run-seam-carve();
-    callback select-color-swatch(int);
-    callback color-sb-changed(float, float);
-    callback color-hue-changed(float);
-    callback color-hex-changed(string);
     callback pointer-pressed(float, float, bool, bool, bool, bool);
     callback pointer-moved(float, float);
     callback pointer-released(float, float);
@@ -182,29 +154,6 @@ export component Editor inherits Rectangle {
                 vertical-stretch: 1;
                 tools: root.tools;
                 active-tool-label: root.active-tool-label;
-                color-label: root.color-label;
-                tools-menu-title: root.tools-menu-title;
-                tools-busy: root.tools-busy;
-                upscale-label: root.upscale-label;
-                smart-matte-label: root.smart-matte-label;
-                seam-carve-label: root.seam-carve-label;
-                can-upscale: root.can-upscale;
-                can-smart-matte: root.can-smart-matte;
-                can-seam-carve: root.can-seam-carve;
-                color-swatch0: root.color-swatch0;
-                color-swatch1: root.color-swatch1;
-                color-swatch2: root.color-swatch2;
-                color-swatch3: root.color-swatch3;
-                active-color-swatch: root.active-color-swatch;
-                color-hue-brush: root.color-hue-brush;
-                primary-color-label: root.primary-color-label;
-                secondary-color-label: root.secondary-color-label;
-                tertiary-color-label: root.tertiary-color-label;
-                quaternary-color-label: root.quaternary-color-label;
-                color-sb-x <=> root.color-sb-x;
-                color-sb-y <=> root.color-sb-y;
-                color-hue-x <=> root.color-hue-x;
-                color-hex-text <=> root.color-hex-text;
                 pick-tool(id) => {
                     root.pick-tool(id);
                 }
@@ -258,27 +207,6 @@ export component Editor inherits Rectangle {
                 }
                 cancel-crop => {
                     root.cancel-crop();
-                }
-                select-color-swatch(i) => {
-                    root.select-color-swatch(i);
-                }
-                color-sb-changed(x, y) => {
-                    root.color-sb-changed(x, y);
-                }
-                color-hue-changed(x) => {
-                    root.color-hue-changed(x);
-                }
-                color-hex-changed(text) => {
-                    root.color-hex-changed(text);
-                }
-                run-upscale => {
-                    root.run-upscale();
-                }
-                run-smart-matte => {
-                    root.run-smart-matte();
-                }
-                run-seam-carve => {
-                    root.run-seam-carve();
                 }
             }
 
@@ -441,8 +369,10 @@ export component Editor inherits Rectangle {
                                 y: 0px;
                                 width: 100%;
                                 height: 100%;
-                                doc-width: root.loading-doc-width;
-                                doc-height: root.loading-doc-height;
+                                paper-x: root.loading-paper-x;
+                                paper-y: root.loading-paper-y;
+                                paper-width: root.loading-paper-width;
+                                paper-height: root.loading-paper-height;
                             }
                         }
                     }

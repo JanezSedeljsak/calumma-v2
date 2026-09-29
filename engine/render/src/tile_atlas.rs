@@ -9,30 +9,6 @@ pub(crate) fn tile_mip_levels() -> u32 {
     TILE_SIZE.ilog2() + 1
 }
 
-/// One shared `texture_2d_array` holding every GPU-resident tile across the whole document —
-/// every layer, pooled together, addressed by array-layer index. The point is draw calls:
-/// with one texture per tile (the old design), every visible tile needed its own bind group
-/// and its own `draw()`. With a shared array, a whole document layer's tiles become a single
-/// instanced draw — the array bound once, a per-tile origin and array-layer index riding in
-/// an instance buffer. On a large, multi-layer, zoomed-out document, or on a weak integrated
-/// GPU where per-draw-call overhead dominates, that is the difference between a few dozen
-/// draw calls a frame and several thousand.
-///
-/// Grown (never shrunk) on demand, doubling from [`TILE_ATLAS_INITIAL_CAPACITY`] up to
-/// `max_capacity` — so a small document never pays VRAM for a big array, since a `wgpu::Texture`
-/// reserves storage for its whole declared layer count regardless of how much is written. Once
-/// `max_capacity` is reached, [`TileAtlas::allocate`] returns `None` and the caller — `sync_tiles`
-/// in `renderer.rs` — is responsible for freeing a slot first, which in practice means evicting
-/// a prefetch-margin tile (one retained just outside the viewport) before ever giving up
-/// something the viewport can actually see.
-///
-/// Every layer carries a full mip chain (see `compose::tile_mip_chain`), so panning or zooming
-/// out samples pre-filtered, smaller mips instead of raw 256×256 texels through a plain bilinear
-/// filter — which is what shimmering/moiré during a pan actually is: minification aliasing from
-/// sampling a texture well below its native resolution with no mips to fall back to. The chain
-/// adds roughly a third more storage on top of the base level (256×256 → ~1.33×), so the atlas's
-/// real worst case is closer to 1.3GiB than the 1GiB `TILE_ATLAS_MAX_CAPACITY * TILE_BYTES`
-/// alone would suggest — accounted for in [`TileAtlas::capacity_bytes`].
 /// The two samplers every atlas bind group carries, differing only in `mag_filter`. Which one
 /// `fs_tile` reads is a per-frame decision on `TileCamera::crisp` rather than a rebind: past
 /// `limits::CRISP_PIXEL_ZOOM` the board is magnifying, and a bilinear tap turns one texel into
@@ -83,6 +59,30 @@ pub struct SharedBindings<'a> {
     pub samplers: &'a TileSamplers,
 }
 
+/// One shared `texture_2d_array` holding every GPU-resident tile across the whole document —
+/// every layer, pooled together, addressed by array-layer index. The point is draw calls:
+/// with one texture per tile, every visible tile would need its own bind group
+/// and its own `draw()`. With a shared array, a whole document layer's tiles become a single
+/// instanced draw — the array bound once, a per-tile origin and array-layer index riding in
+/// an instance buffer. On a large, multi-layer, zoomed-out document, or on a weak integrated
+/// GPU where per-draw-call overhead dominates, that is the difference between a few dozen
+/// draw calls a frame and several thousand.
+///
+/// Grown (never shrunk) on demand, doubling from [`TILE_ATLAS_INITIAL_CAPACITY`] up to
+/// `max_capacity` — so a small document never pays VRAM for a big array, since a `wgpu::Texture`
+/// reserves storage for its whole declared layer count regardless of how much is written. Once
+/// `max_capacity` is reached, [`TileAtlas::allocate`] returns `None` and the caller — `sync_tiles`
+/// in `renderer.rs` — is responsible for freeing a slot first, which in practice means evicting
+/// a prefetch-margin tile (one retained just outside the viewport) before ever giving up
+/// something the viewport can actually see.
+///
+/// Every layer carries a full mip chain (see `compose::tile_mip_chain`), so panning or zooming
+/// out samples pre-filtered, smaller mips instead of raw 256×256 texels through a plain bilinear
+/// filter — which is what shimmering/moiré during a pan actually is: minification aliasing from
+/// sampling a texture well below its native resolution with no mips to fall back to. The chain
+/// adds roughly a third more storage on top of the base level (256×256 → ~1.33×), so the atlas's
+/// real worst case is closer to 1.3GiB than the 1GiB `TILE_ATLAS_MAX_CAPACITY * TILE_BYTES`
+/// alone would suggest — accounted for in [`TileAtlas::capacity_bytes`].
 pub struct TileAtlas {
     texture: wgpu::Texture,
     bind_group: wgpu::BindGroup,

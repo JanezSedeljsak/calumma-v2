@@ -122,12 +122,14 @@ are not openable, they are open.
 - **Switching is instant; the board catches up.** The tab lights up on the click, and the
   canvas holds a **skeleton** — the desk plus one sweeping rectangle — while the project is
   read back out of SQLite (opening it inline is what used to freeze the window mid-click).
-  The rectangle is the *incoming* project fitted with the same `fit-padding` token
-  `Camera::fit` uses (`CanvasSkeleton`, `gui/ui/canvas-skeleton.slint`, fed the summary's
-  width and height by `deferred_load_project`), so the placeholder sits where the paper lands.
-  That fit is the one piece of camera geometry the shell still works out itself — an engine
-  answer for it is an open gap. The ruler ticks for the incoming project and the
-  minimum-hold floor the frozen Swift shell had are not ported yet.
+  The rectangle is where the *incoming* project will land: `deferred_load_project` hands the
+  board's size and the summary's width and height to `Engine::fit_preview`, which runs the
+  real `Camera::fit` on a scratch camera (`Camera::fitted`). The skeleton draws that camera's
+  `paper_rect` and the rulers switch to that camera's ticks at once, so both already show the
+  incoming project; the shell does no fit math of its own, and the frame loop leaves the
+  rulers alone until loading ends. The skeleton stays up at least `SKELETON_MIN_HOLD_MS`
+  (200 ms) counted from the click, so a fast load does not flash it for a frame, while a slow
+  one hands over the moment the project is ready.
 - **Closing a tab is not deleting a project.** `×` takes the project off the tab bar and
   leaves it in SQLite, where Recents offers it again — the soft one. Deleting is the Landing
   / New Project recents row's trash button, it is confirmed, and it is permanent.
@@ -177,17 +179,13 @@ are not openable, they are open.
   toasts) is allowed to cover the board: the shell hides the Metal view while it is open so
   Slint paints over the hole. The zoom pill and layer hover preview float over the board
   instead — the shell punches just those rectangles out of Metal so the chrome sits above the
-  paper, matching the frozen Swift shell. Guides, Crop's rect and the `⌘T` transform
+  paper. Guides, Crop's rect and the `⌘T` transform
   box are the exceptions and draw right up to the viewport edge instead — see Guides below
   and Transform (`⌘T`) under Layers and ops below.
 - **Layers:** add / select / visibility / delete; first layer is **Paper**, a normal
   white-filled raster layer — paintable/eraseable like any other layer, not a background
   decoration. The list shows the topmost (frontmost) layer first, matching stack order.
   Hover shows a thumbnail popover; each row also carries a persistent thumbnail.
-- **Tools:** tools-island `✦` menu (labelled "Tools" — the sparkle is the hint). Upscale
-  (Lanczos-3), Cut Out Subject (graph cut, selection-aware label when a region is active),
-  and Content-Aware Narrow (seam carving, 10% width). All three run in core Rust and are always available on raster layers. Matte bakes into the active layer's pixels; the two resizing tools add a new
-  layer.
 - **Zoom:** a pill pinned **bottom-trailing inside the canvas island** — `−`, slider, `+`,
   percentage, Fit. The two ends are independent: zoom out until the paper fills ~20% of the
   viewport, and in until ~16 doc px span the short viewport side (or 64×, whichever comes
@@ -204,9 +202,9 @@ are not openable, they are open.
 New projects get a random color from the core palette (`palette::PROJECT_COLORS`), stored
 on the project row. It appears as the recents thumbnail tint (and as the artwork preview when
 a cached thumb exists), and as the dot on the project's titlebar tab; clicking that dot opens
-a card with the project's name and the palette — not yet ported to `gui/` (the frozen Swift
-shell's `ProjectSettingsCard`), tracked in `docs/plans/02-slint-shell.md`. Open project tabs
-persist across launches.
+the project settings card (`gui/ui/project-settings-popover.slint`) with the project's name and
+the palette, which rename and recolor it through `Engine::rename_project` /
+`Engine::set_project_accent`. Open project tabs persist across launches.
 
 ---
 
@@ -219,7 +217,7 @@ persist across launches.
 | See the brush | Pen, Eraser, Blur, Clone and Heal draw a **ring at the pointer, the size of the brush** — document geometry, so it scales with the zoom exactly as the stamp does, with the line held at one screen pixel by `vs_overlay`. Two rings a pixel apart, light inside dark, because one colour cannot stay legible over both white paper and black ink. Under ~3px across it collapses to a dot. It is withheld exactly where a stroke would be refused — a text, vector or locked layer, or inside `⌘T` — so no ring means no stroke. `Document::brush_ring` owns every one of those rules; the shell only forwards the pointer (`Engine::set_pointer_hover`) and takes it away while panning or zoom-chording. |
 | Move a layer or vector item | Select **Move** on the tools island, then drag painted pixels or a vector item.  Turn **Transform** on (options toggle or `⌘T`) for scale/rotate of that layer; the same press selects it. Picking Move does *not* turn it on — it is a mode you ask for. |
 | Resize a vector item | Select it (Move or `⌘T`), then drag a corner of its box. Proportional by default, **Shift** frees the two axes — the same polarity as a `⌘T` corner. |
-| Constrain a shape | Hold **Shift** while dragging **Rect** or **Ellipse** (and their marquee twins) for a square or circle. Corner-anchored, and the *longer* side wins, so the shape fills the drag. Press or release Shift mid-drag and the board snaps immediately — the clamp is derived from the raw drag on every frame, not baked in on the last mouse-move. Line, Arrow, Triangle and Pentagon are unconstrained (angle snap and regular-polygon lock are different clamps, not built). |
+| Constrain a shape | Hold **Shift** while dragging. **Rect** and **Ellipse** (and their marquee twins) become a square or circle, **Pentagon** goes regular and **Triangle** equilateral — each is a fixed aspect of the drag box, since every closed shape is inscribed in it. Corner-anchored, and the *longer* side wins, so the shape fills the drag. **Line** and **Arrow** snap their direction to 45° steps (`SHIFT_ANGLE_STEP`) and keep the length the pointer pulled. Press or release Shift mid-drag and the board snaps immediately — the clamp (`Tool::shift_constraint`) is derived from the raw drag on every frame, not baked in on the last mouse-move. |
 | Pull a guide | Drag off the top ruler for a horizontal rule, off the left ruler for a vertical one; drag one with **Move** to reposition it, and release it back over a ruler to discard it. Hold **Shift** while dragging to land on a whole `GUIDE_SHIFT_STEP` (10 document pixels). Layers, shapes and scale handles snap to guides within `GUIDE_SNAP_PX`. |
 | Edit guides as a list | The **ruler button** where the two rulers cross opens the guides card — every guide with its edge and offset, typed rather than dragged, plus Add and Clear. |
 | Draw on a moved layer | The stroke is mapped **into the layer's own grid** before it is stamped (`Layer::doc_point_to_grid` / `doc_length_to_grid`). A layer holds its pixels in grid space and the renderer maps that grid into the document through the layer's transform, so a stroke stamped at the document coordinate would be carried somewhere else the instant the preview handed over — which is what made a stroke on a moved or scaled paste jump on pointer-up. Coverage is bounded by the grid's **extent**, which `Document::commit_stroke` grows to meet the stroke first (the same `grow_extent` a paste's own overflow uses) — so a stroke aimed at wherever the layer currently shows nothing, most often the empty side of a paste dragged away from where it landed, still lands instead of `tile_in_bounds` silently dropping it. |
@@ -255,20 +253,18 @@ from the card. Three things about how they are drawn:
 - **A guide being dragged prints its position.** A small muted readout in document pixels
   rides the guide, on the edge it was pulled from — a horizontal rule reads down the left, a
   vertical one along the top. Both the number and where it sits on screen come from
-  `Document::dragged_guide_readout` over `calm_engine_dragged_guide`, so the shell formats and
-  places but never converts.
+  `Engine::dragged_guide_readout`, so the shell formats and places but never converts.
 - **Moving one is an overlay frame, never a content frame.** A guide that moved has changed no
   tile, no layer and no camera, and `write_guides` rebuilds the guide buffer every frame
   regardless — so both drag paths invalidate at the overlay level only. `Document::pointer_move`
-  has always returned `false` for a guide drag for this reason; `calm_engine_guide_drag_update`,
+  has always returned `false` for a guide drag for this reason; `Engine::update_guide_drag`,
   the ruler's path, used to call the full `Renderer::invalidate` instead and rebuilt the entire
   board on every pointer move, which is what made a guide pulled off a ruler lag the cursor.
   Anything else that moves board chrome belongs on the same side of that line.
-- **The readout is the one thing a drag publishes, and it publishes narrowly.** The frozen
-  Swift shell kept it on its own store rather than the shared editor state, because a shared
-  publish re-rendered the whole editor on every pointer move; only the readout label observed
-  it, so only the label redrew. The pointer-move handler avoids the same cost during a stroke
-  by syncing nothing at all — this is that rule, kept, whatever shell reads it.
+- **The readout is the one thing a drag publishes, and it publishes narrowly.** A guide drag's
+  pointer moves sync the readout (`sync_guide_readout`) and nothing else, because a full editor
+  sync on every move is exactly the cost a drag cannot afford; the pointer-move handler avoids
+  it during a stroke by syncing nothing at all.
 
 **Guides are in `gui/`**: rulers sit on the canvas island, a drag off a strip creates a
 guide, Move repositions one, the corner button opens the guides card, and the live readout
@@ -291,33 +287,30 @@ implementation follows:
 - Adding takes that same toggle and an offset, so a guide can be put at exactly 240 instead of
   dragged near it. The trash icon on a row removes that guide. **Ten guides per board**
   (`GUIDES_LIMIT`) — a board wanting more rules than that wants a grid — and Add greys out at the
-  ceiling rather than answering a click with nothing, reading the limit over `calm_guides_limit`
-  rather than keeping its own copy.
+  ceiling rather than answering a click with nothing, reading the limit from
+  `Engine::guides_limit` rather than keeping its own copy.
 - The button is a **circle wider than the 20pt corner**, centred on where the rulers cross so it
   spills onto both strips and onto the board. Drawn as an overlay on the ruler stack rather than
   placed in it, so overflowing costs the rulers no width.
-- The card is a **modal**, not a popover off the button. The list is the point of the panel and
-  wants to be tall, and an `NSPopover` sizes itself to what its content offers — a `ScrollView`
-  offers nothing, so it came out two rows high whatever ceiling it was given. A modal is *told*
-  its size (`GuidesCard.size(in:)`, measured against the window: 380pt wide, up to 500 tall)
-  rather than negotiating for one, and the list then fills whatever is left. Sized to hold the
-  whole list rather than to fill the window — a board tops out at `GUIDES_LIMIT` guides, and past
-  that height the card is just empty space. Anything else in
-  this shell that needs a definite height should be a modal for the same reason.
+- The card is a **modal**, not a popover off the button (`GuidesCard`, its state on the
+  `GuideChrome` global). The list is the point of the panel and wants to be tall, so the card is
+  *told* its size from tokens (`guides-card-width`, `guides-card-max-height`) rather than sizing
+  itself to a scroll view that offers nothing, and the list fills whatever is left. Sized to
+  hold the whole list rather than to fill the window — a board tops out at `GUIDES_LIMIT`
+  guides, and past that height the card is just empty space.
 - A typed position is **clamped onto the paper**, never discarded — unlike a *drag* released
   past the edge, which throws the guide away. Someone typing 5000 meant the far edge
   (`Document::set_guide_position`).
 - The card re-reads the list after every edit rather than keeping a copy: an index only means
-  something until the list changes. It reloads on **`Engine.guidesRevision`**, bumped by every
-  guide mutation — not on `guideCount`, which is the same before and after a guide is moved or
-  flipped. Watching the count is what left a flipped row showing its old edge while the board
-  already drew the new one.
+  something until the list changes. Every guide callback ends in `sync_guides`, which rebuilds
+  the rows from `Engine::guides` — never a count-based "did anything change" check, since a
+  moved or flipped guide leaves the count where it was.
 
 **Shift while dragging** rounds the guide to a whole `GUIDE_SHIFT_STEP`. The step is in
 *document* pixels, not screen ones — a guide put on 120 has to still be on 120 at every zoom,
-and a step measured on screen would land somewhere different each time. The board already feeds
-`shift_held` from its own key handling; a ruler drag is a SwiftUI gesture that carries no
-modifiers and never reaches that path, so `RulerView` reads the flag off the keyboard itself.
+and a step measured on screen would land somewhere different each time. A ruler drag reads Shift
+from the same modifier state the board keeps (`InputState`), and a Shift pressed or released
+mid-drag re-rounds the guide without waiting for the pointer to move (`refresh_guide_shift`).
 
 Camera clamping, zoom floor, and dirty-flag render live in Rust — never reimplemented in
 the shell. Pan is clamped with slack rather than pinned: the paper can be dragged around at any
@@ -479,7 +472,9 @@ live in `engine/core`; PNG/JPEG/WebP/AVIF/HEIC encode and decode live in `engine
   than stepping past it. **Double-click** takes the word under the pointer, **triple-click**
   the paragraph, and **dragging inside existing text** sweeps a range. `⌘A` while typing
   selects all of the text rather than the canvas. Typing, `⌦` or `⌫` replaces the selection;
-  ⌥⌫ deletes the word behind the caret. The highlight is drawn on the board as one filled row
+  ⌥⌫ deletes the word behind the caret. **Input methods** work on the board: accents from dead
+  keys or press-and-hold, and CJK composition, show inline and underlined while being composed
+  and become ordinary text when committed; the candidate window opens at the caret. The highlight is drawn on the board as one filled row
   per *visual* line, so a wrapped paragraph highlights the way it reads.
 - The session ends when you click elsewhere, press `Esc`, pick another tool, switch layers,
   undo, or change the layer stack. A text layer created and left empty removes itself;
@@ -613,15 +608,14 @@ live in `engine/core`; PNG/JPEG/WebP/AVIF/HEIC encode and decode live in `engine
 - **The list uses the height it has:** the stack takes every point the header above it and the
   Layer bounds fields below it do not, and scrolls once it runs out, rather than stopping at a
   fixed share of the island with dead space underneath. A floor keeps it from collapsing
-  entirely in a short window. Renaming is still a double-click on the name, or the row's
-  context menu, or Rename in the card.
-**Drag-reorder is in `gui/`** (`gui/ui/layers-panel.slint` — drop a row onto another row; Paper stays pinned). **Rename is not yet ported.**
+  entirely in a short window. Renaming is a double-click on the name, or the row's context
+  menu, or Rename in the card.
 
 - **Drag-reorder:** drag a row onto another row to put it there. Dropping *onto* a row rather
   than between rows is the whole contract — there is no insertion point to get off by one at
   either end. Move Up / Move Down stay in the `…` popover as the keyboard-reachable path. The
   panel draws the stack top-first while the document stores it bottom-first, so the shell
-  hands `calm_engine_move_layer_row` the row it dragged and the row it dropped on and the
+  hands `Engine::move_layer_row` the row it dragged and the row it dropped on and the
   engine owns the flip — the shell never computes a layer index. Order already persisted via
   `z_index`, so nothing new is saved.
 - **Rename:** double-click a layer's name for an inline field, or Rename from its context
@@ -742,36 +736,6 @@ live in `engine/core`; PNG/JPEG/WebP/AVIF/HEIC encode and decode live in `engine
   region, and Move is the tool that picks. That is Photoshop's split rather than Figma's, and
   overloading marquee-click to also pick would make an empty-space click ambiguous when it
   currently starts a region drag.
-- **Upscale:** Smart Tools menu → Lanczos-3 resampling (`engine/core/src/smarttools/resample.rs`), 2× the
-  active layer's own size, via `Engine::run_upscale`. Deterministic core Rust and always available, so the menu item is only greyed out while another
-  Smart Tool is already running or the active layer is not raster. Adds the result as a new
-  layer on top of the stack rather than replacing the source, via `OpOutput::Raster`, so the original is always still there to compare against or
-  discard.
-- **Cut Out Subject:** Smart Tools menu → GrabCut-style graph cut (`engine/core/src/smarttools/grabcut.rs`
-  over `engine/core/src/smarttools/maxflow.rs`), via `Engine::run_smart_matte`. Two k-means-fit colour
-  GMMs, a contrast-sensitive 8-connected grid graph, and a min cut. Runs at a capped work resolution
-  (512 px long edge): the work image is box-downsampled so colour models are not fed Lanczos
-  ringing, and the matte is bilinearly upsampled back. That is what keeps an exact min
-  cut interactive on a large layer. Bakes the matte into the layer's pixels (`Document::apply_matte_mask`) as one undoable step.
-  - **Draw around the subject first.** Any selection — lasso, marquee, ellipse, wand — becomes
-    the seed: everything outside it is *definite* background, everything inside stays free, so
-    background caught inside a rough loop is still cut away. This is GrabCut's own interaction
-    model and it is worth much more than guessing, most visibly on a subject that runs off the
-    frame edge, which the automatic seeding cannot help but condemn. The engine rasterizes the
-    selection through `Selection::to_mask` and hands it over as `OpParams::seed_region`; the
-    menu item renames itself when a selection is live so the difference is not invisible.
-  - With **nothing selected** it falls back to automatic seeding — a border ring is background,
-    anything already transparent joins it — so the one-click path still works. A region drawn
-    around the whole canvas leaves no background to model and falls back the same way.
-- **Content-Aware Narrow:** Smart Tools menu → seam carving
-  (`engine/core/src/smarttools/seam_carving.rs`), 10% off the active layer's width, via
-  `Engine::run_seam_carve_narrow`. Sobel energy over luminance *and* alpha (so a layer's
-  silhouette counts as an edge, not as free space), forward-energy DP so each removal prices
-  the edges it would create, and one seam removed or inserted at a time with energy updated
-  only around the seam. Width and height carve independently — the second axis is the first one
-  transposed. Costs `O(seams × w × h)`, so it is the Smart Tool most likely to take a visible
-  moment; like Upscale it lands as a new layer.
-
 ## Selection
 
 Five selection tools share one grid slot on the tools island (`M` cycles to whichever was
@@ -983,13 +947,12 @@ the clipboard) does the same split: SVG for vector layers, PNG for everything el
 
 ## Menu bar
 
-**`gui/` has no OS menu bar today** — no File/Edit/Board top menu, no app-menu Settings item.
-Everything below describes the frozen Swift shell's menu (`CalummaApp.swift`'s `.commands`)
-and the product decisions behind it, kept for when a `gui/` menu bar is built. Beyond File →
-Export and the app menu's Settings above:
+`gui/`'s menu bar (`MenuBar` in `gui/ui/app-window.slint`) has three menus, titles capitalized:
 
-- **Board** — Fit to View (`0`), Toggle Layers (`⌥⌘L`), Enter Full Screen (`⌃⌘F`). Menu
-  titles are capitalized (File, Edit, Board).
+- **File** — New Project (`⌘N`), and **Export** with PNG, JPEG, WebP, AVIF, HEIC, PSD, SVG and
+  PDF. Both are disabled on Landing.
+- **Edit** — Undo and Redo, disabled when there is nothing to undo or redo.
+- **Board** — Settings, Fit to View (`0`), Toggle Layers (`⌥⌘L`), Enter Full Screen.
 - **Filters is removed.** It carried an Increase / Decrease pair per filter plus Reset,
   which is a discrete menu standing next to a panel of continuous sliders that already
   said the same thing — clutter, against the minimal-chrome rule, and the sliders were
@@ -998,13 +961,8 @@ Export and the app menu's Settings above:
   is still there and still tested; nothing on `Engine` re-exposes it and nothing in any shell
   calls it today. Its `⌥⌘G` is now
   Clip to Below.
-- **View is removed.** AppKit synthesises it for every app and SwiftUI cannot declare it
-  away, so `MenuBarPruner` (`UI/MenuBarChrome.swift`) deletes it from `NSApp.mainMenu`
-  after launch — matching on the selectors its items send, not their titles, which the
-  system localises. Removing View also removes Enter Full Screen, hence its re-homing
-  into Board above. Removing View does **not** affect project tabs: those are custom
-  SwiftUI chips in the titlebar, unrelated to AppKit's native window tabbing (which is
-  off anyway via `NSWindow.tabbingMode = .disallowed`).
+- **There is no View menu.** Fit, the layers panel and full screen all live under Board, and
+  project tabs are the shell's own titlebar chips, not native window tabbing.
 
 ---
 
@@ -1025,7 +983,7 @@ panel toggles are shell knobs.
 | `⌘,` | Settings (theme / language) | macOS prefs |
 | `⌘⌥L` | Toggle layers panel | Close to Ps panels |
 | `0` | Fit to view — the zoom pill's Fit button carries the accent color while the board
-  is already fitted (`CalmState.is_fit`, answered by `Camera::is_fit`) and the muted color
+  is already fitted (`Engine::is_fit`, answered by `Camera::is_fit`) and the muted color
   otherwise, the same on/off reading a selected tool has | Ps `⌘0` is fit; bare `0` is our fit today |
 
 ### Tools and brush
@@ -1088,15 +1046,11 @@ panel toggles are shell knobs.
 | ⌘ + scroll or Option + scroll | Zoom toward cursor |
 | Pinch | Zoom |
 
-**Most of this section's custom cursor dressing is not yet ported to `gui/`** — no tool
-glyph, no modal cursor reset. The brush ring cursor is the exception: `gui/src/board/cursor.rs`
-already checks `Engine::brush_ring_visible` and switches to it. `design/icons` and
-`brush_ring_visible` are real, current engine-side facts either way; what follows otherwise
-describes how the frozen Swift shell consumed them, kept for the product rules it encodes.
+`gui/src/board/cursor.rs` picks the cursor (`pick_cursor`) and `CursorController` applies it.
 
 Cursors: **the tool in hand** on the board — a crosshair at the hotspot with the tool's own
-glyph beside it, drawn from `design/icons` through `CalmTool.iconName` so a tool is the same
-picture under the pointer as in the tools panel (`ToolCursor`). The glyph sits down and right
+glyph beside it, drawn from `design/icons` (`tool_cursor_icon`) so a tool is the same picture
+under the pointer as in the tools panel. The glyph sits down and right
 of the point rather than on it, since a glyph covering the target is the thing a crosshair
 exists to avoid; both are drawn white over a dark halo, for the reason the brush ring is
 two-tone — one colour cannot stay legible over both white paper and black ink.
@@ -1124,18 +1078,15 @@ glyph comes straight back, which is exactly where you need telling what you are 
 blank cursor is an empty image, not `NSCursor.hide()`: that call is counted, and one unbalanced
 pair leaves the pointer gone for good.
 
-**A modal takes the cursor back.** The board's tracking area keeps firing underneath a SwiftUI
-overlay, so without being told to stand down it re-dresses the cursor over a panel it cannot see
-— and for the brush tools that cursor is deliberately blank, which is a dialog with no pointer on
-it. Two things stop it: `AppModel.modalPresented` (any of New Project, Settings, Guides) makes
-`refreshCursor` restore the arrow and turns the brush hover off, and `CalmModal` sets the arrow
-as it appears so the reset does not depend on the board getting another mouse event.
+**A modal takes the cursor back.** The board keeps receiving pointer events underneath an
+overlay, so without being told to stand down it would re-dress the cursor over a panel it cannot
+see — and for the brush tools that cursor is deliberately blank, which is a dialog with no
+pointer on it. `AppController::any_modal_open` feeds `pick_cursor`, which answers the plain arrow
+and turns the brush hover off while any modal is up.
 
-The board dresses the cursor **only while the pointer is over the board**. `refreshCursor` also
-runs on every SwiftUI update and when the view moves to a window, neither of which knows where
-the mouse is, and `NSCursor.set()` applies wherever it happens to be — so picking a tool used to
-leave the board's cursor sitting over the layers panel. A drag is the one exception: a stroke
-that wanders off the board keeps the pointer until the button comes up.
+The board dresses the cursor **only while the pointer is over the board** (`pointer_inside`);
+anywhere else the shell's own cursor applies. A drag is the one exception: a stroke that
+wanders off the board keeps the pointer until the button comes up.
 
 Text keeps the **I-beam** and Move the **arrow** (or a resize arrow over a guide); **open hand**
 while space is held or the middle button is armed, **closed hand** while actually panning,
@@ -1150,8 +1101,8 @@ zoom-in while ⌘/Option held over the board, pointing hand on chrome controls.
 2. Bare tool keys live in exactly one table, `TOOL_KEYS` / `tool_for_key` in
    `engine/app/src/shortcuts.rs` — engine-side now, not per-shell, so `gui/`'s key handler
    (`gui/src/input/shortcuts.rs`) and any future shell read the same table instead of each
-   keeping its own copy. Add a tool key there, not in a `switch`, and wire a tooltip that
-   prints it once the tools panel has tooltips (`gui/ui/tools-panel.slint` does not yet).
+   keeping its own copy. Add a tool key there, not in a `switch`; the tools panel's tooltip
+   prints it (`key_for_tool`).
    Document every user-facing chord in this file in the same change.
 3. Do not invent conflicting chords for engine vs chrome; one map, one place to look.
 4. Windows and Linux: same *actions*, OS-native modifiers (`Ctrl` vs `⌘`).
@@ -1163,5 +1114,5 @@ zoom-in while ⌘/Option held over the board, pointing hand on chrome controls.
 Layered PSD
 **import** (we import the flattened composite only; PSD *export* is layered and shipped),
 picking a layer by clicking it *outside* transform mode as a *modifier* (the Move tool on the tools island is the path — click painted pixels or a vector item to drag; Option-click and ⌘-click stay Pan),
-vectorize, generate-texture, BiRefNet core remove-bg — see
+and the smart tools (upscale, cut out subject, content-aware resize, vectorize) — see
 `AGENTS.md` deferred list. Add a FLOW section when a feature ships, not before.

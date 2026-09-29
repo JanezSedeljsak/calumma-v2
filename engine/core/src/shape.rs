@@ -1,3 +1,4 @@
+use crate::limits::{EQUILATERAL_HEIGHT_RATIO, SHIFT_ANGLE_STEP};
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, IntoPrimitive, TryFromPrimitive)]
@@ -161,11 +162,35 @@ impl Tool {
         self.is_shape() || self == Tool::Pen
     }
 
-    /// Whether a Shift-drag squares this tool off: a rectangle becomes a square, an ellipse
-    /// a circle. Line and Arrow would want an angle snap and the polygons a regular-polygon
-    /// lock — different clamps, not this one — so they are deliberately not included.
-    pub fn constrains_to_square(self) -> bool {
-        matches!(self, Tool::Rect | Tool::Ellipse)
+    /// What a Shift-drag does to this tool: a rectangle becomes a square and an ellipse a
+    /// circle, the polygons lock to their regular form, and Line and Arrow snap their
+    /// direction. Every other tool is left alone.
+    pub fn shift_constraint(self) -> Option<ShiftConstraint> {
+        match self {
+            Tool::Rect | Tool::Ellipse | Tool::Pentagon => Some(ShiftConstraint::Aspect(1.0)),
+            Tool::Triangle => Some(ShiftConstraint::Aspect(EQUILATERAL_HEIGHT_RATIO)),
+            Tool::Line | Tool::Arrow => Some(ShiftConstraint::Angle(SHIFT_ANGLE_STEP)),
+            _ => None,
+        }
+    }
+}
+
+/// How a Shift-drag clamps a shape's end point. `Aspect` holds the drag box at `height /
+/// width`, which is enough for every closed shape here because each one is inscribed in that
+/// box — a pentagon in the box's ellipse, a triangle across its base and apex. `Angle` rounds
+/// the drag's direction to a multiple of the step and keeps its length.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum ShiftConstraint {
+    Aspect(f32),
+    Angle(f32),
+}
+
+impl ShiftConstraint {
+    pub fn apply(self, start: (f32, f32), end: (f32, f32)) -> (f32, f32) {
+        match self {
+            ShiftConstraint::Aspect(ratio) => aspect_end(start, end, ratio),
+            ShiftConstraint::Angle(step) => angle_snap_end(start, end, step),
+        }
     }
 }
 
@@ -174,10 +199,32 @@ impl Tool {
 /// collapsing to the shorter one, and each delta keeps its sign, so dragging up and to the
 /// left still draws up and to the left.
 pub fn square_end(start: (f32, f32), end: (f32, f32)) -> (f32, f32) {
+    aspect_end(start, end, 1.0)
+}
+
+/// [`square_end`] for any `height / width` ratio: the box of that shape that fills the drag,
+/// signs kept.
+pub fn aspect_end(start: (f32, f32), end: (f32, f32), ratio: f32) -> (f32, f32) {
     let dx = end.0 - start.0;
     let dy = end.1 - start.1;
-    let side = dx.abs().max(dy.abs());
-    (start.0 + side.copysign(dx), start.1 + side.copysign(dy))
+    let width = dx.abs().max(dy.abs() / ratio);
+    (
+        start.0 + width.copysign(dx),
+        start.1 + (width * ratio).copysign(dy),
+    )
+}
+
+/// The drag with its direction rounded to the nearest multiple of `step` radians and its
+/// length kept, so a snapped line is as long as the pointer pulled it.
+pub fn angle_snap_end(start: (f32, f32), end: (f32, f32), step: f32) -> (f32, f32) {
+    let dx = end.0 - start.0;
+    let dy = end.1 - start.1;
+    let span = dx.hypot(dy);
+    if span == 0.0 {
+        return end;
+    }
+    let angle = (dy.atan2(dx) / step).round() * step;
+    (start.0 + angle.cos() * span, start.1 + angle.sin() * span)
 }
 
 const BARB_ANGLE: f32 = 0.5;

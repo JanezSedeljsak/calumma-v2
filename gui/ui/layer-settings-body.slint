@@ -14,26 +14,6 @@ import { CalmSelect } from "calm/CalmSelect.slint";
 export component LayerSettingsBody inherits VerticalLayout {
     in property <bool> compact: false;
 
-    callback toggle-visibility();
-    callback toggle-lock();
-    callback opacity-changed(float);
-    callback opacity-committed(float);
-    callback blend-changed(int);
-    callback filter-changed(int, float);
-    callback filter-committed(int, float);
-    callback reset-filters();
-    callback rename-layer(string);
-    callback toggle-clip();
-    callback toggle-mask();
-    callback flatten-clip();
-    callback merge-down();
-    callback reset-transform();
-    callback move-up();
-    callback move-down();
-    callback rasterize-layer();
-    callback export-layer();
-    callback duplicate-layer();
-    callback delete-layer();
 
     spacing: Tokens.space-md;
     alignment: start;
@@ -41,7 +21,7 @@ export component LayerSettingsBody inherits VerticalLayout {
     if LayerChrome.can-rename: CalmField {
         text: LayerChrome.name;
         accepted(text) => {
-            root.rename-layer(text);
+            LayerChrome.rename-layer(text);
         }
     }
 
@@ -74,7 +54,7 @@ export component LayerSettingsBody inherits VerticalLayout {
             checked: LayerChrome.visible;
             y: (parent.height - self.height) / 2;
             toggled => {
-                root.toggle-visibility();
+                LayerChrome.toggle-visibility();
             }
         }
     }
@@ -88,7 +68,7 @@ export component LayerSettingsBody inherits VerticalLayout {
             checked: LayerChrome.locked;
             y: (parent.height - self.height) / 2;
             toggled => {
-                root.toggle-lock();
+                LayerChrome.toggle-lock();
             }
         }
     }
@@ -98,10 +78,10 @@ export component LayerSettingsBody inherits VerticalLayout {
         value-text: LayerChrome.opacity-text;
         value <=> LayerChrome.opacity;
         moved(v) => {
-            root.opacity-changed(v);
+            LayerChrome.opacity-changed(v);
         }
         released(v) => {
-            root.opacity-committed(v);
+            LayerChrome.opacity-committed(v);
         }
     }
 
@@ -114,7 +94,7 @@ export component LayerSettingsBody inherits VerticalLayout {
         value: LayerChrome.blend;
         current-label: LayerChrome.blend-current-label;
         picked(mode) => {
-            root.blend-changed(mode);
+            LayerChrome.blend-changed(mode);
         }
     }
 
@@ -129,7 +109,7 @@ export component LayerSettingsBody inherits VerticalLayout {
                 fill: true;
                 enabled: LayerChrome.can-clip;
                 clicked => {
-                    root.toggle-clip();
+                    LayerChrome.toggle-clip();
                 }
             }
 
@@ -138,7 +118,7 @@ export component LayerSettingsBody inherits VerticalLayout {
                 fill: true;
                 enabled: LayerChrome.can-mask;
                 clicked => {
-                    root.toggle-mask();
+                    LayerChrome.toggle-mask();
                 }
             }
 
@@ -147,7 +127,7 @@ export component LayerSettingsBody inherits VerticalLayout {
                 fill: true;
                 enabled: LayerChrome.can-merge;
                 clicked => {
-                    root.merge-down();
+                    LayerChrome.merge-down();
                 }
             }
         }
@@ -159,7 +139,7 @@ export component LayerSettingsBody inherits VerticalLayout {
                 text: LayerChrome.duplicate-label;
                 fill: true;
                 clicked => {
-                    root.duplicate-layer();
+                    LayerChrome.duplicate-layer();
                 }
             }
 
@@ -169,7 +149,7 @@ export component LayerSettingsBody inherits VerticalLayout {
                 has-tint: true;
                 tint: Theme.danger;
                 clicked => {
-                    root.delete-layer();
+                    LayerChrome.delete-layer();
                 }
             }
         }
@@ -190,10 +170,10 @@ export component LayerSettingsBody inherits VerticalLayout {
             maximum: 1;
             value <=> LayerChrome.brightness;
             moved(v) => {
-                root.filter-changed(0, v);
+                LayerChrome.filter-changed(0, v);
             }
             released(v) => {
-                root.filter-committed(0, v);
+                LayerChrome.filter-committed(0, v);
             }
         }
 
@@ -204,10 +184,10 @@ export component LayerSettingsBody inherits VerticalLayout {
             maximum: 1;
             value <=> LayerChrome.contrast;
             moved(v) => {
-                root.filter-changed(1, v);
+                LayerChrome.filter-changed(1, v);
             }
             released(v) => {
-                root.filter-committed(1, v);
+                LayerChrome.filter-committed(1, v);
             }
         }
 
@@ -218,10 +198,10 @@ export component LayerSettingsBody inherits VerticalLayout {
             maximum: 1;
             value <=> LayerChrome.vibrance;
             moved(v) => {
-                root.filter-changed(2, v);
+                LayerChrome.filter-changed(2, v);
             }
             released(v) => {
-                root.filter-committed(2, v);
+                LayerChrome.filter-committed(2, v);
             }
         }
 
@@ -232,10 +212,10 @@ export component LayerSettingsBody inherits VerticalLayout {
             maximum: 1;
             value <=> LayerChrome.saturation;
             moved(v) => {
-                root.filter-changed(3, v);
+                LayerChrome.filter-changed(3, v);
             }
             released(v) => {
-                root.filter-committed(3, v);
+                LayerChrome.filter-committed(3, v);
             }
         }
 
@@ -246,10 +226,10 @@ export component LayerSettingsBody inherits VerticalLayout {
             maximum: 4;
             value <=> LayerChrome.gamma;
             moved(v) => {
-                root.filter-changed(4, v);
+                LayerChrome.filter-changed(4, v);
             }
             released(v) => {
-                root.filter-committed(4, v);
+                LayerChrome.filter-committed(4, v);
             }
         }
 
@@ -260,10 +240,10 @@ export component LayerSettingsBody inherits VerticalLayout {
             maximum: 180;
             value <=> LayerChrome.hue;
             moved(v) => {
-                root.filter-changed(5, v);
+                LayerChrome.filter-changed(5, v);
             }
             released(v) => {
-                root.filter-committed(5, v);
+                LayerChrome.filter-committed(5, v);
             }
         }
 
@@ -271,7 +251,7 @@ export component LayerSettingsBody inherits VerticalLayout {
             text: LayerChrome.reset-filters-label;
             fill: true;
             clicked => {
-                root.reset-filters();
+                LayerChrome.reset-filters();
             }
         }
 
@@ -282,7 +262,7 @@ export component LayerSettingsBody inherits VerticalLayout {
             fill: true;
             enabled: LayerChrome.can-clip;
             clicked => {
-                root.toggle-clip();
+                LayerChrome.toggle-clip();
             }
         }
 
@@ -291,7 +271,7 @@ export component LayerSettingsBody inherits VerticalLayout {
             fill: true;
             enabled: LayerChrome.can-mask;
             clicked => {
-                root.toggle-mask();
+                LayerChrome.toggle-mask();
             }
         }
 
@@ -299,7 +279,7 @@ export component LayerSettingsBody inherits VerticalLayout {
             text: LayerChrome.flatten-label;
             fill: true;
             clicked => {
-                root.flatten-clip();
+                LayerChrome.flatten-clip();
             }
         }
 
@@ -308,7 +288,7 @@ export component LayerSettingsBody inherits VerticalLayout {
             fill: true;
             enabled: LayerChrome.can-merge;
             clicked => {
-                root.merge-down();
+                LayerChrome.merge-down();
             }
         }
 
@@ -317,7 +297,7 @@ export component LayerSettingsBody inherits VerticalLayout {
             fill: true;
             enabled: LayerChrome.can-reset-transform;
             clicked => {
-                root.reset-transform();
+                LayerChrome.reset-transform();
             }
         }
 
@@ -329,7 +309,7 @@ export component LayerSettingsBody inherits VerticalLayout {
                 fill: true;
                 enabled: LayerChrome.can-move-up;
                 clicked => {
-                    root.move-up();
+                    LayerChrome.move-up();
                 }
             }
 
@@ -338,7 +318,7 @@ export component LayerSettingsBody inherits VerticalLayout {
                 fill: true;
                 enabled: LayerChrome.can-move-down;
                 clicked => {
-                    root.move-down();
+                    LayerChrome.move-down();
                 }
             }
         }
@@ -347,7 +327,7 @@ export component LayerSettingsBody inherits VerticalLayout {
             text: LayerChrome.rasterize-label;
             fill: true;
             clicked => {
-                root.rasterize-layer();
+                LayerChrome.rasterize-layer();
             }
         }
 
@@ -357,7 +337,7 @@ export component LayerSettingsBody inherits VerticalLayout {
             text: LayerChrome.export-label;
             fill: true;
             clicked => {
-                root.export-layer();
+                LayerChrome.export-layer();
             }
         }
 
@@ -365,7 +345,7 @@ export component LayerSettingsBody inherits VerticalLayout {
             text: LayerChrome.duplicate-label;
             fill: true;
             clicked => {
-                root.duplicate-layer();
+                LayerChrome.duplicate-layer();
             }
         }
 
@@ -377,7 +357,7 @@ export component LayerSettingsBody inherits VerticalLayout {
             has-tint: true;
             tint: Theme.danger;
             clicked => {
-                root.delete-layer();
+                LayerChrome.delete-layer();
             }
         }
     }

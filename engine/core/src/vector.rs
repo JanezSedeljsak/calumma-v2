@@ -232,7 +232,7 @@ impl VectorItem {
     /// Become `source` resized about `pivot`. Same re-derive-from-pointer-down contract as
     /// `set_translated`, and the same reason for it: parameters are the storage, so a resize
     /// scales the endpoints or the path points and the shape is re-evaluated at its new size
-    /// rather than resampled from the size it used to be.
+    /// rather than resampled.
     ///
     /// Ink width is left where it was. Resizing a rectangle in Figma or Photoshop does not
     /// thicken its outline, and here it would also make [`ink_pad`](Self::ink_pad) move under

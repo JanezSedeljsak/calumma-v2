@@ -1,12 +1,7 @@
 //! Pasting an image into an already-open document, at the size it actually is.
 //!
-//! An oversized paste used to be cropped, silently and unrecoverably: `TileGrid::paint_rect`
-//! opens with `rect.intersect(self.bounds())`, a grid was always exactly document-sized, and
-//! the blit was anchored top-left — so pasting a 4000px photo into a 1000px board wrote the
-//! top-left quarter and threw the rest away. Not a clipped *view* that moving the layer could
-//! recover; the pixels were never written.
-//!
-//! The answer is neither to shrink the image nor to grow the paper. **The layer overflows.**
+//! `TileGrid::paint_rect` intersects with the grid's bounds, so an image bigger than a
+//! document-sized grid would lose everything outside it. The answer is neither to shrink the image nor to grow the paper. **The layer overflows.**
 //! `TileGrid::grow_extent` opens the layer's storage wide enough for the whole image, which is
 //! blitted at native resolution and centred on the canvas — so the middle of it is on the paper
 //! and the rest hangs off the edges, where it stays until it is dragged into view. Nothing is

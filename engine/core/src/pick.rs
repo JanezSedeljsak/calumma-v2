@@ -96,9 +96,9 @@ impl PickProbe {
 /// Everything about a layer that makes it pickable *except* its lock, which is split out so
 /// the same walk can find the locked layer that swallowed a click and name it.
 ///
-/// `visible`, `opacity > 0.0` and `!is_paper()` are deliberate and predate this module: an
-/// invisible layer that still had paint under the cursor used to grab every click there, which
-/// made dragging look like a no-op because the thing that moved could not be seen.
+/// `visible` and `opacity > 0.0` are deliberate: an invisible layer with paint under the cursor
+/// would grab the click and make the drag look like a no-op, because the thing that moved could
+/// not be seen.
 fn eligible(doc: &Document, layer: &Layer) -> bool {
     layer.visible
         && !layer.is_paper()

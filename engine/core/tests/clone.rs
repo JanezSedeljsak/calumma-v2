@@ -203,8 +203,7 @@ fn clone_clips_to_the_active_selection() {
 }
 
 /// `clone_source_cursor` is the board furniture's own answer to "where does this stroke read
-/// from" — every branch is tested here directly rather than only inferred from committed
-/// pixels, so a regression in the crosshair logic itself would actually fail something.
+/// from", tested directly rather than inferred from committed pixels.
 mod source_cursor {
     use super::*;
 

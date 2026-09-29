@@ -86,7 +86,7 @@ fn drawing_twice_in_vector_mode_makes_two_layers() {
     drag(&mut doc, (10.0, 10.0), (40.0, 40.0));
     drag(&mut doc, (60.0, 60.0), (90.0, 90.0));
     assert_eq!(doc.layers.len(), before + 2);
-    assert_eq!(doc.vector_item_count(doc.active_layer), 1);
+    assert!(doc.layers[doc.active_layer].content.item().is_some());
 }
 
 #[test]
@@ -333,8 +333,8 @@ fn a_drag_inside_a_scaled_layer_moves_by_the_layer_scale() {
     assert!((after.0 - (before.0 + 10.0)).abs() < 0.01);
 }
 
-/// The shell reads the selected item's index alone and takes its layer from
-/// `CalmState.active_layer`; that only works because these two can never disagree.
+/// The shell reads the selected item's index alone and takes its layer from the active layer;
+/// that only works because these two can never disagree.
 #[test]
 fn a_selected_item_always_lives_in_the_active_layer() {
     let mut doc = doc_with_viewport();
@@ -698,10 +698,7 @@ fn resizing_an_item_bumps_the_revision_so_the_board_rebuilds() {
     assert_ne!(doc.vector_revision(), before);
 }
 
-/// `record_vector_history` used to price every vector undo entry at a flat 128 bytes no
-/// matter how many points a `VectorPath` actually held, so a long freehand path's undo stack
-/// could hold real megabytes while `History::memory_used` believed each step cost 128B. A
-/// drag records the item's state *before* the drag (`commit_vector_drag_history`), so the
+/// A vector undo entry is priced by the points it holds, not a flat size. A drag records the item's state *before* the drag (`commit_vector_drag_history`), so the
 /// point count — and so the byte cost — is exactly the path's own.
 #[test]
 fn vector_undo_cost_scales_with_the_paths_point_count() {

@@ -132,13 +132,9 @@ fn make_slot(
 /// frame left behind, `working` is where the next shift lands, and the two swap once the shift
 /// is done so the freshest pixels are always the ones the next frame reads from.
 ///
-/// Freezing `reference` at the last *full redraw* instead — which is what this used to do —
-/// looks like it avoids rounding drift, and it does, but at a price that only shows up mid
-/// gesture: the shift is then measured from a point that recedes further with every frame, so
-/// the overlap shrinks, the strips `exposed_rects` hands back grow linearly with how far the
-/// camera has travelled since that redraw, and the whole draw list is replayed into an
-/// ever-widening band until the overlap empties and a full redraw restarts the ramp. Pan cost
-/// sawtoothed across a gesture rather than staying flat.
+/// Freezing `reference` at the last full redraw would measure every shift from a receding
+/// point, so the exposed strips would grow with the whole gesture instead of staying one
+/// frame's travel wide.
 ///
 /// Chaining frame to frame costs nothing in accuracy as long as the reference pan is advanced
 /// by the *rounded* delta that was actually blitted (`commit_shift`) rather than by the raw

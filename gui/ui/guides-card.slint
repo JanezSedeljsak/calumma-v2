@@ -1,3 +1,4 @@
+import { GuideChrome } from "guide-chrome.slint";
 import { GuideRow } from "models.slint";
 import { Theme } from "calm/CalmTheme.slint";
 import { Tokens } from "calm/CalmTokens.slint";
@@ -43,28 +44,8 @@ component EdgeChip inherits Rectangle {
 export component GuidesCard inherits Rectangle {
     in-out property <bool> open;
     in property <bool> dim-scrim: true;
-    in property <string> title-text;
-    in property <string> hint-text;
-    in property <string> empty-text;
-    in property <string> add-label;
-    in property <string> full-text;
-    in property <string> top-label;
-    in property <string> left-label;
-    in property <string> delete-tip;
-    in property <string> clear-label;
-    in property <[GuideRow]> guides;
     in property <[color]> palette;
-    in property <bool> can-add;
-    in-out property <bool> add-horizontal;
-    in-out property <string> add-offset;
 
-    callback dismissed();
-    callback add-guide();
-    callback remove-guide(int);
-    callback clear-guides();
-    callback set-axis(int, bool);
-    callback set-offset(int, string);
-    callback set-color(int, int);
 
     private property <image> icon-trash: @image-url("trash.svg");
     private property <int> picker-guide: -1;
@@ -86,7 +67,7 @@ export component GuidesCard inherits Rectangle {
         open <=> root.open;
         dim-scrim: root.dim-scrim;
         dismissed => {
-            root.dismissed();
+            GuideChrome.dismissed();
         }
 
         card := CalmModalCard {
@@ -103,7 +84,7 @@ export component GuidesCard inherits Rectangle {
 
                 HorizontalLayout {
                     CalmTitle {
-                        text: root.title-text;
+                        text: GuideChrome.title-text;
                         strong: true;
                         horizontal-stretch: 1;
                     }
@@ -118,45 +99,45 @@ export component GuidesCard inherits Rectangle {
                         }
                         clicked => {
                             root.open = false;
-                            root.dismissed();
+                            GuideChrome.dismissed();
                         }
                     }
                 }
 
                 CalmMuted {
-                    text: root.hint-text;
+                    text: GuideChrome.hint-text;
                 }
 
-                if root.guides.length == 0: CalmMuted {
-                    text: root.empty-text;
+                if GuideChrome.guides.length == 0: CalmMuted {
+                    text: GuideChrome.empty-text;
                     vertical-stretch: 1;
                 }
 
-                if root.guides.length > 0: CalmScrollView {
+                if GuideChrome.guides.length > 0: CalmScrollView {
                     vertical-stretch: 1;
 
                     VerticalLayout {
                         spacing: Tokens.space-sm;
                         alignment: start;
 
-                        for row in root.guides: HorizontalLayout {
+                        for row in GuideChrome.guides: HorizontalLayout {
                             spacing: Tokens.space-sm;
                             height: Tokens.control-height;
 
                             EdgeChip {
-                                text: root.top-label;
+                                text: GuideChrome.top-label;
                                 selected: row.horizontal;
                                 width: 44px;
                                 clicked => {
-                                    root.set-axis(row.index, true);
+                                    GuideChrome.set-axis(row.index, true);
                                 }
                             }
                             EdgeChip {
-                                text: root.left-label;
+                                text: GuideChrome.left-label;
                                 selected: !row.horizontal;
                                 width: 44px;
                                 clicked => {
-                                    root.set-axis(row.index, false);
+                                    GuideChrome.set-axis(row.index, false);
                                 }
                             }
 
@@ -165,7 +146,7 @@ export component GuidesCard inherits Rectangle {
                                 text: row.offset-text;
                                 mono: true;
                                 accepted(text) => {
-                                    root.set-offset(row.index, text);
+                                    GuideChrome.set-offset(row.index, text);
                                 }
                             }
 
@@ -193,10 +174,10 @@ export component GuidesCard inherits Rectangle {
 
                             CalmIconButton {
                                 icon: root.icon-trash;
-                                tip: root.delete-tip;
+                                tip: GuideChrome.delete-tip;
                                 y: (parent.height - self.height) / 2;
                                 clicked => {
-                                    root.remove-guide(row.index);
+                                    GuideChrome.remove-guide(row.index);
                                 }
                             }
                         }
@@ -209,29 +190,29 @@ export component GuidesCard inherits Rectangle {
                     spacing: Tokens.space-sm;
 
                     EdgeChip {
-                        text: root.top-label;
-                        selected: root.add-horizontal;
+                        text: GuideChrome.top-label;
+                        selected: GuideChrome.add-horizontal;
                         width: 44px;
                         clicked => {
-                            root.add-horizontal = true;
+                            GuideChrome.add-horizontal = true;
                         }
                     }
                     EdgeChip {
-                        text: root.left-label;
-                        selected: !root.add-horizontal;
+                        text: GuideChrome.left-label;
+                        selected: !GuideChrome.add-horizontal;
                         width: 44px;
                         clicked => {
-                            root.add-horizontal = false;
+                            GuideChrome.add-horizontal = false;
                         }
                     }
                     CalmField {
                         horizontal-stretch: 1;
-                        text <=> root.add-offset;
+                        text <=> GuideChrome.add-offset;
                         mono: true;
                         accepted(text) => {
-                            root.add-offset = text;
-                            if (root.can-add) {
-                                root.add-guide();
+                            GuideChrome.add-offset = text;
+                            if (GuideChrome.can-add) {
+                                GuideChrome.add-guide();
                             }
                         }
                     }
@@ -242,24 +223,24 @@ export component GuidesCard inherits Rectangle {
                         background: root.palette.length > 1 ? root.palette[1] : Theme.accent-teal;
                     }
                     CalmButton {
-                        text: root.add-label;
-                        enabled: root.can-add;
+                        text: GuideChrome.add-label;
+                        enabled: GuideChrome.can-add;
                         clicked => {
-                            root.add-guide();
+                            GuideChrome.add-guide();
                         }
                     }
                 }
 
-                if !root.can-add: CalmMuted {
-                    text: root.full-text;
+                if !GuideChrome.can-add: CalmMuted {
+                    text: GuideChrome.full-text;
                 }
 
                 CalmButton {
-                    text: root.clear-label;
-                    enabled: root.guides.length > 0;
+                    text: GuideChrome.clear-label;
+                    enabled: GuideChrome.guides.length > 0;
                     fill: true;
                     clicked => {
-                        root.clear-guides();
+                        GuideChrome.clear-guides();
                     }
                 }
             }
@@ -295,7 +276,7 @@ export component GuidesCard inherits Rectangle {
                     palette: root.palette;
                     selected-index: root.picker-selected;
                     picked(index) => {
-                        root.set-color(root.picker-guide, index);
+                        GuideChrome.set-color(root.picker-guide, index);
                         picker.close();
                     }
                 }

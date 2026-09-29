@@ -75,12 +75,20 @@ def run_clippy_darwin() -> None:
     run(cargo_cmd("clippy", *_package_args(CLIPPY_DARWIN_PACKAGES), *CLIPPY_ARGS))
 
 
+def run_clippy_gui() -> None:
+    if sys.platform != "darwin":
+        return
+    run(["cargo", "clippy", "--manifest-path", str(GUI_MANIFEST), *CLIPPY_ARGS])
+
+
 def run_clippy(*, darwin_only: bool = False) -> None:
     if darwin_only:
         run_clippy_darwin()
+        run_clippy_gui()
         return
     run_clippy_portable()
     run_clippy_darwin()
+    run_clippy_gui()
 
 
 def run_ci_lint() -> None:

@@ -576,7 +576,7 @@ fn apply_canvas_shift_moves_content_by_transform_not_by_touching_tiles() {
         [rgba[i], rgba[i + 1], rgba[i + 2], rgba[i + 3]]
     };
     assert_eq!(at(20, 35), [9, 8, 7, 255]);
-    // The document position the pixel used to occupy is not the same pixel any more.
+    // The pixel's old document position now holds something else.
     assert_ne!(at(40, 40), [9, 8, 7, 255]);
 }
 
@@ -946,10 +946,9 @@ fn set_layer_opacity_fades_composite() {
     assert!(rgba[1] > 50 && rgba[1] < 220);
 }
 
-/// Opacity and adjustments are read by `fs_tile` off the `LayerData` row (plan 23), not baked
-/// into tile bytes, so setting either dirties neither `Render` nor `Store` — a slider drag never
-/// re-walks a tile. `Renderer::write_layer_data` is what actually carries the new values to the
-/// GPU, on whatever `invalidate()` the FFI setter already calls.
+/// Opacity and adjustments are read by `fs_tile` off the `LayerData` row, not baked into tile
+/// bytes, so setting either dirties neither `Render` nor `Store` — a slider drag never re-walks
+/// a tile.
 #[test]
 fn opacity_and_adjustments_dirty_neither_render_nor_store() {
     let mut doc = Document::new("p".into(), "t", 1024, 1024);
@@ -1007,10 +1006,9 @@ fn move_layer_up_and_down_reorders_the_stack() {
     assert!(!doc.move_layer_up(doc.layers.len() - 1));
 }
 
-/// A layer dragged into the bottom-right leaves its grid storage exactly where it was —
-/// only the transform moved. A stroke aimed at the now-empty top-left, which the layer's
-/// inverse transform maps to grid coordinates the storage never held, used to be dropped
-/// silently instead of growing the extent the way an oversized paste already does.
+/// A layer dragged into the bottom-right leaves its grid storage where it was — only the
+/// transform moved. A stroke on the now-empty top-left maps to grid coordinates the storage
+/// never held, and has to grow the extent the way an oversized paste does.
 #[test]
 fn stroke_paints_where_a_moved_layers_transform_reaches_off_its_original_storage() {
     let mut doc = Document::new("p".into(), "t", 200, 200);
@@ -1080,10 +1078,8 @@ fn transformed_flatten_leaves_pixels_outside_the_aabb_untouched() {
 }
 
 /// The live GPU view samples a transformed layer's tiles through a linear-filtered sampler, so
-/// a rotated hard edge shows up antialiased on screen. Flattening it with `get_pixel`'s nearest
-/// texel used to disagree — every edge pixel came out either fully opaque or fully transparent,
-/// never in between — which is exactly the "the PNG doesn't match what I saw" bug `layer_rgba`'s
-/// bilinear sampling (`TileGrid::sample_bilinear`) fixes.
+/// a rotated hard edge shows up antialiased on screen, and the flatten has to match it
+/// (`TileGrid::sample_bilinear`) rather than snap every edge pixel to opaque or clear.
 #[test]
 fn a_rotated_layer_flattens_with_bilinear_antialiasing_at_its_edge() {
     let mut doc = Document::new("p".into(), "t", 100, 100);
@@ -1738,9 +1734,7 @@ fn transformed_doc(t: LayerTransform) -> Document {
 }
 
 /// The grip sits a fixed screen distance straight off the middle of the top edge, whatever
-/// the layer has been moved, turned, stretched or flipped to. It used to be placed along
-/// `pivot -> top edge`, and `pivot` is the box centre *before* translation — so a moved layer
-/// slid its grip sideways along the top edge by the offset.
+/// the layer has been moved, turned, stretched or flipped to.
 #[test]
 fn rotate_handle_stays_square_to_the_top_edge() {
     let cases = [
@@ -1804,7 +1798,7 @@ fn rotate_handle_stays_square_to_the_top_edge() {
             (reach - 24.0 / doc.camera.zoom).abs() < 1e-2,
             "{name}: grip is {reach} from the edge, not the fixed screen offset"
         );
-        // Outside the frame, not tucked into it — the failure a flip used to cause.
+        // Outside the frame, not tucked into it, even when flipped.
         let out = (top.mid.0 - top.center.0, top.mid.1 - top.center.1);
         assert!(
             arm.0 * out.0 + arm.1 * out.1 > 0.0,
@@ -1845,9 +1839,6 @@ fn rotate_drag_turns_about_the_visible_centre() {
     assert!((arm.0 * top.along.0 + arm.1 * top.along.1).abs() < 1e-2);
 }
 
-/// Taking a corner of a moved layer and not moving the pointer must not resize anything.
-/// Corner scale measured its reach from the untranslated pivot too, so the box used to jump
-/// out from under the cursor by the offset the moment it was grabbed.
 #[test]
 fn corner_grab_does_not_jump_a_moved_layer() {
     let t = LayerTransform {

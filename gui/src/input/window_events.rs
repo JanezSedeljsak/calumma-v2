@@ -1,4 +1,5 @@
 use super::file_drop::DropHandler;
+use super::ime::ImeQueue;
 use crate::board::ModifierState;
 use i_slint_backend_winit::{CustomApplicationHandler, EventResult};
 use std::cell::{Cell, RefCell};
@@ -24,6 +25,7 @@ pub struct ShellEvents {
     pub drops: DropHandler,
     pub frame_changed: FrameSignal,
     pub modifiers: Rc<RefCell<ModifierState>>,
+    pub ime: ImeQueue,
 }
 
 impl CustomApplicationHandler for ShellEvents {
@@ -44,6 +46,11 @@ impl CustomApplicationHandler for ShellEvents {
             mods.meta_held = state.super_key() || state.control_key();
             mods.alt_held = state.alt_key();
             mods.shift_held = state.shift_key();
+        }
+        if let WindowEvent::Ime(ime) = event {
+            if self.ime.offer(ime) {
+                return EventResult::PreventDefault;
+            }
         }
         self.drops
             .window_event(event_loop, window_id, winit_window, slint_window, event)

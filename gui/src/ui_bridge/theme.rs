@@ -49,7 +49,6 @@ pub fn apply_theme(ui: &AppWindow, theme: &Theme) {
     tokens.set_paste_max_width(metrics.paste_max_width);
     tokens.set_paste_min_height(metrics.paste_min_height);
     tokens.set_paste_width_ratio(metrics.paste_width_ratio);
-    tokens.set_fit_padding(calumma_core::limits::FIT_PADDING);
 
     let presets: Vec<PresetRow> = theme
         .presets

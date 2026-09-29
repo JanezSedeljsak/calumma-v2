@@ -28,10 +28,9 @@ fn tol2(tolerance: u8) -> u32 {
 /// transparent region reads as its own color, which is what makes the wand able to select the
 /// empty space around a sketch.
 ///
-/// The two bitmaps double as the visited set this walk used to keep in a hash set — `visited`
-/// marks enqueued, `reached` marks passed the tolerance test — at a bit per pixel rather than
-/// a 64-bit hash entry per pixel, which is what lets the wand flood a whole document without
-/// the bookkeeping outweighing the document.
+/// Two bitmaps are the visited set — `visited` marks enqueued, `reached` marks passed the
+/// tolerance test — at a bit per pixel, so the wand can flood a whole document without the
+/// bookkeeping outweighing the document.
 pub fn flood_region_pixels<F>(
     scope: DocRect,
     start_x: i32,

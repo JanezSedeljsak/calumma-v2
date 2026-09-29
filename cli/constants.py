@@ -47,7 +47,7 @@ MCP_DEVTOOLS_PORT = 7883
 DIST = ROOT / DIR_DIST
 DIST_STAGING = DIST / "dmg-root"
 
-CRATE_DIRS = ("core", "io", "ops", "render", "ffi")
+CRATE_DIRS = ("core", "io", "render", "ffi")
 CRATE_PREFIX = "calumma-"
 PKG_FFI = f"{CRATE_PREFIX}ffi"
 PKG_CORE = f"{CRATE_PREFIX}core"
@@ -56,7 +56,6 @@ CLIPPY_PORTABLE_PACKAGES = (
     f"{CRATE_PREFIX}core",
     f"{CRATE_PREFIX}text",
     f"{CRATE_PREFIX}io",
-    f"{CRATE_PREFIX}ops",
     f"{CRATE_PREFIX}render",
 )
 

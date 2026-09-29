@@ -75,15 +75,58 @@ fn without_shift_a_drag_is_free() {
 }
 
 #[test]
-fn the_other_shape_tools_are_left_alone() {
-    for tool in [Tool::Line, Tool::Arrow, Tool::Triangle, Tool::Pentagon] {
+fn shift_snaps_a_line_and_an_arrow_to_forty_five_degrees() {
+    for tool in [Tool::Line, Tool::Arrow] {
         let mut doc = doc_with_tool(tool);
         doc.set_shift_held(true);
-        drag(&mut doc, (50.0, 50.0), (150.0, 90.0));
+        drag(&mut doc, (50.0, 50.0), (150.0, 60.0));
+        let end = preview(&doc).end;
+        assert!((end.1 - 50.0).abs() < 0.01, "{tool:?} snaps flat");
         assert!(
-            close(span(preview(&doc)), (100.0, 40.0)),
-            "{tool:?} has no square constraint"
+            (end.0 - 50.0 - 100f32.hypot(10.0)).abs() < 0.01,
+            "{tool:?} keeps its length"
         );
+
+        drag(&mut doc, (50.0, 50.0), (150.0, 140.0));
+        let (dx, dy) = (preview(&doc).end.0 - 50.0, preview(&doc).end.1 - 50.0);
+        assert!((dx - dy).abs() < 0.01, "{tool:?} snaps to the diagonal");
+        assert!(
+            (dx.hypot(dy) - 100f32.hypot(90.0)).abs() < 0.01,
+            "{tool:?} keeps its length"
+        );
+    }
+}
+
+#[test]
+fn shift_makes_a_pentagon_regular_and_a_triangle_equilateral() {
+    let mut doc = doc_with_tool(Tool::Pentagon);
+    doc.set_shift_held(true);
+    drag(&mut doc, (50.0, 50.0), (150.0, 90.0));
+    assert!(close(span(preview(&doc)), (100.0, 100.0)));
+
+    let mut doc = doc_with_tool(Tool::Triangle);
+    doc.set_shift_held(true);
+    drag(&mut doc, (50.0, 50.0), (150.0, 90.0));
+    let verts = preview(&doc).triangle_vertices();
+    let side = |a: (f32, f32), b: (f32, f32)| (a.0 - b.0).hypot(a.1 - b.1);
+    let (ab, bc, ca) = (
+        side(verts[0], verts[1]),
+        side(verts[1], verts[2]),
+        side(verts[2], verts[0]),
+    );
+    assert!(
+        (ab - bc).abs() < 0.01 && (bc - ca).abs() < 0.01,
+        "{ab} {bc} {ca}"
+    );
+    assert!((bc - 100.0).abs() < 0.01, "the base fills the drag");
+}
+
+#[test]
+fn without_shift_the_polygons_and_lines_are_free() {
+    for tool in [Tool::Line, Tool::Arrow, Tool::Triangle, Tool::Pentagon] {
+        let mut doc = doc_with_tool(tool);
+        drag(&mut doc, (50.0, 50.0), (150.0, 90.0));
+        assert!(close(span(preview(&doc)), (100.0, 40.0)), "{tool:?}");
     }
 }
 

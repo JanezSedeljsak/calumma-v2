@@ -17,7 +17,7 @@ pub use guides::{sync_guide_readout, sync_guides};
 pub use landing::{
     form_accent, parse_dimension, random_accent_index, refresh_landing, sync_recents,
 };
-pub use rulers::{camera_signature, sync_rulers, sync_zoom_chrome};
+pub use rulers::{camera_signature, sync_ruler_preview, sync_rulers, sync_zoom_chrome};
 pub use strings::{init_form_defaults, sync_strings, DEFAULT_HEIGHT, DEFAULT_WIDTH};
 pub use theme::apply_theme;
 

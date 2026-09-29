@@ -210,7 +210,7 @@ fn locking_still_allows_visibility_and_delete() {
 #[test]
 fn setting_a_lock_to_what_it_already_is_reports_no_change() {
     let mut doc = stacked();
-    assert!(!doc.layer_locked(1));
+    assert!(!doc.layers[1].locked);
     assert!(!doc.set_layer_locked(1, false), "already unlocked");
     assert!(doc.set_layer_locked(1, true));
     assert!(!doc.set_layer_locked(1, true), "already locked");
@@ -222,7 +222,7 @@ fn setting_a_lock_to_what_it_already_is_reports_no_change() {
 fn paper_can_be_locked_even_though_it_cannot_be_renamed() {
     let mut doc = stacked();
     assert!(doc.set_layer_locked(0, true));
-    assert!(doc.layer_locked(0));
+    assert!(doc.layers[0].locked);
     doc.active_layer = 0;
     assert!(!doc.active_layer_accepts_paint());
 }

@@ -1,9 +1,7 @@
 //! Turning a shell's native window into a wgpu surface.
 //!
-//! macOS hands over a `CAMetalLayer` and nothing else, which is why the original
-//! `calm_engine_attach_surface` could take a bare `void *`. Win32 needs an `HWND`, X11 needs a
-//! `Display *` **and** an XID, and Wayland needs a `wl_display *` **and** a `wl_surface *` — two
-//! values, so one pointer no longer says enough. Everything platform-shaped about attaching
+//! macOS hands over a `CAMetalLayer`, Win32 an `HWND`, X11 a `Display *` **and** an XID, and
+//! Wayland a `wl_display *` **and** a `wl_surface *` — so one pointer is not enough. Everything platform-shaped about attaching
 //! lives here; `engine.rs` only knows it gets a `SurfaceTargetUnsafe` back.
 
 use anyhow::{bail, Result};
@@ -126,8 +124,8 @@ fn xlib_target(display: *mut c_void, window: *mut c_void) -> Result<wgpu::Surfac
     {
         use std::ffi::c_ulong;
         use std::ptr::NonNull;
-        // Xlib's `Window` is an XID, not an address — Qt's `QWindow::winId()` returns it as a
-        // `WId`, and it travels through the `void *` field as those same bits.
+        // Xlib's `Window` is an XID, not an address; it travels through the `void *` field as
+        // those same bits.
         let Some(display) = NonNull::new(display) else {
             bail!("attach needs a non-null X11 Display *");
         };

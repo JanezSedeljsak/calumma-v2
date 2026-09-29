@@ -1,8 +1,7 @@
 //! Whole-document PDF export.
 //!
-//! Structured, so it encodes in Rust beside `svg.rs` and `psd.rs` rather than in the shell —
-//! `CGPDFContext` would only work if Swift re-emitted every shape, which is exactly what the
-//! one rule forbids and what `vector_pdf` exists to prevent.
+//! Encoded in Rust beside `svg.rs` and `psd.rs` rather than in the shell, which would have to
+//! re-emit every shape to use a platform PDF context.
 //!
 //! PDF is the closest fit of any export format Calumma has, because the layer model has real
 //! equivalents rather than approximations: `layer.opacity` is `/ca` and `/CA`, the three blend

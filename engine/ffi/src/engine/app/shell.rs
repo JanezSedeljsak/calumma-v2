@@ -1,7 +1,6 @@
-use super::{Engine, Inner};
+use super::Engine;
 use anyhow::{Context, Result};
 use calumma_io::{encode_pdf, encode_psd, encode_rgba, encode_svg, RasterFormat};
-use calumma_ops::{run_op_on_document, OpKind, OpParams};
 
 const THUMB_MAX_SIDE: u32 = 160;
 
@@ -134,100 +133,8 @@ impl Engine {
         false
     }
 
-    pub fn has_selection(&self) -> bool {
-        self.inner
-            .lock()
-            .doc
-            .as_ref()
-            .is_some_and(|doc| doc.selection.is_some())
-    }
-
     pub fn active_layer_index(&self) -> Option<usize> {
         self.inner.lock().doc.as_ref().map(|doc| doc.active_layer)
-    }
-
-    pub fn active_layer_is_raster(&self) -> bool {
-        let inner = self.inner.lock();
-        let doc = match inner.doc.as_ref() {
-            Some(doc) => doc,
-            None => return false,
-        };
-        doc.layers
-            .get(doc.active_layer)
-            .is_some_and(|layer| layer.tiles().is_some())
-    }
-
-    fn run_smart_op_with(&mut self, kind: OpKind, params: OpParams) -> Result<()> {
-        let index = self
-            .active_layer_index()
-            .context("no active layer for the smart tool")?;
-        self.run_op_on_layer(kind, index, params)
-    }
-
-    pub fn run_upscale(&mut self) -> Result<()> {
-        self.run_smart_op_with(OpKind::Upscale, OpParams::default())
-    }
-
-    /// With a selection live, that selection is the seed — everything outside it is background
-    /// — which is what the menu promises when it reads "Cut Out What You Drew Around".
-    pub fn run_smart_matte(&mut self) -> Result<()> {
-        let seed_region = {
-            let inner = self.inner.lock();
-            inner.doc.as_ref().and_then(|doc| {
-                doc.selection
-                    .as_ref()
-                    .map(|selection| selection.to_mask(doc.width, doc.height))
-            })
-        };
-        self.run_smart_op_with(
-            OpKind::SmartMatte,
-            OpParams {
-                seed_region,
-                ..OpParams::default()
-            },
-        )
-    }
-
-    pub fn run_seam_carve_narrow(&mut self) -> Result<()> {
-        self.run_core_op(OpKind::SeamCarve, "running seam carve", |doc| {
-            let index = doc.active_layer;
-            let (w, h, _) = doc
-                .layer_rgba(index)
-                .context("seam carve needs a pixel layer")?;
-            let params = OpParams {
-                target_size: Some(((w * 9 / 10).max(1), h)),
-                ..Default::default()
-            };
-            Ok((index, params))
-        })
-    }
-
-    fn run_op_on_layer(&mut self, kind: OpKind, index: usize, params: OpParams) -> Result<()> {
-        if !self.inner.lock().registry.available(kind) {
-            anyhow::bail!("tool is not available");
-        }
-        self.run_core_op(kind, "running the tool", |_| Ok((index, params)))
-    }
-
-    fn run_core_op(
-        &mut self,
-        kind: OpKind,
-        what: &'static str,
-        target: impl FnOnce(&calumma_core::Document) -> Result<(usize, OpParams)>,
-    ) -> Result<()> {
-        let mut inner = self.inner.lock();
-        let Inner {
-            doc,
-            registry,
-            dirty_save,
-            ..
-        } = &mut *inner;
-        let doc = doc.as_mut().context("no project is open")?;
-        let (index, params) = target(doc)?;
-        run_op_on_document(registry, doc, index, kind, &params).context(what)?;
-        *dirty_save = true;
-        inner.invalidate_renderer();
-        Ok(())
     }
 
     pub fn export_raster(&self, format: RasterFormat) -> Result<Vec<u8>> {

@@ -8,8 +8,8 @@ import { CalmPointer } from "calm/CalmPointer.slint";
 import { CalmToolButton } from "calm/CalmToolButton.slint";
 import { CalmLabel } from "calm/CalmText.slint";
 import { QuickColorPicker } from "quick-color-picker.slint";
+import { ColorChrome } from "color-chrome.slint";
 import { ToolOptions } from "tool-options.slint";
-import { SmartMenu } from "smart-menu.slint";
 import { Tip } from "calm/CalmTip.slint";
 
 component ToolGrid inherits VerticalLayout {
@@ -46,30 +46,7 @@ export component ToolsPanel inherits CalmIsland {
     in property <[ToolEntry]> tools;
     in property <string> active-tool-label;
 
-    in property <string> color-label;
-    in property <string> tools-menu-title;
-    in property <bool> tools-busy;
-    in property <string> upscale-label;
-    in property <string> smart-matte-label;
-    in property <string> seam-carve-label;
-    in property <bool> can-upscale;
-    in property <bool> can-smart-matte;
-    in property <bool> can-seam-carve;
 
-    in property <brush> color-swatch0;
-    in property <brush> color-swatch1;
-    in property <brush> color-swatch2;
-    in property <brush> color-swatch3;
-    in property <int> active-color-swatch;
-    in property <color> color-hue-brush;
-    in property <string> primary-color-label;
-    in property <string> secondary-color-label;
-    in property <string> tertiary-color-label;
-    in property <string> quaternary-color-label;
-    in-out property <float> color-sb-x;
-    in-out property <float> color-sb-y;
-    in-out property <float> color-hue-x;
-    in-out property <string> color-hex-text;
 
     callback pick-tool(int);
     callback pick-brush(int);
@@ -89,13 +66,6 @@ export component ToolsPanel inherits CalmIsland {
     callback crop-overlay-changed(int);
     callback commit-crop();
     callback cancel-crop();
-    callback select-color-swatch(int);
-    callback color-sb-changed(float, float);
-    callback color-hue-changed(float);
-    callback color-hex-changed(string);
-    callback run-upscale();
-    callback run-smart-matte();
-    callback run-seam-carve();
 
     private property <[image]> tool-icons: [
         @image-url("move.svg"),
@@ -127,7 +97,6 @@ export component ToolsPanel inherits CalmIsland {
         @image-url("crayon.svg"),
         @image-url("airbrush.svg"),
     ];
-    private property <image> icon-ai: @image-url("ai.svg");
 
     width: Tokens.tools-panel-width;
     island-padding: Tokens.space-xs;
@@ -229,83 +198,39 @@ export component ToolsPanel inherits CalmIsland {
             spacing: Tokens.space-xs;
 
             CalmLabel {
-                label: root.color-label;
+                label: ColorChrome.label;
                 horizontal-alignment: center;
             }
 
             QuickColorPicker {
-                swatch0: root.color-swatch0;
-                swatch1: root.color-swatch1;
-                swatch2: root.color-swatch2;
-                swatch3: root.color-swatch3;
-                active-swatch: root.active-color-swatch;
-                hue-color: root.color-hue-brush;
-                primary-tip: root.primary-color-label;
-                secondary-tip: root.secondary-color-label;
-                tertiary-tip: root.tertiary-color-label;
-                quaternary-tip: root.quaternary-color-label;
-                sb-x <=> root.color-sb-x;
-                sb-y <=> root.color-sb-y;
-                hue-x <=> root.color-hue-x;
-                hex-text <=> root.color-hex-text;
+                swatch0: ColorChrome.swatch0;
+                swatch1: ColorChrome.swatch1;
+                swatch2: ColorChrome.swatch2;
+                swatch3: ColorChrome.swatch3;
+                active-swatch: ColorChrome.active-swatch;
+                hue-color: ColorChrome.hue-color;
+                primary-tip: ColorChrome.primary-tip;
+                secondary-tip: ColorChrome.secondary-tip;
+                tertiary-tip: ColorChrome.tertiary-tip;
+                quaternary-tip: ColorChrome.quaternary-tip;
+                sb-x <=> ColorChrome.sb-x;
+                sb-y <=> ColorChrome.sb-y;
+                hue-x <=> ColorChrome.hue-x;
+                hex-text <=> ColorChrome.hex-text;
                 select-swatch(i) => {
-                    root.select-color-swatch(i);
+                    ColorChrome.select-swatch(i);
                 }
                 sb-changed(x, y) => {
-                    root.color-sb-changed(x, y);
+                    ColorChrome.sb-changed(x, y);
                 }
                 hue-changed(x) => {
-                    root.color-hue-changed(x);
+                    ColorChrome.hue-changed(x);
                 }
                 hex-changed(text) => {
-                    root.color-hex-changed(text);
+                    ColorChrome.hex-changed(text);
                 }
             }
         }
 
-        CalmDivider { }
-
-        menu-touch := CalmPointer {
-            height: Tokens.control-height;
-            clicked => {
-                Tip.armed = false;
-                Tip.open = false;
-                SmartMenu.x = root.absolute-position.x + root.island-padding;
-                SmartMenu.width = root.width - root.island-padding * 2;
-                SmartMenu.y = self.absolute-position.y;
-                SmartMenu.open = true;
-            }
-            changed has-hover => {
-                if (self.has-hover) {
-                    Tip.text = root.tools-menu-title;
-                    Tip.shortcut = "";
-                    Tip.leading = false;
-                    Tip.x = root.absolute-position.x + root.width + Tokens.space-sm;
-                    Tip.y = self.absolute-position.y + self.height / 2;
-                    Tip.open = false;
-                    Tip.armed = true;
-                } else if (Tip.text == root.tools-menu-title) {
-                    Tip.armed = false;
-                    Tip.open = false;
-                }
-            }
-
-            HorizontalLayout {
-                spacing: Tokens.space-xs;
-                alignment: center;
-
-                Image {
-                    source: root.icon-ai;
-                    width: 14px;
-                    height: 14px;
-                    colorize: root.tools-busy ? Theme.accent-teal : Theme.text-muted;
-                    y: (parent.height - self.height) / 2;
-                }
-
-                CalmLabel {
-                    label: root.tools-menu-title;
-                }
-            }
-        }
     }
 }

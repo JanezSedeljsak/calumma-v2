@@ -484,7 +484,7 @@ fn read_layer_record(reader: &mut Reader) -> Option<DecodedLayerRecord> {
 /// case — 8-bit, RGB or RGBA channels, raw or PackBits-compressed — and refuses cleanly
 /// (`None`) outside that: CMYK/Lab/indexed/greyscale documents, 16/32-bit depth, or anything
 /// truncated or structurally inconsistent. `None` is the caller's cue to fall back to a
-/// flattened import instead of failing outright — see `calm_project_create_from_psd`.
+/// flattened import instead of failing outright.
 pub fn decode(bytes: &[u8]) -> Option<DecodedPsd> {
     let mut r = Reader::new(bytes);
     if r.take(4)? != SIGNATURE {
@@ -657,9 +657,8 @@ mod tests {
         assert_eq!(layer_count, 3);
     }
 
-    /// A vector layer has no tiles of its own, so it used to fall out of the export entirely.
-    /// PSD has no shape layer in this writer, but dropping the artwork is worse than
-    /// rasterizing it.
+    /// A vector layer has no tiles of its own, and PSD has no shape layer in this writer, so it
+    /// is rasterized rather than dropped.
     #[test]
     fn a_vector_layer_reaches_the_psd_as_pixels() {
         use calumma_core::vector::{VectorItem, VectorShape};
@@ -695,8 +694,6 @@ mod tests {
         let bytes = encode(&doc);
         assert!(bytes.len() > 16 * 16 * 4 * 3);
     }
-
-    // --- decode ---
 
     #[test]
     fn decoding_this_modules_own_output_round_trips_every_layer() {

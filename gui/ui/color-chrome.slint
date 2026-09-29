@@ -1,0 +1,22 @@
+export global ColorChrome {
+    in property <string> label;
+    in property <brush> swatch0;
+    in property <brush> swatch1;
+    in property <brush> swatch2;
+    in property <brush> swatch3;
+    in property <int> active-swatch;
+    in property <color> hue-color;
+    in property <string> primary-tip;
+    in property <string> secondary-tip;
+    in property <string> tertiary-tip;
+    in property <string> quaternary-tip;
+    in-out property <float> sb-x;
+    in-out property <float> sb-y;
+    in-out property <float> hue-x;
+    in-out property <string> hex-text;
+
+    callback select-swatch(int);
+    callback sb-changed(float, float);
+    callback hue-changed(float);
+    callback hex-changed(string);
+}

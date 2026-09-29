@@ -1,9 +1,5 @@
-//! Pasting into an open document, and the data loss that used to be the answer when it did not
-//! fit.
-//!
-//! `an_oversized_paste_keeps_every_pixel` is the regression that matters: the old path anchored
-//! the blit top-left and let `paint_rect`'s bounds intersect eat the rest, so the bottom-right
-//! of an oversized image was never written anywhere.
+//! Pasting into an open document, including an image bigger than the paper: every pixel has
+//! to be kept.
 
 use calumma_core::document::*;
 use calumma_core::paste::PasteOutcome;

@@ -14,6 +14,28 @@ export global LayerChrome {
     callback align(int);
     callback distribute(bool);
 
+    callback settings-dismissed();
+    callback toggle-visibility();
+    callback toggle-lock();
+    callback opacity-changed(float);
+    callback opacity-committed(float);
+    callback blend-changed(int);
+    callback filter-changed(int, float);
+    callback filter-committed(int, float);
+    callback reset-filters();
+    callback rename-layer(string);
+    callback toggle-clip();
+    callback toggle-mask();
+    callback flatten-clip();
+    callback merge-down();
+    callback reset-transform();
+    callback move-up();
+    callback move-down();
+    callback rasterize-layer();
+    callback export-layer();
+    callback duplicate-layer();
+    callback delete-layer();
+
     in-out property <string> name;
     in-out property <image> preview;
     in-out property <bool> visible: true;

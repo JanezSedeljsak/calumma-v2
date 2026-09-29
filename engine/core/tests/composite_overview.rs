@@ -212,8 +212,7 @@ fn an_overview_samples_a_layer_through_its_transform() {
     assert_eq!(pixel(&after, w, 44, 44)[3], 255, "and arrived down-right");
 }
 
-/// The regression guard for the overview proxy having been blind to vector layers: a mixed
-/// document has to read the same through the thumbnail and through the flatten.
+/// A mixed raster and vector document reads the same through the overview and the flatten.
 ///
 /// Sampled away from the shape's own edge on purpose. The two paths pick different points
 /// inside a pixel — the flatten samples centres (`x + 0.5`), the overview samples the grid it
