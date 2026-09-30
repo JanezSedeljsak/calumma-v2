@@ -723,7 +723,7 @@ dependencies = [
 
 [[package]]
 name = "calumma-app"
-version = "0.35.0"
+version = "0.35.1"
 dependencies = [
  "calumma-core",
  "calumma-ffi",
@@ -731,7 +731,7 @@ dependencies = [
 
 [[package]]
 name = "calumma-core"
-version = "0.35.0"
+version = "0.35.1"
 dependencies = [
  "calumma-text",
  "num_enum",
@@ -744,7 +744,7 @@ dependencies = [
 
 [[package]]
 name = "calumma-ffi"
-version = "0.35.0"
+version = "0.35.1"
 dependencies = [
  "anyhow",
  "calumma-core",
@@ -758,7 +758,7 @@ dependencies = [
 
 [[package]]
 name = "calumma-io"
-version = "0.35.0"
+version = "0.35.1"
 dependencies = [
  "aom-decode",
  "calumma-core",
@@ -777,7 +777,7 @@ dependencies = [
 
 [[package]]
 name = "calumma-render"
-version = "0.35.0"
+version = "0.35.1"
 dependencies = [
  "bytemuck",
  "calumma-core",
@@ -790,7 +790,7 @@ dependencies = [
 
 [[package]]
 name = "calumma-text"
-version = "0.35.0"
+version = "0.35.1"
 dependencies = [
  "cosmic-text",
  "num_enum",
@@ -3290,7 +3290,7 @@ dependencies = [
 
 [[package]]
 name = "miw"
-version = "0.35.0"
+version = "0.35.1"
 dependencies = [
  "anyhow",
  "arboard",

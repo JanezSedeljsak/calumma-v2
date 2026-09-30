@@ -97,9 +97,7 @@ impl LayerThumbCache {
     }
 
     pub fn invalidate(&mut self) {
-        for revision in &mut self.revisions {
-            *revision = u64::MAX;
-        }
+        self.revisions.fill(u64::MAX);
     }
 }
 
