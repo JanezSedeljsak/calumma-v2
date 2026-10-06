@@ -1,3 +1,6 @@
+use std::sync::Arc;
+
+use calumma_core::tile::TileCoord;
 use calumma_core::{Document, Layer};
 
 fn painted_doc() -> Document {
@@ -129,4 +132,78 @@ fn can_release_layer_mask_needs_the_pair() {
     assert!(!doc.can_release_layer_mask(1));
     assert!(doc.create_layer_mask(1));
     assert!(doc.can_release_layer_mask(2));
+}
+
+fn matte_with(subject_at: &[(i32, i32)], background_at: &[(i32, i32)]) -> Vec<u8> {
+    let mut matte = vec![255u8; 64 * 64];
+    for &(x, y) in background_at {
+        matte[(y * 64 + x) as usize] = 0;
+    }
+    for &(x, y) in subject_at {
+        matte[(y * 64 + x) as usize] = 255;
+    }
+    matte
+}
+
+#[test]
+fn a_matte_hides_background_and_keeps_the_subject() {
+    let mut doc = painted_doc();
+    let matte = matte_with(&[(20, 20)], &[(10, 10)]);
+    assert!(doc.create_layer_mask_from_matte(1, &matte));
+    assert!(doc.is_layer_masked(2));
+    let (_, _, rgba) = doc.composite_rgba();
+    assert_eq!(pixel(&rgba, 10, 10)[1], 255, "paper shows through the hole");
+    assert!(pixel(&rgba, 20, 20)[0] > 200, "the subject stays");
+    assert_eq!(doc.layers[1].tiles().unwrap().get_pixel(10, 10)[3], 255);
+    assert_eq!(doc.layers[1].tiles().unwrap().get_pixel(20, 20)[3], 0);
+}
+
+#[test]
+fn a_soft_matte_keeps_a_partial_edge() {
+    let mut doc = painted_doc();
+    let mut matte = vec![255u8; 64 * 64];
+    matte[(10 * 64 + 10) as usize] = 128;
+    assert!(doc.create_layer_mask_from_matte(1, &matte));
+    assert_eq!(doc.layers[1].tiles().unwrap().get_pixel(10, 10)[3], 127);
+}
+
+#[test]
+fn a_fully_subject_matte_allocates_no_mask_tiles() {
+    let mut doc = painted_doc();
+    assert!(doc.create_layer_mask_from_matte(1, &vec![255u8; 64 * 64]));
+    assert!(doc.layers[1].tiles().unwrap().is_empty());
+}
+
+#[test]
+fn background_tiles_share_one_allocation() {
+    let mut doc = Document::new("wide".into(), "Wide", 512, 256);
+    let matte = vec![0u8; 512 * 256];
+    assert!(doc.create_layer_mask_from_matte(1, &matte));
+    let tiles = doc.layers[1].tiles().unwrap();
+    let left = tiles.get(TileCoord { x: 0, y: 0 }).unwrap();
+    let right = tiles.get(TileCoord { x: 1, y: 0 }).unwrap();
+    assert!(Arc::ptr_eq(left, right));
+    assert_eq!(left[3], 255);
+}
+
+#[test]
+fn a_matte_of_the_wrong_length_changes_nothing() {
+    let mut doc = painted_doc();
+    assert!(!doc.create_layer_mask_from_matte(1, &[0, 1, 2]));
+    assert_eq!(doc.layers.len(), 2);
+    assert!(!doc.create_layer_mask_from_matte(0, &vec![0u8; 64 * 64]));
+    assert_eq!(doc.layers.len(), 2);
+}
+
+#[test]
+fn undo_and_redo_a_matte_mask_as_one_step() {
+    let mut doc = painted_doc();
+    let matte = matte_with(&[], &[(10, 10)]);
+    assert!(doc.create_layer_mask_from_matte(1, &matte));
+    assert!(doc.undo());
+    assert_eq!(doc.layers.len(), 2);
+    assert!(doc.layers[1].clips_to.is_none());
+    assert!(doc.redo());
+    assert!(doc.is_layer_masked(2));
+    assert_eq!(doc.layers[1].tiles().unwrap().get_pixel(10, 10)[3], 255);
 }

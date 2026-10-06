@@ -1,0 +1,174 @@
+import { Theme } from "calm/CalmTheme.slint";
+import { Tokens } from "calm/CalmTokens.slint";
+import { CalmMuted } from "calm/CalmText.slint";
+import { CalmPointer } from "calm/CalmPointer.slint";
+import { ToolChrome } from "tool-chrome.slint";
+
+component OptionChip inherits Rectangle {
+    in property <string> label;
+    in property <bool> selected: false;
+
+    callback clicked();
+
+    height: Tokens.control-height;
+    min-width: chip-label.preferred-width + Tokens.space-xs * 2;
+    horizontal-stretch: 1;
+    border-radius: Tokens.radius-sm;
+    background: root.selected ? Theme.surface-hover : Theme.surface;
+    border-width: 1px;
+    border-color: root.selected ? Theme.control-focus-border : Theme.control-border;
+
+    CalmPointer {
+        clicked => {
+            root.clicked();
+        }
+    }
+
+    chip-label := Text {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        text: root.label;
+        color: root.selected ? Theme.text : Theme.text-muted;
+        font-size: Tokens.label-size;
+        font-weight: 500;
+    }
+}
+
+export component CropOptions inherits VerticalLayout {
+    spacing: Tokens.space-xs;
+
+    CalmMuted {
+        text: ToolChrome.crop-aspect-label;
+    }
+
+    HorizontalLayout {
+        spacing: Tokens.space-xs;
+
+        OptionChip {
+            label: ToolChrome.crop-free-label;
+            selected: ToolChrome.crop-aspect == 0;
+            clicked => {
+                ToolChrome.crop-aspect-changed(0);
+            }
+        }
+
+        OptionChip {
+            label: ToolChrome.crop-square-label;
+            selected: ToolChrome.crop-aspect == 1;
+            clicked => {
+                ToolChrome.crop-aspect-changed(1);
+            }
+        }
+    }
+
+    HorizontalLayout {
+        spacing: Tokens.space-xs;
+
+        OptionChip {
+            label: ToolChrome.crop-four-three-label;
+            selected: ToolChrome.crop-aspect == 2;
+            clicked => {
+                ToolChrome.crop-aspect-changed(2);
+            }
+        }
+
+        OptionChip {
+            label: ToolChrome.crop-three-two-label;
+            selected: ToolChrome.crop-aspect == 3;
+            clicked => {
+                ToolChrome.crop-aspect-changed(3);
+            }
+        }
+    }
+
+    HorizontalLayout {
+        spacing: Tokens.space-xs;
+
+        OptionChip {
+            label: ToolChrome.crop-sixteen-nine-label;
+            selected: ToolChrome.crop-aspect == 4;
+            clicked => {
+                ToolChrome.crop-aspect-changed(4);
+            }
+        }
+
+        OptionChip {
+            label: ToolChrome.crop-five-four-label;
+            selected: ToolChrome.crop-aspect == 5;
+            clicked => {
+                ToolChrome.crop-aspect-changed(5);
+            }
+        }
+    }
+
+    CalmMuted {
+        text: ToolChrome.crop-overlay-label;
+    }
+
+    HorizontalLayout {
+        spacing: Tokens.space-xs;
+
+        OptionChip {
+            label: ToolChrome.crop-overlay-off-label;
+            selected: ToolChrome.crop-overlay == 0;
+            clicked => {
+                ToolChrome.crop-overlay-changed(0);
+            }
+        }
+
+        OptionChip {
+            label: ToolChrome.crop-overlay-thirds-label;
+            selected: ToolChrome.crop-overlay == 1;
+            clicked => {
+                ToolChrome.crop-overlay-changed(1);
+            }
+        }
+
+        OptionChip {
+            label: ToolChrome.crop-overlay-grid-label;
+            selected: ToolChrome.crop-overlay == 2;
+            clicked => {
+                ToolChrome.crop-overlay-changed(2);
+            }
+        }
+    }
+
+    HorizontalLayout {
+        spacing: Tokens.space-xs;
+
+        OptionChip {
+            label: ToolChrome.crop-overlay-diagonal-label;
+            selected: ToolChrome.crop-overlay == 3;
+            clicked => {
+                ToolChrome.crop-overlay-changed(3);
+            }
+        }
+
+        OptionChip {
+            label: ToolChrome.crop-overlay-golden-label;
+            selected: ToolChrome.crop-overlay == 4;
+            clicked => {
+                ToolChrome.crop-overlay-changed(4);
+            }
+        }
+    }
+
+    HorizontalLayout {
+        spacing: Tokens.space-xs;
+
+        OptionChip {
+            label: ToolChrome.crop-cancel-label;
+            clicked => {
+                ToolChrome.cancel-crop();
+            }
+        }
+
+        OptionChip {
+            label: ToolChrome.crop-commit-label;
+            selected: true;
+            clicked => {
+                ToolChrome.commit-crop();
+            }
+        }
+    }
+}

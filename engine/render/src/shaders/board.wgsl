@@ -151,7 +151,7 @@ const LUT_MODE_TONE: u32 = 1u;
 const LUT_MODE_TONE_HSL: u32 = 2u;
 
 // Every tile GPU-resident across the whole document lives in one shared array texture,
-// addressed per-instance by array-layer index — see `TileAtlas` in `render/src/tile_atlas.rs`.
+// addressed per-instance by array-layer index — see `TileAtlas` in `render/src/tile_atlas/`.
 // That is what turns a document layer's tiles into a single instanced draw instead of one
 // draw call per tile. Group 0 carries the atlas, the per-frame camera and the layer table, and
 // is bound once for the whole board: there is no per-layer bind group, so a stack of Normal
@@ -228,7 +228,7 @@ fn vs_tile(input: TileInstanceIn, @builtin(vertex_index) idx: u32) -> TileVsOut 
 // filters.rs`) was built in: it runs directly on the stored byte, with no gamma curve at all.
 // `apply_adjustments` re-encodes to that byte space before the lookup and decodes the result
 // back, so a slider reads the same numbers flatten/export do. The two curves are software here
-// and hardware on write, so they need not be bit-identical — `layer_table_tests` allows a
+// and hardware on write, so they need not be bit-identical — `layer_table::adjustment_parity` allows a
 // one-code tolerance for exactly that reason.
 fn linear_to_srgb(c: f32) -> f32 {
     if c <= 0.0031308 {

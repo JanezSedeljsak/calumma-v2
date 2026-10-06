@@ -1,0 +1,53 @@
+import { RecentRow, PresetRow, ProjectTabRow } from "models.slint";
+
+export global ProjectChrome {
+    in property <string> brand-text;
+    in property <string> tagline-text;
+    in property <string> name-label;
+    in property <string> resolution-label;
+    in property <string> create-label;
+    in property <string> presets-label;
+    in property <string> recents-label;
+    in property <string> clear-all-label;
+    in property <string> no-recents-label;
+    in property <string> delete-label;
+    in property <string> paste-artwork-title;
+    in property <string> paste-artwork-hint;
+    in property <string> artwork-formats;
+    in property <image> app-icon;
+
+    in-out property <string> name;
+    in-out property <string> width-text;
+    in-out property <string> height-text;
+    in-out property <int> accent-index: 0;
+    in property <[color]> palette;
+    in property <[PresetRow]> presets;
+    in property <[RecentRow]> recents;
+
+    in property <[ProjectTabRow]> tabs;
+    in property <string> close-tab-tip;
+
+    in property <float> settings-anchor-x;
+    in property <float> settings-anchor-y;
+    in-out property <string> settings-name;
+    in property <string> settings-size-text;
+    in-out property <int> settings-accent-index: 0;
+
+    callback create-project();
+    callback create-from-modal();
+    callback new-project-dismissed();
+    callback preset-size(int, int);
+    callback open-recent(string);
+    callback delete-recent(string);
+    callback clear-recents();
+    callback paste-artwork-clicked();
+    callback app-icon-clicked();
+
+    callback switch-tab(string);
+    callback close-tab(string);
+    callback edit-tab(string, float, float);
+
+    callback settings-dismissed();
+    callback rename(string);
+    callback recolor(int);
+}

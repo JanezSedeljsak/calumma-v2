@@ -1,4 +1,5 @@
 use super::Engine;
+use calumma_core::BoardColors;
 
 impl Engine {
     pub fn ink_color(&self) -> [u8; 4] {
@@ -59,6 +60,16 @@ impl Engine {
             doc.shape_fill_color = fill;
             doc.set_select_color(select);
             inner.invalidate_renderer();
+        }
+    }
+
+    pub fn set_board_colors(&mut self, colors: BoardColors) {
+        let mut inner = self.inner.lock();
+        if let Some(doc) = &mut inner.doc {
+            if doc.board_colors != colors {
+                doc.board_colors = colors;
+                inner.invalidate_renderer();
+            }
         }
     }
 }

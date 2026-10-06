@@ -1,5 +1,5 @@
 use crate::board::{board_layout, hole_in_board, BoardHost, BoardLayout, BoardRect};
-use crate::ui_bridge::{AppWindow, SharedUi};
+use crate::ui_bridge::{AppWindow, LayerListChrome, SharedUi};
 use i_slint_backend_winit::WinitWindowAccessor;
 use slint::ComponentHandle;
 use std::cell::RefCell;
@@ -77,7 +77,7 @@ fn collect_board_holes(ui: &AppWindow, layout: &BoardLayout) -> Vec<BoardRect> {
             radius: ui.get_zoom_chrome_radius(),
         });
     }
-    if ui.get_hover_preview_visible() && !ui.get_layer_settings_open() {
+    if ui.global::<LayerListChrome>().get_hover_visible() && !ui.get_layer_settings_open() {
         punch(BoardRect {
             x: ui.get_hover_chrome_x(),
             y: ui.get_hover_chrome_y(),

@@ -1,0 +1,37 @@
+import { LayerRow } from "models.slint";
+
+export global LayerListChrome {
+    in property <string> title-text;
+    in property <string> add-tip;
+    in property <string> visibility-tip;
+    in property <string> settings-tip;
+    in property <string> delete-tip;
+    in property <string> bounds-label;
+    in property <string> bounds-x-label;
+    in property <string> bounds-y-label;
+    in property <string> width-label;
+    in property <string> height-label;
+    in-out property <string> doc-width-text;
+    in-out property <string> doc-height-text;
+    in-out property <string> layer-x-text;
+    in-out property <string> layer-y-text;
+    in-out property <string> layer-w-text;
+    in-out property <string> layer-h-text;
+    in property <[LayerRow]> layers;
+
+    in property <bool> hover-visible;
+    in property <string> hover-name;
+    in property <image> hover-image;
+
+    callback add-layer();
+    callback pick-layer(int);
+    callback toggle-visible(int);
+    callback open-settings(int, float, float);
+    callback delete-layer(int);
+    callback rename-layer(int, string);
+    callback reorder-layer(int, int);
+    callback hover-layer(int);
+    callback clear-hover();
+    callback commit-bounds(string, string, string, string);
+    callback commit-canvas-size(string, string);
+}

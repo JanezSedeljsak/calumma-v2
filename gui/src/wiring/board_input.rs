@@ -3,8 +3,9 @@ use crate::board::BoardHost;
 use crate::shell::SharedController;
 use crate::ui_bridge::{
     sync_editor, sync_guide_readout, sync_guides, sync_layers, sync_shell, sync_zoom_chrome,
-    AppWindow, FilterDebounce, SharedUi,
+    AppWindow, FilterDebounce, GuideChrome, SharedUi, ZoomChrome,
 };
+use slint::ComponentHandle;
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::time::Duration;
@@ -17,7 +18,7 @@ pub fn wire(
     input: Rc<RefCell<InputState>>,
     filter_debounce: Rc<FilterDebounce>,
 ) {
-    ui.on_zoom_changed({
+    ui.global::<ZoomChrome>().on_zoom_changed({
         let controller = controller.clone();
         let ui_weak = ui_weak.clone();
         move |unit| {
@@ -29,7 +30,7 @@ pub fn wire(
         }
     });
 
-    ui.on_step_zoom({
+    ui.global::<ZoomChrome>().on_step_zoom({
         let controller = controller.clone();
         let ui_weak = ui_weak.clone();
         move |zoom_in| {
@@ -42,7 +43,7 @@ pub fn wire(
         }
     });
 
-    ui.on_fit_zoom({
+    ui.global::<ZoomChrome>().on_fit_zoom({
         let controller = controller.clone();
         let ui_weak = ui_weak.clone();
         move || {
@@ -55,7 +56,7 @@ pub fn wire(
         }
     });
 
-    ui.on_guide_pressed({
+    ui.global::<GuideChrome>().on_pressed({
         let controller = controller.clone();
         let ui_weak = ui_weak.clone();
         let input = input.clone();
@@ -70,7 +71,7 @@ pub fn wire(
             wake(&ui_weak);
         }
     });
-    ui.on_guide_moved({
+    ui.global::<GuideChrome>().on_moved({
         let controller = controller.clone();
         let ui_weak = ui_weak.clone();
         let input = input.clone();
@@ -83,7 +84,7 @@ pub fn wire(
             wake(&ui_weak);
         }
     });
-    ui.on_guide_released({
+    ui.global::<GuideChrome>().on_released({
         let controller = controller.clone();
         let ui_weak = ui_weak.clone();
         move || {
@@ -96,7 +97,7 @@ pub fn wire(
             wake(&ui_weak);
         }
     });
-    ui.on_ruler_has_guide({
+    ui.global::<GuideChrome>().on_ruler_has_guide({
         let controller = controller.clone();
         move |x, y| {
             controller

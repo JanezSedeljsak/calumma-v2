@@ -27,6 +27,7 @@ pub(crate) struct Inner {
     pending_scroll_dx: f32,
     pending_scroll_dy: f32,
     pending_scroll_precise: bool,
+    background_notice: Option<app::BackgroundNotice>,
 }
 
 fn _assert_inner_send() {
@@ -75,6 +76,7 @@ impl Inner {
             pending_scroll_dx: 0.0,
             pending_scroll_dy: 0.0,
             pending_scroll_precise: false,
+            background_notice: None,
         })
     }
 
@@ -159,6 +161,7 @@ impl Inner {
                 eprintln!("miw: saving project {} on close failed: {err}", doc.id);
             }
         }
+        self.background_notice = None;
         self.release_gpu_resources();
     }
 
@@ -272,7 +275,10 @@ impl Inner {
 }
 
 mod app;
-pub use app::{Engine, FontFamilyInfo, GuideInfo, LayerSummary, NativeSurface, ProjectSummary};
+pub use app::{
+    BackgroundNotice, Engine, FontFamilyInfo, GuideInfo, LayerSummary, NativeSurface,
+    ProjectSummary,
+};
 
 #[cfg(test)]
 mod stub_renderer_tests {

@@ -2,6 +2,7 @@
 //! and the brush ring, written behind the vector-path prefix of the stroke buffer.
 
 use super::*;
+use crate::compose::subject_sweep_instances;
 
 pub(super) const ERASER_PREVIEW_COLOR: [f32; 4] = [0.5, 0.5, 0.5, 0.5];
 
@@ -26,6 +27,16 @@ pub(super) fn collect_screen_overlays(doc: &Document, elapsed: f32, out: &mut Ve
         if !covered {
             out.extend(layer_highlight_instances(corners, doc.camera.zoom));
         }
+    }
+    if let Some((index, corners)) = doc.background_removal_target() {
+        let outlined = doc
+            .layer_highlights()
+            .iter()
+            .any(|(highlighted, _)| *highlighted == index);
+        if !outlined {
+            out.extend(layer_highlight_instances(corners, doc.camera.zoom));
+        }
+        out.extend(subject_sweep_instances(corners, elapsed, doc.camera.zoom));
     }
 }
 

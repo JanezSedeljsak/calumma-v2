@@ -4,13 +4,14 @@ mod editor;
 mod filter_commit;
 mod guides;
 mod landing;
+mod ruler_labels;
 mod rulers;
 mod strings;
 mod theme;
 
 pub use editor::{
     apply_filter_readout, apply_opacity_readout, set_editor_open, sync_editor, sync_layer_rows,
-    sync_layer_settings, sync_layers, sync_project_tabs,
+    sync_layer_settings, sync_layers, sync_project_tabs, sync_smart_tools,
 };
 pub use filter_commit::FilterDebounce;
 pub use guides::{sync_guide_readout, sync_guides};
@@ -22,7 +23,7 @@ pub use strings::{init_form_defaults, sync_strings, DEFAULT_HEIGHT, DEFAULT_WIDT
 pub use theme::apply_theme;
 
 use crate::shell::AppController;
-use slint::SharedString;
+use slint::{ComponentHandle, SharedString};
 
 pub type SharedUi = slint::Weak<AppWindow>;
 
@@ -34,28 +35,30 @@ pub fn sync_shell(ui: &AppWindow, controller: &AppController) {
     sync_strings(ui, &controller.l10n);
     apply_theme(ui, &controller.theme);
     sync_recents(ui, controller);
-    ui.set_theme_is_dark(controller.prefs.is_dark());
-    ui.set_language_is_en(controller.prefs.language == "en");
-    ui.set_memory_value(SharedString::from(controller.memory_label()));
-    ui.set_version_value(SharedString::from(env!("CARGO_PKG_VERSION")));
+    let settings = ui.global::<SettingsChrome>();
+    settings.set_theme_is_dark(controller.prefs.is_dark());
+    settings.set_language_is_en(controller.prefs.language == "en");
+    settings.set_memory_value(SharedString::from(controller.memory_label()));
+    settings.set_version_value(SharedString::from(env!("CARGO_PKG_VERSION")));
     ui.set_settings_open(controller.settings_open);
     ui.set_new_project_open(controller.new_project_open);
     ui.set_layer_settings_open(controller.layer_settings_open);
     ui.set_guides_open(controller.guides_open);
     ui.set_project_settings_open(controller.project_settings_open);
-    ui.set_project_settings_anchor_x(controller.project_settings_anchor_x);
-    ui.set_project_settings_anchor_y(controller.project_settings_anchor_y);
+    let project = ui.global::<ProjectChrome>();
+    project.set_settings_anchor_x(controller.project_settings_anchor_x);
+    project.set_settings_anchor_y(controller.project_settings_anchor_y);
     if controller.project_settings_open {
         if let Some(summary) = controller
             .engine
             .borrow()
             .project_summary(&controller.project_settings_id)
         {
-            ui.set_project_settings_size_text(SharedString::from(format!(
+            project.set_settings_size_text(SharedString::from(format!(
                 "{} × {}",
                 summary.width, summary.height
             )));
-            ui.set_project_settings_accent_index(calumma_core::project_color_index(
+            project.set_settings_accent_index(calumma_core::project_color_index(
                 calumma_core::unpack_rgb(summary.accent_rgb),
             ) as i32);
         }
@@ -67,8 +70,9 @@ pub fn sync_shell(ui: &AppWindow, controller: &AppController) {
     if controller.editor_open {
         editor::sync_project_tabs(ui, controller);
     }
-    ui.set_can_undo(controller.can_undo());
-    ui.set_can_redo(controller.can_redo());
+    let menu = ui.global::<MenuChrome>();
+    menu.set_can_undo(controller.can_undo());
+    menu.set_can_redo(controller.can_redo());
     sync_layer_settings(ui, controller);
     guides::sync_guide_palette(ui);
     guides::sync_guides(ui, controller);

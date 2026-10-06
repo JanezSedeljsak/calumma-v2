@@ -1,0 +1,43 @@
+import { Theme } from "calm/CalmTheme.slint";
+import { Tokens } from "calm/CalmTokens.slint";
+import { CalmBody } from "calm/CalmText.slint";
+
+export component LayerHoverCard inherits Rectangle {
+    in property <string> layer-name;
+    in property <image> preview;
+
+    width: Tokens.hover-card-width;
+    height: card.preferred-height;
+    background: Theme.surface;
+    border-radius: Tokens.radius-md;
+    border-width: 1px;
+    border-color: Theme.island-border;
+    drop-shadow-blur: 16px;
+    drop-shadow-offset-y: 4px;
+    drop-shadow-color: Theme.shadow;
+
+    card := VerticalLayout {
+        padding: Tokens.space-sm;
+        spacing: Tokens.space-xs;
+
+        CalmBody {
+            text: root.layer-name;
+            strong: true;
+            overflow: elide;
+        }
+
+        Rectangle {
+            height: Tokens.hover-card-preview-height;
+            border-radius: Tokens.radius-sm;
+            background: Theme.surface-hover;
+            clip: true;
+
+            Image {
+                source: root.preview;
+                width: 100%;
+                height: 100%;
+                image-fit: contain;
+            }
+        }
+    }
+}

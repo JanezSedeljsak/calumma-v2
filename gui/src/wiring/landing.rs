@@ -5,8 +5,10 @@ use crate::shell::SharedController;
 use crate::shell::{self, pick_artwork_files};
 use crate::ui_bridge::{
     form_accent, parse_dimension, random_accent_index, refresh_landing, set_editor_open,
-    sync_project_tabs, sync_shell, AppWindow, SharedUi, DEFAULT_HEIGHT, DEFAULT_WIDTH,
+    sync_project_tabs, sync_shell, AppWindow, ProjectChrome, SharedUi, DEFAULT_HEIGHT,
+    DEFAULT_WIDTH,
 };
+use slint::ComponentHandle;
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -16,22 +18,29 @@ pub fn wire(
     host: Rc<RefCell<BoardHost>>,
     ui_weak: SharedUi,
 ) {
-    ui.on_create_project({
+    ui.global::<ProjectChrome>().on_create_project({
         let controller = controller.clone();
         let ui_weak = ui_weak.clone();
         let host = host.clone();
         move || {
             let Some(ui) = ui_weak.upgrade() else { return };
-            let name = ui.get_project_name().to_string();
-            let width = parse_dimension(ui.get_width_text().as_ref(), DEFAULT_WIDTH);
-            let height = parse_dimension(ui.get_height_text().as_ref(), DEFAULT_HEIGHT);
+            let name = ui.global::<ProjectChrome>().get_name().to_string();
+            let width = parse_dimension(
+                ui.global::<ProjectChrome>().get_width_text().as_ref(),
+                DEFAULT_WIDTH,
+            );
+            let height = parse_dimension(
+                ui.global::<ProjectChrome>().get_height_text().as_ref(),
+                DEFAULT_HEIGHT,
+            );
             let accent = form_accent(&ui);
             let mut ctrl = controller.borrow_mut();
             if ctrl
                 .create_project(&name, width, height, Some(accent))
                 .is_ok()
             {
-                ui.set_project_accent_index(random_accent_index());
+                ui.global::<ProjectChrome>()
+                    .set_accent_index(random_accent_index());
                 set_editor_open(&ui, &mut ctrl, true);
                 host.borrow_mut().set_active(true);
                 setup_board(&ui_weak, &host);
@@ -40,16 +49,18 @@ pub fn wire(
         }
     });
 
-    ui.on_preset_size({
+    ui.global::<ProjectChrome>().on_preset_size({
         let ui_weak = ui_weak.clone();
         move |width, height| {
             let Some(ui) = ui_weak.upgrade() else { return };
-            ui.set_width_text(width.to_string().into());
-            ui.set_height_text(height.to_string().into());
+            ui.global::<ProjectChrome>()
+                .set_width_text(width.to_string().into());
+            ui.global::<ProjectChrome>()
+                .set_height_text(height.to_string().into());
         }
     });
 
-    ui.on_open_recent({
+    ui.global::<ProjectChrome>().on_open_recent({
         let controller = controller.clone();
         let ui_weak = ui_weak.clone();
         let host = host.clone();
@@ -69,7 +80,7 @@ pub fn wire(
         }
     });
 
-    ui.on_delete_recent({
+    ui.global::<ProjectChrome>().on_delete_recent({
         let controller = controller.clone();
         let ui_weak = ui_weak.clone();
         let host = host.clone();
@@ -105,7 +116,7 @@ pub fn wire(
         }
     });
 
-    ui.on_clear_recents({
+    ui.global::<ProjectChrome>().on_clear_recents({
         let controller = controller.clone();
         let ui_weak = ui_weak.clone();
         let host = host.clone();
@@ -130,9 +141,10 @@ pub fn wire(
         }
     });
 
-    ui.on_app_icon_clicked(shell::play_meow);
+    ui.global::<ProjectChrome>()
+        .on_app_icon_clicked(shell::play_meow);
 
-    ui.on_paste_artwork_clicked({
+    ui.global::<ProjectChrome>().on_paste_artwork_clicked({
         let controller = controller.clone();
         let ui_weak = ui_weak.clone();
         let host = host.clone();

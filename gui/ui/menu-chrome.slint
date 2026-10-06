@@ -1,0 +1,39 @@
+export global MenuChrome {
+    in property <string> file-title;
+    in property <string> edit-title;
+    in property <string> board-title;
+    in property <string> new-project-title;
+    in property <string> undo-title;
+    in property <string> redo-title;
+    in property <string> settings-title;
+    in property <string> fit-view-title;
+    in property <string> toggle-layers-title;
+    in property <string> fullscreen-title;
+    in property <string> export-title;
+    in property <string> export-png-title;
+    in property <string> export-jpeg-title;
+    in property <string> export-webp-title;
+    in property <string> export-avif-title;
+    in property <string> export-heic-title;
+    in property <string> export-psd-title;
+    in property <string> export-svg-title;
+    in property <string> export-pdf-title;
+    in property <bool> can-undo;
+    in property <bool> can-redo;
+
+    callback new-project();
+    callback undo();
+    callback redo();
+    callback settings();
+    callback fit-view();
+    callback toggle-layers();
+    callback fullscreen();
+    callback export-png();
+    callback export-jpeg();
+    callback export-webp();
+    callback export-avif();
+    callback export-heic();
+    callback export-psd();
+    callback export-svg();
+    callback export-pdf();
+}

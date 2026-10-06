@@ -1,0 +1,60 @@
+import { Theme } from "calm/CalmTheme.slint";
+import { Tokens } from "calm/CalmTokens.slint";
+import { CalmPointer } from "calm/CalmPointer.slint";
+import { CalmMuted } from "calm/CalmText.slint";
+import { Tip } from "calm/CalmTip.slint";
+import { GuideChrome } from "guide-chrome.slint";
+
+export component GuidesCorner inherits Rectangle {
+    width: Tokens.guides-corner-size;
+    height: Tokens.guides-corner-size;
+    border-radius: self.width / 2;
+    background: Theme.surface-hover;
+    border-width: 1px;
+    border-color: Theme.island-border;
+
+    Image {
+        source: @image-url("ruler.svg");
+        width: Tokens.row-icon-size;
+        height: Tokens.row-icon-size;
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        colorize: Theme.text-muted;
+    }
+
+    corner-touch := CalmPointer {
+        clicked => {
+            Tip.armed = false;
+            Tip.open = false;
+            GuideChrome.open-card();
+        }
+        changed has-hover => {
+            if (self.has-hover && GuideChrome.open-tip != "") {
+                Tip.text = GuideChrome.open-tip;
+                Tip.shortcut = "";
+                Tip.leading = false;
+                Tip.x = root.absolute-position.x + root.width + Tokens.space-sm;
+                Tip.y = root.absolute-position.y + root.height / 2;
+                Tip.open = false;
+                Tip.armed = true;
+            } else if (Tip.text == GuideChrome.open-tip) {
+                Tip.armed = false;
+                Tip.open = false;
+            }
+        }
+    }
+}
+
+export component GuideReadout inherits Rectangle {
+    background: Theme.surface;
+    border-radius: Tokens.radius-sm;
+    height: Tokens.label-size + Tokens.space-xs * 2;
+    width: readout-label.preferred-width + Tokens.space-sm;
+
+    readout-label := CalmMuted {
+        x: Tokens.space-xs;
+        y: Tokens.space-xs;
+        text: GuideChrome.readout-text;
+        mono: true;
+    }
+}

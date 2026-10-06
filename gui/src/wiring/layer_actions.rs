@@ -2,7 +2,7 @@ use super::{schedule_toast_hide, wake};
 use crate::shell::SharedController;
 use crate::ui_bridge::{
     apply_filter_readout, apply_opacity_readout, sync_layer_settings, sync_layers, sync_shell,
-    AppWindow, FilterDebounce, LayerChrome, SharedUi,
+    AppWindow, FilterDebounce, LayerChrome, LayerListChrome, SharedUi,
 };
 use slint::ComponentHandle;
 use std::rc::Rc;
@@ -13,7 +13,7 @@ pub fn wire(
     ui_weak: SharedUi,
     filter_debounce: Rc<FilterDebounce>,
 ) {
-    ui.on_toggle_layer_visible({
+    ui.global::<LayerListChrome>().on_toggle_visible({
         let controller = controller.clone();
         let ui_weak = ui_weak.clone();
         move |index| {
@@ -25,7 +25,7 @@ pub fn wire(
             wake(&ui_weak);
         }
     });
-    ui.on_open_layer_settings({
+    ui.global::<LayerListChrome>().on_open_settings({
         let controller = controller.clone();
         let ui_weak = ui_weak.clone();
         let filter_debounce = filter_debounce.clone();
@@ -44,7 +44,7 @@ pub fn wire(
             wake(&ui_weak);
         }
     });
-    ui.on_delete_layer({
+    ui.global::<LayerListChrome>().on_delete_layer({
         let controller = controller.clone();
         let ui_weak = ui_weak.clone();
         move |index| {
@@ -56,7 +56,7 @@ pub fn wire(
             wake(&ui_weak);
         }
     });
-    ui.on_rename_layer({
+    ui.global::<LayerListChrome>().on_rename_layer({
         let controller = controller.clone();
         let ui_weak = ui_weak.clone();
         move |index, name| {
@@ -69,7 +69,7 @@ pub fn wire(
             wake(&ui_weak);
         }
     });
-    ui.on_reorder_layer({
+    ui.global::<LayerListChrome>().on_reorder_layer({
         let controller = controller.clone();
         let ui_weak = ui_weak.clone();
         move |from_row, to_row| {
@@ -83,7 +83,7 @@ pub fn wire(
             wake(&ui_weak);
         }
     });
-    ui.on_hover_layer({
+    ui.global::<LayerListChrome>().on_hover_layer({
         let controller = controller.clone();
         let ui_weak = ui_weak.clone();
         move |index| {
@@ -94,7 +94,7 @@ pub fn wire(
             }
         }
     });
-    ui.on_clear_layer_hover({
+    ui.global::<LayerListChrome>().on_clear_hover({
         let controller = controller.clone();
         let ui_weak = ui_weak.clone();
         move || {

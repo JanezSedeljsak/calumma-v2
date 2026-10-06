@@ -1,7 +1,10 @@
 use super::{defer_sync_editor, defer_sync_editor_only, refresh_board_cursor, wake, InputState};
 use crate::board::BoardHost;
 use crate::shell::SharedController;
-use crate::ui_bridge::{sync_editor, sync_layers, AppWindow, SharedUi};
+use crate::ui_bridge::{
+    sync_editor, sync_layers, sync_smart_tools, AppWindow, LayerListChrome, SharedUi, ToolChrome,
+};
+use slint::ComponentHandle;
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -12,7 +15,7 @@ pub fn wire(
     ui_weak: SharedUi,
     input: Rc<RefCell<InputState>>,
 ) {
-    ui.on_pick_tool({
+    ui.global::<ToolChrome>().on_pick_tool({
         let controller = controller.clone();
         let host = host.clone();
         let input = input.clone();
@@ -25,7 +28,7 @@ pub fn wire(
         }
     });
 
-    ui.on_brush_size_changed({
+    ui.global::<ToolChrome>().on_brush_size_changed({
         let controller = controller.clone();
         let ui_weak = ui_weak.clone();
         move |unit| {
@@ -37,7 +40,7 @@ pub fn wire(
         }
     });
 
-    ui.on_brush_size_committed({
+    ui.global::<ToolChrome>().on_brush_size_committed({
         let controller = controller.clone();
         let ui_weak = ui_weak.clone();
         move |text| {
@@ -50,7 +53,7 @@ pub fn wire(
         }
     });
 
-    ui.on_ink_opacity_changed({
+    ui.global::<ToolChrome>().on_ink_opacity_changed({
         let controller = controller.clone();
         let ui_weak = ui_weak.clone();
         move |opacity| {
@@ -62,7 +65,7 @@ pub fn wire(
         }
     });
 
-    ui.on_pick_brush({
+    ui.global::<ToolChrome>().on_pick_brush({
         let controller = controller.clone();
         let ui_weak = ui_weak.clone();
         move |id| {
@@ -72,7 +75,7 @@ pub fn wire(
             }
         }
     });
-    ui.on_blur_changed({
+    ui.global::<ToolChrome>().on_blur_changed({
         let controller = controller.clone();
         let ui_weak = ui_weak.clone();
         move |value| {
@@ -87,7 +90,7 @@ pub fn wire(
             }
         }
     });
-    ui.on_hardness_changed({
+    ui.global::<ToolChrome>().on_hardness_changed({
         let controller = controller.clone();
         let ui_weak = ui_weak.clone();
         move |value| {
@@ -102,7 +105,7 @@ pub fn wire(
             }
         }
     });
-    ui.on_tolerance_changed({
+    ui.global::<ToolChrome>().on_tolerance_changed({
         let controller = controller.clone();
         let ui_weak = ui_weak.clone();
         move |value| {
@@ -117,7 +120,7 @@ pub fn wire(
             }
         }
     });
-    ui.on_eyedropper_changed({
+    ui.global::<ToolChrome>().on_eyedropper_changed({
         let controller = controller.clone();
         let ui_weak = ui_weak.clone();
         move |value| {
@@ -132,7 +135,7 @@ pub fn wire(
             }
         }
     });
-    ui.on_fill_toggled({
+    ui.global::<ToolChrome>().on_fill_toggled({
         let controller = controller.clone();
         let ui_weak = ui_weak.clone();
         move || {
@@ -148,7 +151,7 @@ pub fn wire(
             }
         }
     });
-    ui.on_stroke_toggled({
+    ui.global::<ToolChrome>().on_stroke_toggled({
         let controller = controller.clone();
         let ui_weak = ui_weak.clone();
         move || {
@@ -164,7 +167,7 @@ pub fn wire(
             }
         }
     });
-    ui.on_vector_toggled({
+    ui.global::<ToolChrome>().on_vector_toggled({
         let controller = controller.clone();
         let ui_weak = ui_weak.clone();
         move || {
@@ -180,7 +183,7 @@ pub fn wire(
             }
         }
     });
-    ui.on_aligned_toggled({
+    ui.global::<ToolChrome>().on_aligned_toggled({
         let controller = controller.clone();
         let ui_weak = ui_weak.clone();
         move || {
@@ -196,7 +199,7 @@ pub fn wire(
             }
         }
     });
-    ui.on_transform_toggled({
+    ui.global::<ToolChrome>().on_transform_toggled({
         let controller = controller.clone();
         let host = host.clone();
         let input = input.clone();
@@ -216,7 +219,7 @@ pub fn wire(
             }
         }
     });
-    ui.on_crop_aspect_changed({
+    ui.global::<ToolChrome>().on_crop_aspect_changed({
         let controller = controller.clone();
         let ui_weak = ui_weak.clone();
         move |index| {
@@ -228,7 +231,7 @@ pub fn wire(
             wake(&ui_weak);
         }
     });
-    ui.on_crop_overlay_changed({
+    ui.global::<ToolChrome>().on_crop_overlay_changed({
         let controller = controller.clone();
         let ui_weak = ui_weak.clone();
         move |index| {
@@ -240,7 +243,7 @@ pub fn wire(
             wake(&ui_weak);
         }
     });
-    ui.on_commit_crop({
+    ui.global::<ToolChrome>().on_commit_crop({
         let controller = controller.clone();
         let ui_weak = ui_weak.clone();
         move || {
@@ -252,7 +255,7 @@ pub fn wire(
             wake(&ui_weak);
         }
     });
-    ui.on_cancel_crop({
+    ui.global::<ToolChrome>().on_cancel_crop({
         let controller = controller.clone();
         let ui_weak = ui_weak.clone();
         move || {
@@ -264,7 +267,28 @@ pub fn wire(
             wake(&ui_weak);
         }
     });
-    ui.on_commit_layer_bounds({
+    ui.global::<ToolChrome>().on_remove_background({
+        let controller = controller.clone();
+        let ui_weak = ui_weak.clone();
+        move || {
+            let Some(index) = controller.borrow().engine.borrow().active_layer_index() else {
+                return;
+            };
+            let started = controller
+                .borrow_mut()
+                .engine
+                .borrow_mut()
+                .remove_background(index);
+            if !started {
+                return;
+            }
+            if let Some(ui) = ui_weak.upgrade() {
+                sync_smart_tools(&ui, &controller.borrow());
+            }
+            wake(&ui_weak);
+        }
+    });
+    ui.global::<LayerListChrome>().on_commit_bounds({
         let controller = controller.clone();
         let ui_weak = ui_weak.clone();
         move |x, y, w, h| {
@@ -281,7 +305,7 @@ pub fn wire(
             wake(&ui_weak);
         }
     });
-    ui.on_commit_canvas_size({
+    ui.global::<LayerListChrome>().on_commit_canvas_size({
         let controller = controller.clone();
         let ui_weak = ui_weak.clone();
         move |w, h| {

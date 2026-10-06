@@ -128,4 +128,40 @@ impl Engine {
             .as_ref()
             .is_some_and(|doc| doc.is_dragging_guide())
     }
+
+    pub fn begin_guide_drag_from_ruler(&mut self, axis: GuideAxis, x: f32, y: f32) {
+        let mut inner = self.inner.lock();
+        if let Some(doc) = &mut inner.doc {
+            if doc.begin_guide_drag_from_ruler(axis, x, y) {
+                inner.invalidate_overlay();
+            }
+        }
+    }
+
+    pub fn update_guide_drag(&mut self, x: f32, y: f32) {
+        let mut inner = self.inner.lock();
+        if let Some(doc) = &mut inner.doc {
+            if doc.update_guide_drag(x, y) {
+                inner.invalidate_overlay();
+            }
+        }
+    }
+
+    pub fn end_guide_drag(&mut self) {
+        let mut inner = self.inner.lock();
+        if let Some(doc) = &mut inner.doc {
+            if doc.end_guide_drag() {
+                inner.dirty_save = true;
+                inner.invalidate_overlay();
+            }
+        }
+    }
+
+    pub fn guide_axis_at(&self, x: f32, y: f32) -> Option<GuideAxis> {
+        self.inner.lock().doc.as_ref().and_then(|doc| {
+            doc.guide_at(x, y)
+                .and_then(|index| doc.guides().get(index))
+                .map(|guide| guide.axis)
+        })
+    }
 }

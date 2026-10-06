@@ -1,6 +1,9 @@
 import { ToolEntry, BrushEntry, FontFamilyRow } from "models.slint";
 
 export global ToolChrome {
+    in property <[ToolEntry]> tools;
+    in property <string> active-tool-label;
+
     in-out property <bool> show-shapes: false;
     in-out property <bool> show-selection: false;
     in-out property <bool> show-brushes: false;
@@ -99,6 +102,32 @@ export global ToolChrome {
     in-out property <int> text-align: 0;
     in-out property <string> text-font-query;
     in-out property <[FontFamilyRow]> font-families;
+
+    callback pick-tool(int);
+    callback pick-brush(int);
+    callback brush-size-changed(float);
+    callback brush-size-committed(string);
+    callback ink-opacity-changed(float);
+    callback blur-changed(float);
+    callback hardness-changed(float);
+    callback tolerance-changed(float);
+    callback eyedropper-changed(float);
+    callback fill-toggled();
+    callback stroke-toggled();
+    callback vector-toggled();
+    callback aligned-toggled();
+    callback transform-toggled();
+    callback crop-aspect-changed(int);
+    callback crop-overlay-changed(int);
+    callback commit-crop();
+    callback cancel-crop();
+
+    in-out property <bool> show-smart-tools: false;
+    in-out property <string> smart-tools-label;
+    in-out property <string> remove-background-label;
+    in-out property <bool> remove-background-enabled: false;
+
+    callback remove-background();
 
     callback text-family-changed(string);
     callback text-size-changed(float);

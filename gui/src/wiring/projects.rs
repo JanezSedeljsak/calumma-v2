@@ -4,9 +4,10 @@ use crate::shell::SharedController;
 use crate::shell::TabCloseResult;
 use crate::ui_bridge::{
     refresh_landing, set_editor_open, sync_project_tabs, sync_ruler_preview, sync_shell, AppWindow,
-    SharedUi,
+    ProjectChrome, SharedUi,
 };
 use calumma_core::limits::SKELETON_MIN_HOLD_MS;
+use slint::ComponentHandle;
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
@@ -17,7 +18,7 @@ pub fn wire(
     host: Rc<RefCell<BoardHost>>,
     ui_weak: SharedUi,
 ) {
-    ui.on_switch_project_tab({
+    ui.global::<ProjectChrome>().on_switch_tab({
         let controller = controller.clone();
         let ui_weak = ui_weak.clone();
         let host = host.clone();
@@ -34,7 +35,7 @@ pub fn wire(
         }
     });
 
-    ui.on_close_project_tab({
+    ui.global::<ProjectChrome>().on_close_tab({
         let controller = controller.clone();
         let ui_weak = ui_weak.clone();
         let host = host.clone();
@@ -52,7 +53,7 @@ pub fn wire(
         }
     });
 
-    ui.on_edit_project_tab({
+    ui.global::<ProjectChrome>().on_edit_tab({
         let controller = controller.clone();
         let ui_weak = ui_weak.clone();
         move |id, anchor_x, anchor_y| {
@@ -66,7 +67,8 @@ pub fn wire(
                 .map(|summary| summary.name)
                 .unwrap_or_default();
             if let Some(ui) = ui_weak.upgrade() {
-                ui.set_project_settings_name(slint::SharedString::from(name));
+                ui.global::<ProjectChrome>()
+                    .set_settings_name(slint::SharedString::from(name));
                 sync_shell(&ui, &ctrl);
             }
         }

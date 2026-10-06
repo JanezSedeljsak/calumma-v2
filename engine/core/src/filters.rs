@@ -272,7 +272,7 @@ impl AdjustmentLut {
     /// caller that applies the HSL stage itself. `fs_tile` reads this as `LayerData.tone` and
     /// mirrors `hsl_stage` in WGSL by hand: there is no code generation between the two, so a
     /// change here has to be carried into `board.wgsl`'s copy by whoever makes it — the render
-    /// crate's `layer_table_tests` byte-cube tests are what catch a drift.
+    /// crate's `renderer::layer_table::adjustment_parity` byte-cube test is what catches a drift.
     pub fn tone_table(&self) -> &[f32; 256] {
         &self.tone
     }

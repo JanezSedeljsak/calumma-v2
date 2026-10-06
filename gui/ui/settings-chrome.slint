@@ -1,0 +1,19 @@
+export global SettingsChrome {
+    in property <string> title-text;
+    in property <string> theme-label;
+    in property <string> theme-light-label;
+    in property <string> theme-dark-label;
+    in property <string> language-label;
+    in property <string> language-name;
+    in property <string> memory-label;
+    in property <string> memory-value;
+    in property <string> version-label;
+    in property <string> version-value;
+    in property <bool> theme-is-dark;
+    in property <bool> language-is-en;
+
+    callback dismissed();
+    callback set-theme-light();
+    callback set-theme-dark();
+    callback set-language-en();
+}

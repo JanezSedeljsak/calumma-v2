@@ -160,7 +160,9 @@ are not openable, they are open.
   source), and tolerance for Fill and the magic wand; Eraser stays a full
   erase); a color section of **four swatches — primary, secondary, tertiary, and a fourth
   ink slot** — plus a saturation/brightness field, a hue strip, and a hex field, all
-  editing whichever swatch is ringed; the AI menu pinned at the bottom.
+  editing whichever swatch is ringed; and, when this OS has any, a **Smart Tools**
+  section pinned at the bottom. macOS has **Remove Background**; Windows and Linux
+  hide the section.
 
   Primary, secondary and tertiary keep their jobs. There is no separate outline swatch, because an area
   shape already reads two of them **by role**: **primary is its outline, secondary is its
@@ -246,7 +248,7 @@ from the card. Three things about how they are drawn:
   `Camera::viewport_doc_bounds`, the unclamped twin of `visible_doc_rect`.
 - **The color is the guide's; the alpha is the board's.** `Guide::color` is RGB only, because
   how *solid* a rule is drawn is not a choice — it is how the board says which one is under the
-  pointer (`GUIDE_ALPHA` 0.85, `GUIDE_DRAGGED_ALPHA` 1.0 in `compose.rs`). Colors are the
+  pointer (`GUIDE_ALPHA` 0.85, `GUIDE_DRAGGED_ALPHA` 1.0 in `compose/guides.rs`). Colors are the
   **project palette** (`PROJECT_COLORS`), not a list of their own: ten colors already picked to
   read against both the desk and white paper is the same problem a guide has, and a second list
   would only be the first one drifting.
@@ -605,6 +607,16 @@ live in `engine/core`; PNG/JPEG/WebP/AVIF/HEIC encode and decode live in `engine
   Mask** drops the link and the extra layer; **Apply Layer Mask** bakes the holes into the
   painted layer and removes the mask. Same raster-only, no-chain, no-Paper rules as Clip to
   Below; a layer cannot carry a clip and a mask at once.
+- **Remove Background** (Smart Tools, macOS only) fills that same mask from the
+  layer's subject. Vision's foreground matte runs off the engine lock; while it
+  runs the layer's outline sweeps and the button reads Removing Background….
+  The mask keeps the subject and hides the rest, soft edges included, as one
+  undo step. Paint the mask to refine it; Release and Apply are the ones Add
+  Layer Mask already has. It refuses wherever a mask would — Paper, a lock, a
+  text or vector layer, a layer that already clips or masks — and says so only
+  by leaving the button disabled. No subject, or a layer that changed before
+  the result landed, is a toast. Switching projects drops a result that no
+  longer matches the open document.
 - **The list uses the height it has:** the stack takes every point the header above it and the
   Layer bounds fields below it do not, and scrolls once it runs out, rather than stopping at a
   fixed share of the island with dead space underneath. A floor keeps it from collapsing
@@ -904,7 +916,7 @@ Raster encode is engine-side (`Engine::export_raster`): PNG and WebP lossless, J
 / HEIC lossy at `LOSSY_EXPORT_QUALITY`.
 
 **PSD and SVG are layered** rather than flattened. Each raster layer becomes a real PSD layer
-with its own opacity and blend-mode signature (`engine/io/src/psd.rs`; RAW/uncompressed channel data, not PackBits RLE); a
+with its own opacity and blend-mode signature (`engine/io/src/psd/encode.rs`; RAW/uncompressed channel data, not PackBits RLE); a
 vector layer reaches the PSD rasterized, because this writer emits raster channels only and
 losing the artwork would be worse. Every layer name is written twice — the legacy 8-bit Pascal
 string every reader understands, and the `'luni'` additional-layer-info block real Photoshop
@@ -1114,5 +1126,5 @@ zoom-in while ⌘/Option held over the board, pointing hand on chrome controls.
 Layered PSD
 **import** (we import the flattened composite only; PSD *export* is layered and shipped),
 picking a layer by clicking it *outside* transform mode as a *modifier* (the Move tool on the tools island is the path — click painted pixels or a vector item to drag; Option-click and ⌘-click stay Pan),
-and the smart tools (upscale, cut out subject, content-aware resize, vectorize) — see
-`AGENTS.md` deferred list. Add a FLOW section when a feature ships, not before.
+and the remaining smart tools (upscale, cut out subject, content-aware resize, vectorize) — see
+`AGENTS.md` deferred list. Remove Background on macOS is in the Layers section above. Add a FLOW section when a feature ships, not before.

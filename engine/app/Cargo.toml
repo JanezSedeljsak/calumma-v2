@@ -8,3 +8,4 @@ publish = false
 [dependencies]
 calumma-core = { path = "../core" }
 calumma-ffi = { path = "../ffi" }
+calumma-text = { path = "../text" }

@@ -4,7 +4,8 @@ use crate::board_geometry::setup_board;
 use crate::shell::SharedController;
 use crate::ui_bridge::{
     form_accent, parse_dimension, random_accent_index, set_editor_open, sync_editor, sync_guides,
-    sync_project_tabs, sync_shell, AppWindow, GuideChrome, SharedUi, DEFAULT_HEIGHT, DEFAULT_WIDTH,
+    sync_project_tabs, sync_shell, AppWindow, GuideChrome, ProjectChrome, SettingsChrome, SharedUi,
+    DEFAULT_HEIGHT, DEFAULT_WIDTH,
 };
 use crate::window_chrome;
 use slint::ComponentHandle;
@@ -17,7 +18,7 @@ pub fn wire(
     host: Rc<RefCell<BoardHost>>,
     ui_weak: SharedUi,
 ) {
-    ui.on_settings_dismissed({
+    ui.global::<SettingsChrome>().on_dismissed({
         let controller = controller.clone();
         let ui_weak = ui_weak.clone();
         move || {
@@ -28,7 +29,7 @@ pub fn wire(
         }
     });
 
-    ui.on_set_theme_light({
+    ui.global::<SettingsChrome>().on_set_theme_light({
         let controller = controller.clone();
         let ui_weak = ui_weak.clone();
         move || {
@@ -45,7 +46,7 @@ pub fn wire(
         }
     });
 
-    ui.on_set_theme_dark({
+    ui.global::<SettingsChrome>().on_set_theme_dark({
         let controller = controller.clone();
         let ui_weak = ui_weak.clone();
         move || {
@@ -62,7 +63,7 @@ pub fn wire(
         }
     });
 
-    ui.on_set_language_en({
+    ui.global::<SettingsChrome>().on_set_language_en({
         let controller = controller.clone();
         let ui_weak = ui_weak.clone();
         move || {
@@ -78,7 +79,7 @@ pub fn wire(
         }
     });
 
-    ui.on_new_project_dismissed({
+    ui.global::<ProjectChrome>().on_new_project_dismissed({
         let controller = controller.clone();
         let ui_weak = ui_weak.clone();
         move || {
@@ -89,7 +90,7 @@ pub fn wire(
         }
     });
 
-    ui.on_open_guides({
+    ui.global::<GuideChrome>().on_open_card({
         let controller = controller.clone();
         let ui_weak = ui_weak.clone();
         move || {
@@ -194,15 +195,21 @@ pub fn wire(
         }
     });
 
-    ui.on_create_from_modal({
+    ui.global::<ProjectChrome>().on_create_from_modal({
         let controller = controller.clone();
         let ui_weak = ui_weak.clone();
         let host = host.clone();
         move || {
             let Some(ui) = ui_weak.upgrade() else { return };
-            let name = ui.get_project_name().to_string();
-            let width = parse_dimension(ui.get_width_text().as_ref(), DEFAULT_WIDTH);
-            let height = parse_dimension(ui.get_height_text().as_ref(), DEFAULT_HEIGHT);
+            let name = ui.global::<ProjectChrome>().get_name().to_string();
+            let width = parse_dimension(
+                ui.global::<ProjectChrome>().get_width_text().as_ref(),
+                DEFAULT_WIDTH,
+            );
+            let height = parse_dimension(
+                ui.global::<ProjectChrome>().get_height_text().as_ref(),
+                DEFAULT_HEIGHT,
+            );
             let accent = form_accent(&ui);
             let mut ctrl = controller.borrow_mut();
             ctrl.new_project_open = false;
@@ -210,7 +217,8 @@ pub fn wire(
                 .create_project(&name, width, height, Some(accent))
                 .is_ok()
             {
-                ui.set_project_accent_index(random_accent_index());
+                ui.global::<ProjectChrome>()
+                    .set_accent_index(random_accent_index());
                 set_editor_open(&ui, &mut ctrl, true);
                 host.borrow_mut().set_active(true);
                 setup_board(&ui_weak, &host);
@@ -232,7 +240,7 @@ pub fn wire(
         }
     });
 
-    ui.on_project_settings_dismissed({
+    ui.global::<ProjectChrome>().on_settings_dismissed({
         let controller = controller.clone();
         let ui_weak = ui_weak.clone();
         move || {
@@ -243,7 +251,7 @@ pub fn wire(
         }
     });
 
-    ui.on_rename_project({
+    ui.global::<ProjectChrome>().on_rename({
         let controller = controller.clone();
         let ui_weak = ui_weak.clone();
         move |name| {
@@ -258,7 +266,7 @@ pub fn wire(
         }
     });
 
-    ui.on_recolor_project({
+    ui.global::<ProjectChrome>().on_recolor({
         let controller = controller.clone();
         let ui_weak = ui_weak.clone();
         move |index| {

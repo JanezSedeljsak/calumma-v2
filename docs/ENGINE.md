@@ -276,7 +276,7 @@ Everything below is a consequence of one of those.
 
 ### 3.2 The tile atlas
 
-`TileAtlas` (`render/src/tile_atlas.rs`) is **one shared `texture_2d_array` holding every
+`TileAtlas` (`render/src/tile_atlas/`) is **one shared `texture_2d_array` holding every
 GPU-resident tile across the whole document** — every layer pooled together, addressed by
 array-layer index.
 
@@ -490,7 +490,7 @@ Two rules govern it:
 ### 3.7 Three ways to produce a frame's content
 
 The renderer never draws tile and vector instances straight into the swapchain. Content goes
-into `PanCache` (`render/src/framebuffer.rs`) — two viewport-sized offscreen color textures
+into `PanCache` (`render/src/framebuffer/pan_cache/`) — two viewport-sized offscreen color textures
 with **fixed roles**, not an alternating ping-pong:
 
 - **`reference`** holds the last full content redraw, plus the exact pan/zoom/dpr/scissor it
@@ -533,7 +533,7 @@ instead of the desk pattern. Paper is the bottom layer in every ordinary documen
 
 ### 3.8 The stroke coverage pass
 
-`render/src/stroke_coverage.rs` is the GPU twin of `core/src/coverage.rs`, and exists for the
+`render/src/stroke_coverage/` is the GPU twin of `core/src/coverage.rs`, and exists for the
 same reason. A live brush stroke is one capsule per recorded point pair, and consecutive
 capsules overlap almost entirely when the pointer moves slowly. Alpha-blending them straight
 onto the board composites the same ink over itself dozens of times.
@@ -584,7 +584,7 @@ For the per-frame ordering, the dirty-flag state machine, and the optimization r
 
 ### SQLite
 
-One database (`ProjectStore`, `io/src/store.rs`) at the OS-native app-data directory resolved
+One database (`ProjectStore`, `io/src/store/` — schema, catalog, load and save each in their own file) at the OS-native app-data directory resolved
 through the `dirs` crate — never a hardcoded path. WAL journaling, foreign keys on.
 
 ```
@@ -634,7 +634,7 @@ Adding a field means bumping the version and writing the migration in the same c
   clipboard copy, project thumbnails, and rasters embedded in SVG export.
 - Import of those formats (plus TIFF, SVG rasterize, PSD flattened composite) is
   `decode_encoded` — the shell never decodes pixels.
-- **PSD** (`io/src/psd.rs`) — layered.
+- **PSD** (`io/src/psd/`) — layered.
 - **SVG** (`io/src/svg.rs` + `core/src/vector_svg.rs`) — layered, and a vector item emits the
   matching SVG *primitive* (`<rect>`, `<ellipse>`, `<path>`) rather than a flattened polyline,
   so the export stays as editable as the layer is. This is the payoff of storing parameters.
@@ -693,7 +693,7 @@ same `Inner`.
 - Pixels in and out — premultiplied RGBA on import paths, `Vec<u8>` on export.
 
 
-### Two things that do not run on the frame
+### Not on the frame
 
 - **Pan coalescing.** `Engine::pan` and the scroll entries do not render. They accumulate
   deltas into `Inner` and mark the renderer camera-dirty; the next frame calls
@@ -706,6 +706,11 @@ same `Inner`.
   SQLite off the render path was only half the fix — a blocking lock on a background thread
   just relocates the stall into an arbitrary point in a frame. A skipped tick costs 800 ms of
   staleness; a blocked frame is visible.
+- **Background removal.** `Engine::remove_background` snapshots the layer's RGBA under
+  the lock, then `subject::foreground_matte` (`ffi/src/subject/`, macOS Vision;
+  unavailable elsewhere) runs on `miw-remove-background` and the lock is taken again
+  only to apply the matte. A result whose document id or layer id no longer matches
+  is dropped. The shell polls `take_background_notice`.
 
 ### Leaving a document
 
@@ -750,7 +755,7 @@ Tests live in `engine/<crate>/tests/<module>.rs` — one file per module under t
 `#[cfg(test)] mod tests` blocks inside the source. `cargo test` already treats each file as
 its own integration crate against the library's public API, so logic files stay logic.
 High coverage is expected on `core` (camera, tiles, history, shapes, paint commit); the GPU path is covered where the math can be lifted out of it
-(`framebuffer.rs`'s rect arithmetic is the model to follow).
+(`framebuffer/mod.rs`'s rect arithmetic is the model to follow).
 
 `AGENTS.md`'s "no comments" rule is about *narrating* code — a comment restating what the
 next line does. Explaining **why** is the opposite, and the engine does it heavily: module

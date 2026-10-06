@@ -1,7 +1,8 @@
 use super::schedule_toast_hide;
 use crate::shell::SharedController;
-use crate::ui_bridge::{sync_shell, AppWindow, SharedUi};
+use crate::ui_bridge::{sync_shell, AppWindow, MenuChrome, SharedUi};
 use calumma_io::RasterFormat;
+use slint::ComponentHandle;
 
 pub fn wire(ui: &AppWindow, controller: SharedController, ui_weak: SharedUi) {
     let export_raster = |format: RasterFormat, ext: &'static str| {
@@ -20,13 +21,18 @@ pub fn wire(ui: &AppWindow, controller: SharedController, ui_weak: SharedUi) {
         }
     };
 
-    ui.on_export_png(export_raster(RasterFormat::Png, "png"));
-    ui.on_export_jpeg(export_raster(RasterFormat::Jpeg, "jpg"));
-    ui.on_export_webp(export_raster(RasterFormat::Webp, "webp"));
-    ui.on_export_avif(export_raster(RasterFormat::Avif, "avif"));
-    ui.on_export_heic(export_raster(RasterFormat::Heic, "heic"));
+    ui.global::<MenuChrome>()
+        .on_export_png(export_raster(RasterFormat::Png, "png"));
+    ui.global::<MenuChrome>()
+        .on_export_jpeg(export_raster(RasterFormat::Jpeg, "jpg"));
+    ui.global::<MenuChrome>()
+        .on_export_webp(export_raster(RasterFormat::Webp, "webp"));
+    ui.global::<MenuChrome>()
+        .on_export_avif(export_raster(RasterFormat::Avif, "avif"));
+    ui.global::<MenuChrome>()
+        .on_export_heic(export_raster(RasterFormat::Heic, "heic"));
 
-    ui.on_export_psd({
+    ui.global::<MenuChrome>().on_export_psd({
         let controller = controller.clone();
         let ui_weak = ui_weak.clone();
         move || {
@@ -41,7 +47,7 @@ pub fn wire(ui: &AppWindow, controller: SharedController, ui_weak: SharedUi) {
             }
         }
     });
-    ui.on_export_svg({
+    ui.global::<MenuChrome>().on_export_svg({
         let controller = controller.clone();
         let ui_weak = ui_weak.clone();
         move || {
@@ -56,7 +62,7 @@ pub fn wire(ui: &AppWindow, controller: SharedController, ui_weak: SharedUi) {
             }
         }
     });
-    ui.on_export_pdf({
+    ui.global::<MenuChrome>().on_export_pdf({
         let controller = controller.clone();
         let ui_weak = ui_weak.clone();
         move || {

@@ -3,7 +3,7 @@ use calumma_core::limits::{
     BLUR_STRENGTH_MAX, BLUR_STRENGTH_MIN, ERASER_HARDNESS_MAX, ERASER_HARDNESS_MIN,
     EYEDROPPER_RADIUS_MAX, EYEDROPPER_RADIUS_MIN, TOLERANCE_MAX, TOLERANCE_MIN,
 };
-use calumma_core::{Brush, CropOverlayStyle, Tool};
+use calumma_core::{brush_size_from_unit, brush_size_unit, Brush, CropOverlayStyle, Tool};
 
 impl Engine {
     pub fn shape_fill(&self) -> bool {
@@ -253,6 +253,55 @@ impl Engine {
         let mut inner = self.inner.lock();
         if let Some(doc) = &mut inner.doc {
             doc.crop_aspect_lock = ratio.filter(|value| *value > 1e-6);
+            inner.invalidate_overlay();
+        }
+    }
+
+    pub fn brush_size(&self) -> f32 {
+        self.inner
+            .lock()
+            .doc
+            .as_ref()
+            .map(|doc| doc.brush_size)
+            .unwrap_or(0.0)
+    }
+
+    pub fn brush_size_unit(&self) -> f32 {
+        brush_size_unit(self.brush_size())
+    }
+
+    pub fn set_brush_size(&mut self, size: f32) {
+        let mut inner = self.inner.lock();
+        if let Some(doc) = &mut inner.doc {
+            doc.brush_size = size.clamp(
+                calumma_core::limits::BRUSH_SIZE_MIN,
+                calumma_core::limits::BRUSH_SIZE_MAX,
+            );
+            inner.invalidate_overlay();
+        }
+    }
+
+    pub fn set_brush_size_unit(&mut self, unit: f32) {
+        let mut inner = self.inner.lock();
+        if let Some(doc) = &mut inner.doc {
+            doc.brush_size = brush_size_from_unit(unit);
+            inner.invalidate_overlay();
+        }
+    }
+
+    pub fn ink_opacity(&self) -> f32 {
+        self.inner
+            .lock()
+            .doc
+            .as_ref()
+            .map(|doc| doc.ink_opacity)
+            .unwrap_or(1.0)
+    }
+
+    pub fn set_ink_opacity(&mut self, opacity: f32) {
+        let mut inner = self.inner.lock();
+        if let Some(doc) = &mut inner.doc {
+            doc.set_ink_opacity(opacity);
             inner.invalidate_overlay();
         }
     }

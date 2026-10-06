@@ -811,3 +811,14 @@ fn clip_bakes_tiles_that_sit_outside_the_document_origin() {
     let i = (((10 - py) as u32 * TILE_SIZE + (10 - px) as u32) * 4) as usize;
     assert!(on_baked[i + 3] > 0, "ink over the base stays");
 }
+
+#[test]
+fn the_removal_sweep_crosses_the_layer() {
+    let corners = [(0.0, 0.0), (100.0, 0.0), (100.0, 80.0), (0.0, 80.0)];
+    let at_start = subject_sweep_instances(corners, 0.0, 1.0);
+    let later = subject_sweep_instances(corners, 0.4, 1.0);
+    let wrapped = subject_sweep_instances(corners, 1.35, 1.0);
+    assert_eq!(at_start.len(), 1);
+    assert_ne!(at_start[0].segment[1], later[0].segment[1]);
+    assert!((at_start[0].segment[1] - wrapped[0].segment[1]).abs() < 1e-3);
+}

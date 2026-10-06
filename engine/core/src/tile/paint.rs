@@ -125,4 +125,94 @@ impl TileGrid {
     pub fn set_pixel(&mut self, x: i32, y: i32, rgba: [u8; 4]) {
         self.paint_rect(DocRect::new(x, y, x, y), |_, _, _| Some(rgba));
     }
+
+    /// Fill this grid from a document-sized subject matte. `255` is the subject and stays
+    /// unallocated (the mask's transparent pixels reveal the layer). `0` is background and
+    /// becomes opaque black; a tile that is background all the way across shares one
+    /// allocation. Anything in between keeps Vision's soft edge as partial alpha.
+    pub fn fill_mask_matte(&mut self, matte: &[u8]) -> bool {
+        let width = self.width as usize;
+        let height = self.height as usize;
+        if width == 0 || height == 0 || matte.len() != width * height {
+            return false;
+        }
+        let doc = self.doc_bounds();
+        let (tx0, ty0, tx1, ty1) = doc.tile_span();
+        let mut shared_hide: Option<Arc<Vec<u8>>> = None;
+        for ty in ty0..=ty1 {
+            for tx in tx0..=tx1 {
+                let coord = TileCoord { x: tx, y: ty };
+                if !self.tile_in_bounds(coord) {
+                    continue;
+                }
+                let cell = Self::tile_rect(coord);
+                let Some(span) = doc.intersect(cell) else {
+                    continue;
+                };
+                match matte_kind(matte, width, span) {
+                    MatteKind::Subject => {}
+                    MatteKind::Background if doc.contains_rect(cell) => {
+                        let tile = shared_hide
+                            .get_or_insert_with(|| Arc::new(uniform_tile([0, 0, 0, 255])));
+                        self.insert_shared(coord, Arc::clone(tile));
+                    }
+                    MatteKind::Background | MatteKind::Mixed => {
+                        let Some(tile) = self.ensure_mut(coord) else {
+                            continue;
+                        };
+                        write_matte_tile(tile, matte, width, height, cell);
+                    }
+                }
+            }
+        }
+        true
+    }
+}
+
+enum MatteKind {
+    Subject,
+    Background,
+    Mixed,
+}
+
+fn matte_kind(matte: &[u8], width: usize, span: DocRect) -> MatteKind {
+    let mut saw_subject = false;
+    let mut saw_background = false;
+    for y in span.min_y..=span.max_y {
+        let row = y as usize * width;
+        for x in span.min_x..=span.max_x {
+            match matte[row + x as usize] {
+                255 => saw_subject = true,
+                0 => saw_background = true,
+                _ => return MatteKind::Mixed,
+            }
+            if saw_subject && saw_background {
+                return MatteKind::Mixed;
+            }
+        }
+    }
+    if saw_background {
+        MatteKind::Background
+    } else {
+        MatteKind::Subject
+    }
+}
+
+fn write_matte_tile(tile: &mut [u8], matte: &[u8], width: usize, height: usize, cell: DocRect) {
+    let ts = TILE_SIZE as i32;
+    for ly in 0..ts {
+        for lx in 0..ts {
+            let x = cell.min_x + lx;
+            let y = cell.min_y + ly;
+            if x < 0 || y < 0 || x as usize >= width || y as usize >= height {
+                continue;
+            }
+            let alpha = 255 - matte[y as usize * width + x as usize];
+            let i = ((ly as usize) * TILE_SIZE as usize + lx as usize) * 4;
+            tile[i] = 0;
+            tile[i + 1] = 0;
+            tile[i + 2] = 0;
+            tile[i + 3] = alpha;
+        }
+    }
 }

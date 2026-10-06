@@ -1,0 +1,245 @@
+import { LayerRow } from "models.slint";
+import { Theme } from "calm/CalmTheme.slint";
+import { Tokens } from "calm/CalmTokens.slint";
+import { CalmPointer } from "calm/CalmPointer.slint";
+import { CalmSurface } from "calm/CalmSurface.slint";
+import { CalmIconButton } from "calm/CalmToolButton.slint";
+import { CalmField } from "calm/CalmField.slint";
+import { CalmBody } from "calm/CalmText.slint";
+
+component LayerThumb inherits Rectangle {
+    in property <image> thumb;
+
+    width: Tokens.layer-thumb-width;
+    height: Tokens.layer-thumb-height;
+    border-radius: Tokens.radius-sm;
+    background: Theme.surface-hover;
+    clip: true;
+
+    Image {
+        source: root.thumb;
+        width: 100%;
+        height: 100%;
+        image-fit: contain;
+    }
+}
+
+export component LayerListRow inherits HorizontalLayout {
+    in property <LayerRow> layer-row;
+    in property <image> icon-eye-open;
+    in property <image> icon-eye-closed;
+    in property <image> icon-more;
+    in property <image> icon-trash;
+    in property <image> icon-clip;
+    in property <image> icon-mask;
+    in property <string> visibility-tip;
+    in property <string> settings-tip;
+    in property <string> delete-tip;
+    in property <bool> drop-target;
+    in property <bool> dragging;
+
+    callback row-clicked(bool);
+    callback toggle-visible();
+    callback open-settings(float, float);
+    callback delete-layer();
+    callback rename-layer(string);
+    callback hover-enter();
+    callback hover-leave();
+    callback drag-moved(length);
+    callback drag-finished();
+
+    spacing: Tokens.space-sm;
+    alignment: stretch;
+    height: Tokens.layer-thumb-height + Tokens.space-xs * 2;
+    opacity: root.dragging ? 0.45 : 1.0;
+
+    private property <bool> row-hovered: grab.has-hover || trash-hot.has-hover;
+    private property <bool> drag-armed: false;
+    private property <bool> renaming: false;
+    private property <string> rename-draft: "";
+    private property <length> press-x: 0px;
+    private property <length> press-y: 0px;
+
+    function commit-rename() {
+        if (!root.renaming) {
+            return;
+        }
+        root.renaming = false;
+        root.rename-layer(root.rename-draft);
+    }
+
+    changed row-hovered => {
+        if (root.dragging || root.renaming) {
+            return;
+        }
+        if (root.row-hovered) {
+            root.hover-enter();
+        } else {
+            root.hover-leave();
+        }
+    }
+
+    card := CalmSurface {
+        horizontal-stretch: 1;
+        radius: Tokens.radius-sm;
+        bordered: true;
+        hover: root.layer-row.active || root.layer-row.selected || root.drop-target;
+        focused: root.layer-row.active || root.drop-target;
+
+        HorizontalLayout {
+            padding-left: Tokens.space-sm;
+            padding-right: Tokens.space-sm;
+            padding-top: Tokens.space-xs;
+            padding-bottom: Tokens.space-xs;
+            spacing: Tokens.space-sm;
+
+            grab := CalmPointer {
+                horizontal-stretch: 1;
+                mouse-cursor: root.layer-row.paper || root.renaming ? pointer : (root.drag-armed ? MouseCursor.grabbing : MouseCursor.grab);
+                pointer-event(event) => {
+                    if (root.renaming) {
+                        return;
+                    }
+                    if (event.kind == PointerEventKind.down && event.button == PointerEventButton.left) {
+                        root.press-x = self.mouse-x;
+                        root.press-y = self.mouse-y;
+                        root.drag-armed = false;
+                    }
+                    if (event.kind == PointerEventKind.up && event.button == PointerEventButton.left) {
+                        if (root.drag-armed) {
+                            root.drag-finished();
+                        } else {
+                            root.row-clicked(event.modifiers.meta || event.modifiers.control || event.modifiers.shift);
+                        }
+                        root.drag-armed = false;
+                    }
+                }
+                moved => {
+                    if (!self.pressed || root.layer-row.paper || root.renaming) {
+                        return;
+                    }
+                    if (Math.abs((self.mouse-x - root.press-x) / 1px) + Math.abs((self.mouse-y - root.press-y) / 1px) < 5) {
+                        return;
+                    }
+                    root.drag-armed = true;
+                    root.hover-leave();
+                    root.drag-moved(self.absolute-position.y + self.mouse-y);
+                }
+                double-clicked => {
+                    if (root.layer-row.paper || root.drag-armed) {
+                        return;
+                    }
+                    root.rename-draft = root.layer-row.name;
+                    root.renaming = true;
+                    root.hover-leave();
+                }
+
+                HorizontalLayout {
+                    spacing: Tokens.space-sm;
+
+                    if root.layer-row.masked: Rectangle {
+                        width: Tokens.row-icon-size;
+
+                        Image {
+                            source: root.icon-mask;
+                            width: Tokens.row-icon-size;
+                            height: Tokens.row-icon-size;
+                            y: (parent.height - self.height) / 2;
+                            colorize: Theme.text-muted;
+                            image-fit: contain;
+                        }
+                    }
+
+                    if root.layer-row.clipped: Rectangle {
+                        width: Tokens.row-icon-size;
+
+                        Image {
+                            source: root.icon-clip;
+                            width: Tokens.row-icon-size;
+                            height: Tokens.row-icon-size;
+                            y: (parent.height - self.height) / 2;
+                            colorize: Theme.text-muted;
+                            image-fit: contain;
+                        }
+                    }
+
+                    LayerThumb {
+                        thumb: root.layer-row.thumb;
+                    }
+
+                    if root.renaming: CalmField {
+                        horizontal-stretch: 1;
+                        height: Tokens.control-height;
+                        radius: Tokens.radius-sm;
+                        pad: Tokens.space-sm;
+                        text-size: Tokens.body-size;
+                        auto-focus: true;
+                        text <=> root.rename-draft;
+                        accepted(_) => {
+                            root.commit-rename();
+                        }
+                        cancelled => {
+                            root.renaming = false;
+                        }
+                        focus-lost => {
+                            root.commit-rename();
+                        }
+                    }
+
+                    if !root.renaming: CalmBody {
+                        text: root.layer-row.name;
+                        strong: root.layer-row.active;
+                        horizontal-stretch: 1;
+                        opacity: root.layer-row.visible ? 1.0 : 0.45;
+                        overflow: elide;
+                    }
+                }
+            }
+
+            trash-hot := CalmPointer {
+                width: Tokens.row-icon-size;
+
+                if root.row-hovered && !root.layer-row.locked && !root.drag-armed && !root.renaming: CalmIconButton {
+                    icon: root.icon-trash;
+                    tint: Theme.danger;
+                    tip: root.delete-tip;
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                    clicked => {
+                        root.delete-layer();
+                    }
+                }
+            }
+        }
+    }
+
+    Rectangle {
+        width: Tokens.row-icon-size;
+
+        CalmIconButton {
+            icon: root.layer-row.visible ? root.icon-eye-open : root.icon-eye-closed;
+            tint: root.layer-row.visible ? Theme.text-muted : Theme.desk-grid;
+            tip: root.visibility-tip;
+            y: (parent.height - self.height) / 2;
+            clicked => {
+                root.toggle-visible();
+            }
+        }
+    }
+
+    Rectangle {
+        width: Tokens.row-icon-size;
+
+        more-btn := CalmIconButton {
+            icon: root.icon-more;
+            tip: root.settings-tip;
+            y: (parent.height - self.height) / 2;
+            clicked => {
+                root.open-settings(
+                    more-btn.absolute-position.x / 1px,
+                    (more-btn.absolute-position.y + more-btn.height) / 1px,
+                );
+            }
+        }
+    }
+}

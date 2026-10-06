@@ -1,4 +1,7 @@
-use super::{AppWindow, ColorChrome, GuideChrome, LayerChrome, ToolChrome};
+use super::{
+    AppWindow, ColorChrome, GuideChrome, LayerChrome, LayerListChrome, MenuChrome, ProjectChrome,
+    SettingsChrome, ToolChrome, ZoomChrome,
+};
 use crate::shell::Catalog;
 use slint::{ComponentHandle, SharedString};
 
@@ -6,10 +9,11 @@ pub const DEFAULT_WIDTH: u32 = 1280;
 pub const DEFAULT_HEIGHT: u32 = 720;
 
 pub fn init_form_defaults(ui: &AppWindow, l10n: &Catalog) {
-    ui.set_project_name(SharedString::from(l10n.get("newProject")));
-    ui.set_width_text(SharedString::from(DEFAULT_WIDTH.to_string()));
-    ui.set_height_text(SharedString::from(DEFAULT_HEIGHT.to_string()));
-    ui.set_project_accent_index(super::random_accent_index());
+    let project = ui.global::<ProjectChrome>();
+    project.set_name(SharedString::from(l10n.get("newProject")));
+    project.set_width_text(SharedString::from(DEFAULT_WIDTH.to_string()));
+    project.set_height_text(SharedString::from(DEFAULT_HEIGHT.to_string()));
+    project.set_accent_index(super::random_accent_index());
     ui.global::<GuideChrome>()
         .set_add_offset(SharedString::from("0"));
     ui.global::<GuideChrome>().set_add_horizontal(true);
@@ -18,87 +22,88 @@ pub fn init_form_defaults(ui: &AppWindow, l10n: &Catalog) {
 pub fn sync_strings(ui: &AppWindow, l10n: &Catalog) {
     let put = |value: String| SharedString::from(value);
 
-    ui.set_brand_text(put(l10n.get("brand")));
-    ui.set_tagline_text(put(l10n.get("tagline")));
-    ui.set_project_name_label(put(l10n.get("projectName")));
-    ui.set_resolution_label(put(l10n.get("resolution")));
-    ui.set_create_label(put(l10n.get("create")));
-    ui.set_presets_label(put(l10n.get("presets")));
-    ui.set_recents_label(put(l10n.get("recents")));
-    ui.set_clear_all_label(put(l10n.get("clearAllRecents")));
-    ui.set_no_recents_label(put(l10n.get("noRecents")));
-    ui.set_delete_project_label(put(l10n.get("deleteProject")));
-    ui.set_paste_artwork_title(put(l10n.get("pasteArtwork")));
-    ui.set_paste_artwork_hint(put(l10n.get("pasteArtworkHint")));
-    ui.set_artwork_formats(put(l10n.get("artworkFormats")));
-    ui.set_close_project_tab_tip(put(l10n.get("closeProjectTab")));
-    ui.set_settings_title(put(l10n.get("settings")));
-    ui.set_theme_label(put(l10n.get("theme")));
-    ui.set_theme_light_label(put(l10n.get("themeLight")));
-    ui.set_theme_dark_label(put(l10n.get("themeDark")));
-    ui.set_language_label(put(l10n.get("language")));
-    ui.set_language_name(put(l10n.get("languageEnglish")));
-    ui.set_memory_label(put(l10n.get("memoryUsed")));
-    ui.set_version_label(put(l10n.get("version")));
-    ui.global::<ColorChrome>().set_label(put(l10n.get("color")));
-    ui.global::<ColorChrome>()
-        .set_primary_tip(put(l10n.get("primaryColor")));
-    ui.global::<ColorChrome>()
-        .set_secondary_tip(put(l10n.get("secondaryColor")));
-    ui.global::<ColorChrome>()
-        .set_tertiary_tip(put(l10n.get("tertiaryColor")));
-    ui.global::<ColorChrome>()
-        .set_quaternary_tip(put(l10n.get("quaternaryColor")));
-    ui.set_file_menu_title(put(l10n.get("fileMenu")));
-    ui.set_edit_menu_title(put(l10n.get("editMenu")));
-    ui.set_board_menu_title(put(l10n.get("boardMenu")));
-    ui.set_new_project_menu_title(put(l10n.get("newProjectMenu")));
-    ui.set_undo_menu_title(put(l10n.get("undo")));
-    ui.set_redo_menu_title(put(l10n.get("redo")));
-    ui.set_fit_view_menu_title(put(l10n.get("fitToView")));
-    ui.set_fit_view_label(put(l10n.get("fitToView")));
-    ui.set_zoom_in_label(put(l10n.get("zoomIn")));
-    ui.set_zoom_out_label(put(l10n.get("zoomOut")));
-    ui.set_toggle_layers_menu_title(put(l10n.get("toggleLayers")));
-    ui.set_guides_tip(put(l10n.get("guides")));
-    ui.global::<GuideChrome>()
-        .set_title_text(put(l10n.get("guides")));
-    ui.global::<GuideChrome>()
-        .set_hint_text(put(l10n.get("guidesHint")));
-    ui.global::<GuideChrome>()
-        .set_empty_text(put(l10n.get("noGuides")));
-    ui.global::<GuideChrome>()
-        .set_add_label(put(l10n.get("addGuide")));
-    ui.global::<GuideChrome>()
-        .set_full_text(put(l10n.get("guidesFull")));
-    ui.global::<GuideChrome>()
-        .set_top_label(put(l10n.get("guideTop")));
-    ui.global::<GuideChrome>()
-        .set_left_label(put(l10n.get("guideLeft")));
-    ui.global::<GuideChrome>()
-        .set_delete_tip(put(l10n.get("deleteGuide")));
-    ui.global::<GuideChrome>()
-        .set_clear_label(put(l10n.get("clearGuides")));
-    ui.set_fullscreen_menu_title(put(l10n.get("enterFullScreen")));
-    ui.set_layers_title(put(l10n.get("layers")));
-    ui.set_add_layer_label(put(l10n.get("addLayer")));
-    ui.set_bounds_label(put(l10n.get("layerBounds")));
-    ui.set_bounds_x_label(put(l10n.get("layerBoundsX")));
-    ui.set_bounds_y_label(put(l10n.get("layerBoundsY")));
-    ui.set_width_short_label(put(l10n.get("canvasWidth")));
-    ui.set_height_short_label(put(l10n.get("canvasHeight")));
-    ui.set_export_menu_title(put(l10n.get("exportMenu")));
-    ui.set_export_png_title(put(l10n.format("exportAs", &["PNG"])));
-    ui.set_export_jpeg_title(put(l10n.format("exportAs", &["JPEG"])));
-    ui.set_export_webp_title(put(l10n.format("exportAs", &["WebP"])));
-    ui.set_export_avif_title(put(l10n.format("exportAs", &["AVIF"])));
-    ui.set_export_heic_title(put(l10n.format("exportAs", &["HEIC"])));
-    ui.set_export_psd_title(put(l10n.format("exportAs", &["PSD"])));
-    ui.set_export_svg_title(put(l10n.format("exportAs", &["SVG"])));
-    ui.set_export_pdf_title(put(l10n.format("exportAs", &["PDF"])));
-    ui.set_layer_settings_label(put(l10n.get("layerSettings")));
-    ui.set_layer_delete_label(put(l10n.get("deleteLayer")));
-    ui.set_layer_visibility_label(put(l10n.get("layerVisibility")));
+    let project = ui.global::<ProjectChrome>();
+    project.set_brand_text(put(l10n.get("brand")));
+    project.set_tagline_text(put(l10n.get("tagline")));
+    project.set_name_label(put(l10n.get("projectName")));
+    project.set_resolution_label(put(l10n.get("resolution")));
+    project.set_create_label(put(l10n.get("create")));
+    project.set_presets_label(put(l10n.get("presets")));
+    project.set_recents_label(put(l10n.get("recents")));
+    project.set_clear_all_label(put(l10n.get("clearAllRecents")));
+    project.set_no_recents_label(put(l10n.get("noRecents")));
+    project.set_delete_label(put(l10n.get("deleteProject")));
+    project.set_paste_artwork_title(put(l10n.get("pasteArtwork")));
+    project.set_paste_artwork_hint(put(l10n.get("pasteArtworkHint")));
+    project.set_artwork_formats(put(l10n.get("artworkFormats")));
+    project.set_close_tab_tip(put(l10n.get("closeProjectTab")));
+
+    let settings = ui.global::<SettingsChrome>();
+    settings.set_title_text(put(l10n.get("settings")));
+    settings.set_theme_label(put(l10n.get("theme")));
+    settings.set_theme_light_label(put(l10n.get("themeLight")));
+    settings.set_theme_dark_label(put(l10n.get("themeDark")));
+    settings.set_language_label(put(l10n.get("language")));
+    settings.set_language_name(put(l10n.get("languageEnglish")));
+    settings.set_memory_label(put(l10n.get("memoryUsed")));
+    settings.set_version_label(put(l10n.get("version")));
+
+    let color = ui.global::<ColorChrome>();
+    color.set_label(put(l10n.get("color")));
+    color.set_primary_tip(put(l10n.get("primaryColor")));
+    color.set_secondary_tip(put(l10n.get("secondaryColor")));
+    color.set_tertiary_tip(put(l10n.get("tertiaryColor")));
+    color.set_quaternary_tip(put(l10n.get("quaternaryColor")));
+
+    let menu = ui.global::<MenuChrome>();
+    menu.set_file_title(put(l10n.get("fileMenu")));
+    menu.set_edit_title(put(l10n.get("editMenu")));
+    menu.set_board_title(put(l10n.get("boardMenu")));
+    menu.set_new_project_title(put(l10n.get("newProjectMenu")));
+    menu.set_undo_title(put(l10n.get("undo")));
+    menu.set_redo_title(put(l10n.get("redo")));
+    menu.set_settings_title(put(l10n.get("settings")));
+    menu.set_fit_view_title(put(l10n.get("fitToView")));
+    menu.set_toggle_layers_title(put(l10n.get("toggleLayers")));
+    menu.set_fullscreen_title(put(l10n.get("enterFullScreen")));
+    menu.set_export_title(put(l10n.get("exportMenu")));
+    menu.set_export_png_title(put(l10n.format("exportAs", &["PNG"])));
+    menu.set_export_jpeg_title(put(l10n.format("exportAs", &["JPEG"])));
+    menu.set_export_webp_title(put(l10n.format("exportAs", &["WebP"])));
+    menu.set_export_avif_title(put(l10n.format("exportAs", &["AVIF"])));
+    menu.set_export_heic_title(put(l10n.format("exportAs", &["HEIC"])));
+    menu.set_export_psd_title(put(l10n.format("exportAs", &["PSD"])));
+    menu.set_export_svg_title(put(l10n.format("exportAs", &["SVG"])));
+    menu.set_export_pdf_title(put(l10n.format("exportAs", &["PDF"])));
+
+    let zoom = ui.global::<ZoomChrome>();
+    zoom.set_fit_tip(put(l10n.get("fitToView")));
+    zoom.set_zoom_in_tip(put(l10n.get("zoomIn")));
+    zoom.set_zoom_out_tip(put(l10n.get("zoomOut")));
+
+    let guides = ui.global::<GuideChrome>();
+    guides.set_open_tip(put(l10n.get("guides")));
+    guides.set_title_text(put(l10n.get("guides")));
+    guides.set_hint_text(put(l10n.get("guidesHint")));
+    guides.set_empty_text(put(l10n.get("noGuides")));
+    guides.set_add_label(put(l10n.get("addGuide")));
+    guides.set_full_text(put(l10n.get("guidesFull")));
+    guides.set_top_label(put(l10n.get("guideTop")));
+    guides.set_left_label(put(l10n.get("guideLeft")));
+    guides.set_delete_tip(put(l10n.get("deleteGuide")));
+    guides.set_clear_label(put(l10n.get("clearGuides")));
+
+    let list = ui.global::<LayerListChrome>();
+    list.set_title_text(put(l10n.get("layers")));
+    list.set_add_tip(put(l10n.get("addLayer")));
+    list.set_bounds_label(put(l10n.get("layerBounds")));
+    list.set_bounds_x_label(put(l10n.get("layerBoundsX")));
+    list.set_bounds_y_label(put(l10n.get("layerBoundsY")));
+    list.set_width_label(put(l10n.get("canvasWidth")));
+    list.set_height_label(put(l10n.get("canvasHeight")));
+    list.set_settings_tip(put(l10n.get("layerSettings")));
+    list.set_delete_tip(put(l10n.get("deleteLayer")));
+    list.set_visibility_tip(put(l10n.get("layerVisibility")));
 
     let chrome = ui.global::<ToolChrome>();
     chrome.set_brush_size_label(put(l10n.get("brushSize")));
@@ -137,6 +142,7 @@ pub fn sync_strings(ui: &AppWindow, l10n: &Catalog) {
     chrome.set_text_align_center_label(put(l10n.get("textAlignCenter")));
     chrome.set_text_align_right_label(put(l10n.get("textAlignRight")));
     chrome.set_text_no_fonts_label(put(l10n.get("textNoFonts")));
+    chrome.set_smart_tools_label(put(l10n.get("smartTools")));
 
     let layers = ui.global::<LayerChrome>();
     layers.set_visibility_label(put(l10n.get("layerVisibility")));

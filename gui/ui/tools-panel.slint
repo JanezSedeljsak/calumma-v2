@@ -10,6 +10,7 @@ import { CalmLabel } from "calm/CalmText.slint";
 import { QuickColorPicker } from "quick-color-picker.slint";
 import { ColorChrome } from "color-chrome.slint";
 import { ToolOptions } from "tool-options.slint";
+import { ToolChrome } from "tool-chrome.slint";
 import { Tip } from "calm/CalmTip.slint";
 
 component ToolGrid inherits VerticalLayout {
@@ -42,31 +43,40 @@ component ToolGrid inherits VerticalLayout {
     }
 }
 
+component SmartAction inherits Rectangle {
+    in property <string> text;
+    in property <bool> enabled: true;
+
+    callback clicked();
+
+    horizontal-stretch: 1;
+    height: max(Tokens.control-height, label.preferred-height + Tokens.space-sm);
+    border-radius: Tokens.radius-sm;
+    border-width: 1px;
+    border-color: Theme.control-border;
+    background: touch.has-hover && root.enabled ? Theme.surface-hover : Theme.surface;
+
+    touch := CalmPointer {
+        enabled: root.enabled;
+        clicked => {
+            root.clicked();
+        }
+    }
+
+    label := Text {
+        x: Tokens.space-sm;
+        y: (parent.height - self.height) / 2;
+        width: parent.width - Tokens.space-sm * 2;
+        text: root.text;
+        wrap: word-wrap;
+        horizontal-alignment: center;
+        color: root.enabled ? Theme.accent-teal : Theme.text-muted;
+        font-size: Tokens.label-size;
+        font-weight: 600;
+    }
+}
+
 export component ToolsPanel inherits CalmIsland {
-    in property <[ToolEntry]> tools;
-    in property <string> active-tool-label;
-
-
-
-    callback pick-tool(int);
-    callback pick-brush(int);
-    callback brush-size-changed(float);
-    callback brush-size-committed(string);
-    callback ink-opacity-changed(float);
-    callback blur-changed(float);
-    callback hardness-changed(float);
-    callback tolerance-changed(float);
-    callback eyedropper-changed(float);
-    callback fill-toggled();
-    callback stroke-toggled();
-    callback vector-toggled();
-    callback aligned-toggled();
-    callback transform-toggled();
-    callback crop-aspect-changed(int);
-    callback crop-overlay-changed(int);
-    callback commit-crop();
-    callback cancel-crop();
-
     private property <[image]> tool-icons: [
         @image-url("move.svg"),
         @image-url("select-rect.svg"),
@@ -109,10 +119,10 @@ export component ToolsPanel inherits CalmIsland {
         spacing: Tokens.space-sm;
 
         ToolGrid {
-            tools: root.tools;
+            tools: ToolChrome.tools;
             icons: root.tool-icons;
             pick(id) => {
-                root.pick-tool(id);
+                ToolChrome.pick-tool(id);
             }
         }
 
@@ -126,67 +136,13 @@ export component ToolsPanel inherits CalmIsland {
                 alignment: start;
 
                 CalmLabel {
-                    label: root.active-tool-label;
+                    label: ToolChrome.active-tool-label;
                     horizontal-alignment: center;
                 }
 
                 ToolOptions {
                     tool-icons: root.tool-icons;
                     brush-icons: root.brush-icons;
-                    pick-tool(id) => {
-                        root.pick-tool(id);
-                    }
-                    pick-brush(id) => {
-                        root.pick-brush(id);
-                    }
-                    brush-size-changed(v) => {
-                        root.brush-size-changed(v);
-                    }
-                    brush-size-committed(text) => {
-                        root.brush-size-committed(text);
-                    }
-                    ink-opacity-changed(v) => {
-                        root.ink-opacity-changed(v);
-                    }
-                    blur-changed(v) => {
-                        root.blur-changed(v);
-                    }
-                    hardness-changed(v) => {
-                        root.hardness-changed(v);
-                    }
-                    tolerance-changed(v) => {
-                        root.tolerance-changed(v);
-                    }
-                    eyedropper-changed(v) => {
-                        root.eyedropper-changed(v);
-                    }
-                    fill-toggled => {
-                        root.fill-toggled();
-                    }
-                    stroke-toggled => {
-                        root.stroke-toggled();
-                    }
-                    vector-toggled => {
-                        root.vector-toggled();
-                    }
-                    aligned-toggled => {
-                        root.aligned-toggled();
-                    }
-                    transform-toggled => {
-                        root.transform-toggled();
-                    }
-                    crop-aspect-changed(index) => {
-                        root.crop-aspect-changed(index);
-                    }
-                    crop-overlay-changed(index) => {
-                        root.crop-overlay-changed(index);
-                    }
-                    commit-crop => {
-                        root.commit-crop();
-                    }
-                    cancel-crop => {
-                        root.cancel-crop();
-                    }
                 }
             }
         }
@@ -228,6 +184,26 @@ export component ToolsPanel inherits CalmIsland {
                 }
                 hex-changed(text) => {
                     ColorChrome.hex-changed(text);
+                }
+            }
+        }
+
+        if ToolChrome.show-smart-tools: VerticalLayout {
+            vertical-stretch: 0;
+            spacing: Tokens.space-xs;
+
+            CalmDivider { }
+
+            CalmLabel {
+                label: ToolChrome.smart-tools-label;
+                horizontal-alignment: center;
+            }
+
+            SmartAction {
+                text: ToolChrome.remove-background-label;
+                enabled: ToolChrome.remove-background-enabled;
+                clicked => {
+                    ToolChrome.remove-background();
                 }
             }
         }

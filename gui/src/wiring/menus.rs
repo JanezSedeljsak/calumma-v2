@@ -1,6 +1,9 @@
 use super::wake;
 use crate::shell::SharedController;
-use crate::ui_bridge::{sync_editor, sync_layers, sync_shell, AppWindow, FilterDebounce, SharedUi};
+use crate::ui_bridge::{
+    sync_editor, sync_layers, sync_shell, AppWindow, FilterDebounce, LayerListChrome, MenuChrome,
+    SharedUi,
+};
 use crate::window_chrome;
 use i_slint_backend_winit::WinitWindowAccessor;
 use slint::ComponentHandle;
@@ -26,8 +29,9 @@ pub fn wire(
         }
     };
 
-    ui.on_toggle_layers(toggle_layers.clone());
-    ui.on_add_layer({
+    ui.global::<MenuChrome>()
+        .on_toggle_layers(toggle_layers.clone());
+    ui.global::<LayerListChrome>().on_add_layer({
         let controller = controller.clone();
         let ui_weak = ui_weak.clone();
         move || {
@@ -39,7 +43,7 @@ pub fn wire(
             wake(&ui_weak);
         }
     });
-    ui.on_pick_layer({
+    ui.global::<LayerListChrome>().on_pick_layer({
         let controller = controller.clone();
         let ui_weak = ui_weak.clone();
         let filter_debounce = filter_debounce.clone();
@@ -55,7 +59,7 @@ pub fn wire(
             wake(&ui_weak);
         }
     });
-    ui.on_menu_fit_view({
+    ui.global::<MenuChrome>().on_fit_view({
         let controller = controller.clone();
         let ui_weak = ui_weak.clone();
         move || {
@@ -67,7 +71,7 @@ pub fn wire(
             wake(&ui_weak);
         }
     });
-    ui.on_menu_new_project({
+    ui.global::<MenuChrome>().on_new_project({
         let controller = controller.clone();
         let ui_weak = ui_weak.clone();
         move || {
@@ -77,7 +81,7 @@ pub fn wire(
             }
         }
     });
-    ui.on_menu_settings({
+    ui.global::<MenuChrome>().on_settings({
         let controller = controller.clone();
         let ui_weak = ui_weak.clone();
         move || {
@@ -89,7 +93,7 @@ pub fn wire(
             wake(&ui_weak);
         }
     });
-    ui.on_menu_undo({
+    ui.global::<MenuChrome>().on_undo({
         let controller = controller.clone();
         let ui_weak = ui_weak.clone();
         move || {
@@ -102,7 +106,7 @@ pub fn wire(
             wake(&ui_weak);
         }
     });
-    ui.on_menu_redo({
+    ui.global::<MenuChrome>().on_redo({
         let controller = controller.clone();
         let ui_weak = ui_weak.clone();
         move || {
@@ -115,7 +119,7 @@ pub fn wire(
             wake(&ui_weak);
         }
     });
-    ui.on_menu_fullscreen({
+    ui.global::<MenuChrome>().on_fullscreen({
         let ui_weak = ui_weak.clone();
         move || {
             if let Some(ui) = ui_weak.upgrade() {

@@ -1,4 +1,4 @@
-use super::{AppWindow, PresetRow, Theme as UiTheme, Tokens as UiTokens};
+use super::{AppWindow, PresetRow, ProjectChrome, Theme as UiTheme, Tokens as UiTokens};
 use crate::app_icon;
 use crate::shell::Theme;
 use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
@@ -59,6 +59,7 @@ pub fn apply_theme(ui: &AppWindow, theme: &Theme) {
             height: p.height as i32,
         })
         .collect();
-    ui.set_presets(ModelRc::new(VecModel::from(presets)));
-    ui.set_app_icon(app_icon::mark_image());
+    let project = ui.global::<ProjectChrome>();
+    project.set_presets(ModelRc::new(VecModel::from(presets)));
+    project.set_app_icon(app_icon::mark_image());
 }

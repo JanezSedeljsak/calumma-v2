@@ -29,14 +29,16 @@ pub(super) struct OverlayRanges {
 
 impl Renderer {
     pub fn render(&mut self, doc: &mut Document) {
-        // The caret is the whole of `has_animated_overlay`, and it is a square wave: comparing
-        // its phase against the frame actually drawn costs two frames a second instead of a
-        // display-rate pass, and still catches the caret going away.
-        let caret_phase = doc
-            .has_animated_overlay()
+        // The caret is a square wave: comparing its phase against the frame actually drawn
+        // costs two frames a second instead of a display-rate pass, and still catches the
+        // caret going away. A background-removal sweep is continuous, so it is not part of
+        // that comparison — while it runs, every presented frame redraws the overlay.
+        let sweep = doc.background_removal_animating();
+        let caret_phase = (!sweep && doc.text_editing())
             .then(|| text_caret_visible(self.started.elapsed().as_secs_f32()));
         if self.frame_dirty == FrameDirty::Clean
             && !doc.has_live_preview()
+            && !sweep
             && caret_phase == self.drawn_caret_phase
         {
             return;
@@ -188,8 +190,9 @@ impl Renderer {
         // lays no pixels down until pointer-up.
         // A caret no longer pins `Overlay` — the phase comparison at the top of the frame is what
         // asks for its next one, and pinning `Overlay` here would defeat that by making the
-        // early-out unreachable for as long as a text session was open.
-        self.frame_dirty = if doc.has_live_preview() {
+        // early-out unreachable for as long as a text session was open. The removal sweep does
+        // pin it: the band has to move on every frame, and an overlay pin still skips the tiles.
+        self.frame_dirty = if doc.has_live_preview() || doc.background_removal_animating() {
             FrameDirty::Overlay
         } else {
             FrameDirty::Clean

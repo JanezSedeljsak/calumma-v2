@@ -1,17 +1,11 @@
 import { Tokens } from "calm/CalmTokens.slint";
 import { ProjectTabs } from "project-tabs.slint";
-import { ProjectTabRow } from "models.slint";
+import { ProjectChrome } from "project-chrome.slint";
+import { MenuChrome } from "menu-chrome.slint";
 
 export component Titlebar inherits Rectangle {
     in property <bool> editor-open;
-    in property <[ProjectTabRow]> project-tabs;
-    in property <string> close-tip;
-    in property <string> new-project-tip;
 
-    callback switch-project-tab(string);
-    callback close-project-tab(string);
-    callback edit-project-tab(string, float, float);
-    callback new-project();
     callback drag();
     callback zoom();
 
@@ -29,20 +23,20 @@ export component Titlebar inherits Rectangle {
 
         if root.editor-open: ProjectTabs {
             y: (parent.height - self.height) / 2;
-            tabs: root.project-tabs;
-            close-tip: root.close-tip;
-            new-project-tip: root.new-project-tip;
+            tabs: ProjectChrome.tabs;
+            close-tip: ProjectChrome.close-tab-tip;
+            new-project-tip: MenuChrome.new-project-title;
             switch-tab(id) => {
-                root.switch-project-tab(id);
+                ProjectChrome.switch-tab(id);
             }
             close-tab(id) => {
-                root.close-project-tab(id);
+                ProjectChrome.close-tab(id);
             }
             edit-tab(id, anchor-x, anchor-y) => {
-                root.edit-project-tab(id, anchor-x, anchor-y);
+                ProjectChrome.edit-tab(id, anchor-x, anchor-y);
             }
             new-project => {
-                root.new-project();
+                MenuChrome.new-project();
             }
         }
 

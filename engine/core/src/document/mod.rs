@@ -1,7 +1,8 @@
 use crate::brush::{Brush, BrushProfile};
 use crate::camera::Camera;
 use crate::coverage::CoverageGrid;
-use crate::crop_edit::{CropDrag, CropOverlayStyle};
+use crate::crop_edit::CropDrag;
+use crate::crop_overlay::CropOverlayStyle;
 use crate::filters::AdjustmentLut;
 use crate::guide::{Guide, GuideDrag};
 use crate::history::{History, TileSnapshot};
@@ -27,6 +28,7 @@ use crate::vector_edit::{VectorItemDrag, VectorPick};
 use calumma_text::TextRun;
 use rayon::prelude::*;
 
+mod background;
 mod canvas;
 mod commit;
 mod flatten;
@@ -189,6 +191,9 @@ pub struct Document {
     pub crop_aspect_lock: Option<f32>,
     /// Which composition guide the crop overlay draws while dragging. A shell knob.
     pub crop_overlay_style: CropOverlayStyle,
+    /// Layer id whose background is being removed, while that job runs off the engine lock.
+    /// The renderer sweeps this layer until the result lands or the job is dropped.
+    background_removal: Option<String>,
 }
 
 /// Where the clone stamp / healing brush reads from. `offset` is `anchor − first destination
@@ -278,6 +283,7 @@ impl Document {
             crop_saved_camera: None,
             crop_aspect_lock: None,
             crop_overlay_style: CropOverlayStyle::RuleOfThirds,
+            background_removal: None,
         }
     }
 
@@ -639,10 +645,11 @@ impl Document {
     }
 
     /// Whether an overlay is *animating* and so needs a frame per display refresh even though
-    /// nothing about the document changed. Only the text caret, which blinks off the renderer's
-    /// own clock. This asks for `FrameDirty::Overlay`, not `Content`: the tiles, the draw list
-    /// and the pan cache are all still valid, so the frame is one instance-buffer write.
+    /// nothing about the document changed. The text caret blinks off the renderer's clock, and
+    /// a background-removal sweep crosses the layer while that job runs. Both ask for an overlay
+    /// frame, not a content one: the tiles, the draw list and the pan cache stay valid, so the
+    /// frame is one instance-buffer write. The caret is a square wave and the sweep is not.
     pub fn has_animated_overlay(&self) -> bool {
-        self.text_edit.is_some()
+        self.text_edit.is_some() || self.background_removal.is_some()
     }
 }

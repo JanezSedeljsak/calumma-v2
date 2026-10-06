@@ -1,4 +1,5 @@
 import { GuideRow } from "models.slint";
+import { RulerTickRow } from "ruler.slint";
 
 export global GuideChrome {
     in property <string> title-text;
@@ -22,4 +23,18 @@ export global GuideChrome {
     callback set-axis(int, bool);
     callback set-offset(int, string);
     callback set-color(int, int);
+
+    in property <string> open-tip;
+    in property <[RulerTickRow]> ruler-ticks-x;
+    in property <[RulerTickRow]> ruler-ticks-y;
+    in property <bool> readout-visible;
+    in property <bool> readout-horizontal;
+    in property <string> readout-text;
+    in property <float> readout-screen;
+
+    callback open-card();
+    callback pressed(bool, float, float);
+    callback moved(float, float);
+    callback released();
+    callback ruler-has-guide(float, float) -> bool;
 }

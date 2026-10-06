@@ -109,7 +109,7 @@ const LUT_MODE_TONE_HSL: u32 = 2;
 /// but WGSL rounds a storage-buffer array's stride up to the struct's own 8-byte alignment
 /// (from `pivot`/`offset`/`scale`'s `vec2<f32>`s) — `_pad` is what keeps Rust's `size_of`
 /// matching that rounded-up stride instead of drifting from it by 4 bytes. See
-/// `layer_table_tests::a_table_row_is_the_size_the_shader_strides_by` — the one thing enforcing
+/// `layer_table::tests::a_table_row_is_the_size_the_shader_strides_by` — the one thing enforcing
 /// that this and `LayerData` in `board.wgsl` agree byte for byte.
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
@@ -417,11 +417,12 @@ mod cache;
 mod camera_motion;
 mod frame;
 mod invalidation;
+mod layer_table;
 mod pipeline;
 #[cfg(test)]
 mod shader_parity;
 
 pub(crate) use pipeline::{paper_bind_group, PREMULTIPLIED_ALPHA_COMPONENT};
-// `stroke_coverage.rs`'s tests are this re-export's only consumer.
+// `stroke_coverage/tests.rs` is this re-export's only consumer.
 #[cfg(test)]
 pub(crate) use pipeline::STROKE_ATTRS;

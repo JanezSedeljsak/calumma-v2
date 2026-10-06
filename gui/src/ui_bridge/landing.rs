@@ -1,7 +1,7 @@
-use super::{sync_shell, AppWindow, RecentRow};
+use super::{sync_shell, AppWindow, ProjectChrome, RecentRow};
 use crate::shell::{relative_time, AppController};
 use calumma_app::{Engine, ProjectSummary};
-use slint::{Color, ModelRc, SharedString, VecModel};
+use slint::{Color, ComponentHandle, ModelRc, SharedString, VecModel};
 
 const RECENTS_SHOWN: usize = 5;
 
@@ -20,7 +20,8 @@ pub fn sync_recents(ui: &AppWindow, controller: &AppController) {
             thumb: recent_thumb(&engine, &item.id),
         })
         .collect();
-    ui.set_recents(ModelRc::new(VecModel::from(rows)));
+    ui.global::<ProjectChrome>()
+        .set_recents(ModelRc::new(VecModel::from(rows)));
 }
 
 fn recent_thumb(engine: &Engine, id: &str) -> slint::Image {
@@ -47,7 +48,7 @@ pub fn parse_dimension(text: &str, fallback: u32) -> u32 {
 }
 
 pub fn form_accent(ui: &AppWindow) -> [u8; 3] {
-    calumma_core::project_color(ui.get_project_accent_index().max(0) as usize)
+    calumma_core::project_color(ui.global::<ProjectChrome>().get_accent_index().max(0) as usize)
 }
 
 pub fn random_accent_index() -> i32 {

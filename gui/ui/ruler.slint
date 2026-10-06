@@ -3,8 +3,12 @@ import { Tokens } from "calm/CalmTokens.slint";
 
 export struct RulerTickRow {
     offset: length,
-    label: string,
     major: bool,
+    label: image,
+    label-x: length,
+    label-y: length,
+    label-width: length,
+    label-height: length,
 }
 
 export component RulerStrip inherits Rectangle {
@@ -18,7 +22,6 @@ export component RulerStrip inherits Rectangle {
 
     private property <length> major-length: Tokens.ruler-thickness * 0.55;
     private property <length> minor-length: Tokens.ruler-thickness * 0.28;
-    private property <length> label-box: Tokens.ruler-thickness * 2.4;
     private property <bool> over-guide: false;
     private property <bool> dark-theme: Theme.text.red > Theme.surface.red;
 
@@ -40,21 +43,14 @@ export component RulerStrip inherits Rectangle {
         }
     }
 
-    for tick in root.ticks: Text {
+    for tick in root.ticks: Image {
         visible: tick.major;
-        width: root.vertical ? root.label-box : self.preferred-width;
-        height: Tokens.label-size + 2px;
-        x: root.vertical ? 0px : tick.offset + 3px;
-        y: root.vertical ? tick.offset - self.height / 2 : 1px;
-        transform-origin: root.vertical ? { x: root.width / 2, y: self.height / 2 } : { x: 0px, y: 0px };
-        transform-rotation: root.vertical ? -90deg : 0deg;
-        text: tick.label;
-        font-size: Tokens.label-size;
-        font-weight: 500;
-        wrap: no-wrap;
-        color: Theme.text-muted;
-        horizontal-alignment: center;
-        vertical-alignment: center;
+        source: tick.label;
+        x: tick.label-x;
+        y: tick.label-y;
+        width: tick.label-width;
+        height: tick.label-height;
+        image-fit: fill;
     }
 
     touch := TouchArea {

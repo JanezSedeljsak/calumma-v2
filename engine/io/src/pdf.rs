@@ -1,6 +1,6 @@
 //! Whole-document PDF export.
 //!
-//! Encoded in Rust beside `svg.rs` and `psd.rs` rather than in the shell, which would have to
+//! Encoded in Rust beside `svg.rs` and `psd/` rather than in the shell, which would have to
 //! re-emit every shape to use a platform PDF context.
 //!
 //! PDF is the closest fit of any export format Calumma has, because the layer model has real

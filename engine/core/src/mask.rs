@@ -47,6 +47,25 @@ impl Document {
         true
     }
 
+    /// The same mask `create_layer_mask` inserts, filled from a document-sized subject matte
+    /// (`255` keeps the pixel, `0` hides it). One stack snapshot, so the fill undoes with the
+    /// mask. Refuses wherever a mask cannot be created, and when `matte` is not `width × height`.
+    pub fn create_layer_mask_from_matte(&mut self, index: usize, matte: &[u8]) -> bool {
+        let expected = (self.width as usize).saturating_mul(self.height as usize);
+        if matte.len() != expected || !self.can_create_layer_mask(index) {
+            return false;
+        }
+        if !self.create_layer_mask(index) {
+            return false;
+        }
+        let Some(grid) = self.layers[index].tiles_mut() else {
+            return false;
+        };
+        grid.fill_mask_matte(matte);
+        self.mark_layer_render_dirty_for_mask(index + 1);
+        true
+    }
+
     pub fn release_layer_mask(&mut self, index: usize) -> bool {
         if !self.can_release_layer_mask(index) {
             return false;

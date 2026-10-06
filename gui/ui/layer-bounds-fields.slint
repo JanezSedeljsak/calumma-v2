@@ -1,0 +1,121 @@
+import { LayerListChrome } from "layer-list-chrome.slint";
+import { Tokens } from "calm/CalmTokens.slint";
+import { CalmDivider } from "calm/CalmDivider.slint";
+import { CalmField } from "calm/CalmField.slint";
+import { CalmLabel } from "calm/CalmText.slint";
+
+component BoundsField inherits HorizontalLayout {
+    in property <string> label;
+    in-out property <string> value;
+
+    callback committed(string);
+
+    spacing: Tokens.space-sm;
+    horizontal-stretch: 1;
+
+    CalmLabel {
+        label: root.label;
+        width: 12px;
+    }
+
+    field := CalmField {
+        horizontal-stretch: 1;
+        height: Tokens.control-height;
+        radius: Tokens.radius-sm;
+        pad: Tokens.space-sm;
+        text-size: Tokens.body-size;
+        mono: true;
+        text <=> root.value;
+        accepted(text) => {
+            root.committed(text);
+        }
+    }
+
+    property <bool> field-focused: field.focused;
+    changed field-focused => {
+        if (!root.field-focused) {
+            root.committed(root.value);
+        }
+    }
+}
+
+export component LayerBoundsFields inherits VerticalLayout {
+    vertical-stretch: 0;
+    alignment: end;
+
+    function commit-bounds() {
+        LayerListChrome.commit-bounds(LayerListChrome.layer-x-text, LayerListChrome.layer-y-text, LayerListChrome.layer-w-text, LayerListChrome.layer-h-text);
+    }
+
+    function commit-canvas-size() {
+        LayerListChrome.commit-canvas-size(LayerListChrome.doc-width-text, LayerListChrome.doc-height-text);
+    }
+
+    spacing: Tokens.space-sm;
+
+    CalmLabel {
+        label: LayerListChrome.bounds-label;
+    }
+
+    HorizontalLayout {
+        spacing: Tokens.space-sm;
+
+        BoundsField {
+            label: LayerListChrome.bounds-x-label;
+            value <=> LayerListChrome.layer-x-text;
+            committed(_) => {
+                root.commit-bounds();
+            }
+        }
+
+        BoundsField {
+            label: LayerListChrome.bounds-y-label;
+            value <=> LayerListChrome.layer-y-text;
+            committed(_) => {
+                root.commit-bounds();
+            }
+        }
+    }
+
+    HorizontalLayout {
+        spacing: Tokens.space-sm;
+
+        BoundsField {
+            label: LayerListChrome.width-label;
+            value <=> LayerListChrome.layer-w-text;
+            committed(_) => {
+                root.commit-bounds();
+            }
+        }
+
+        BoundsField {
+            label: LayerListChrome.height-label;
+            value <=> LayerListChrome.layer-h-text;
+            committed(_) => {
+                root.commit-bounds();
+            }
+        }
+    }
+
+    CalmDivider { }
+
+    HorizontalLayout {
+        spacing: Tokens.space-sm;
+
+        BoundsField {
+            label: LayerListChrome.width-label;
+            value <=> LayerListChrome.doc-width-text;
+            committed(_) => {
+                root.commit-canvas-size();
+            }
+        }
+
+        BoundsField {
+            label: LayerListChrome.height-label;
+            value <=> LayerListChrome.doc-height-text;
+            committed(_) => {
+                root.commit-canvas-size();
+            }
+        }
+    }
+}

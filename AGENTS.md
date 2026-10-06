@@ -97,7 +97,7 @@ bind groups — is shipped; see `docs/ENGINE.md` § Bind groups.
 | `engine/io` | SQLite projects + encode/decode |
 | `engine/app` | **`calumma-app`** — the Rust API (`Engine`, `NativeSurface`) the Slint shell links |
 | `engine/ffi` | The real `Engine`/`Inner` implementation. No C ABI any more — `crate-type = ["rlib"]` only, no header, nothing links it except `calumma-app`. Named `ffi` for history, not for what it does today |
-| `gui/` | **Desktop shell** — Rust + Slint UI (macOS 26, Windows 11, current Linux). `main.rs` only boots; Slint callbacks are wired in `gui/src/wiring/`, one file per callback family — add a callback there, not in `main.rs`. A group of properties the window would otherwise forward through several components lives on a Slint global instead (`ToolChrome`, `LayerChrome`, `GuideChrome`, `ColorChrome`) |
+| `gui/` | **Desktop shell** — Rust + Slint UI (macOS 26, Windows 11, current Linux). `main.rs` only boots; Slint callbacks are wired in `gui/src/wiring/`, one file per callback family — add a callback there, not in `main.rs`. A group of properties the window would otherwise forward through several components lives on a Slint global instead (`ToolChrome`, `LayerChrome`, `LayerListChrome`, `GuideChrome`, `ColorChrome`, `ZoomChrome`, `MenuChrome`, `ProjectChrome`, `SettingsChrome`); `AppWindow` keeps only window state, the `*-chrome-*` rects the board punches holes with, and the pointer/key callbacks that move focus |
 | `translations/` | Locale JSON (`en.json` today). Not code — edit strings here |
 | `design/` | Visual tokens only (`tokens.json`), SVG icons, `icon.png` (app icon master; `cli/generate_icon.py` derives `icon-rounded.png` and the macOS iconset, and `gui/src/app_icon.rs` embeds both) |
 | `docs/` | All prose docs: `FLOW.md` (product flow), `STYLE.md` (design system), `ENGINE.md`, `RENDERING.md`, plus the gitignored `todo.md` + `plans/`. Only `README.md`, `AGENTS.md`, `CLAUDE.md` stay at the root |
@@ -169,7 +169,7 @@ have to be read together.
 ## Projects and navigation
 
 - DB path: OS-native app-data directory + `Miw/miw.sqlite`, resolved by
-  `ProjectStore::default_path` (`engine/io/src/store.rs`) via the `dirs` crate —
+  `ProjectStore::default_path` (`engine/io/src/store/mod.rs`) via the `dirs` crate —
   never a hardcoded Unix path. macOS: `~/Library/Application Support/Miw/…`;
   Linux: `~/.local/share/Miw/…`; Windows: `%APPDATA%\Miw\…`.
 - Landing: name + resolution, presets from tokens, recents list, Paste Artwork island.
@@ -413,7 +413,10 @@ pub enum LayerContent {
   stay independent." A layer cannot clip and mask at once. Refuses Paper as base and
   refuses clipping to a layer that is already clipped (no clip chains). Reorder that
   separates a clipped pair clears the link. Flatten still stands down on a base carrying
-  a transform.
+  a transform. **Remove Background** (macOS Vision, Smart Tools) is that mask filled
+  from the subject matte — `create_layer_mask_from_matte` — one `StackSnapshot`, same
+  refusals. The request runs off the engine lock; `Document::background_removal` is
+  only the layer id the sweep outlines while it runs.
 - `Document::duplicate_layer`/`merge_layer_down`/`clip_layer_down`/`resize`
   record a `StackSnapshot` before they run, so `⌘Z` can put the stack back.
   Paint, fill and text sessions still use tile/run diffs; everything lands on the same `History` budget.
@@ -554,7 +557,7 @@ sessions). Prefer speed carefully — measure, then optimise. Not a secrets vaul
 not a place to pile micro-opts that muddy the code for single-digit percent gains.
 
 - Live strokes/shapes preview on the GPU; CPU commits on pointer-up into sparse tiles. A
-  brush stroke previews through an offscreen coverage target (`render/src/stroke_coverage.rs`)
+  brush stroke previews through an offscreen coverage target (`render/src/stroke_coverage/`)
   so its own overlapping segments union rather than compound — the same maximum the CPU
   accumulates in `core/src/coverage.rs`, so the stroke does not change on pointer-up. The blur
   brush is the one exception to pointer-up commit: it has no color to preview, so it paints
@@ -679,7 +682,11 @@ LOD, motion mode) are documented in `docs/RENDERING.md`, not repeated here.
   and left (`gui/ui/ruler.slint`). Tick *positions* stay engine-owned (`Engine::ruler_ticks_x/y`,
   adaptive 1/2/5×10ⁿ spacing from `core/src/ruler.rs`); the shell only maps `doc * zoom + pan` to
   a strip offset, the same affine the board uses, and rebuilds the tick models from the frame
-  loop when the camera actually moved. Dragging off a strip pulls a guide
+  loop when the camera actually moved. Ruler numbers are **images, not `Text`**: `calumma_app::label_bitmap`
+  rasterizes them through `engine/text` and turns the left ruler's a quarter turn by moving whole
+  pixels, and `ui_bridge/rulers.rs` places every label and tick on a whole device pixel of the
+  window. A rotated Slint `Text` is never crisp — femtovg drops any rotated glyph run to path
+  filling — and a strip a resize left on a fractional pixel blurs even unrotated text. Dragging off a strip pulls a guide
   (`Engine::begin_guide_drag_from_ruler` / `update_guide_drag` / `end_guide_drag`) — where it
   lands and whether it survives release is `core/src/guide.rs`'s call, and the guide itself is
   drawn by `vs_guide`, never by the shell.
@@ -741,7 +748,8 @@ own integration-test crate against the library's public API, so this is free.
 reach (`renderer`, `tile_atlas`, `overview`, `PanCache`'s `pub(crate)` half, `stroke_coverage`)
 keeps its tests in a `#[cfg(test)] mod` — at the bottom of its own file, or as a `tests.rs` /
 `headless_tests.rs` child once the module is a directory (`overview/`, `renderer/pipeline/`,
-`renderer/frame/`). Widening the API to
+`renderer/frame/`, `renderer/layer_table/`, `tile_atlas/`, `stroke_coverage/`,
+`framebuffer/pan_cache/`). Widening the API to
 `pub` so a `tests/` file could reach it would be a worse trade than the one this rule is
 protecting. Those tests share one headless device from `render/src/test_gpu.rs` — a
 `wgpu::Device` with no surface, which is enough to build an atlas, a pan cache or an overview
@@ -789,12 +797,14 @@ taper brush size along a stroke; `Engine::pointer_down`/`pointer_move` stay `(x,
 mouse/tablet are both full press. No tilt, barrel, tangential pressure, per-brush toggles, or
 shell curve UI.
 Raster paint tools only; vector-mode pen width stays on the item. Do not restart as a plan),
-**smart tools** (removed for now — Upscale, Cut Out Subject and Content-Aware Narrow shipped
+**smart tools** other than Remove Background (Upscale, Cut Out Subject and Content-Aware Narrow shipped
 once and were taken out with the `engine/ops` crate because they did not fit the product yet;
 git history has the implementation. BiRefNet / `ort`, GenerateTexture, SuggestShape and
-Vectorize were never started),
+Vectorize were never started. Remove Background is the one that shipped: macOS Vision,
+a layer mask on the active layer, Smart Tools at the bottom of the tools island — hidden
+where the OS has none),
 layered PSD import wired into the app's import flow (`calumma-io` now has a real layered decoder —
-`decode_psd`/`DecodedPsd`/`DecodedLayer` in `io/src/psd.rs`, separate name/visibility/opacity/blend-mode/RGBA
+`decode_psd`/`DecodedPsd`/`DecodedLayer` in `io/src/psd/decode.rs`, separate name/visibility/opacity/blend-mode/RGBA
 per layer, PackBits + raw channel data, `luni` Unicode names — but nothing on `Engine` exposes
 it and no shell's import flow calls it yet; `decode_encoded`'s flattened-composite PSD import,
 via `raster_psd.rs`, is what the app actually uses today), picking a layer by clicking it outside

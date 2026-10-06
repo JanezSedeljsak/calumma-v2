@@ -16,9 +16,14 @@ import { Tokens } from "calm/CalmTokens.slint";
 import { CalmTip, Tip } from "calm/CalmTip.slint";
 import { ToolChrome } from "tool-chrome.slint";
 import { LayerChrome } from "layer-chrome.slint";
+import { LayerListChrome } from "layer-list-chrome.slint";
+import { MenuChrome } from "menu-chrome.slint";
+import { ProjectChrome } from "project-chrome.slint";
+import { SettingsChrome } from "settings-chrome.slint";
+import { ZoomChrome } from "zoom-chrome.slint";
 import { SelectOption } from "calm/CalmSelect.slint";
 
-export { Theme, Tokens, RecentRow, PresetRow, LayerRow, ToolEntry, BrushEntry, GuideRow, RulerTickRow, ToolChrome, LayerChrome, GuideChrome, ColorChrome, Tip, ProjectTabRow, SelectOption }
+export { Theme, Tokens, RecentRow, PresetRow, LayerRow, ToolEntry, BrushEntry, GuideRow, RulerTickRow, ToolChrome, LayerChrome, LayerListChrome, GuideChrome, ColorChrome, MenuChrome, ProjectChrome, SettingsChrome, ZoomChrome, Tip, ProjectTabRow, SelectOption }
 
 export component AppWindow inherits Window {
     in-out property <bool> editor-open: false;
@@ -34,11 +39,6 @@ export component AppWindow inherits Window {
     in-out property <bool> layer-settings-open: false;
     in-out property <bool> guides-open: false;
     in-out property <bool> project-settings-open: false;
-    in-out property <float> project-settings-anchor-x;
-    in-out property <float> project-settings-anchor-y;
-    in-out property <string> project-settings-name;
-    in property <string> project-settings-size-text;
-    in-out property <int> project-settings-accent-index: 0;
 
     changed editor-open => {
         if (!root.editor-open) {
@@ -50,17 +50,6 @@ export component AppWindow inherits Window {
     }
 
     callback editor-open-changed(bool);
-    callback create-project();
-    callback open-recent(string);
-    callback delete-recent(string);
-    callback clear-recents();
-    callback preset-size(int, int);
-    callback paste-artwork-clicked();
-    callback app-icon-clicked();
-    callback switch-project-tab(string);
-    callback close-project-tab(string);
-    callback edit-project-tab(string, float, float);
-    callback create-from-modal();
 
     callback pointer-pressed(float, float, bool, bool, bool, bool);
     callback pointer-moved(float, float);
@@ -72,105 +61,14 @@ export component AppWindow inherits Window {
     callback pinch-updated(float, float, float);
     callback pinch-ended();
 
-    callback pick-tool(int);
-    callback pick-brush(int);
-    callback brush-size-changed(float);
-    callback brush-size-committed(string);
-    callback ink-opacity-changed(float);
-    callback blur-changed(float);
-    callback hardness-changed(float);
-    callback tolerance-changed(float);
-    callback eyedropper-changed(float);
-    callback fill-toggled();
-    callback stroke-toggled();
-    callback vector-toggled();
-    callback aligned-toggled();
-    callback transform-toggled();
-    callback crop-aspect-changed(int);
-    callback crop-overlay-changed(int);
-    callback commit-crop();
-    callback cancel-crop();
-    callback zoom-changed(float);
-    callback step-zoom(bool);
-    callback fit-zoom();
-    callback toggle-layers();
-    callback menu-fit-view();
-    callback menu-fullscreen();
-    callback menu-new-project();
-    callback menu-settings();
-    callback menu-undo();
-    callback menu-redo();
-    callback add-layer();
-    callback pick-layer(int);
-    callback toggle-layer-visible(int);
-    callback open-layer-settings(int, float, float);
-    callback delete-layer(int);
-    callback rename-layer(int, string);
-    callback reorder-layer(int, int);
-    callback hover-layer(int);
-    callback clear-layer-hover();
-    callback commit-layer-bounds(string, string, string, string);
-    callback commit-canvas-size(string, string);
-    callback export-png();
-    callback export-jpeg();
-    callback export-webp();
-    callback export-avif();
-    callback export-heic();
-    callback export-psd();
-    callback export-svg();
-    callback export-pdf();
     callback titlebar-drag();
     callback titlebar-zoom();
-
-
-    callback guide-pressed(bool, float, float);
-    callback guide-moved(float, float);
-    callback guide-released();
-    callback ruler-has-guide(float, float) -> bool;
-    callback open-guides();
 
     callback shell-key-pressed(string, bool, bool, bool, bool);
     callback shell-key-released(string, bool, bool, bool, bool);
 
-    callback settings-dismissed();
-    callback new-project-dismissed();
-    callback project-settings-dismissed();
-    callback rename-project(string);
-    callback recolor-project(int);
-    callback set-theme-light();
-    callback set-theme-dark();
-    callback set-language-en();
     callback toast-dismissed();
 
-    in-out property <string> project-name;
-    in-out property <string> width-text;
-    in-out property <string> height-text;
-    in-out property <int> project-accent-index: 0;
-    in property <[ProjectTabRow]> project-tabs;
-    in property <string> close-project-tab-tip;
-
-    in-out property <int> active-tool;
-    in property <[ToolEntry]> tools;
-    in property <string> active-tool-label;
-    in-out property <float> zoom-unit;
-    in property <string> zoom-text;
-    in property <bool> is-fit;
-    in-out property <string> doc-width-text;
-    in-out property <string> doc-height-text;
-    in-out property <string> layer-x-text;
-    in-out property <string> layer-y-text;
-    in-out property <string> layer-w-text;
-    in-out property <string> layer-h-text;
-    in property <string> bounds-label;
-    in property <string> bounds-x-label;
-    in property <string> bounds-y-label;
-
-
-    in property <bool> hover-preview-visible;
-    in property <string> hover-preview-name;
-    in property <image> hover-preview-image;
-
-    in property <string> layer-settings-label;
     out property <length> board-x: editor.board-x;
     out property <length> board-y: editor.board-y;
     out property <length> board-width: editor.board-width;
@@ -211,17 +109,7 @@ export component AppWindow inherits Window {
     out property <length> tip-chrome-width: tip.bubble-width;
     out property <length> tip-chrome-height: tip.bubble-height;
     out property <length> tip-chrome-radius: tip.bubble-radius;
-    in property <string> width-short-label;
-    in property <string> height-short-label;
-    in property <string> layer-visibility-label;
-    in property <string> layer-delete-label;
 
-
-    in property <bool> theme-is-dark;
-    in property <bool> language-is-en;
-    in property <string> language-name;
-    in property <string> memory-value;
-    in property <string> version-value;
     in property <bool> toast-visible;
     in property <string> toast-text;
     in property <bool> toast-is-error;
@@ -229,66 +117,6 @@ export component AppWindow inherits Window {
     out property <bool> overlay-chrome-open: root.loading
         || root.settings-open
         || root.toast-visible;
-
-    in property <image> app-icon;
-    in property <string> brand-text;
-    in property <string> tagline-text;
-    in property <string> project-name-label;
-    in property <string> resolution-label;
-    in property <string> create-label;
-    in property <string> presets-label;
-    in property <string> recents-label;
-    in property <string> clear-all-label;
-    in property <string> no-recents-label;
-    in property <string> delete-project-label;
-    in property <string> paste-artwork-title;
-    in property <string> paste-artwork-hint;
-    in property <string> artwork-formats;
-    in property <string> settings-title;
-    in property <string> theme-label;
-    in property <string> theme-light-label;
-    in property <string> theme-dark-label;
-    in property <string> language-label;
-    in property <string> memory-label;
-    in property <string> version-label;
-    in property <bool> can-undo;
-    in property <bool> can-redo;
-    in property <[LayerRow]> layers;
-
-    in property <string> file-menu-title;
-    in property <string> edit-menu-title;
-    in property <string> board-menu-title;
-    in property <string> new-project-menu-title;
-    in property <string> undo-menu-title;
-    in property <string> redo-menu-title;
-    in property <string> fit-view-menu-title;
-    in property <string> toggle-layers-menu-title;
-    in property <string> fullscreen-menu-title;
-    in property <string> layers-title;
-    in property <string> add-layer-label;
-    in property <string> zoom-in-label;
-    in property <string> zoom-out-label;
-    in property <string> fit-view-label;
-    in property <string> export-menu-title;
-    in property <string> export-png-title;
-    in property <string> export-jpeg-title;
-    in property <string> export-webp-title;
-    in property <string> export-avif-title;
-    in property <string> export-heic-title;
-    in property <string> export-psd-title;
-    in property <string> export-svg-title;
-    in property <string> export-pdf-title;
-
-    in property <[PresetRow]> presets;
-    in property <[RecentRow]> recents;
-    in property <[RulerTickRow]> ruler-ticks-x;
-    in property <[RulerTickRow]> ruler-ticks-y;
-    in property <string> guides-tip;
-    in property <[color]> guide-palette;
-    in property <bool> guide-readout-visible;
-    in property <bool> guide-readout-horizontal;
-    in property <string> guide-readout-text;
-    in property <float> guide-readout-screen;
 
     init => {
         focus-scope.focus();
@@ -303,112 +131,112 @@ export component AppWindow inherits Window {
 
     MenuBar {
         Menu {
-            title: root.file-menu-title;
+            title: MenuChrome.file-title;
             MenuItem {
-                title: root.new-project-menu-title;
+                title: MenuChrome.new-project-title;
                 enabled: root.editor-open;
                 activated => {
-                    root.menu-new-project();
+                    MenuChrome.new-project();
                 }
             }
             Menu {
-                title: root.export-menu-title;
+                title: MenuChrome.export-title;
                 enabled: root.editor-open;
                 MenuItem {
-                    title: root.export-png-title;
+                    title: MenuChrome.export-png-title;
                     activated => {
-                        root.export-png();
+                        MenuChrome.export-png();
                     }
                 }
                 MenuItem {
-                    title: root.export-jpeg-title;
+                    title: MenuChrome.export-jpeg-title;
                     activated => {
-                        root.export-jpeg();
+                        MenuChrome.export-jpeg();
                     }
                 }
                 MenuItem {
-                    title: root.export-webp-title;
+                    title: MenuChrome.export-webp-title;
                     activated => {
-                        root.export-webp();
+                        MenuChrome.export-webp();
                     }
                 }
                 MenuItem {
-                    title: root.export-avif-title;
+                    title: MenuChrome.export-avif-title;
                     activated => {
-                        root.export-avif();
+                        MenuChrome.export-avif();
                     }
                 }
                 MenuItem {
-                    title: root.export-heic-title;
+                    title: MenuChrome.export-heic-title;
                     activated => {
-                        root.export-heic();
+                        MenuChrome.export-heic();
                     }
                 }
                 MenuItem {
-                    title: root.export-psd-title;
+                    title: MenuChrome.export-psd-title;
                     activated => {
-                        root.export-psd();
+                        MenuChrome.export-psd();
                     }
                 }
                 MenuItem {
-                    title: root.export-svg-title;
+                    title: MenuChrome.export-svg-title;
                     activated => {
-                        root.export-svg();
+                        MenuChrome.export-svg();
                     }
                 }
                 MenuItem {
-                    title: root.export-pdf-title;
+                    title: MenuChrome.export-pdf-title;
                     activated => {
-                        root.export-pdf();
+                        MenuChrome.export-pdf();
                     }
                 }
             }
         }
         Menu {
-            title: root.edit-menu-title;
+            title: MenuChrome.edit-title;
             MenuItem {
-                title: root.undo-menu-title;
-                enabled: root.editor-open && root.can-undo;
+                title: MenuChrome.undo-title;
+                enabled: root.editor-open && MenuChrome.can-undo;
                 activated => {
-                    root.menu-undo();
+                    MenuChrome.undo();
                 }
             }
             MenuItem {
-                title: root.redo-menu-title;
-                enabled: root.editor-open && root.can-redo;
+                title: MenuChrome.redo-title;
+                enabled: root.editor-open && MenuChrome.can-redo;
                 activated => {
-                    root.menu-redo();
+                    MenuChrome.redo();
                 }
             }
         }
         Menu {
-            title: root.board-menu-title;
+            title: MenuChrome.board-title;
             MenuItem {
-                title: root.settings-title;
+                title: MenuChrome.settings-title;
                 activated => {
-                    root.menu-settings();
+                    MenuChrome.settings();
                 }
             }
             MenuItem {
-                title: root.fit-view-menu-title;
+                title: MenuChrome.fit-view-title;
                 enabled: root.editor-open;
                 activated => {
-                    root.menu-fit-view();
+                    MenuChrome.fit-view();
                 }
             }
             MenuItem {
-                title: root.toggle-layers-menu-title;
+                title: MenuChrome.toggle-layers-title;
                 enabled: root.editor-open;
                 checkable: true;
                 checked: root.layers-open;
                 activated => {
-                    root.toggle-layers();
+                    MenuChrome.toggle-layers();
                 }
             }
             MenuItem {
-                title: root.fullscreen-menu-title;
+                title: MenuChrome.fullscreen-title;
                 activated => {
-                    root.menu-fullscreen();
+                    MenuChrome.fullscreen();
                 }
             }
         }
@@ -440,57 +268,10 @@ export component AppWindow inherits Window {
             accept;
         }
 
-        Rectangle {
-            width: 100%;
-            height: 100%;
-
         Landing {
             width: 100%;
             height: 100%;
             visible: !root.editor-open;
-            brand-text: root.brand-text;
-            tagline-text: root.tagline-text;
-            project-name-label: root.project-name-label;
-            resolution-label: root.resolution-label;
-            create-label: root.create-label;
-            presets-label: root.presets-label;
-            recents-label: root.recents-label;
-            clear-all-label: root.clear-all-label;
-            no-recents-label: root.no-recents-label;
-            delete-project-label: root.delete-project-label;
-            paste-artwork-title: root.paste-artwork-title;
-            paste-artwork-hint: root.paste-artwork-hint;
-            artwork-formats: root.artwork-formats;
-            app-icon: root.app-icon;
-            project-name <=> root.project-name;
-            width-text <=> root.width-text;
-            height-text <=> root.height-text;
-            accent-index <=> root.project-accent-index;
-            palette: root.guide-palette;
-            presets: root.presets;
-            recents: root.recents;
-            create-clicked => {
-                root.create-project();
-            }
-            preset-clicked(width, height) => {
-                root.preset-size(width, height);
-                root.create-project();
-            }
-            recent-clicked(id) => {
-                root.open-recent(id);
-            }
-            delete-recent(id) => {
-                root.delete-recent(id);
-            }
-            clear-all-clicked => {
-                root.clear-recents();
-            }
-            paste-artwork-clicked => {
-                root.paste-artwork-clicked();
-            }
-            app-icon-clicked => {
-                root.app-icon-clicked();
-            }
         }
 
         editor := Editor {
@@ -502,155 +283,8 @@ export component AppWindow inherits Window {
             loading-paper-y: root.loading-paper-y;
             loading-paper-width: root.loading-paper-width;
             loading-paper-height: root.loading-paper-height;
-            ruler-ticks-x: root.ruler-ticks-x;
-            ruler-ticks-y: root.ruler-ticks-y;
-            guides-tip: root.guides-tip;
-            guide-readout-visible: root.guide-readout-visible;
-            guide-readout-horizontal: root.guide-readout-horizontal;
-            guide-readout-text: root.guide-readout-text;
-            guide-readout-screen: root.guide-readout-screen;
-            open-guides => {
-                root.open-guides();
-            }
-            guide-pressed(horizontal, x, y) => {
-                root.guide-pressed(horizontal, x, y);
-            }
-            guide-moved(x, y) => {
-                root.guide-moved(x, y);
-            }
-            guide-released => {
-                root.guide-released();
-            }
-            ruler-has-guide(x, y) => {
-                return root.ruler-has-guide(x, y);
-            }
             layers-open: root.layers-open;
-            layers-title: root.layers-title;
-            add-layer-tip: root.add-layer-label;
-            layer-visibility-tip: root.layer-visibility-label;
-            layer-settings-tip: root.layer-settings-label;
-            delete-layer-tip: root.layer-delete-label;
-            width-label: root.width-short-label;
-            height-label: root.height-short-label;
-            doc-width-text <=> root.doc-width-text;
-            doc-height-text <=> root.doc-height-text;
-            layers: root.layers;
-            hover-preview-visible: root.hover-preview-visible;
-            hover-preview-name: root.hover-preview-name;
-            hover-preview-image: root.hover-preview-image;
             layer-settings-open: root.layer-settings-open;
-            active-tool: root.active-tool;
-            tools: root.tools;
-            active-tool-label: root.active-tool-label;
-            zoom-unit <=> root.zoom-unit;
-            zoom-text: root.zoom-text;
-            is-fit: root.is-fit;
-            zoom-in-tip: root.zoom-in-label;
-            zoom-out-tip: root.zoom-out-label;
-            fit-tip: root.fit-view-label;
-            bounds-label: root.bounds-label;
-            bounds-x-label: root.bounds-x-label;
-            bounds-y-label: root.bounds-y-label;
-            layer-x-text <=> root.layer-x-text;
-            layer-y-text <=> root.layer-y-text;
-            layer-w-text <=> root.layer-w-text;
-            layer-h-text <=> root.layer-h-text;
-            pick-tool(id) => {
-                root.pick-tool(id);
-            }
-            pick-brush(id) => {
-                root.pick-brush(id);
-            }
-            brush-size-changed(v) => {
-                root.brush-size-changed(v);
-            }
-            brush-size-committed(text) => {
-                root.brush-size-committed(text);
-            }
-            ink-opacity-changed(v) => {
-                root.ink-opacity-changed(v);
-            }
-            blur-changed(v) => {
-                root.blur-changed(v);
-            }
-            hardness-changed(v) => {
-                root.hardness-changed(v);
-            }
-            tolerance-changed(v) => {
-                root.tolerance-changed(v);
-            }
-            eyedropper-changed(v) => {
-                root.eyedropper-changed(v);
-            }
-            fill-toggled => {
-                root.fill-toggled();
-            }
-            stroke-toggled => {
-                root.stroke-toggled();
-            }
-            vector-toggled => {
-                root.vector-toggled();
-            }
-            aligned-toggled => {
-                root.aligned-toggled();
-            }
-            transform-toggled => {
-                root.transform-toggled();
-            }
-            crop-aspect-changed(index) => {
-                root.crop-aspect-changed(index);
-            }
-            crop-overlay-changed(index) => {
-                root.crop-overlay-changed(index);
-            }
-            commit-crop => {
-                root.commit-crop();
-            }
-            cancel-crop => {
-                root.cancel-crop();
-            }
-            zoom-changed(v) => {
-                root.zoom-changed(v);
-            }
-            step-zoom(zoom-in) => {
-                root.step-zoom(zoom-in);
-            }
-            fit-zoom => {
-                root.fit-zoom();
-            }
-            add-layer => {
-                root.add-layer();
-            }
-            pick-layer(index) => {
-                root.pick-layer(index);
-            }
-            toggle-layer-visible(index) => {
-                root.toggle-layer-visible(index);
-            }
-            open-layer-settings(index, anchor-x, anchor-y) => {
-                root.open-layer-settings(index, anchor-x, anchor-y);
-            }
-            delete-layer(index) => {
-                root.delete-layer(index);
-            }
-            rename-layer(index, name) => {
-                root.rename-layer(index, name);
-            }
-            reorder-layer(from-row, to-row) => {
-                root.reorder-layer(from-row, to-row);
-            }
-            hover-layer(index) => {
-                root.hover-layer(index);
-            }
-            clear-layer-hover => {
-                root.clear-layer-hover();
-            }
-            commit-layer-bounds(x, y, w, h) => {
-                root.commit-layer-bounds(x, y, w, h);
-            }
-            commit-canvas-size(w, h) => {
-                root.commit-canvas-size(w, h);
-            }
             pointer-pressed(x, y, middle, meta, alt, shift) => {
                 focus-scope.focus();
                 root.pointer-pressed(x, y, middle, meta, alt, shift);
@@ -683,28 +317,12 @@ export component AppWindow inherits Window {
                 root.pinch-ended();
             }
         }
-        }
 
         Titlebar {
             z: 10;
             y: 0;
             width: 100%;
             editor-open: root.editor-open;
-            project-tabs: root.project-tabs;
-            new-project-tip: root.new-project-menu-title;
-            close-tip: root.close-project-tab-tip;
-            switch-project-tab(id) => {
-                root.switch-project-tab(id);
-            }
-            close-project-tab(id) => {
-                root.close-project-tab(id);
-            }
-            edit-project-tab(id, anchor-x, anchor-y) => {
-                root.edit-project-tab(id, anchor-x, anchor-y);
-            }
-            new-project => {
-                root.menu-new-project();
-            }
             drag => {
                 root.titlebar-drag();
             }
@@ -717,89 +335,18 @@ export component AppWindow inherits Window {
             z: 20;
             open <=> root.settings-open;
             dim-scrim: true;
-            title-text: root.settings-title;
-            theme-label: root.theme-label;
-            theme-light-label: root.theme-light-label;
-            theme-dark-label: root.theme-dark-label;
-            language-label: root.language-label;
-            language-name: root.language-name;
-            memory-label: root.memory-label;
-            memory-value: root.memory-value;
-            version-label: root.version-label;
-            version-value: root.version-value;
-            theme-is-dark: root.theme-is-dark;
-            language-is-en: root.language-is-en;
-            dismissed => {
-                root.settings-dismissed();
-            }
-            set-theme-light => {
-                root.set-theme-light();
-            }
-            set-theme-dark => {
-                root.set-theme-dark();
-            }
-            set-language-en => {
-                root.set-language-en();
-            }
         }
 
         new-project-card := NewProjectModal {
             z: 20;
             open <=> root.new-project-open;
             dim-scrim: !root.editor-open;
-            brand-text: root.brand-text;
-            tagline-text: root.tagline-text;
-            project-name-label: root.project-name-label;
-            resolution-label: root.resolution-label;
-            create-label: root.create-label;
-            presets-label: root.presets-label;
-            recents-label: root.recents-label;
-            clear-all-label: root.clear-all-label;
-            no-recents-label: root.no-recents-label;
-            delete-project-label: root.delete-project-label;
-            paste-artwork-title: root.paste-artwork-title;
-            paste-artwork-hint: root.paste-artwork-hint;
-            artwork-formats: root.artwork-formats;
-            app-icon: root.app-icon;
-            project-name <=> root.project-name;
-            width-text <=> root.width-text;
-            height-text <=> root.height-text;
-            accent-index <=> root.project-accent-index;
-            palette: root.guide-palette;
-            presets: root.presets;
-            recents: root.recents;
-            dismissed => {
-                root.new-project-dismissed();
-            }
-            create-clicked => {
-                root.create-from-modal();
-            }
-            preset-clicked(width, height) => {
-                root.preset-size(width, height);
-                root.create-from-modal();
-            }
-            recent-clicked(id) => {
-                root.open-recent(id);
-            }
-            delete-recent(id) => {
-                root.delete-recent(id);
-            }
-            clear-all-clicked => {
-                root.clear-recents();
-            }
-            paste-artwork-clicked => {
-                root.paste-artwork-clicked();
-            }
-            app-icon-clicked => {
-                root.app-icon-clicked();
-            }
         }
 
         guides-card := GuidesCard {
             z: 20;
             open <=> root.guides-open;
             dim-scrim: !root.editor-open;
-            palette: root.guide-palette;
         }
 
         layer-settings := LayerSettingsModal {
@@ -814,21 +361,6 @@ export component AppWindow inherits Window {
         project-settings := ProjectSettingsPopover {
             z: 25;
             open <=> root.project-settings-open;
-            anchor-x: root.project-settings-anchor-x;
-            anchor-y: root.project-settings-anchor-y;
-            name <=> root.project-settings-name;
-            size-text: root.project-settings-size-text;
-            palette: root.guide-palette;
-            accent-index <=> root.project-settings-accent-index;
-            dismissed => {
-                root.project-settings-dismissed();
-            }
-            rename(text) => {
-                root.rename-project(text);
-            }
-            recolor(index) => {
-                root.recolor-project(index);
-            }
         }
 
         ToastBanner {

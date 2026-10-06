@@ -1,4 +1,5 @@
 import { GuideChrome } from "guide-chrome.slint";
+import { ProjectChrome } from "project-chrome.slint";
 import { GuideRow } from "models.slint";
 import { Theme } from "calm/CalmTheme.slint";
 import { Tokens } from "calm/CalmTokens.slint";
@@ -44,9 +45,6 @@ component EdgeChip inherits Rectangle {
 export component GuidesCard inherits Rectangle {
     in-out property <bool> open;
     in property <bool> dim-scrim: true;
-    in property <[color]> palette;
-
-
     private property <image> icon-trash: @image-url("trash.svg");
     private property <int> picker-guide: -1;
     private property <int> picker-selected: 0;
@@ -220,7 +218,7 @@ export component GuidesCard inherits Rectangle {
                         width: Tokens.control-height;
                         height: Tokens.control-height;
                         border-radius: self.height / 2;
-                        background: root.palette.length > 1 ? root.palette[1] : Theme.accent-teal;
+                        background: ProjectChrome.palette.length > 1 ? ProjectChrome.palette[1] : Theme.accent-teal;
                     }
                     CalmButton {
                         text: GuideChrome.add-label;
@@ -273,7 +271,7 @@ export component GuidesCard inherits Rectangle {
                 padding: 0px;
 
                 CalmPaletteRow {
-                    palette: root.palette;
+                    palette: ProjectChrome.palette;
                     selected-index: root.picker-selected;
                     picked(index) => {
                         GuideChrome.set-color(root.picker-guide, index);

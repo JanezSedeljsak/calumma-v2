@@ -1,5 +1,5 @@
 //! Whole-file PSD export, read back with a byte-level walk over the layer records rather than
-//! the fixed-offset spot checks `psd::tests` does inline — this is what proves the *sequence*
+//! the fixed-offset spot checks at the bottom of this file — this is what proves the *sequence*
 //! of fields (Pascal name, then the `'luni'` Unicode-name block) actually lines up, not just
 //! that each one exists somewhere in the file.
 
@@ -160,4 +160,68 @@ fn blend_mode_writes_the_matching_four_byte_key() {
         &parse_layers(&encode_psd(&doc)).last().unwrap().blend,
         b"scrn"
     );
+}
+
+#[test]
+fn header_matches_document_dimensions() {
+    let doc = Document::new("p".into(), "t", 64, 32);
+    let bytes = encode_psd(&doc);
+    assert_eq!(&bytes[0..4], b"8BPS");
+    assert_eq!(u16be(&bytes, 4), 1);
+    assert_eq!(u16be(&bytes, 12), 4);
+    assert_eq!(u32be(&bytes, 14), 32);
+    assert_eq!(u32be(&bytes, 18), 64);
+    assert_eq!(u16be(&bytes, 22), 8);
+    assert_eq!(u16be(&bytes, 24), 3);
+}
+
+#[test]
+fn layer_count_matches_raster_layers() {
+    let mut doc = Document::new("p".into(), "t", 8, 8);
+    doc.add_layer("Extra");
+    let bytes = encode_psd(&doc);
+    let layer_mask_info_len = u32be(&bytes, 34) as usize;
+    assert!(layer_mask_info_len > 0);
+    let layer_info_len = u32be(&bytes, 38) as usize;
+    assert!(layer_info_len > 0);
+    let layer_count = u16be(&bytes, 42);
+    assert_eq!(layer_count, 3);
+}
+
+/// A vector layer has no tiles of its own, and PSD has no shape layer in this writer, so it
+/// is rasterized rather than dropped.
+#[test]
+fn a_vector_layer_reaches_the_psd_as_pixels() {
+    use calumma_core::vector::{VectorItem, VectorShape};
+    use calumma_core::{Shape, Tool};
+
+    let mut doc = Document::new("p".into(), "t", 32, 32);
+    let flat = encode_psd(&doc);
+    let flat_layers = u16be(&flat, 42);
+
+    doc.add_vector_layer(
+        "Shapes",
+        VectorItem::Shape(VectorShape {
+            shape: Shape {
+                tool: Tool::Rect,
+                start: (4.0, 4.0),
+                end: (20.0, 20.0),
+                half_width: 1.0,
+                fill: true,
+                stroke: false,
+            },
+            color: [255, 0, 0, 255],
+            stroke_color: [255, 0, 0, 255],
+        }),
+    );
+    let bytes = encode_psd(&doc);
+    assert_eq!(u16be(&bytes, 42), flat_layers + 1);
+    assert!(bytes.len() > flat.len());
+}
+
+#[test]
+fn output_is_non_trivial_and_reasonably_sized() {
+    let doc = Document::new("p".into(), "t", 16, 16);
+    let bytes = encode_psd(&doc);
+    assert!(bytes.len() > 16 * 16 * 4 * 3);
 }

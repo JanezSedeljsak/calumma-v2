@@ -1,4 +1,4 @@
-use super::{AppWindow, GuideChrome, GuideRow};
+use super::{AppWindow, GuideChrome, GuideRow, ProjectChrome};
 use crate::shell::{slint_color, AppController};
 use calumma_core::guide::GuideAxis;
 use calumma_core::PROJECT_COLORS;
@@ -29,9 +29,9 @@ pub fn sync_guides(ui: &AppWindow, controller: &AppController) {
     let count = rows.len();
     let limit = engine.guides_limit();
     drop(engine);
-    ui.global::<GuideChrome>()
-        .set_guides(ModelRc::new(VecModel::from(rows)));
-    ui.global::<GuideChrome>().set_can_add(count < limit);
+    let chrome = ui.global::<GuideChrome>();
+    chrome.set_guides(ModelRc::new(VecModel::from(rows)));
+    chrome.set_can_add(count < limit);
 }
 
 pub fn sync_guide_palette(ui: &AppWindow) {
@@ -39,17 +39,19 @@ pub fn sync_guide_palette(ui: &AppWindow) {
         .iter()
         .map(|rgb| slint_color([rgb[0], rgb[1], rgb[2], 255]))
         .collect();
-    ui.set_guide_palette(ModelRc::new(VecModel::from(colors)));
+    ui.global::<ProjectChrome>()
+        .set_palette(ModelRc::new(VecModel::from(colors)));
 }
 
 pub fn sync_guide_readout(ui: &AppWindow, controller: &AppController) {
+    let chrome = ui.global::<GuideChrome>();
     match controller.engine.borrow().dragged_guide_readout() {
         Some((horizontal, position, screen)) => {
-            ui.set_guide_readout_visible(true);
-            ui.set_guide_readout_horizontal(horizontal);
-            ui.set_guide_readout_text(SharedString::from(format_offset(position)));
-            ui.set_guide_readout_screen(screen);
+            chrome.set_readout_visible(true);
+            chrome.set_readout_horizontal(horizontal);
+            chrome.set_readout_text(SharedString::from(format_offset(position)));
+            chrome.set_readout_screen(screen);
         }
-        None => ui.set_guide_readout_visible(false),
+        None => chrome.set_readout_visible(false),
     }
 }

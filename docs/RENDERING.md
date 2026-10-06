@@ -266,7 +266,7 @@ The paper border band is untouched: it depends on pan and zoom, and it is four c
 2. **`build_layer_draws`** — walk the layer stack; emit `LayerDraw` entries (tiles, solid
    paper quad, vector runs).
 3. **Content pass** — `draw_cached_content` replays those `LayerDraw` entries into the
-   `PanCache` reference texture (`engine/render/src/framebuffer.rs`), not the swapchain
+   `PanCache` reference texture (`engine/render/src/framebuffer/pan_cache/`), not the swapchain
    directly. On a camera-only frame with zoom/dpr/viewport unchanged from that reference,
    `sync_tiles`/`build_layer_draws` are skipped entirely (as before) and the content pass
    instead shifts the reference into the `PanCache` working texture by the rounded device-pixel
@@ -325,7 +325,7 @@ chunk atlas is pointless now that that path is bounded at 48 draws behind one bi
 
 ## PanCache (scroll-blit)
 
-`PanCache` (`engine/render/src/framebuffer.rs`) is two
+`PanCache` (`engine/render/src/framebuffer/pan_cache/`) is two
 fixed-role offscreen color textures, sized to the viewport — not an alternating ping-pong:
 
 - **`reference`** holds the last full content redraw (every visible tile/vector draw call,
@@ -534,14 +534,14 @@ path is the still-summed enter/exit gate, not a missing level.
 
 | Path | Role |
 | --- | --- |
-| `engine/render/src/renderer.rs` + `renderer/` | `Renderer` struct in `renderer.rs`; its `impl` split by concern across `renderer/pipeline.rs` (device/pipeline setup, blend states), `renderer/camera_motion.rs` (motion mode, visible/retained span), `renderer/cache.rs` (tile/layer cache, mip heuristics), `renderer/invalidation.rs` (dirty flags, buffer capacity), `renderer/frame.rs` (`sync_tiles`, draw-list build, `render()` itself) — same split-`impl` pattern as `viewport.rs`/`Camera` |
-| `engine/render/src/framebuffer.rs` | `PanCache` — scroll-blit reference/working textures, shift + exposed-rect math |
+| `engine/render/src/renderer.rs` + `renderer/` | `Renderer` struct in `renderer.rs`; its `impl` split by concern across `renderer/pipeline/` (device/pipeline setup, blend states), `renderer/camera_motion.rs` (motion mode, visible/retained span), `renderer/cache.rs` (tile/layer cache, residency, mip heuristics), `renderer/layer_table/` (the `LayerData` rows and their GPU tests), `renderer/invalidation.rs` (dirty flags, buffer capacity), `renderer/frame/` (`sync_tiles`, draw-list build, `render()` itself) — same split-`impl` pattern as `viewport.rs`/`Camera` |
+| `engine/render/src/framebuffer/` | Shift + exposed-rect math (`mod.rs`); `PanCache` scroll-blit reference/working textures (`pan_cache/`) |
 | `engine/render/src/desk.rs` | Baked desk lattice — one period, two coverage channels |
-| `engine/render/src/overview.rs` | Overview pyramid GPU pass — per-level textures, chunk uploads |
+| `engine/render/src/overview/` | Overview pyramid GPU pass — per-level textures, chunk uploads |
 | `engine/render/src/overview_lod.rs` | Level sides, pick, 1024-px chunks, stack stamp |
-| `engine/render/src/tile_atlas.rs` | Shared GPU tile array |
+| `engine/render/src/tile_atlas/` | Shared GPU tile array; samplers and bind group 0 in `bindings.rs` |
 | `engine/render/src/shaders/board.wgsl` | Desk, tiles, overview, solid quad, vectors, `PanCache` blit/clear |
-| `engine/render/src/compose.rs` | CPU tile bake (mask only, since C2), mips, overlay instances |
+| `engine/render/src/compose/` | Stroke instances (`mod.rs`), CPU tile bake + mips (`tile_upload.rs`), and one file per kind of board furniture: `frames`, `guides`, `cursor`, `crop`, `text`, `selection` |
 | `engine/ffi/src/engine.rs` | Pan coalescing, `Engine::render` |
 | `engine/ffi/src/autosave.rs` | Background autosave thread |
 | `gui/src/board/host.rs` + `gui/src/frame_loop.rs` + `gui/src/wiring/` | `BoardHost`, the frame timer, input glue |

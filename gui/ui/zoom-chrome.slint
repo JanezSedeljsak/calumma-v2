@@ -1,0 +1,12 @@
+export global ZoomChrome {
+    in-out property <float> zoom-unit;
+    in property <string> zoom-text;
+    in property <bool> is-fit;
+    in property <string> zoom-in-tip;
+    in property <string> zoom-out-tip;
+    in property <string> fit-tip;
+
+    callback zoom-changed(float);
+    callback step-zoom(bool);
+    callback fit-zoom();
+}

@@ -1,4 +1,5 @@
 import { Theme } from "calm/CalmTheme.slint";
+import { ProjectChrome } from "project-chrome.slint";
 import { Tokens } from "calm/CalmTokens.slint";
 import { CalmField } from "calm/CalmField.slint";
 import { CalmMuted } from "calm/CalmText.slint";
@@ -7,16 +8,6 @@ import { CalmPaletteRow } from "calm/CalmPaletteRow.slint";
 
 export component ProjectSettingsPopover inherits Rectangle {
     in-out property <bool> open;
-    in property <float> anchor-x;
-    in property <float> anchor-y;
-    in-out property <string> name;
-    in property <string> size-text;
-    in property <[color]> palette;
-    in-out property <int> accent-index: 0;
-
-    callback dismissed();
-    callback rename(string);
-    callback recolor(int);
 
     private property <length> popover-width: 260px;
 
@@ -35,7 +26,7 @@ export component ProjectSettingsPopover inherits Rectangle {
         height: 100%;
         clicked => {
             root.open = false;
-            root.dismissed();
+            ProjectChrome.settings-dismissed();
         }
     }
 
@@ -44,8 +35,8 @@ export component ProjectSettingsPopover inherits Rectangle {
         z: 2;
         width: popover-width;
         height: card.preferred-height;
-        x: max(Tokens.space-xs, min(anchor-x * 1px, parent.width - self.width - Tokens.space-xs));
-        y: min(anchor-y * 1px + Tokens.space-xs, parent.height - self.height - Tokens.space-xs);
+        x: max(Tokens.space-xs, min(ProjectChrome.settings-anchor-x * 1px, parent.width - self.width - Tokens.space-xs));
+        y: min(ProjectChrome.settings-anchor-y * 1px + Tokens.space-xs, parent.height - self.height - Tokens.space-xs);
         background: Theme.surface;
         border-radius: Tokens.radius-md;
         border-width: 1px;
@@ -62,23 +53,23 @@ export component ProjectSettingsPopover inherits Rectangle {
             spacing: Tokens.space-sm;
 
             CalmField {
-                text <=> root.name;
+                text <=> ProjectChrome.settings-name;
                 accepted(text) => {
-                    root.rename(text);
+                    ProjectChrome.rename(text);
                 }
             }
 
             CalmPaletteRow {
-                palette: root.palette;
-                selected-index: root.accent-index;
+                palette: ProjectChrome.palette;
+                selected-index: ProjectChrome.settings-accent-index;
                 picked(index) => {
-                    root.accent-index = index;
-                    root.recolor(index);
+                    ProjectChrome.settings-accent-index = index;
+                    ProjectChrome.recolor(index);
                 }
             }
 
             CalmMuted {
-                text: root.size-text;
+                text: ProjectChrome.settings-size-text;
             }
         }
     }

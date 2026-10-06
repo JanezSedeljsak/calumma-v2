@@ -1,4 +1,5 @@
 import { RecentRow, PresetRow } from "models.slint";
+import { ProjectChrome } from "project-chrome.slint";
 import { Theme } from "calm/CalmTheme.slint";
 import { Tokens } from "calm/CalmTokens.slint";
 import { CalmScrollView } from "calm/CalmScrollView.slint";
@@ -109,37 +110,7 @@ component RecentCard inherits CalmSurface {
 }
 
 export component ProjectForm inherits Rectangle {
-    in property <string> brand-text;
-    in property <string> tagline-text;
-    in property <string> project-name-label;
-    in property <string> resolution-label;
-    in property <string> create-label;
-    in property <string> presets-label;
-    in property <string> recents-label;
-    in property <string> clear-all-label;
-    in property <string> no-recents-label;
-    in property <string> delete-project-label;
-    in property <string> paste-artwork-title;
-    in property <string> paste-artwork-hint;
-    in property <string> artwork-formats;
-    in property <image> app-icon;
-
-    in-out property <string> project-name;
-    in-out property <string> width-text;
-    in-out property <string> height-text;
-    in-out property <int> accent-index: 0;
-    in property <[color]> palette;
-
-    in property <[PresetRow]> presets;
-    in property <[RecentRow]> recents;
-
     callback create-clicked();
-    callback preset-clicked(int, int);
-    callback recent-clicked(string);
-    callback delete-recent(string);
-    callback clear-all-clicked();
-    callback paste-artwork-clicked();
-    callback app-icon-clicked();
 
     private property <image> icon-plus: @image-url("plus.svg");
     private property <image> icon-trash: @image-url("trash.svg");
@@ -157,11 +128,11 @@ export component ProjectForm inherits Rectangle {
                 vertical-stretch: 0;
 
                 CalmBrand {
-                    text: root.brand-text;
+                    text: ProjectChrome.brand-text;
                 }
 
                 CalmEyebrow {
-                    label: root.tagline-text;
+                    label: ProjectChrome.tagline-text;
                     horizontal-stretch: 1;
                 }
 
@@ -173,12 +144,12 @@ export component ProjectForm inherits Rectangle {
 
                     cat := CalmPointer {
                         clicked => {
-                            root.app-icon-clicked();
+                            ProjectChrome.app-icon-clicked();
                         }
                     }
 
                     Image {
-                        source: root.app-icon;
+                        source: ProjectChrome.app-icon;
                         width: 100%;
                         height: 100%;
                         image-fit: contain;
@@ -197,7 +168,7 @@ export component ProjectForm inherits Rectangle {
                 vertical-stretch: 0;
 
                 CalmLabel {
-                    label: root.project-name-label;
+                    label: ProjectChrome.name-label;
                 }
 
                 HorizontalLayout {
@@ -205,13 +176,13 @@ export component ProjectForm inherits Rectangle {
                     alignment: stretch;
 
                     CalmPalettePopover {
-                        palette: root.palette;
-                        selected-index <=> root.accent-index;
+                        palette: ProjectChrome.palette;
+                        selected-index <=> ProjectChrome.accent-index;
                         well-size: Tokens.control-height;
                     }
 
                     CalmField {
-                        text <=> root.project-name;
+                        text <=> ProjectChrome.name;
                         horizontal-stretch: 1;
                         min-width: 160px;
                     }
@@ -223,7 +194,7 @@ export component ProjectForm inherits Rectangle {
                 vertical-stretch: 0;
 
                 CalmLabel {
-                    label: root.resolution-label;
+                    label: ProjectChrome.resolution-label;
                 }
 
                 HorizontalLayout {
@@ -231,7 +202,7 @@ export component ProjectForm inherits Rectangle {
                     alignment: start;
 
                     CalmField {
-                        text <=> root.width-text;
+                        text <=> ProjectChrome.width-text;
                         width: 72px;
                         accepted(text) => {
                             root.create-clicked();
@@ -239,7 +210,7 @@ export component ProjectForm inherits Rectangle {
                     }
 
                     CalmField {
-                        text <=> root.height-text;
+                        text <=> ProjectChrome.height-text;
                         width: 72px;
                         accepted(text) => {
                             root.create-clicked();
@@ -247,7 +218,7 @@ export component ProjectForm inherits Rectangle {
                     }
 
                     CalmAccentButton {
-                        text: root.create-label;
+                        text: ProjectChrome.create-label;
                         clicked => {
                             root.create-clicked();
                         }
@@ -274,18 +245,19 @@ export component ProjectForm inherits Rectangle {
                             alignment: start;
 
                             CalmSectionLabel {
-                                label: root.presets-label;
+                                label: ProjectChrome.presets-label;
                                 accent: Theme.accent-teal;
                             }
 
                             VerticalLayout {
                                 spacing: Tokens.space-sm;
 
-                                for preset in root.presets: PresetCard {
+                                for preset in ProjectChrome.presets: PresetCard {
                                     preset: preset;
                                     icon: root.icon-plus;
                                     activated => {
-                                        root.preset-clicked(preset.width, preset.height);
+                                        ProjectChrome.preset-size(preset.width, preset.height);
+                                        root.create-clicked();
                                     }
                                 }
                             }
@@ -302,20 +274,20 @@ export component ProjectForm inherits Rectangle {
                                 spacing: Tokens.space-sm;
 
                                 CalmSectionLabel {
-                                    label: root.recents-label;
+                                    label: ProjectChrome.recents-label;
                                     accent: Theme.accent-orange;
                                     horizontal-stretch: 1;
                                 }
 
-                                if root.recents.length > 0: CalmPointer {
+                                if ProjectChrome.recents.length > 0: CalmPointer {
                                     Text {
-                                        text: root.clear-all-label;
+                                        text: ProjectChrome.clear-all-label;
                                         font-size: Tokens.label-size;
                                         color: Theme.danger;
                                         vertical-alignment: center;
                                     }
                                     clicked => {
-                                        root.clear-all-clicked();
+                                        ProjectChrome.clear-recents();
                                     }
                                 }
                             }
@@ -323,26 +295,26 @@ export component ProjectForm inherits Rectangle {
                             VerticalLayout {
                                 spacing: Tokens.space-sm;
 
-                                if root.recents.length == 0: CalmSurface {
+                                if ProjectChrome.recents.length == 0: CalmSurface {
                                     bordered: true;
                                     height: Tokens.control-height + Tokens.space-sm;
 
                                     CalmMuted {
                                         x: Tokens.space-sm;
                                         height: 100%;
-                                        text: root.no-recents-label;
+                                        text: ProjectChrome.no-recents-label;
                                     }
                                 }
 
-                                for recent in root.recents: RecentCard {
+                                for recent in ProjectChrome.recents: RecentCard {
                                     recent: recent;
                                     trash-icon: root.icon-trash;
-                                    delete-tip: root.delete-project-label;
+                                    delete-tip: ProjectChrome.delete-label;
                                     activated => {
-                                        root.recent-clicked(recent.id);
+                                        ProjectChrome.open-recent(recent.id);
                                     }
                                     deleted => {
-                                        root.delete-recent(recent.id);
+                                        ProjectChrome.delete-recent(recent.id);
                                     }
                                 }
                             }
@@ -355,11 +327,11 @@ export component ProjectForm inherits Rectangle {
         PasteArtworkIsland {
             horizontal-stretch: 1;
             max-width: Tokens.paste-max-width;
-            title-text: root.paste-artwork-title;
-            hint-text: root.paste-artwork-hint;
-            formats-text: root.artwork-formats;
+            title-text: ProjectChrome.paste-artwork-title;
+            hint-text: ProjectChrome.paste-artwork-hint;
+            formats-text: ProjectChrome.artwork-formats;
             clicked => {
-                root.paste-artwork-clicked();
+                ProjectChrome.paste-artwork-clicked();
             }
         }
     }
